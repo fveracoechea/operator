@@ -17,11 +17,13 @@ Operator does not overwrite a modified owned skill or install permission rules.
 The pinned upstream installer owns upstream replacement and its lock, and can replace local edits without an Operator preview.
 `--claude` also adds the commit hook to Claude Code user settings, for the `PreToolUse` and `Stop` events. The hook denies a commit with a Co-Authored-By trailer, and on `Stop` it is the turn-end guard that [sources.md](sources.md) describes.
 A linked or read-only settings file stays unchanged, and the refusal names the hook groups for the person to add to its owner, such as their dotfiles.
+`--opencode` also writes Operator's plugin into OpenCode's global plugins folder. It runs the same commit check on the shell tool and the same turn-end guard when a session goes idle.
+A linked, read-only, or unmanaged plugin file stays unchanged, and the refusal names the file for the person to link.
 Inspect failed or interrupted installs before requesting another install.
 
 Use `operator ready --json` to check current static prerequisites, including a pinned global command that runs this release, for every host that device settings select.
 Resolve every returned blocker before delegated work.
-The check follows skill links and requires complete owned contents, upstream `code-review` presence, and both commit hook groups on Claude Code.
+The check follows skill links and requires complete owned contents, upstream `code-review` presence, both commit hook groups on Claude Code, and the current plugin version on OpenCode.
 It launches no host or probe and writes no readiness record.
 Slack tools are not a core prerequisite on either host. Only the Slack review workflow needs them, on Claude Code.
 A ready result does not prove host loading or provider access.

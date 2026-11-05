@@ -130,6 +130,9 @@ in
       linkClaude $name
       ln -s ${operator}/share/skills/operator/$name $XDG_CONFIG_HOME/opencode/skills/$name
     done
+    # The OpenCode plugin is one link into the global plugins folder.
+    mkdir -p $XDG_CONFIG_HOME/opencode/plugins
+    ln -s ${operator}/share/opencode/plugins/operator.ts $XDG_CONFIG_HOME/opencode/plugins/operator.ts
     test -d $HOME/.claude/skills/worker-agent -a ! -L $HOME/.claude/skills/worker-agent
     test -L $HOME/.claude/skills/worker-agent/SKILL.md
     hosts() { (cd $HOME && find .claude .agents -exec ls -ld {} + ; cd $XDG_CONFIG_HOME && find opencode -exec ls -ld {} +) | sort; }

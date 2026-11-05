@@ -1,0 +1,224 @@
+import { afterAll, afterEach, beforeEach, expect, expectTypeOf, mock, spyOn, test } from "bun:test";
+// Bun has no temporary-directory, chmod, symlink, or recursive removal API.
+import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { ErrAsync, Ok, OkAsync } from "unthrown";
+import { Environment } from "../environment/main.ts";
+import { Herdr } from "../herdr/main.ts";
+import { OperatorHome } from "../operator-home/main.ts";
+import { WorkSources } from "../work-sources/main.ts";
+import { OpenCodePlugin } from "./main.ts";
+
+const root = await mkdtemp(path.join(tmpdir(), "opencode-plugin-api-"));
+const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
+const file = `${root}/.config/opencode/plugins/operator.ts`;
+const shipped = await Bun.file(new URL("./plugin.ts", import.meta.url)).text();
+beforeEach(async () => {
+  await rm(`${root}/.config`, { recursive: true, force: true });
+});
+afterEach(() => {
+  mock.restore();
+});
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+function commit(command: string | string[], workdir?: string) {
+  return JSON.stringify({
+    event: "tool.execute.before",
+    directory: root,
+    input: { command, workdir, description: "Commit" },
+  });
+}
+
+function idle(sessionID = "ses_1") {
+  return JSON.stringify({ event: "session.idle", directory: "/checkout", sessionID });
+}
+
+function panes(...rows: Array<{ paneId: string; agentSession: string | null }>) {
+  return spyOn(Herdr, "panes").mockReturnValue(
+    OkAsync(rows.map((row) => ({ ...row, tabId: "t", workspaceId: "w", cwd: null }))),
+  );
+}
+
+test("the public failure reasons form a closed union", () => {
+  type Failure =
+    | Extract<Awaited<ReturnType<typeof OpenCodePlugin.answer>>, { tag: "Err" }>["error"]
+    | Extract<Awaited<ReturnType<typeof OpenCodePlugin.install>>, { tag: "Err" }>["error"];
+  expectTypeOf<Failure["reason"]>().not.toEqualTypeOf<string>();
+});
+
+test("a shell commit with a Co-Authored-By trailer gets the reason that refuses it", async () => {
+  expect(
+    await OpenCodePlugin.answer({
+      event: commit('git commit -m "fix: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"'),
+      paths,
+    }),
+  ).toMatchObject({
+    tag: "Ok",
+    value: expect.stringMatching(/Co-Authored-By.*commit again/s) as string,
+  });
+});
+
+test("a -F message file is read from the shell's working folder", async () => {
+  await Bun.write(`${root}/sub/message.txt`, "fix: x\n\nCo-Authored-By: A <a@b.c>\n");
+  for (const [workdir, refused] of [
+    ["sub", true],
+    [`${root}/sub`, true],
+    [undefined, false],
+  ] as const)
+    expect(
+      await OpenCodePlugin.answer({ event: commit("git commit -F message.txt", workdir), paths }),
+    ).toMatchObject({ tag: "Ok", value: refused ? (expect.any(String) as string) : "" });
+});
+
+test("a commit without the trailer, or shell input with no command, has no opinion", async () => {
+  for (const event of [
+    commit('git commit -m "fix: x"'),
+    commit(['git commit -m "Co-Authored-By: A"']),
+    JSON.stringify({ event: "tool.execute.before", directory: root, input: null }),
+  ])
+    expect(await OpenCodePlugin.answer({ event, paths })).toMatchObject({ tag: "Ok", value: "" });
+});
+
+test("an idle session in a pane with unwatched running work gets the reason to continue", async () => {
+  const listed = panes(
+    { paneId: "pane-0", agentSession: null },
+    { paneId: "pane-1", agentSession: "ses_1" },
+  );
+  const unwatched = spyOn(WorkSources, "unwatched").mockReturnValue(Ok(["one"]));
+  expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
+    tag: "Ok",
+    value: expect.stringContaining("running work in one") as string,
+  });
+  expect(listed).toHaveBeenCalledTimes(1);
+  expect(unwatched).toHaveBeenCalledWith({ paths, cwd: "/checkout", paneId: "pane-1" });
+});
+
+test("a session that Herdr does not map, or a Herdr that fails, supervises nothing", async () => {
+  const unwatched = spyOn(WorkSources, "unwatched").mockReturnValue(Ok(["one"]));
+  panes({ paneId: "pane-1", agentSession: "ses_other" });
+  expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
+    tag: "Ok",
+    value: "",
+  });
+  spyOn(Herdr, "panes").mockReturnValue(
+    ErrAsync({ reason: "herdr_unavailable" as const, detail: "no herdr" }),
+  );
+  expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
+    tag: "Ok",
+    value: "",
+  });
+  expect(unwatched).not.toHaveBeenCalled();
+});
+
+test("an idle session on a device with no state has no opinion", async () => {
+  panes({ paneId: "pane-1", agentSession: "ses_1" });
+  expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
+    tag: "Ok",
+    value: "",
+  });
+});
+
+test("an event that is not the plugin's JSON is refused", async () => {
+  for (const event of [
+    "",
+    "{broken",
+    "[]",
+    JSON.stringify({ event: "session.idle", directory: root }),
+    JSON.stringify({ event: "tool.execute.after", directory: root, input: {} }),
+  ])
+    expect(await OpenCodePlugin.answer({ event, paths })).toMatchObject({
+      tag: "Err",
+      error: { reason: "opencode_hook_event_invalid" },
+    });
+});
+
+test("install writes the shipped plugin, and check mode then passes", async () => {
+  expect(await OpenCodePlugin.install({ paths, check: true })).toMatchObject({
+    tag: "Err",
+    error: { reason: "opencode_plugin_missing" },
+  });
+  expect(await Bun.file(file).exists()).toBe(false);
+  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject({
+    tag: "Ok",
+    value: "installed",
+  });
+  expect(await Bun.file(file).text()).toBe(shipped);
+  for (const check of [true, false])
+    expect(await OpenCodePlugin.install({ paths, check })).toMatchObject({
+      tag: "Ok",
+      value: "already_installed",
+    });
+});
+
+test("a copy with the same version passes, and an older version is replaced", async () => {
+  await Bun.write(file, "// OPERATOR_PLUGIN_VERSION=1\n// edited by the person\n");
+  expect(await OpenCodePlugin.install({ paths, check: true })).toMatchObject({
+    tag: "Ok",
+    value: "already_installed",
+  });
+  await Bun.write(file, "// OPERATOR_PLUGIN_VERSION=0\n");
+  expect(await OpenCodePlugin.install({ paths, check: true })).toMatchObject({
+    tag: "Err",
+    error: { reason: "opencode_plugin_outdated" },
+  });
+  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject({
+    tag: "Ok",
+    value: "installed",
+  });
+  expect(await Bun.file(file).text()).toBe(shipped);
+});
+
+test("a linked, read-only, or unmanaged plugin file is refused and names the file to link", async () => {
+  await Bun.write(`${root}/dotfiles/operator.ts`, "// OPERATOR_PLUGIN_VERSION=0\n");
+  await mkdir(path.dirname(file), { recursive: true });
+  await symlink(`${root}/dotfiles/operator.ts`, file);
+  const refused = {
+    tag: "Err",
+    error: {
+      reason: "opencode_plugin_external",
+      detail: expect.stringContaining(`to ${file}`) as string,
+    },
+  };
+  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject(refused);
+  expect(await Bun.file(`${root}/dotfiles/operator.ts`).text()).toBe(
+    "// OPERATOR_PLUGIN_VERSION=0\n",
+  );
+  await rm(file);
+  await Bun.write(file, "export default { id: 'mine' }\n");
+  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject(refused);
+  expect(await Bun.file(file).text()).toBe("export default { id: 'mine' }\n");
+  await rm(file);
+  await chmod(path.dirname(file), 0o500);
+  try {
+    expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject(refused);
+  } finally {
+    await chmod(path.dirname(file), 0o700);
+  }
+});
+
+test("an unreadable plugin file is a filesystem failure, not a defect", async () => {
+  await Bun.write(file, "// OPERATOR_PLUGIN_VERSION=1\n");
+  await chmod(file, 0o000);
+  expect(await OpenCodePlugin.install({ paths, check: true })).toMatchObject({
+    tag: "Err",
+    error: { reason: "opencode_plugin_io_failed" },
+  });
+});
+
+test("tests cannot reach a plugin folder outside a temporary root", async () => {
+  const real = OperatorHome.resolve(Environment.parse({ HOME: "/Users/nobody", NODE_ENV: "test" }));
+  expect(await OpenCodePlugin.install({ paths: real, check: true })).toMatchObject({
+    tag: "Defect",
+  });
+});
+
+test("other coded failures remain defects", async () => {
+  spyOn(OperatorHome, "guardTemporaryTests").mockImplementation(() => {
+    // oxlint-disable-next-line unthrown/no-throw -- Inject a coded failure at the public module boundary.
+    throw Object.assign(new Error("busy"), { code: "EBUSY" });
+  });
+  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject({ tag: "Defect" });
+});

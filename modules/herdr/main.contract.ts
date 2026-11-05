@@ -33,6 +33,7 @@ test("herdr workspace, tab, and pane commands answer the shapes Operator reads",
     tabId: tab.tabId,
     workspaceId: placed.workspaceId,
     cwd: repo,
+    agentSession: null,
   });
   expect(await ok(Herdr.agentNames())).toEqual([]);
 });

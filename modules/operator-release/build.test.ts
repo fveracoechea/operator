@@ -32,6 +32,7 @@ test("build follows runtime imports and excludes removed protocols and test fixt
   for (const shipped of [
     "skills/worker-agent/SKILL.md",
     "modules/worker-dispatch/herdr-plugin.toml",
+    "modules/opencode-plugin/plugin.ts",
   ])
     expect(await Bun.file(`${root}/${shipped}`).text()).toBe(
       await Bun.file(`${sourceRoot}/${shipped}`).text(),

@@ -7,7 +7,7 @@ import { Environment } from "../environment/main.ts";
 import { sha256 } from "../../lib/sha256.ts";
 import { Database } from "bun:sqlite";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
-import { writeClaudeHookSettings } from "./command-fixture.ts";
+import { writeHostHooks } from "./command-fixture.ts";
 import {
   upstreamCalls,
   upstreamCommit,
@@ -278,7 +278,7 @@ test("check mode follows complete skill links and leaves host folders and state 
   await cp(source, `${root}/package skills`, { recursive: true });
   await mkdir(`${root}/home/.claude`, { recursive: true });
   await symlink(`${root}/package skills`, `${root}/home/.claude/skills`);
-  await writeClaudeHookSettings(`${root}/home`);
+  await writeHostHooks(root);
   const link = await readlink(`${root}/home/.claude/skills`);
   expect(await run(["--claude", "--check"])).toMatchObject({
     code: 0,

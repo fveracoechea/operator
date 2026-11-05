@@ -114,13 +114,17 @@ test("lists tab labels and creates a tab in a workspace", async () => {
   ]);
 });
 
-test("lists every pane with its folder, and a pane with no known folder has none", async () => {
+test("lists every pane with its folder and agent session, and an unknown one is null", async () => {
   await answer({
     json: {
       result: {
         panes: [
-          { ...pane, cwd: "/repo" },
-          { pane_id: "p2", tab_id: "t2", workspace_id: "w3", cwd: null },
+          {
+            ...pane,
+            cwd: "/repo",
+            agent_session: { agent: "opencode", kind: "id", value: "ses_1" },
+          },
+          { pane_id: "p2", tab_id: "t2", workspace_id: "w3", cwd: null, agent_session: null },
           { pane_id: "p3", tab_id: "t3", workspace_id: "w3" },
         ],
       },
@@ -129,9 +133,9 @@ test("lists every pane with its folder, and a pane with no known folder has none
   expect(await Herdr.panes()).toMatchObject({
     tag: "Ok",
     value: [
-      { paneId: "p1", tabId: "t1", workspaceId: "w2", cwd: "/repo" },
-      { paneId: "p2", tabId: "t2", workspaceId: "w3", cwd: null },
-      { paneId: "p3", tabId: "t3", workspaceId: "w3", cwd: null },
+      { paneId: "p1", tabId: "t1", workspaceId: "w2", cwd: "/repo", agentSession: "ses_1" },
+      { paneId: "p2", tabId: "t2", workspaceId: "w3", cwd: null, agentSession: null },
+      { paneId: "p3", tabId: "t3", workspaceId: "w3", cwd: null, agentSession: null },
     ],
   });
   expect(await calls()).toEqual([["pane", "list"]]);

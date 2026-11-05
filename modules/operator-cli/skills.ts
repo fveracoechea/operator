@@ -1,5 +1,6 @@
 import { OkAsync } from "unthrown";
 import { ClaudeHook } from "../claude-hook/main.ts";
+import { OpenCodePlugin } from "../opencode-plugin/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
 import { UpstreamSkills } from "../upstream-skills/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
@@ -11,6 +12,9 @@ const skillExitCodes = {
   claude_hook_missing: 3,
   claude_settings_external: 4,
   claude_settings_invalid: 4,
+  opencode_plugin_missing: 3,
+  opencode_plugin_outdated: 3,
+  opencode_plugin_external: 4,
   upstream_install_unconfirmed: 5,
 };
 
@@ -31,7 +35,7 @@ function skillArgs(args: string[]) {
 
 /**
  * Installs owned skills, then delegates the upstream skills. A check starts no upstream work.
- * The Claude Code commit hook comes last, so a settings refusal leaves the skills installed.
+ * The Claude Code hook and the OpenCode plugin come last, so a refusal leaves the skills installed.
  */
 export async function runSkills(
   args: string[],
@@ -57,6 +61,13 @@ export async function runSkills(
             ...installed,
             data: { ...installed.data, claudeHook },
           }))
+        : OkAsync(installed),
+    )
+    .flatMap((installed) =>
+      hosts.includes("opencode")
+        ? OpenCodePlugin.install({ paths, check: installed.data.checkOnly }).map(
+            (opencodePlugin) => ({ ...installed, data: { ...installed.data, opencodePlugin } }),
+          )
         : OkAsync(installed),
     );
   respond({

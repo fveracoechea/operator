@@ -1,6 +1,7 @@
 import { ClaudeHook } from "../claude-hook/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { GlobalLauncher } from "../global-launcher/main.ts";
+import { OpenCodePlugin } from "../opencode-plugin/main.ts";
 import { Environment } from "../environment/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
@@ -22,12 +23,13 @@ type Blocker =
   | Extract<Awaited<ReturnType<typeof OwnedSkills.install>>, { tag: "Err" }>["error"]
   | Extract<Awaited<ReturnType<typeof UpstreamSkills.check>>, { tag: "Err" }>["error"]
   | Extract<Awaited<ReturnType<typeof ClaudeHook.install>>, { tag: "Err" }>["error"]
+  | Extract<Awaited<ReturnType<typeof OpenCodePlugin.install>>, { tag: "Err" }>["error"]
   | Extract<Awaited<ReturnType<typeof GlobalLauncher.check>>, { tag: "Ok" }>["value"][number]
   | Extract<Awaited<ReturnType<typeof GlobalLauncher.check>>, { tag: "Err" }>["error"];
 
 type Host = "opencode" | "claude-code";
 
-/** The executable, the owned and upstream skills, and Claude Code's hook groups of one host. */
+/** The executable, the owned and upstream skills, and the Operator hook of one host. */
 async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: Host) {
   const blockers: Blocker[] = [];
   const tool = host === "opencode" ? "opencode" : "claude";
@@ -51,12 +53,13 @@ async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: H
       reason: "upstream_skills_missing",
       detail: `Run operator install ${flag}. Missing required skill files: ${upstream.value.join(", ")}`,
     });
-  if (host === "claude-code") {
-    const hook = await ClaudeHook.install({ paths, check: true });
-    // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
-    if (hook.tag === "Defect") return hook.map(() => blockers);
-    if (hook.tag === "Err") blockers.push(hook.error);
-  }
+  const hook = await (host === "claude-code" ? ClaudeHook : OpenCodePlugin).install({
+    paths,
+    check: true,
+  });
+  // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
+  if (hook.tag === "Defect") return hook.map(() => blockers);
+  if (hook.tag === "Err") blockers.push(hook.error);
   return Ok(blockers);
 }
 
