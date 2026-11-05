@@ -42,22 +42,15 @@
           "name": "assignments_source_id_sources_id_fk",
           "tableFrom": "assignments",
           "tableTo": "sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "assignments_source_id_key_pk": {
-          "columns": [
-            "source_id",
-            "key"
-          ],
+          "columns": ["source_id", "key"],
           "name": "assignments_source_id_key_pk"
         }
       },
@@ -144,12 +137,8 @@
           "name": "cleanups_launch_id_launches_id_fk",
           "tableFrom": "cleanups",
           "tableTo": "launches",
-          "columnsFrom": [
-            "launch_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["launch_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -157,24 +146,15 @@
           "name": "cleanups_source_id_assignment_assignments_source_id_key_fk",
           "tableFrom": "cleanups",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "cleanups_source_id_assignment_pk": {
-          "columns": [
-            "source_id",
-            "assignment"
-          ],
+          "columns": ["source_id", "assignment"],
           "name": "cleanups_source_id_assignment_pk"
         }
       },
@@ -247,22 +227,15 @@
           "name": "coordination_waits_repository_projects_repository_fk",
           "tableFrom": "coordination_waits",
           "tableTo": "projects",
-          "columnsFrom": [
-            "repository"
-          ],
-          "columnsTo": [
-            "repository"
-          ],
+          "columnsFrom": ["repository"],
+          "columnsTo": ["repository"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "coordination_waits_repository_scope_pk": {
-          "columns": [
-            "repository",
-            "scope"
-          ],
+          "columns": ["repository", "scope"],
           "name": "coordination_waits_repository_scope_pk"
         }
       },
@@ -328,12 +301,8 @@
           "name": "internal_review_rounds_launch_id_launches_id_fk",
           "tableFrom": "internal_review_rounds",
           "tableTo": "launches",
-          "columnsFrom": [
-            "launch_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["launch_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -341,25 +310,15 @@
           "name": "internal_review_rounds_source_id_assignment_internal_reviews_source_id_assignment_fk",
           "tableFrom": "internal_review_rounds",
           "tableTo": "internal_reviews",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "assignment"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "assignment"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "internal_review_rounds_source_id_assignment_number_pk": {
-          "columns": [
-            "source_id",
-            "assignment",
-            "number"
-          ],
+          "columns": ["source_id", "assignment", "number"],
           "name": "internal_review_rounds_source_id_assignment_number_pk"
         }
       },
@@ -474,12 +433,8 @@
           "name": "internal_reviews_implementer_launch_id_launches_id_fk",
           "tableFrom": "internal_reviews",
           "tableTo": "launches",
-          "columnsFrom": [
-            "implementer_launch_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["implementer_launch_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -487,24 +442,15 @@
           "name": "internal_reviews_source_id_assignment_assignments_source_id_key_fk",
           "tableFrom": "internal_reviews",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "internal_reviews_source_id_assignment_pk": {
-          "columns": [
-            "source_id",
-            "assignment"
-          ],
+          "columns": ["source_id", "assignment"],
           "name": "internal_reviews_source_id_assignment_pk"
         }
       },
@@ -728,18 +674,12 @@
       "indexes": {
         "launches_name_unique": {
           "name": "launches_name_unique",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": true
         },
         "one_attempt_number": {
           "name": "one_attempt_number",
-          "columns": [
-            "source_id",
-            "assignment",
-            "attempt"
-          ],
+          "columns": ["source_id", "assignment", "attempt"],
           "isUnique": true
         }
       },
@@ -748,14 +688,8 @@
           "name": "launches_source_id_assignment_assignments_source_id_key_fk",
           "tableFrom": "launches",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -816,9 +750,7 @@
       "indexes": {
         "projects_checkout_unique": {
           "name": "projects_checkout_unique",
-          "columns": [
-            "checkout"
-          ],
+          "columns": ["checkout"],
           "isUnique": true
         }
       },
@@ -911,10 +843,7 @@
       "indexes": {
         "one_promotion_per_report": {
           "name": "one_promotion_per_report",
-          "columns": [
-            "source_id",
-            "report"
-          ],
+          "columns": ["source_id", "report"],
           "isUnique": true
         }
       },
@@ -923,14 +852,8 @@
           "name": "promotions_source_id_assignment_assignments_source_id_key_fk",
           "tableFrom": "promotions",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -938,24 +861,15 @@
           "name": "promotions_source_id_report_assignments_source_id_key_fk",
           "tableFrom": "promotions",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "report"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "report"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "promotions_source_id_assignment_pk": {
-          "columns": [
-            "source_id",
-            "assignment"
-          ],
+          "columns": ["source_id", "assignment"],
           "name": "promotions_source_id_assignment_pk"
         }
       },
@@ -1084,24 +998,15 @@
           "name": "pull_requests_source_id_assignment_assignments_source_id_key_fk",
           "tableFrom": "pull_requests",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "pull_requests_source_id_assignment_pk": {
-          "columns": [
-            "source_id",
-            "assignment"
-          ],
+          "columns": ["source_id", "assignment"],
           "name": "pull_requests_source_id_assignment_pk"
         }
       },
@@ -1223,12 +1128,8 @@
           "name": "reports_launch_id_launches_id_fk",
           "tableFrom": "reports",
           "tableTo": "launches",
-          "columnsFrom": [
-            "launch_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["launch_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1236,25 +1137,15 @@
           "name": "reports_source_id_assignment_assignments_source_id_key_fk",
           "tableFrom": "reports",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "reports_source_id_assignment_number_pk": {
-          "columns": [
-            "source_id",
-            "assignment",
-            "number"
-          ],
+          "columns": ["source_id", "assignment", "number"],
           "name": "reports_source_id_assignment_number_pk"
         }
       },
@@ -1514,17 +1405,12 @@
       "indexes": {
         "review_requests_name_unique": {
           "name": "review_requests_name_unique",
-          "columns": [
-            "name"
-          ],
+          "columns": ["name"],
           "isUnique": true
         },
         "one_open_review": {
           "name": "one_open_review",
-          "columns": [
-            "repository",
-            "number"
-          ],
+          "columns": ["repository", "number"],
           "isUnique": true,
           "where": "\"review_requests\".\"state\" NOT IN ('closed', 'skipped')"
         }
@@ -1534,12 +1420,8 @@
           "name": "review_requests_repository_projects_repository_fk",
           "tableFrom": "review_requests",
           "tableTo": "projects",
-          "columnsFrom": [
-            "repository"
-          ],
-          "columnsTo": [
-            "repository"
-          ],
+          "columnsFrom": ["repository"],
+          "columnsTo": ["repository"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1656,22 +1538,15 @@
           "name": "review_rounds_request_id_review_requests_id_fk",
           "tableFrom": "review_rounds",
           "tableTo": "review_requests",
-          "columnsFrom": [
-            "request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["request_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "review_rounds_request_id_number_pk": {
-          "columns": [
-            "request_id",
-            "number"
-          ],
+          "columns": ["request_id", "number"],
           "name": "review_rounds_request_id_number_pk"
         }
       },
@@ -1744,26 +1619,15 @@
           "name": "review_thread_operations_request_id_round_review_rounds_request_id_number_fk",
           "tableFrom": "review_thread_operations",
           "tableTo": "review_rounds",
-          "columnsFrom": [
-            "request_id",
-            "round"
-          ],
-          "columnsTo": [
-            "request_id",
-            "number"
-          ],
+          "columnsFrom": ["request_id", "round"],
+          "columnsTo": ["request_id", "number"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "review_thread_operations_request_id_round_thread_id_kind_pk": {
-          "columns": [
-            "request_id",
-            "round",
-            "thread_id",
-            "kind"
-          ],
+          "columns": ["request_id", "round", "thread_id", "kind"],
           "name": "review_thread_operations_request_id_round_thread_id_kind_pk"
         }
       },
@@ -1861,10 +1725,7 @@
       "indexes": {
         "one_effect_per_key": {
           "name": "one_effect_per_key",
-          "columns": [
-            "request_id",
-            "key"
-          ],
+          "columns": ["request_id", "key"],
           "isUnique": true
         }
       },
@@ -1873,12 +1734,8 @@
           "name": "slack_effects_request_id_review_requests_id_fk",
           "tableFrom": "slack_effects",
           "tableTo": "review_requests",
-          "columnsFrom": [
-            "request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["request_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1995,10 +1852,7 @@
       "indexes": {
         "one_open_parent": {
           "name": "one_open_parent",
-          "columns": [
-            "repository",
-            "tracker_key"
-          ],
+          "columns": ["repository", "tracker_key"],
           "isUnique": true,
           "where": "\"sources\".\"state\" = 'open'"
         }
@@ -2008,12 +1862,8 @@
           "name": "sources_repository_projects_repository_fk",
           "tableFrom": "sources",
           "tableTo": "projects",
-          "columnsFrom": [
-            "repository"
-          ],
-          "columnsTo": [
-            "repository"
-          ],
+          "columnsFrom": ["repository"],
+          "columnsTo": ["repository"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -2109,12 +1959,8 @@
           "name": "worker_questions_launch_id_launches_id_fk",
           "tableFrom": "worker_questions",
           "tableTo": "launches",
-          "columnsFrom": [
-            "launch_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["launch_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2122,25 +1968,15 @@
           "name": "worker_questions_source_id_assignment_assignments_source_id_key_fk",
           "tableFrom": "worker_questions",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "source_id",
-            "assignment"
-          ],
-          "columnsTo": [
-            "source_id",
-            "key"
-          ],
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "worker_questions_source_id_assignment_key_pk": {
-          "columns": [
-            "source_id",
-            "assignment",
-            "key"
-          ],
+          "columns": ["source_id", "assignment", "key"],
           "name": "worker_questions_source_id_assignment_key_pk"
         }
       },
@@ -2220,12 +2056,8 @@
           "name": "worktree_preparations_repository_projects_repository_fk",
           "tableFrom": "worktree_preparations",
           "tableTo": "projects",
-          "columnsFrom": [
-            "repository"
-          ],
-          "columnsTo": [
-            "repository"
-          ],
+          "columnsFrom": ["repository"],
+          "columnsTo": ["repository"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
