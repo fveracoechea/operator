@@ -1,74 +1,12 @@
 import { expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { Err, Ok } from "unthrown";
-import { migrationsFolder } from "./database.ts";
-import { deleteSourceRecords, readSources, registerSource, resetSource } from "./sources.ts";
-import { registerProject } from "./projects.ts";
-import { reserveLaunch, updateLaunch } from "./launches.ts";
+import { deleteSourceRecords, readSources, resetSource } from "./sources.ts";
+import { fixture, key, pane, running } from "./conversation-fixture.ts";
 import { changeReport } from "./reports.ts";
 import { changeQuestion, readQuestion, type QuestionRow } from "./questions.ts";
 import { busy, reservedCopy } from "./state-fixture.ts";
-
-function fixture() {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(drizzle(db), { migrationsFolder });
-  registerProject(db, { repository: "owner/one", checkout: "/one", registeredAt: "now" });
-  registerSource(
-    db,
-    "/one",
-    {
-      id: "s1",
-      repository: "owner/one",
-      trackerKey: "APP-1",
-      state: "open",
-      registeredAt: "now",
-      endedAt: null,
-      plan: "{}",
-    },
-    [
-      { sourceId: "s1", key: "read", completion: "report", state: "ready" },
-      { sourceId: "s1", key: "other", completion: "report", state: "ready" },
-    ],
-  );
-  return db;
-}
-
-function running(db: Database, assignment = "read", paneId = "w1:p1") {
-  const id = `l-${assignment}`;
-  reserveLaunch(db, "/one", "owner/one", {
-    id,
-    sourceId: "s1",
-    assignment,
-    state: "starting",
-    name: `report-app-1-${assignment}`,
-    resources: "pane",
-    branch: null,
-    host: "opencode",
-    model: "test/model",
-    requestedModel: "test/model",
-    reasoningEffort: "medium",
-    profile: null,
-    release: "{}",
-    skills: "[]",
-    herdrSocket: "/herdr.sock",
-    workspaceId: null,
-    tabId: null,
-    paneId: null,
-    worktreePath: null,
-    worktreeWorkspaceId: null,
-    startedAt: "now",
-    endedAt: null,
-    failureReason: null,
-    failureDetail: null,
-    activity: null,
-    activityAt: null,
-  });
-  updateLaunch(db, id, { paneId });
-  updateLaunch(db, id, { state: "running" });
-}
 
 function question(key: string, assignment = "read"): QuestionRow {
   return {
@@ -85,15 +23,6 @@ function question(key: string, assignment = "read"): QuestionRow {
     endedAt: null,
   };
 }
-
-const pane = { by: "pane", socket: "/herdr.sock", paneId: "w1:p1" } as const;
-const key = {
-  by: "key",
-  repository: "owner/one",
-  checkout: "/one",
-  sourceId: "s1",
-  assignment: "read",
-} as const;
 
 function states(db: Database) {
   return db

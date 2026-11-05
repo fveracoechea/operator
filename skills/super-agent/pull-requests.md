@@ -11,12 +11,13 @@ The relay and the owner's `operator pr merge` own every rebase, push, base chang
 Use `gh stack view --json` only to read a stack. Run no other `gh stack` command, and ask no owner to run one.
 
 `next` shows each PR with its number, URL, and last wait state.
+Send each request to an owner as a steering message, as [steering.md](steering.md) says.
 
 - `wait` with `pr_feedback_loop`: the owner is in its loop. Do nothing.
-- `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner through Herdr for its status.
-- `owner_attention` with `pr_wait_stopped`: the owner's wait process ended without a result, for example after a shell timeout. Ask the owner through Herdr to wait again.
-- `owner_attention` with `pr_owner_idle`: Herdr reports the owner idle or done and no wait runs. Ask the owner for its status.
-- `owner_attention` with `pr_relay_blocked`: the relay stopped at a conflict, uncommitted or unpushed work, or a failed Git or GitHub step, and kept the branch. The `stack.blocker` names the reason. Ask the owner to resolve it and wait again. A closed parent, or a parent merged outside the default branch, needs the person.
+- `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner for its status in a steering message.
+- `owner_attention` with `pr_wait_stopped`: the owner's wait process ended without a result, for example after a shell timeout. Tell the owner to wait again in a steering message.
+- `owner_attention` with `pr_owner_idle`: Herdr reports the owner idle or done and no wait runs. Ask the owner for its status in a steering message.
+- `owner_attention` with `pr_relay_blocked`: the relay stopped at a conflict, uncommitted or unpushed work, or a failed Git or GitHub step, and kept the branch. The `stack.blocker` names the reason. Tell the owner to resolve it and wait again in a steering message. A closed parent, or a parent merged outside the default branch, needs the person.
 - `owner_attention` with `pr_not_open`: the PR was merged or closed outside the CLI. A merged PR completes when the owner runs `operator pr merge --json`, which verifies the merge without another merge request. For a closed PR, the assignment stays `pr-open`, and a new PR for it refuses with `pr_already_associated`. Ask the person what to do.
 - `replace_worker`: the owner's pane ended or its launch failed. Inspect the recorded worktree first. A new dispatch keeps the PR, its wait progress, and the worktree, and the brief tells the replacement to read the PR before it waits.
 
@@ -33,7 +34,7 @@ A fresh reviewer then takes over the same worktree and owns the PR until its mer
 In this release, you do the handoff, and Operator does not record or check the review.
 
 1. After that message, `next` shows `owner_attention` with `pr_owner_idle` for the assignment. This is the handoff point, not a stuck owner.
-2. Inspect the worktree: `git status --short` prints nothing, and `git status -sb` shows no commits ahead of the remote. Otherwise ask the implementer to commit and push.
+2. Inspect the worktree: `git status --short` prints nothing, and `git status -sb` shows no commits ahead of the remote. Otherwise tell the implementer to commit and push in a steering message.
 3. Close the implementer's pane with `herdr pane close <pane>`.
 4. `next` then shows `replace_worker` with `worker_interrupted`. Dispatch it. The new launch reopens the worktree, and its brief makes it the internal reviewer.
 
@@ -42,8 +43,8 @@ Keep these rules while a PR is a draft:
 - Keep `review.assignments` off. If it is on, `review next` shows `start_reviewer` for the draft. Run that command only after the PR is ready.
 - Ask nobody to approve the PR. The owner runs the guarded merge only after the PR is ready, also when a wait reports `merge_eligible` for the draft.
 
-To skip a running internal review, on the person's instruction, tell the owner to mark the draft ready with no comment.
-If internal review is off when you dispatch the reviewer, its brief does not make it the reviewer. Tell that owner to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
+To skip a running internal review, on the person's instruction, tell the owner in a steering message to mark the draft ready with no comment.
+If internal review is off when you dispatch the reviewer, its brief does not make it the reviewer. Tell that owner in a steering message to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
 
 ## Cleanup after a verified merge
 

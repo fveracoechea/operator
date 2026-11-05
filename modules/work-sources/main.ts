@@ -11,6 +11,7 @@ import {
   type Cleanup,
   type Launch,
   type PullRequest,
+  type Message,
   type Question,
   type Report,
 } from "./snapshot.ts";
@@ -399,7 +400,7 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   };
 }
 
-// An unanswered question explains an idle worker, so the question replaces that attention.
+// An unanswered question or an open message explains an idle worker, so it replaces that attention.
 const idleReasons = new Set(["worker_idle", "pr_owner_idle"]);
 
 /** The SuperAgent answers an open question. A question that it moved to the person waits on the person. */
@@ -414,7 +415,42 @@ function questionAction(question: Question) {
   };
 }
 
-function decide(input: Input, source: Source) {
+// A worker can be in a long turn when its doorbell rings, so the period exceeds a normal turn.
+const acknowledgementPeriodMs = 15 * 60 * 1000;
+
+/**
+ * A reply waits on the SuperAgent. A pending message whose doorbell failed, or that the worker
+ * left unacknowledged past the period since its last ring, needs worker attention.
+ */
+function messageAction(message: Message, now: number) {
+  const shown = {
+    key: message.key,
+    message: message.message,
+    sentAt: message.sentAt,
+    questionKey: message.questionKey,
+  };
+  if (message.state === "replied")
+    return {
+      assignment: message.assignment,
+      action: "read_reply" as const,
+      reason: "message_replied" as const,
+      blockers: [],
+      message: { ...shown, reply: message.reply },
+    };
+  if (message.state !== "pending") return [];
+  const failed = message.doorbellFailure !== null;
+  const rung = Date.parse(message.rungAt ?? message.sentAt);
+  if (!failed && now - rung < acknowledgementPeriodMs) return [];
+  return {
+    assignment: message.assignment,
+    action: "worker_attention" as const,
+    reason: failed ? ("doorbell_failed" as const) : ("message_unacknowledged" as const),
+    blockers: [],
+    message: { ...shown, rungAt: message.rungAt, doorbellFailure: message.doorbellFailure },
+  };
+}
+
+function decide(input: Input, source: Source, now: number) {
   return source.plan.assignments.flatMap((assignment) => {
     const questions = source.questions
       .filter(
@@ -423,10 +459,14 @@ function decide(input: Input, source: Source) {
           (row.state === "open" || row.state === "awaiting_person"),
       )
       .map(questionAction);
+    const messages = source.messages
+      .filter((row) => row.assignment === assignment.key)
+      .flatMap((row) => messageAction(row, now));
+    const recorded = [...questions, ...messages];
     const decision = decideAssignmentRow(input, source, assignment);
-    return questions.length > 0 && idleReasons.has(decision.reason)
-      ? questions
-      : [...questions, decision];
+    return recorded.length > 0 && idleReasons.has(decision.reason)
+      ? recorded
+      : [...recorded, decision];
   });
 }
 
@@ -499,7 +539,7 @@ function described<T extends object>(
 }
 
 function nextActions(input: Input, source: Source, now: number) {
-  const decisions = decide(input, source);
+  const decisions = decide(input, source, now);
   // An ended source keeps the cleanup that its completed work still owes.
   const cleanup = decisions.filter(
     (decision) => decision.action === "retry_cleanup" || decision.action === "person_decision",

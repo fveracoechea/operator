@@ -24,6 +24,7 @@ For a worker question, `answer_question`, or a `person_decision` for a question,
 For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, next actions, source reset, or prune, read [sources.md](sources.md).
 For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).
+To tell a running worker anything, or for `read_reply`, `doorbell_failed`, or `message_unacknowledged`, read [steering.md](steering.md).
 For PR owners, a PR stack, `owner_attention`, a replaced PR owner, an internal review handoff, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).
 For submitted reports, follow-up, acceptance, or cleanup, read [reports.md](reports.md).
 For review requests, reviewers, or review posts, read [reviews.md](reviews.md).

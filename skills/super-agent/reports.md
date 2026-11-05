@@ -13,7 +13,7 @@ operator report return --source <source-id> --assignment <key> --file <follow-up
 ```
 
 Return specific follow-up instructions when the report is not sufficient.
-After a return, `next` shows `resume_worker` when the worker is still live. Send it the follow-up path through Herdr.
+After a return, `next` shows `resume_worker` when the worker is still live. Tell it in a steering message to run `operator report resume --json`, as [steering.md](steering.md) says.
 It runs `operator report resume --json` and submits a new report.
 When the worker stopped, `next` shows `replace_worker`. Dispatch again, and the new brief lists every earlier report and follow-up.
 

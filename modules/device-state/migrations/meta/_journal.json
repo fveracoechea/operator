@@ -85,6 +85,13 @@
       "when": 1793830571642,
       "tag": "0011_worker_questions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793842898982,
+      "tag": "0012_worker_messages",
+      "breakpoints": true
     }
   ]
 }

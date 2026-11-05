@@ -53,6 +53,7 @@ export function storedSource(
     reports: rows.reports ?? [],
     cleanups: rows.cleanups ?? [],
     questions: rows.questions ?? [],
+    messages: rows.messages ?? [],
   };
 }
 
@@ -180,6 +181,28 @@ export function storedQuestion(
     answer: null,
     answeredBy: null,
     answeredAt: null,
+    endedAt: null,
+    ...change,
+  };
+}
+
+export function storedMessage(
+  assignment: string,
+  change: Partial<Stored["messages"][number]> = {},
+): Stored["messages"][number] {
+  return {
+    sourceId,
+    assignment,
+    key: "focus",
+    launchId: `l-${assignment}`,
+    message: `Focus ${assignment} on a.ts.`,
+    questionKey: null,
+    sentAt: "2026-01-03T00:00:00.000Z",
+    state: "pending",
+    rungAt: "2026-01-03T00:00:00.000Z",
+    doorbellFailure: null,
+    acknowledgedAt: null,
+    reply: null,
     endedAt: null,
     ...change,
   };

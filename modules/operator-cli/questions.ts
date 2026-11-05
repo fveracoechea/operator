@@ -22,8 +22,11 @@ function commandOf(value: string | undefined) {
   return names.find((name) => name === value) ?? null;
 }
 
-function questionFlags(flags: string[], command: Command) {
-  const { required, optional } = commands[command];
+/** Parse each flag of a record command once, with a value, and require the command's selector. */
+export function recordFlags(
+  flags: string[],
+  { required, optional }: { required: readonly string[]; optional: readonly string[] },
+) {
   const known: readonly string[] = [...required, ...optional];
   const values: Record<string, string> = {};
   let json = false;
@@ -56,7 +59,7 @@ export function questionArgs(args: string[]) {
   const [group, name, ...flags] = args;
   const command = group === "question" ? commandOf(name) : null;
   if (command === null) return null;
-  const values = questionFlags(flags, command);
+  const values = recordFlags(flags, commands[command]);
   if (values === null) return null;
   const timeout = values["--timeout"];
   if (timeout !== undefined && !/^\d{1,5}$/.test(timeout)) return null;
