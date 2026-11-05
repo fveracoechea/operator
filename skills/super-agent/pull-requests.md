@@ -38,14 +38,14 @@ Send the reviewer no account of the implementer's work. Its inputs are the issue
 - `retry_handoff` with `internal_review_handoff_failed` or `internal_review_handoff_stopped`: the handoff could not close the implementer's pane, or its process ended before the reviewer started. Run `operator handoff --source <id> --assignment <key> --json` from the controlling checkout, in the Herdr session that started the implementer. It skips each finished step.
 - `replace_worker` with `launch_failed` after a handoff: the reviewer's start failed. Dispatch it as any replacement. The new launch is the reviewer.
 
-`next` shows the assignment's `internalReview` with its state, its recorded rounds, and its handoff.
+`next` shows the assignment's `internalReview` with its state, its recorded rounds, its handoff, and, after it ends, its `readyHead` and summary `comment`.
+The reviewer ends the review with `operator pr ready`, which posts the one summary comment and marks the PR ready.
+The guarded merge refuses until the review ended `ready` or `skipped`, so ask nobody to approve the PR while it is a draft.
+With `review.assignments` on, the end of the review queues the assignment reviewer, so `review next` shows `start_reviewer` only for a ready PR.
+A `replace_worker` after the review ended starts the PR owner. Its brief says how the review ended.
 
-Keep these rules while a PR is a draft:
-
-- Keep `review.assignments` off. If it is on, `review next` shows `start_reviewer` for the draft. Run that command only after the PR is ready.
-- Ask nobody to approve the PR.
-
-To skip a running internal review, on the person's instruction, tell the owner to mark the draft ready with no comment.
+To skip a running internal review, on the person's instruction only, run `operator internal-review skip --source <id> --assignment <key> --person-instructed --json` from the controlling checkout.
+It marks the PR ready with no comment and records the skip. The reviewer keeps the PR as its owner, and its next `operator pr round` or `operator pr ready` refuses with `internal_review_ended`.
 A draft associated before this release has no recorded review, so its replacement owner's brief does not make it the reviewer. Tell that owner to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
 
 ## Cleanup after a verified merge

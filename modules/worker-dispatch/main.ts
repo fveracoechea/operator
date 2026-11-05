@@ -112,6 +112,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               rounds: source.internalReviewRounds.filter(
                 (round) => round.assignment === input.assignment,
               ),
+              readyHead: review.readyHead,
             };
       })
       // Only a start before the PR exists resolves internal review. After that, the recorded

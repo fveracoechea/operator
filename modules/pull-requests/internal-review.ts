@@ -45,6 +45,11 @@ export function worktreeFacts(worktree: string) {
   }, qualify);
 }
 
+/** An assignment without an internal review, from before ADR-0020 or with it off, has ended it. */
+export function reviewEnded(owner: Owner) {
+  return owner.reviewState === null || ["ready", "skipped"].includes(owner.reviewState);
+}
+
 /**
  * Closing the implementer's pane ends the associate process, so the handoff runs in its own
  * process group from the controlling checkout. A start that fails stays visible as stopped.

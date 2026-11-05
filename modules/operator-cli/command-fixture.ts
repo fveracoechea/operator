@@ -29,17 +29,14 @@ export function fixtureCommand() {
   };
 }
 
-/**
- * The Operator hook of each host, as a ready device has: Claude Code user settings that run it
- * under `<root>/home`, and the OpenCode plugin under the `<root>/config` settings folder.
- */
-export async function writeHostHooks(root: string) {
+/** Claude Code user settings that run the Operator hook, as a ready Claude Code device has. */
+export async function writeClaudeHookSettings(home: string) {
   const group = { hooks: [{ command: "operator claude hook" }] };
   const settings = { hooks: { PreToolUse: [group], Stop: [group] } };
-  await Bun.write(`${root}/home/.claude/settings.json`, JSON.stringify(settings), {
-    createPath: true,
-  });
-  await Bun.write(`${root}/config/opencode/plugins/operator.ts`, Bun.file(plugin), {
-    createPath: true,
-  });
+  await Bun.write(`${home}/.claude/settings.json`, JSON.stringify(settings), { createPath: true });
+}
+
+/** Operator's OpenCode plugin under an OpenCode settings folder, as a ready OpenCode device has. */
+export async function writeOpenCodePlugin(config: string) {
+  await Bun.write(`${config}/opencode/plugins/operator.ts`, Bun.file(plugin), { createPath: true });
 }

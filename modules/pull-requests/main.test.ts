@@ -44,6 +44,7 @@ const allMet = {
   defaultBase: true,
   notDraft: true,
   stackRelayed: true,
+  reviewEnded: true,
 };
 
 test("the owner associates its one open PR, and a repeat changes nothing", async () => {
@@ -435,6 +436,7 @@ test("a merged parent relays the child onto the default branch", async () => {
           defaultBase: true,
           notDraft: true,
           stackRelayed: false,
+          reviewEnded: true,
         },
         events: [{ kind: "parent_relayed", parent, base: "main", head }],
       },

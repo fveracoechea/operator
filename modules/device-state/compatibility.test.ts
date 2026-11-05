@@ -98,6 +98,9 @@ test("an older history upgrades once behind a verified backup, and retention kee
         .all(),
     ).toEqual([{ name: "internal_review_rounds" }, { name: "internal_reviews" }]);
     expect(db.query("SELECT internal_review FROM launches").all()).toEqual([]);
+    expect(
+      db.query("SELECT ready_head, comment_id, comment_url, ended_at FROM internal_reviews").all(),
+    ).toEqual([]);
   }
   const first = await backups(paths.backups);
   expect(first).toHaveLength(1);
