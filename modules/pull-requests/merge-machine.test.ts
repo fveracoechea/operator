@@ -9,6 +9,7 @@ const eligible: Observation = {
   mergeMethod: "squash",
   base: "main",
   defaultBranch: "main",
+  draft: false,
   approved: true,
   unresolvedThreads: 0,
   feedback: [],
@@ -16,7 +17,7 @@ const eligible: Observation = {
   checksComplete: true,
 };
 
-test("only a fresh observation with all five merge conditions and the local head merges", () => {
+test("only a fresh observation with all six merge conditions and the local head merges", () => {
   expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: "h1" })).toEqual({
     result: "merge",
     head: "h1",
@@ -40,6 +41,7 @@ test("each missing condition refuses with its own explanation", () => {
     [{ unresolvedThreads: 1 }, "no unresolved review thread"],
     [{ base: "release" }, "the default branch as base"],
     [{ defaultBranch: null }, "the default branch as base"],
+    [{ draft: true }, "the ready-for-review state"],
   ];
   for (const [change, text] of cases) {
     const decision = decideMerge({
@@ -106,6 +108,7 @@ test("each refusal names every missing condition and carries the observed condit
     checksPassing: false,
     threadsResolved: false,
     defaultBase: false,
+    notDraft: false,
     stackRelayed: false,
   };
   const blocked = {
@@ -114,11 +117,12 @@ test("each refusal names every missing condition and carries the observed condit
     checks: [],
     unresolvedThreads: 2,
     base: "release",
+    draft: true,
   };
   expect(decideMerge({ observed: blocked, localHead: "h1", stackRelayed: false })).toEqual({
     result: "refused",
     reason: "pr_merge_blocked",
-    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, a finished parent-merge relay. ${nothing}`,
+    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay. ${nothing}`,
     conditions: none,
   });
   expect(
@@ -138,6 +142,7 @@ test("each refusal names every missing condition and carries the observed condit
     checksPassing: true,
     threadsResolved: true,
     defaultBase: true,
+    notDraft: true,
     stackRelayed: true,
   };
   expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: null })).toEqual({

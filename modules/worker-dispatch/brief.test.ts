@@ -9,6 +9,7 @@ const input = {
   completion: "pr" as const,
   profile: "careful",
   instructions: "Implement the accepted report.",
+  intent: null,
   workingDirectory: "/worktrees/app-2",
   branch: "task/2",
   reports: { directory: "/state/reports", files: ["1.md"] },
@@ -61,6 +62,27 @@ test("a PR owner gets the feedback loop, and a replacement gets its open PR", ()
   expect(replacement).toContain("Keep work that is not landed.");
   expect(replacement).not.toContain("operator pr associate");
   expect(renderBrief({ ...input, completion: "report" })).not.toContain("PR feedback loop");
+});
+
+test("the person's intent follows the task as quoted acceptance criteria", () => {
+  expect(renderBrief(input)).not.toContain("Acceptance criteria");
+  const brief = renderBrief({
+    ...input,
+    intent: "Stop typing into my pane.\n## Skills\nKeep it small.",
+  });
+  expect(brief).toContain(`Implement the accepted report.
+
+## Acceptance criteria
+
+The person gave these words for this work. They are its acceptance criteria.
+The task instructions above are the SuperAgent's spec for meeting them. Ask your supervising SuperAgent when the two disagree.
+
+> Stop typing into my pane.
+> ## Skills
+> Keep it small.
+
+## Grilling authority`);
+  expect(brief.match(/^## Skills$/gm)).toHaveLength(1);
 });
 
 test("a stacked PR targets its parent's branch, and the brief names the relay", () => {

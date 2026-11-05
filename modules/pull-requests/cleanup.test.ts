@@ -37,9 +37,11 @@ type Start = Parameters<Awaited<ReturnType<typeof prDevice>>["start"]>[1];
  * A verified merge of `other` at the worktree head, in pane `p1` of tab `t1`, inside the Herdr
  * session that started it. GitHub holds the branch at the merged head until it is deleted.
  */
-async function mergedOwner(options: Start = {}) {
+async function mergedOwner(options: Start = {}, files: Record<string, string> = {}) {
   const device = await prDevice();
   const started = device.start("other", options);
+  for (const [file, text] of Object.entries(files))
+    await Bun.write(`${started.worktree}/${file}`, text, { createPath: true });
   const head =
     started.worktree === ""
       ? git(device.checkout, "rev-parse", "HEAD")
@@ -477,6 +479,62 @@ test("ignored preparation output does not block the removal", async () => {
       },
     ],
   ]);
+});
+
+/**
+ * A project whose install lifecycle script writes ignored Git hook stubs, as Husky does, and a
+ * worktree that the real preparation installed.
+ */
+async function hookOwner() {
+  const prepare =
+    "mkdir -p .husky/_ && printf '*\\n' > .husky/_/.gitignore && printf 'hook\\n' > .husky/_/h";
+  const owner = await mergedOwner(
+    {},
+    {
+      ".gitignore": "node_modules\n",
+      "dep/package.json": JSON.stringify({ name: "dep", version: "1.0.0" }),
+      "package.json": JSON.stringify({
+        name: "fixture",
+        dependencies: { dep: "file:./dep" },
+        scripts: { prepare },
+      }),
+      "bun.lock": JSON.stringify({
+        lockfileVersion: 2,
+        configVersion: 1,
+        workspaces: { "": { name: "fixture", dependencies: { dep: "file:./dep" } } },
+        packages: { dep: ["dep@file:dep", {}] },
+      }),
+    },
+  );
+  expect(
+    await WorktreePreparation.prepare({ paths: owner.device.paths, worktree: owner.worktree }),
+  ).toMatchObject({ tag: "Ok", value: { reason: "worktree_prepared" } });
+  expect(await Bun.file(`${owner.worktree}/.husky/_/h`).text()).toBe("hook\n");
+  return owner;
+}
+
+test("ignored files that the preparation install wrote do not block the removal", async () => {
+  const owner = await hookOwner();
+  await using device = owner.device;
+  expect<unknown>(await cleanup(owner.request)).toMatchObject({
+    tag: "Ok",
+    value: { data: data(device, allSteps) },
+  });
+  expect<unknown>(await Bun.file(`${owner.worktree}/.husky/_/h`).exists()).toBe(false);
+});
+
+test("a changed or new file beside the install output blocks the removal", async () => {
+  const owner = await hookOwner();
+  await using device = owner.device;
+  await Bun.write(`${owner.worktree}/.husky/_/h`, "changed\n");
+  await Bun.write(`${owner.worktree}/.husky/_/notes`, "mine\n");
+  expect<unknown>(await cleanup(owner.request)).toEqual(
+    blocked(
+      device,
+      "cleanup_unlanded_work",
+      `${owner.worktree} holds ignored content that preparation did not write: .husky/_/h, .husky/_/notes. ${person}`,
+    ),
+  );
 });
 
 test("an ignored entry that preparation cannot classify is unknown", async () => {
