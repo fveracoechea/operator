@@ -543,6 +543,7 @@ function promote(input: PromoteInput) {
       const at = new Date().toISOString();
       const taken =
         name === null ? null : handoverLaunch(launch, { key: planned.key, name, branch, at });
+      const state = taken === null ? "ready" : "running";
       const recorded = record(decision, decided, (current) => ({
         update: {
           decision: "accepted",
@@ -555,7 +556,7 @@ function promote(input: PromoteInput) {
             sourceId: current.source.id,
             key: planned.key,
             completion: "pr",
-            state: taken === null ? "ready" : "running",
+            state,
           },
           promotion: {
             sourceId: current.source.id,
@@ -574,8 +575,12 @@ function promote(input: PromoteInput) {
         },
       }));
       if (recorded.tag !== "Ok") {
-        await handover.value.undo();
-        return stop(recorded);
+        const stayed = await handover.value.undo();
+        if (stayed.length === 0) return stop(recorded);
+        return Err<Failure>({
+          reason: "promotion_undo_failed",
+          detail: `The promotion was not recorded, and these renames stayed: ${stayed.join(" ")} Restore them, then promote again.`,
+        });
       }
       const request = { ...input, assignment: planned.key };
       const brief = taken === null ? null : await WorkerDispatch.refreshBrief(request);
@@ -596,7 +601,7 @@ function promote(input: PromoteInput) {
           reference,
           promoted: {
             assignment: planned.key,
-            state: taken === null ? "ready" : "running",
+            state,
             branch,
             worktreePath: launch.worktreePath,
             name,

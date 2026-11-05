@@ -356,3 +356,44 @@ test("a refused Herdr rename restores the branch and records nothing", async () 
   expect(await git(["symbolic-ref", "--short", "HEAD"], worktree)).toBe("report/read");
   expect((await device.show(sourceId)).reports).toMatchObject([{ decision: null }]);
 });
+
+test("a refused tab rename restores the agent name and the branch and records nothing", async () => {
+  const { sourceId, launch, worktree } = await submitted();
+  device.inPane(superPane);
+  const called = herdr([launch.name]);
+  called.tab.mockReturnValue(
+    ErrAsync({ reason: "herdr_failed" as const, detail: "herdr tab rename exited 1" }),
+  );
+  expect(await promote(sourceId)).toMatchObject({ error: { reason: "herdr_failed" } });
+  expect(called.agent.mock.calls.at(-1)).toEqual([{ paneId: workerPane, name: launch.name }]);
+  expect(await git(["symbolic-ref", "--short", "HEAD"], worktree)).toBe("report/read");
+  expect((await device.show(sourceId)).reports).toMatchObject([{ decision: null }]);
+});
+
+test("a refused promotion names each rename that it could not restore", async () => {
+  const { sourceId, launch, worktree } = await submitted();
+  device.inPane(superPane);
+  const called = herdr([launch.name]);
+  called.agent.mockImplementation(({ name }) =>
+    name === launch.name
+      ? ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent rename exited 1" })
+      : OkAsync(undefined),
+  );
+  const change = DeviceState.changeReport;
+  spyOn(DeviceState, "changeReport").mockImplementation((paths, target, decide) =>
+    change(paths, target, (facts) =>
+      decide({ ...facts, reports: facts.reports.map((row) => ({ ...row, number: 5 })) }),
+    ),
+  );
+  expect(await promote(sourceId)).toMatchObject({
+    error: {
+      reason: "promotion_undo_failed",
+      detail:
+        "The promotion was not recorded, and these renames stayed: herdr agent rename exited 1 Restore them, then promote again.",
+    },
+  });
+  // The steps after a failed one still run.
+  expect(called.tab.mock.calls.at(-1)).toEqual([{ tabId: "w1:t1", label: launch.name }]);
+  expect(await git(["symbolic-ref", "--short", "HEAD"], worktree)).toBe("report/read");
+  expect((await device.show(sourceId)).assignments).toHaveLength(2);
+});
