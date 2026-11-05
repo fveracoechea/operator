@@ -76,7 +76,7 @@ function assignmentFacts(input: Request, actions = dispatchActions) {
             detail: `The plan's running cap of ${source.plan.maxRunning} is reached, so ${input.assignment} waits. Read operator next after a worker ends. Nothing was launched.`,
           });
         const action = next.sources
-          .flatMap((row) => row.actions)
+          .flatMap((row) => [...row.actions, ...row.waits])
           .find(
             (row) =>
               "assignment" in row &&
@@ -485,14 +485,19 @@ function dispatch(request: Request) {
 
 /**
  * Rewrite the brief of the worker that took over a promoted report, from the running release's
- * PR template. Only an assignment that next lists for notify_worker has one. ADR-0023.
+ * PR template. Only the running launch that the promotion recorded has one. ADR-0023.
  */
 function refreshBrief(request: Request) {
-  return assignmentFacts(request, ["notify_worker"]).flatMap((facts) => {
+  return assignmentFacts(request, ["wait"]).flatMap((facts) => {
     const launch = facts.source.launches.findLast((row) => row.assignment === request.assignment);
     const worktreePath = launch?.worktreePath ?? null;
-    // Stryker disable next-line ConditionalExpression: equivalent: next lists notify_worker only for a running handover launch with its worktree
-    if (launch === undefined || worktreePath === null) return notDispatchable(request.assignment);
+    if (
+      launch === undefined ||
+      launch.id !== facts.planned.promotion?.handoverLaunchId ||
+      launch.state !== "running" ||
+      worktreePath === null
+    )
+      return notDispatchable(request.assignment);
     return writeBrief(
       request,
       { ...facts, launch: { profile: launch.profile } },

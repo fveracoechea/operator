@@ -639,11 +639,6 @@ function decideAssignmentRow(
         ? undefined
         : { decision: report.decision, cleanup: report.cleanupState },
     cleanup: cleanupFact(cleanup),
-    // The worker that took over a promoted report has not been seen since the promotion.
-    handover:
-      launch !== undefined &&
-      launch.id === assignment.promotion?.handoverLaunchId &&
-      launch.activity === null,
     capReached: maxRunning !== undefined && running >= maxRunning,
   });
   const cap =
@@ -674,7 +669,6 @@ function described<T extends object>(
     pullRequest?: object;
     report?: object;
     cleanup?: object;
-    brief?: string;
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
@@ -682,13 +676,6 @@ function described<T extends object>(
   if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
-  // The worker reads its refreshed brief only after the SuperAgent tells it to.
-  if ("action" in decision && decision.action === "notify_worker")
-    row.brief = OperatorHome.assignmentFiles(input.paths, {
-      repository: source.repository,
-      sourceId: source.id,
-      assignment: records.assignment,
-    }).brief;
   // Gaps of accepted dependency work stay visible until the dependent itself ends.
   const carried = dependencyReports(source, records.assignment);
   if (carried.length > 0) row.dependencyReports = carried;

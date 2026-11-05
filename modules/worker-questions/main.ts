@@ -247,6 +247,13 @@ export const WorkerQuestions = {
   send(input: Omit<Selector, "key"> & { file: string }) {
     return steering.send(input);
   },
+  /**
+   * Record a steering message that another operation composes, such as the handover of a
+   * promoted report's worker, and ring its doorbell. ADR-0023.
+   */
+  steer(input: Omit<Selector, "key"> & { key: string; message: string }) {
+    return steering.steer(input);
+  },
   /** Ring the doorbell of a pending message again. */
   ring(input: Selector) {
     return steering.ring(input);

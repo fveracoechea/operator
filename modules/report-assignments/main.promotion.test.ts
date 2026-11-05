@@ -5,6 +5,7 @@ import { ErrAsync, OkAsync } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { WorkerQuestions } from "../worker-questions/main.ts";
 import { ReportAssignments } from "./main.ts";
 import { okValue, reportDevice, socket, superPane, workerPane } from "./report-fixture.ts";
 
@@ -77,6 +78,7 @@ function herdr(agents: string[]) {
     agent: spyOn(Herdr, "renameAgent").mockReturnValue(OkAsync(undefined)),
     tab: spyOn(Herdr, "renameTab").mockReturnValue(OkAsync(undefined)),
     close: spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const)),
+    prompt: spyOn(Herdr, "prompt").mockReturnValue(OkAsync(null)),
   };
 }
 
@@ -94,7 +96,10 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
   const brief = device.assignmentFiles(sourceId, "build").brief;
   const { reports } = device.assignmentFiles(sourceId);
 
-  expect(okValue(await promote(sourceId))).toEqual({
+  const result = okValue(await promote(sourceId));
+  const { sentAt, rungAt } = result.data.message ?? expect.unreachable("The message is missing.");
+  expect(rungAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  expect(result).toEqual({
     reason: "report_promoted",
     data: {
       sourceId,
@@ -113,9 +118,26 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
         name: "pr-one-9-build",
         brief,
       },
-      next: "notify_worker",
+      message: {
+        sourceId,
+        assignment: "build",
+        key: "promoted",
+        state: "pending",
+        message: `The SuperAgent promoted your report into the PR assignment build, which you now own. Read your new brief at ${brief} and follow it.`,
+        questionKey: null,
+        sentAt,
+        rungAt,
+        doorbellFailure: null,
+        acknowledgedAt: null,
+        reply: null,
+      },
+      next: "wait",
     },
   });
+  // The only typed text is the doorbell of the recorded message, in the kept worker's pane.
+  expect(called.prompt.mock.calls).toEqual([
+    [{ name: "pr-one-9-build", text: "Operator recorded steering message promoted for you." }],
+  ]);
   // The pane stays open and takes the PR launch's name. The branch takes the PR branch.
   expect(called.close).not.toHaveBeenCalled();
   expect(called.agent.mock.calls).toEqual([[{ paneId: workerPane, name: "pr-one-9-build" }]]);
@@ -163,13 +185,16 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
   expect(text).toContain("### `read` report 1");
   expect(text).toContain("## PR feedback loop");
   expect(await next(sourceId)).toMatchObject({
-    actions: [
-      { assignment: "later", action: "ready_assignment" },
-      { assignment: "build", action: "notify_worker", reason: "assignment_promoted", brief },
-    ],
+    actions: [{ assignment: "later", action: "ready_assignment" }],
+    waits: [{ assignment: "build", reason: "assignment_active" }],
   });
   // The worker's PR commands find the PR launch through its pane. A report command finds none.
   device.inPane(workerPane);
+  expect(
+    okValue(
+      await WorkerQuestions.acknowledge({ paths: device.paths, key: "promoted", file: null }),
+    ),
+  ).toMatchObject({ reason: "message_acknowledged", data: { state: "acknowledged" } });
   expect(await ReportAssignments.resume({ paths: device.paths })).toMatchObject({
     error: { reason: "assignment_not_report" },
   });
