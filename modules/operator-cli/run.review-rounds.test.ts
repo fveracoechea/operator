@@ -257,7 +257,7 @@ test("two simultaneous waits start one round and prompt the reviewer once", asyn
     comments: [{ id: "p1", author: "author", body: "@owner please look again.", createdAt: now() }],
   });
   // Both waits read the request before either writes, so only the transaction guard decides.
-  await current.github({ reviewReadDelayMs: 1500 });
+  await current.github({ reviewReadBarrier: 2 });
   const results = await Promise.all([
     current.run(["review", "wait", "--timeout", "2"]),
     current.run(["review", "wait", "--timeout", "2"]),
@@ -274,14 +274,14 @@ test("a quiet watching request goes stale after seven days, and author activity 
   current.sql("UPDATE review_requests SET activity_at = ?", old);
   current.sql("UPDATE review_rounds SET posted_at = ?", old);
   // Two simultaneous waits that both read the request before either writes set the flag once.
-  await current.github({ reviewReadDelayMs: 1500 });
+  await current.github({ reviewReadBarrier: 2 });
   const results = await Promise.all([
     current.run(["review", "wait", "--timeout", "1"]),
     current.run(["review", "wait", "--timeout", "1"]),
   ]);
   const events = results.flatMap((result) => waitSchema.parse(result.output).data.events);
   expect(events.filter((event) => event.kind === "review_stale")).toHaveLength(1);
-  await current.github({ reviewReadDelayMs: 0 });
+  await current.github({ reviewReadBarrier: 0 });
   expect(await current.next()).toMatchObject([
     { state: "watching", stale: true, wait: "review_watching" },
   ]);
