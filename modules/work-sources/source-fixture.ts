@@ -6,6 +6,7 @@ type Planned = {
   completion: "pr" | "report";
   state: string;
   dependencies?: string[];
+  intent?: string;
 };
 
 export const sourceId = "one";
@@ -35,6 +36,7 @@ export function storedSource(
             instructions: `Do ${row.key}.`,
             completion: row.completion,
             dependencies: row.dependencies ?? [],
+            intent: row.intent,
           };
           return row.completion === "pr"
             ? { ...base, resources: "worktree", branch: `task/${row.key}` }

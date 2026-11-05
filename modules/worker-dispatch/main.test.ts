@@ -231,6 +231,42 @@ test("a plan that turns internal review off gives a ready PR, and an assignment 
   );
 });
 
+test("an assignment's intent wins over the plan's in the brief", async () => {
+  await using device = await dispatchDevice();
+  const pr = { completion: "pr", resources: "worktree", dependencies: [], instructions: "Fix." };
+  await Bun.write(
+    `${device.root}/intent.json`,
+    JSON.stringify({
+      trackerKey: "github:example/one#9",
+      intent: "Fix every flaky test.",
+      assignments: [
+        { ...pr, key: "plan", trackerKey: "github:example/one#10", branch: "task/plan" },
+        {
+          ...pr,
+          key: "own",
+          trackerKey: "github:example/one#11",
+          branch: "task/own",
+          intent: "Fix only the merge test.",
+        },
+      ],
+    }),
+  );
+  const registered = await WorkSources.register({
+    paths: device.paths,
+    cwd: device.checkout,
+    file: `${device.root}/intent.json`,
+  });
+  const sourceId = registered.tag === "Ok" ? registered.value.id : "";
+  for (const assignment of ["plan", "own"])
+    expect(
+      await WorkerDispatch.dispatch({ ...device.request(assignment), sourceId }),
+    ).toMatchObject({ tag: "Ok" });
+  expect(await briefOf(device, sourceId, "plan")).toContain("> Fix every flaky test.");
+  const own = await briefOf(device, sourceId, "own");
+  expect(own).toContain("> Fix only the merge test.");
+  expect(own).not.toContain("Fix every flaky test.");
+});
+
 test("a device that turns internal review off gives a ready PR", async () => {
   await using device = await dispatchDevice();
   const shown = await DeviceSettings.show(device.paths);

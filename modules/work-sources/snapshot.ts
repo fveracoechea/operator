@@ -141,6 +141,8 @@ function withPromotions(plan: Plan, promotions: Promotion[]) {
       key: promotion.assignment,
       trackerKey: promotion.trackerKey,
       instructions: promotion.instructions,
+      // The promoted work answers the report's intent and keeps its start profile.
+      intent: plan.assignments.find((row) => row.key === promotion.report)?.intent,
       profile: plan.assignments.find((row) => row.key === promotion.report)?.profile,
       dependencies: [promotion.report],
       completion: "pr" as const,

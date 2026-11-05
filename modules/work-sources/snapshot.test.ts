@@ -359,7 +359,9 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
 });
 
 test("a promoted PR assignment joins the plan with the accepted report as its dependency", () => {
-  const read = storedSource([{ key: "read", completion: "report", state: "completed" }], {
+  // The person's words for the report also state what the promoted PR must do.
+  const intent = "Find out why the merge is slow, then fix it.";
+  const read = storedSource([{ key: "read", completion: "report", state: "completed", intent }], {
     launches: [
       storedLaunch("read", { state: "finished", worktreePath: "/worktrees/read" }),
       storedLaunch("build", { resources: "worktree", worktreePath: "/worktrees/read" }),
@@ -382,6 +384,7 @@ test("a promoted PR assignment joins the plan with the accepted report as its de
     key: "build",
     trackerKey: "APP-build",
     instructions: "Build build.",
+    intent,
     profile: undefined,
     dependencies: ["read"],
     completion: "pr",

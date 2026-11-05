@@ -8,6 +8,8 @@ type BriefInput = {
   completion: "pr" | "report";
   profile: string | null;
   instructions: string;
+  /** The person's own words, or null when neither the assignment nor the plan gives them. */
+  intent: string | null;
   workingDirectory: string;
   /** The worktree branch, or null for read-only work in a pane of the checkout. */
   branch: string | null;
@@ -35,6 +37,19 @@ function quote(text: string) {
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
+}
+
+/** The person's words are the acceptance criteria, and the instructions are the SuperAgent's spec. */
+function acceptanceCriteria(input: BriefInput) {
+  if (input.intent === null) return "";
+  return `
+## Acceptance criteria
+
+The person gave these words for this work. They are its acceptance criteria.
+The task instructions above are the SuperAgent's spec for meeting them. Ask your supervising SuperAgent when the two disagree.
+
+${quote(input.intent)}
+`;
 }
 
 /** The content is copied, because a reset or removal can delete the producer's report file. */
@@ -184,7 +199,7 @@ Read all of it before you start.
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
 ${input.instructions}
-${dependencyReports(input)}${promotion(input)}
+${acceptanceCriteria(input)}${dependencyReports(input)}${promotion(input)}
 ## Grilling authority
 
 The task instructions state who answers questions and what the SuperAgent may decide.

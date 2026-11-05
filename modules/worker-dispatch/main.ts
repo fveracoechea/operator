@@ -74,6 +74,7 @@ function assignmentFacts(input: Request, actions = dispatchActions) {
           ? notDispatchable(input.assignment)
           : Ok({
               ...planned,
+              intent: planned.intent ?? source.plan.intent ?? null,
               sourceTrackerKey: source.trackerKey,
               dependencyReports: WorkSources.dependencyReports(source, planned.key),
             });
@@ -235,6 +236,7 @@ function writeBrief(
         completion: settings.planned.completion,
         profile: settings.launch.profile,
         instructions: settings.planned.instructions,
+        intent: settings.planned.intent,
         workingDirectory: placement.workingDirectory,
         branch,
         reports: { directory: files.reports, files: await listFiles(files.reports) },

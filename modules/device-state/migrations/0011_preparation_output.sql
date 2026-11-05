@@ -1,0 +1,1 @@
+ALTER TABLE `worktree_preparations` ADD `installed` text;
