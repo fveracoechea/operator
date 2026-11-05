@@ -115,3 +115,43 @@ test("refuses frontmatter it cannot read", async () => {
     stdout: "",
   });
 });
+
+const workerFrontmatter = ["name: worker-agent", "description: Use when a SuperAgent delegates."];
+
+test("refuses a worker instruction that messages its SuperAgent, in the router or a topic", async () => {
+  expect(
+    await checkSkills({
+      "worker-agent/SKILL.md": router(workerFrontmatter, [
+        "Then tell your SuperAgent through Herdr that the report is submitted.",
+        "Read [TOPIC.md](TOPIC.md) for PRs.",
+      ]),
+      "worker-agent/TOPIC.md": "# Topic\n\nStop and tell your SuperAgent.\n",
+    }),
+  ).toEqual({
+    exitCode: 1,
+    stderr: [
+      "worker-agent/SKILL.md:7: a worker reaches its SuperAgent only through recorded state, not a message",
+      "worker-agent/TOPIC.md:3: a worker reaches its SuperAgent only through recorded state, not a message",
+      "",
+    ].join("\n"),
+    stdout: "",
+  });
+});
+
+test("accepts a worker instruction that uses recorded state, and other skills that name Herdr", async () => {
+  expect(
+    await checkSkills({
+      "worker-agent/SKILL.md": router(workerFrontmatter, [
+        "Record a question for your supervising SuperAgent with `operator question ask`.",
+      ]),
+      "super-agent/SKILL.md": router(
+        ["name: super-agent", "description: Use when supervising."],
+        ["Tell the SuperAgent next door through Herdr."],
+      ),
+    }),
+  ).toEqual({
+    exitCode: 0,
+    stderr: "",
+    stdout: "",
+  });
+});

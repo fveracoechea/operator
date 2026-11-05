@@ -24,16 +24,16 @@ Send each request to an owner as a steering message, as [steering.md](steering.m
 Dispatch refuses a replacement with `pr_worktree_missing` when the PR's worktree is gone. Ask the person how to recover it.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
-A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
+A `merge_eligible` wait result is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
 
 ## Internal review
 
 An internal review is on by default for each PR assignment, and an assignment, a plan, or `review.internal` can turn it off.
-With it on, the implementer opens a draft PR, associates it, tells you that the draft is ready for internal review, and stops.
+With it on, the implementer opens a draft PR, associates it, and stops. It sends you no message.
 A fresh reviewer then takes over the same worktree and owns the PR until its merge.
 In this release, you do the handoff, and Operator does not record or check the review.
 
-1. After that message, `next` shows `owner_attention` with `pr_owner_idle` for the assignment. This is the handoff point, not a stuck owner.
+1. Your coordination wait returns `owner_attention` with `pr_owner_idle` for the assignment and its draft PR. This is the handoff point, not a stuck owner.
 2. Inspect the worktree: `git status --short` prints nothing, and `git status -sb` shows no commits ahead of the remote. Otherwise tell the implementer to commit and push in a steering message.
 3. Close the implementer's pane with `herdr pane close <pane>`.
 4. `next` then shows `replace_worker` with `worker_interrupted`. Dispatch it. The new launch reopens the worktree, and its brief makes it the internal reviewer.

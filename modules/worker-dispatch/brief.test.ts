@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { superAgentMessages } from "../../lib/superagent-messages.ts";
 import { renderBrief } from "./brief.ts";
 
 const input = {
@@ -202,9 +203,9 @@ ${authority}
 
 ## Results and reporting
 
-- Report to your supervising SuperAgent through Herdr, not directly to the person.
-- Give a short conclusion, evidence references, unresolved points, and paths to detailed files.
-- Put detailed supporting files in \`/state/reports\`.
+- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
+- In the PR body, give a short conclusion, evidence references, and unresolved points.
+- Put detailed supporting files in \`/state/reports\`, where your SuperAgent reads them.
 - Herdr activity does not prove that the work is submitted or complete.
 
 ## PR feedback loop
@@ -269,11 +270,11 @@ ${authority}
 
 ## Results and reporting
 
-- Report to your supervising SuperAgent through Herdr, not directly to the person.
+- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
 - Write a JSON report outside the project checkout with \`conclusion\`, \`evidence\`, \`unresolved\`, and optional \`decisions\` and \`files\`.
 - \`evidence\` and \`unresolved\` are lists of short text. \`files\` lists absolute paths of detailed supporting files.
 - Each decision has \`question\`, \`answer\`, and \`by\`. Use \`person\` only for an answer that the person gave. Use \`super-agent\` for a SuperAgent decision.
-- Submit it from this pane with \`operator report submit --file <path> --json\`, then tell your supervising SuperAgent.
+- Submit it from this pane with \`operator report submit --file <path> --json\`. Your SuperAgent's coordination wait returns it, so send no message.
 - Operator stores the report and copies of the supporting files in \`/state/reports\`.
 - Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.
 - When you receive follow-up instructions, run \`operator report resume --json\` in this pane before you continue, then submit a new report.
@@ -310,7 +311,7 @@ test("an open PR's loop lists each step, and dependency reports are separate blo
       ],
     }),
   ).toContain(
-    "Implement the accepted report.\n\n## Accepted dependency reports\n\nThe SuperAgent accepted these reports of the assignments that this work depends on.\nCheck whether each unresolved point applies to your task. Tell your supervising SuperAgent about each point that does.\n\n### `a` report 1\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n### `b` report 2\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n## Grilling authority",
+    "Implement the accepted report.\n\n## Accepted dependency reports\n\nThe SuperAgent accepted these reports of the assignments that this work depends on.\nCheck whether each unresolved point applies to your task. Record a question for your supervising SuperAgent about each point that does.\n\n### `a` report 1\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n### `b` report 2\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n## Grilling authority",
   );
 });
 
@@ -324,7 +325,7 @@ Target the default branch.
 Push with \`git push -u\`, so Git records the remote of your branch.
 Then run \`operator pr associate --json\` in your worktree.
 Do not mark the PR ready for review. A fresh reviewer takes over the PR and owns it until its merge.
-Tell your supervising SuperAgent that the draft PR is ready for internal review, then stop.
+Then stop, and send no message. Your SuperAgent's coordination wait shows the handoff to internal review.
 
 ## Earlier reports`);
   expect(brief).not.toContain("operator pr wait");
@@ -360,4 +361,22 @@ test("a report brief ignores internal review", () => {
   expect(renderBrief({ ...input, completion: "report", internalReview: true })).not.toMatch(
     /draft|internal review/i,
   );
+});
+
+test("no brief tells the worker to message its SuperAgent, which it reaches only through records", () => {
+  const dependency = {
+    assignment: "a",
+    report: 1,
+    reference: "r",
+    conclusion: "c",
+    unresolved: ["u"],
+  };
+  for (const brief of [
+    input,
+    { ...input, internalReview: true },
+    { ...input, pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" } },
+    { ...input, stack: { assignment: "parent", number: 6, branch: "task/1" } },
+    { ...input, completion: "report" as const, branch: null, dependencyReports: [dependency] },
+  ])
+    expect(superAgentMessages(renderBrief(brief))).toEqual([]);
 });
