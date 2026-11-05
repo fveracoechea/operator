@@ -35,3 +35,15 @@ test("other errors stay defects", () => {
   const plain = new TypeError("defect");
   expect(qualify(plain, defect)).toEqual({ defect: plain });
 });
+
+test("a message command names its own subject in a refusal", () => {
+  expect(qualify(new SyntaxError("Unexpected token"), defect, "message")).toEqual({
+    reason: "invalid_message_input",
+    detail: "Unexpected token Nothing changed.",
+  });
+  const cause = Object.assign(new Error("ENOENT: failed"), { code: "ENOENT" });
+  expect(qualify(cause, defect, "message")).toEqual({
+    reason: "message_io_failed",
+    detail: "Error: ENOENT: failed",
+  });
+});

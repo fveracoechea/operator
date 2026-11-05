@@ -13,7 +13,7 @@ operator report return --source <source-id> --assignment <key> --file <follow-up
 ```
 
 Return specific follow-up instructions when the report is not sufficient.
-After a return, `next` shows `resume_worker` when the worker is still live. Send it the follow-up path through Herdr.
+After a return, `next` shows `resume_worker` when the worker is still live. Tell it in a steering message to run `operator report resume --json`, as [steering.md](steering.md) says.
 It runs `operator report resume --json` and submits a new report.
 When the worker stopped, `next` shows `replace_worker`. Dispatch again, and the new brief lists every earlier report and follow-up.
 
@@ -43,8 +43,8 @@ The new PR assignment depends on the accepted report and keeps the report's star
 Promotion refuses a pane report, an ended source, a taken key, and a report that is not awaiting acceptance. A report is promoted at most once.
 Promotion keeps the pane and the worktree, renames the worktree branch to `branch`, and closes nothing.
 
-`next: "notify_worker"` means that the worker still runs and now owns the PR assignment under a new Herdr name. Its brief was rewritten from the PR template.
-`next` shows `notify_worker` with that `brief` until Herdr sees the worker work again. Tell the worker through Herdr to read the brief at that path.
+`next: "wait"` means that the worker still runs and now owns the PR assignment under a new Herdr name. Its brief was rewritten from the PR template.
+The promotion recorded the steering message `promoted`, which tells the worker to read that brief, and `message` shows it. Send nothing more. Handle its attention as [steering.md](steering.md) says.
 `next: "dispatch"` means that the worker had stopped. `next` shows the PR assignment as `ready_assignment`, and dispatch starts it in the same worktree.
 A promoted assignment follows the PR lifecycle, internal review, and reset like any other.
 

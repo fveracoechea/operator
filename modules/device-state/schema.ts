@@ -331,6 +331,36 @@ export const workerQuestions = sqliteTable(
   ],
 );
 
+// A SuperAgent's steering message to a running worker, keyed within its assignment. A doorbell
+// names the record, and the worker acknowledges it. An answer to a question is a message too.
+export const workerMessages = sqliteTable(
+  "worker_messages",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    key: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    message: text().notNull(),
+    questionKey: text("question_key"),
+    sentAt: text("sent_at").notNull(),
+    state: text().notNull(),
+    rungAt: text("rung_at"),
+    doorbellFailure: text("doorbell_failure"),
+    acknowledgedAt: text("acknowledged_at"),
+    reply: text(),
+    endedAt: text("ended_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment, table.key] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
 // A review request is not an assignment. One request per PR is open until it is closed or skipped.
 // An approved request stays open, so a renewed request reopens it. The approval cleans up its reviewer.
 export const reviewRequests = sqliteTable(

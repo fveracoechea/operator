@@ -133,7 +133,7 @@ test("startup upgrades matching older history before a state-free handler and ve
     output: { reason: "version_reported" },
   });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(17);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(18);
   expect(db.query("SELECT * FROM sources").all()).toEqual([]);
   const copies = await backups();
   expect(copies).toHaveLength(1);
@@ -292,7 +292,7 @@ test("skipped releases apply each fixed migration in order with one pre-migratio
   );
   expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(18);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(19);
   expect(db.query("SELECT * FROM later").all()).toEqual([{ repository: "example/one" }]);
   expect(await backups()).toHaveLength(1);
 });
@@ -345,10 +345,10 @@ test("device-wide active assignments and migration-specific held records stop st
     output: { reason: "state_migration_blocked" },
   });
   expect((await backups()).toSorted()).toEqual(copies.toSorted());
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(17);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(18);
   db.exec("UPDATE sources SET state = 'finished'");
   expect((await run(["--version"], entry)).code).toBe(0);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(18);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(19);
 });
 
 test("retention keeps three verified backups only after success and corruption names the latest valid copy", async () => {
@@ -423,7 +423,7 @@ Database.prototype.serialize = function(...args) {
   );
   expect(await backups()).toHaveLength(1);
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(17);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(18);
 });
 
 test("a pending migration has a definite writer timeout and never runs its handler", async () => {

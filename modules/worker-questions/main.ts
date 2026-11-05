@@ -1,11 +1,20 @@
-import { Err, Ok, fromPromise, type Result } from "unthrown";
+import { Err, Ok, fromPromise } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
-import { Environment } from "../environment/main.ts";
-import type { OperatorHome } from "../operator-home/main.ts";
-import { Projects } from "../projects/main.ts";
-import { answerSchema, questionSchema } from "./content.ts";
+import { answerKey, answerSchema, questionSchema } from "./content.ts";
+import { acknowledge, pendingMessage, ring, steering } from "./steering.ts";
 import { qualify } from "./failures.ts";
+import {
+  caller,
+  now,
+  stop,
+  superAgentTarget,
+  workerPane,
+  type Failure,
+  type Paths,
+  type Selector,
+  type Target,
+} from "./targets.ts";
 import {
   decideQuestion,
   decideQuestionWait,
@@ -14,52 +23,12 @@ import {
   type QuestionState,
 } from "./question-machine.ts";
 
-type Paths = ReturnType<typeof OperatorHome.resolve>;
-type Failure = { reason: string; detail: string };
-type Target = Parameters<typeof DeviceState.readQuestion>[1];
 type Facts = Extract<ReturnType<typeof DeviceState.readQuestion>, { tag: "Ok" }>["value"];
 type Row = NonNullable<Facts["question"]>;
-type Selector = { paths: Paths; cwd: string; sourceId: string; assignment: string; key: string };
 
 // The wait reads only device state, so it can look often without an external limit.
 const pollMs = 1000;
 const stateSchema = z.enum(["open", "awaiting_person", "answered", "withdrawn", "abandoned"]);
-
-/** Carry an earlier step's refusal or defect into the command result. Its callback never runs. */
-function stop(result: Result<unknown, Failure>): Result<never, Failure> {
-  // Stryker disable next-line ArrowFunction: equivalent: the callback runs only for a success, and no caller stops a success
-  return result.flatMap(() => stop(result));
-}
-
-/** The pane that runs a command. A worker's pane identifies its assignment. */
-function caller() {
-  const environment = Environment.read();
-  return {
-    socket: environment.HERDR_SOCKET_PATH ?? null,
-    paneId: environment.HERDR_PANE_ID ?? null,
-  };
-}
-
-function workerPane(): Result<Target, Failure> {
-  const { socket, paneId } = caller();
-  return socket === null || paneId === null
-    ? Err({
-        reason: "worker_pane_required",
-        detail:
-          "Run this command in the Herdr pane that Operator dispatched for the assignment. Nothing changed.",
-      })
-    : Ok({ by: "pane", socket, paneId });
-}
-
-function superAgentTarget(input: Selector) {
-  return Projects.current(input).map(({ data }) => ({
-    by: "key" as const,
-    repository: data.repository,
-    checkout: data.checkout,
-    sourceId: input.sourceId,
-    assignment: input.assignment,
-  }));
-}
 
 function decide(facts: Facts, command: QuestionCommand) {
   return decideQuestion({
@@ -105,10 +74,6 @@ function change(
       return { update };
     }),
   ).flatMap(() => DeviceState.readQuestion(paths, target, key));
-}
-
-function now() {
-  return new Date().toISOString();
 }
 
 function recordedSummary(facts: Facts) {
@@ -171,13 +136,33 @@ function answer(input: Selector & { by: AnswerAuthority; file: string }) {
       const target = await superAgentTarget(input);
       if (target.tag !== "Ok") return stop(target);
       const text = answerSchema.parse(await Bun.file(input.file).text());
-      return change(input.paths, target.value, input.key, "answer", () => ({
-        answer: text,
-        answeredBy: input.by,
-        answeredAt: now(),
-      }))
+      const key = answerKey(input.key);
+      // The answer reaches the worker as a steering message, recorded with the answer itself.
+      const changed = DeviceState.changeQuestion(input.paths, target.value, input.key, (facts) =>
+        decide(facts, "answer").map(({ state }) => {
+          const answeredAt = now();
+          return {
+            update: { answer: text, answeredBy: input.by, answeredAt, state },
+            message: pendingMessage(facts, {
+              key,
+              message: text,
+              questionKey: input.key,
+              sentAt: answeredAt,
+            }),
+          };
+        }),
+      );
+      if (changed.tag !== "Ok") return stop(changed);
+      // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: an unanswered question belongs to a running launch, so the launch is never null here
+      const worker = changed.value.facts.launch?.name ?? "";
+      const rung = await ring(input.paths, target.value, key, worker);
+      if (rung.tag !== "Ok") return stop(rung);
+      return DeviceState.readQuestion(input.paths, target.value, input.key)
         .flatMap(recordedSummary)
-        .map((data) => ({ reason: "question_answered", data }));
+        .map((data) => ({
+          reason: "question_answered",
+          data: { ...data, message: key, doorbellFailure: rung.value.doorbellFailure },
+        }));
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
@@ -204,6 +189,12 @@ async function poll(
     if (current.tag !== "Ok") return stop(current);
     const { facts, row, state } = current.value;
     const reason = decideQuestionWait(started, state);
+    if (reason === "question_answered") {
+      // Reading the answer acknowledges the steering message that delivered it.
+      const read = acknowledge(input.paths, input.target, answerKey(input.key), null);
+      if (read.tag === "Defect" || (read.tag === "Err" && read.error.reason !== "message_not_open"))
+        return stop(read);
+    }
     if (reason !== null) return Ok({ reason, data: summary(facts, row) });
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
     if (Date.now() >= deadline)
@@ -212,7 +203,7 @@ async function poll(
   }
 }
 
-/** The worker's blocking read of its own question. It records nothing. */
+/** The worker's blocking read of its own question. It records only the read of an answer. */
 function wait(input: { paths: Paths; key: string; timeoutSeconds: number }) {
   return fromPromise(
     async () => {
@@ -231,8 +222,10 @@ function wait(input: { paths: Paths; key: string; timeoutSeconds: number }) {
 }
 
 /**
- * Recorded worker questions: the worker asks, waits, and withdraws from its own pane, and the
- * supervising SuperAgent answers with the authority of the answer or moves it to the person.
+ * Recorded worker questions and steering messages. The worker asks, waits, withdraws, reads, and
+ * acknowledges from its own pane. The supervising SuperAgent answers with the authority of the
+ * answer, moves a question to the person, and sends, rings, and closes steering messages. An
+ * answer reaches the worker as a steering message, so one doorbell serves both.
  */
 export const WorkerQuestions = {
   ask(input: { paths: Paths; file: string }) {
@@ -249,5 +242,31 @@ export const WorkerQuestions = {
   },
   answer(input: Selector & { by: AnswerAuthority; file: string }) {
     return answer(input);
+  },
+  /** Record a steering message for the running worker and ring its doorbell. */
+  send(input: Omit<Selector, "key"> & { file: string }) {
+    return steering.send(input);
+  },
+  /**
+   * Record a steering message that another operation composes, such as the handover of a
+   * promoted report's worker, and ring its doorbell. ADR-0023.
+   */
+  steer(input: Omit<Selector, "key"> & { key: string; message: string }) {
+    return steering.steer(input);
+  },
+  /** Ring the doorbell of a pending message again. */
+  ring(input: Selector) {
+    return steering.ring(input);
+  },
+  /** End a message, after its reply or instead of a pending acknowledgement. */
+  close(input: Selector) {
+    return steering.close(input);
+  },
+  read(input: { paths: Paths; key: string }) {
+    return steering.read(input);
+  },
+  /** The worker's acknowledgement, with a reply when a file is given. */
+  acknowledge(input: { paths: Paths; key: string; file: string | null }) {
+    return steering.acknowledge(input);
   },
 };

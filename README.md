@@ -242,6 +242,21 @@ The WorkerAgent asks, waits for the answer, and withdraws from its own pane.
 `next` shows an open question as `answer_question`, and a question that the SuperAgent escalates to the person as `person_decision`.
 Only the SuperAgent answers, and `--by person` records an answer that the person gave.
 
+### Steering messages
+
+```sh
+operator message send --source <source-id> --assignment <key> --file <message.json> --json
+operator message ring --source <source-id> --assignment <key> --key <message> --json
+operator message close --source <source-id> --assignment <key> --key <message> --json
+operator message read --key <message> --json
+operator message ack --key <message> [--file <reply.md>] --json
+```
+
+The SuperAgent records a keyed message for a running WorkerAgent, and the CLI types a fixed doorbell line that names the key into the worker's pane.
+The WorkerAgent reads and acknowledges the message from its own pane, with an optional reply.
+`next` shows a reply as `read_reply` until the SuperAgent closes the message, and a message whose doorbell failed or that stays pending for 15 minutes as `worker_attention`.
+An answer to a worker question reaches the worker as the message `answer:<question>`, and `question wait` acknowledges it.
+
 ### Pull requests
 
 ```sh

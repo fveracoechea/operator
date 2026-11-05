@@ -8,6 +8,7 @@ import { runDispatch } from "./dispatch.ts";
 import { runPullRequests } from "./pull-requests.ts";
 import { runReports } from "./reports.ts";
 import { runQuestions } from "./questions.ts";
+import { runMessages } from "./messages.ts";
 import { runReviews } from "./reviews.ts";
 import { runProject } from "./projects.ts";
 import { runSettings } from "./settings.ts";
@@ -33,6 +34,7 @@ export async function run(args: string[]): Promise<void> {
     runPullRequests,
     runReports,
     runQuestions,
+    runMessages,
     runReviews,
   ]) {
     if (await handler(args, started.paths, json)) return;

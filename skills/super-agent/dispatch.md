@@ -32,7 +32,7 @@ A reopened worktree whose preparation did not finish is prepared again before th
 Inspect the recorded pane or worktree before you replace a worker.
 
 `worker_attention` with `worker_idle` means that Herdr reports the live worker `idle` or `done`, and the worker has no PR and no submitted report.
-Ask the worker for its status through Herdr.
+Ask the worker for its status in a steering message, as [steering.md](steering.md) says.
 A host can report idle during a long command. Ask before you close the pane.
 If it cannot continue, for example after it lost its context, close its pane with `herdr pane close`.
 `next` then shows `replace_worker` with `worker_interrupted`, and the replacement reopens the recorded worktree with its partial work.

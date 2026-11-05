@@ -11,12 +11,13 @@ The relay and the owner's `operator pr merge` own every rebase, push, base chang
 Use `gh stack view --json` only to read a stack. Run no other `gh stack` command, and ask no owner to run one.
 
 `next` shows each PR with its number, URL, and last wait state.
+Send each request to an owner as a steering message, as [steering.md](steering.md) says.
 
 - `wait` with `pr_feedback_loop`: the owner is in its loop. Do nothing.
-- `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner through Herdr for its status.
-- `owner_attention` with `pr_wait_stopped`: the owner's wait process ended without a result, for example after a shell timeout. Ask the owner through Herdr to wait again.
-- `owner_attention` with `pr_owner_idle`: Herdr reports the owner idle or done and no wait runs. Ask the owner for its status.
-- `owner_attention` with `pr_relay_blocked`: the relay stopped at a conflict, uncommitted or unpushed work, or a failed Git or GitHub step, and kept the branch. The `stack.blocker` names the reason. Ask the owner to resolve it and wait again. A closed parent, or a parent merged outside the default branch, needs the person.
+- `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner for its status in a steering message.
+- `owner_attention` with `pr_wait_stopped`: the owner's wait process ended without a result, for example after a shell timeout. Tell the owner to wait again in a steering message.
+- `owner_attention` with `pr_owner_idle`: Herdr reports the owner idle or done and no wait runs. Ask the owner for its status in a steering message.
+- `owner_attention` with `pr_relay_blocked`: the relay stopped at a conflict, uncommitted or unpushed work, or a failed Git or GitHub step, and kept the branch. The `stack.blocker` names the reason. Tell the owner to resolve it and wait again in a steering message. A closed parent, or a parent merged outside the default branch, needs the person.
 - `owner_attention` with `pr_not_open`: the PR was merged or closed outside the CLI. A merged PR completes when the owner runs `operator pr merge --json`, which verifies the merge without another merge request. For a closed PR, the assignment stays `pr-open`, and a new PR for it refuses with `pr_already_associated`. Ask the person what to do.
 - `replace_worker`: the owner's pane ended or its launch failed. Inspect the recorded worktree first. A new dispatch keeps the PR, its wait progress, and the worktree, and the brief tells the replacement to read the PR before it waits.
 
@@ -46,7 +47,7 @@ A `replace_worker` after the review ended starts the PR owner. Its brief says ho
 
 To skip a running internal review, on the person's instruction only, run `operator internal-review skip --source <id> --assignment <key> --person-instructed --json` from the controlling checkout.
 It marks the PR ready with no comment and records the skip. The reviewer keeps the PR as its owner, and its next `operator pr round` or `operator pr ready` refuses with `internal_review_ended`.
-A draft associated before this release has no recorded review, so its replacement owner's brief does not make it the reviewer. Tell that owner to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
+A draft associated before this release has no recorded review, so its replacement owner's brief does not make it the reviewer. Tell that owner in a steering message to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
 
 ## Cleanup after a verified merge
 

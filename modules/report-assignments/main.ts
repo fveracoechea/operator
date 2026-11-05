@@ -10,6 +10,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
+import { WorkerQuestions } from "../worker-questions/main.ts";
 import { realPathOrNull } from "../../lib/real-path.ts";
 import { renderReport, submissionSchema, type Submission } from "./content.ts";
 import { qualify } from "./failures.ts";
@@ -468,12 +469,27 @@ function handoverLaunch(
     endedAt: null,
     failureReason: null,
     failureDetail: null,
-    // No observation since the handover, so next shows notify_worker until Herdr sees it work.
+    // No observation since the handover. The worker reads its brief from a steering message.
     activity: null,
     activityAt: null,
     ownerPid: null,
     leaseAt: null,
   };
+}
+
+/**
+ * Rewrite the kept worker's brief from the PR template, then tell the worker to read it in a
+ * recorded steering message. A stopped worker gets its brief at dispatch. ADR-0022 and ADR-0023.
+ */
+async function steerKeptWorker(request: PromoteInput, kept: boolean) {
+  if (!kept) return Ok({ brief: null, message: null });
+  const brief = await WorkerDispatch.refreshBrief(request);
+  if (brief.tag !== "Ok") return stop(brief);
+  return WorkerQuestions.steer({
+    ...request,
+    key: "promoted",
+    message: `The SuperAgent promoted your report into the PR assignment ${request.assignment}, which you now own. Read your new brief at ${brief.value} and follow it.`,
+  }).map(({ data }) => ({ brief: brief.value, message: data }));
 }
 
 type PromoteInput = {
@@ -578,9 +594,8 @@ function promote(input: PromoteInput) {
         const undone = await handover.value.undo(recorded);
         return stop(undone.tag === "Ok" ? recorded : undone);
       }
-      const request = { ...input, assignment: planned.key };
-      const brief = taken === null ? null : await WorkerDispatch.refreshBrief(request);
-      if (brief !== null && brief.tag !== "Ok") return stop(brief);
+      const kept = await steerKeptWorker({ ...input, assignment: planned.key }, taken !== null);
+      if (kept.tag !== "Ok") return stop(kept);
       const report = await acceptedReport(input);
       if (report.tag !== "Ok") return stop(report);
       const { number, conclusion, unresolved, reference } = report.value;
@@ -601,10 +616,11 @@ function promote(input: PromoteInput) {
             branch,
             worktreePath: launch.worktreePath,
             name,
-            brief: brief?.value ?? null,
+            brief: kept.value.brief,
           },
-          // A kept worker reads its new brief only when told. A stopped one needs a dispatch.
-          next: taken === null ? "dispatch" : "notify_worker",
+          message: kept.value.message,
+          // A kept worker reads its new brief from the message. A stopped one needs a dispatch.
+          next: taken === null ? "dispatch" : "wait",
         },
       });
     },
