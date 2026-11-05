@@ -16,6 +16,7 @@ import {
 } from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import { owned, reviewEnded } from "./internal-review.ts";
 
 type Request = { paths: Paths; cwd: string };
 type Failure = { reason: string; detail: string };
@@ -130,6 +131,7 @@ function guarded(
     observed,
     localHead: local,
     stackRelayed: relay === null || relay.state === "relayed",
+    reviewEnded: reviewEnded(owner),
   });
   if (decision.result === "refused")
     return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
@@ -177,21 +179,24 @@ async function requestMerge(
 
 /**
  * The owner's guarded merge. A fresh GitHub observation must show approval, passing checks,
- * no unresolved thread, and the default branch as base, and the owner's worktree must hold the
- * PR head. A refusal performs no merge request and writes nothing.
+ * no unresolved thread, and the default branch as base, any internal review must have ended
+ * ready or skipped, and the owner's worktree must hold the PR head. A refusal performs no merge
+ * request and writes nothing.
  */
 export function merge(input: Request) {
-  return resolveOwner(input).flatMap((owner): AsyncResult<Outcome, Failure> => {
-    const number = owner.pullRequest;
-    if (number === null)
-      return ErrAsync<Failure>({
-        reason: "pr_not_associated",
-        detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
-      });
-    return observePullRequest(owner.repository, number).flatMap((observed) =>
-      fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
-        guarded(input, owner, number, observed, local),
-      ),
-    );
-  });
+  return resolveOwner(input)
+    .flatMap(owned)
+    .flatMap((owner): AsyncResult<Outcome, Failure> => {
+      const number = owner.pullRequest;
+      if (number === null)
+        return ErrAsync<Failure>({
+          reason: "pr_not_associated",
+          detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
+        });
+      return observePullRequest(owner.repository, number).flatMap((observed) =>
+        fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
+          guarded(input, owner, number, observed, local),
+        ),
+      );
+    });
 }

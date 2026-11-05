@@ -18,6 +18,7 @@ const input = {
   dependencyReports: [],
   stack: null,
   internalReview: false,
+  review: null,
   promotion: null,
 };
 
@@ -344,32 +345,104 @@ test("with internal review on, the implementer opens a draft PR, associates it, 
 Internal review is on for this assignment.
 Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.
 Target the default branch.
-Push with \`git push -u\`, so Git records the remote of your branch.
+Commit all work and push with \`git push -u\`, so Git records the remote of your branch.
 Then run \`operator pr associate --json\` in your worktree.
-Do not mark the PR ready for review. A fresh reviewer takes over the PR and owns it until its merge.
-Tell your supervising SuperAgent that the draft PR is ready for internal review, then stop.
+It refuses a PR that is not a draft, and a worktree with uncommitted, untracked, or unpushed work. Fix the cause and run it again.
+Do not mark the PR ready for review.
+After the association, Operator ends this session and starts a fresh reviewer in this worktree. The reviewer owns the PR until its merge.
+Stop once the association succeeds. Your SuperAgent sees the handoff in \`operator next\`, so send it no message.
 
 ## Earlier reports`);
+  expect(brief).not.toContain("Tell your supervising SuperAgent that the draft PR");
   expect(brief).not.toContain("operator pr wait");
   expect(brief).not.toContain("operator pr merge");
 });
 
-test("with internal review on, the owner of a recorded draft PR is its internal reviewer", () => {
+test("the launch after a recorded handoff is the internal reviewer, with the recorded rounds", () => {
+  const pullRequest = { number: 7, url: "https://github.com/example/one/pull/7" };
   const brief = renderBrief({
     ...input,
     internalReview: true,
-    pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
+    pullRequest,
+    review: {
+      state: "reviewing",
+      rounds: [
+        {
+          number: 1,
+          head: "h1",
+          findings: [
+            {
+              axis: "Spec",
+              severity: "blocker",
+              location: "a.ts:1",
+              claim: "The guard\nis missing.",
+            },
+          ],
+        },
+        { number: 2, head: "h2", findings: [] },
+      ],
+      readyHead: null,
+    },
   });
   expect(brief).toContain(`## PR feedback loop
 
 PR #7 is already open for this assignment: https://github.com/example/one/pull/7.
-Internal review is on for this assignment.
-If the PR is a draft, you are its internal reviewer. Read the \`internal-review.md\` topic of the \`worker-agent\` skill before you start.
-Do not use the PR body or earlier owner messages as evidence.
+You are the internal reviewer of PR #7. Operator ended the implementer's session and started you in its worktree.
+Read the \`internal-review.md\` topic of the \`worker-agent\` skill before you start.
+Do not use the PR body, the commit messages, or earlier owner messages as evidence.
+Record each round's findings with \`operator pr round --file <findings.json> --json\` before you change code.
+Recorded rounds:
+- Round 1 at \`h1\`:
+  - Spec, blocker, \`a.ts:1\`: The guard is missing.
+- Round 2 at \`h2\`: no findings.
+End the review with \`operator pr ready --file <summary.json> --json\`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.
+Then you own the PR feedback loop below.
 Read its reviews, comments, unresolved threads, and checks before you wait.
 Inspect the worktree first. Keep work that is not landed.
 Run \`operator pr wait --json\` in your worktree`);
-  expect(brief).toContain("After `merge_eligible`, run `operator pr merge --json`.");
+  expect(
+    renderBrief({
+      ...input,
+      internalReview: true,
+      pullRequest,
+      review: { state: "reviewing", rounds: [], readyHead: null },
+    }),
+  ).toContain("No round is recorded yet.");
+  // The role comes from the recorded review, never from a draft state that the brief cannot see.
+  for (const review of [
+    null,
+    { state: "ready" as const, rounds: [], readyHead: "h3" },
+    { state: "skipped" as const, rounds: [], readyHead: "h3" },
+  ]) {
+    const owner = renderBrief({ ...input, internalReview: true, pullRequest, review });
+    expect(owner).not.toMatch(/internal reviewer|draft|operator pr round|operator pr ready/);
+    expect(owner).toContain("After `merge_eligible`, run `operator pr merge --json`.");
+  }
+});
+
+test("a launch after the internal review ended is the PR owner, and its brief says how it ended", () => {
+  const pullRequest = { number: 7, url: "https://github.com/example/one/pull/7" };
+  const rounds = [{ number: 1, head: "h1", findings: [] }];
+  expect(
+    renderBrief({
+      ...input,
+      internalReview: true,
+      pullRequest,
+      review: { state: "ready", rounds, readyHead: "h3" },
+    }),
+  ).toContain(`PR #7 is already open for this assignment: https://github.com/example/one/pull/7.
+The internal review of PR #7 ended ready at \`h3\`.
+You own the PR. Record no more review rounds.
+Read its reviews, comments, unresolved threads, and checks before you wait.`);
+  expect(
+    renderBrief({
+      ...input,
+      internalReview: true,
+      pullRequest,
+      review: { state: "skipped", rounds: [], readyHead: "h3" },
+    }),
+  ).toContain(`The internal review of PR #7 was skipped on the person's instruction at \`h3\`.
+You own the PR. Record no more review rounds.`);
 });
 
 test("with internal review off, the brief names no draft and no internal reviewer", () => {

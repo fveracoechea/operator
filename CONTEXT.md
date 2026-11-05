@@ -217,9 +217,14 @@ The reviewer applies the valid findings, moves the PR to ready with one summary 
 It is on by default, and an assignment, a plan, or the device setting can turn it off.
 _Avoid_: self-review, pre-PR review, internal review request
 
+**Internal review handoff**:
+The CLI's end of the implementer's session after it associates a draft PR, and the start of the reviewer as the next launch in the same worktree.
+The reviewer is a step of the review, not a worker role: a launch after the handoff of a running review is its reviewer.
+_Avoid_: reviewer role, manual handoff
+
 **Internal review round**:
 One review of the whole PR diff against its base at a recorded head, followed by the fixes for its valid findings.
-An internal review has at most two rounds.
+An internal review has at most two rounds, and a second round needs a newer head than the first.
 
 **Source reset**:
 The end of one work source on the person's instruction, with merged PR assignments and completed reports preserved and incomplete assignments abandoned.

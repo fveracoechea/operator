@@ -504,6 +504,8 @@ test("an enabled assignment reviewer is queued at PR association and always comm
         resources: "worktree",
         branch: "task/12-implement",
         dependencies: [],
+        // With internal review on, the request is queued later. This covers the off path.
+        internalReview: false,
       },
     ],
   };

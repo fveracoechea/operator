@@ -45,10 +45,11 @@ stateDiagram-v2
 - `ready`: the assignment waits for its dependencies.
   A pull request dependency must be open or merged, and a report dependency must be completed.
 - `running`: a WorkerAgent works in its own Herdr pane or worktree.
-- `pr-open`: with internal review on, the default, the implementer opens a draft PR and stops.
-  The SuperAgent closes the implementer's pane and dispatches a fresh WorkerAgent into the same worktree.
+- `pr-open`: with internal review on, the default, the implementer opens a draft PR and associates it.
+  The association closes the implementer's pane and starts a fresh WorkerAgent in the same worktree.
   That reviewer checks the draft against the issue, the standards, and the skills that the brief names, and it applies the valid findings in at most two rounds.
-  It posts one summary comment, marks the PR ready with `gh pr ready`, and then owns the PR.
+  `pr ready` posts one summary comment, marks the PR ready, and records the end of the review. The reviewer then owns the PR.
+  On your instruction, the SuperAgent can skip a running review with `internal-review skip`.
   The owner answers review feedback and failing checks, then merges after an approving review.
   With internal review off, the implementer opens a ready PR and owns it to the merge.
 - `reported`: the SuperAgent accepts the report, or returns it with a follow-up.
@@ -260,14 +261,20 @@ An answer to a worker question reaches the worker as the message `answer:<questi
 
 ```sh
 operator pr associate --json
+operator pr round --file <findings.json> --json
 operator pr wait --timeout 300 --json
+operator pr ready --file <summary.json> --json
 operator pr merge --json
+operator handoff --source <source-id> --assignment <key> --json
+operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
 operator cleanup --source <source-id> --assignment <key> --json
 ```
 
 The WorkerAgent runs the `pr` commands in its worktree.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
-`pr merge` merges only with an approving review, passing checks, and no unresolved thread.
+`pr merge` merges only with an approving review, passing checks, no unresolved thread, and an internal review that ended ready or skipped.
+`pr round` records the findings of one internal review round at the worktree head, and refuses a third round or a second round at the first round's head.
+The SuperAgent runs `handoff` from the controlling checkout when `next` shows `retry_handoff`.
 Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.
 A plan's `internalReview` field sets it for all its assignments, and a PR assignment's `internalReview` field sets it for that assignment.
 The most specific value wins.
@@ -288,5 +295,5 @@ operator review cleanup <pr-url> --json
 A reviewer agent writes a draft with the `pr-review` skill, and only `review post` posts it.
 With `review.assignments` set to `true`, each PR assignment also gets this reviewer after its PR is open.
 It posts a comment and is separate from internal review.
-In this release, `pr associate` queues it while the PR is still a draft, so keep `review.assignments` off while internal review is on.
+With internal review on, it is queued when the internal review ends, so it reviews the ready PR.
 With `review.channel`, `review.repos`, and `review.authors` in settings, `review wait --slack` takes review requests from Slack.

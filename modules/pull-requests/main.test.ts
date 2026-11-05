@@ -44,6 +44,7 @@ const allMet = {
   defaultBase: true,
   notDraft: true,
   stackRelayed: true,
+  reviewEnded: true,
 };
 
 test("the owner associates its one open PR, and a repeat changes nothing", async () => {
@@ -51,7 +52,14 @@ test("the owner associates its one open PR, and a repeat changes nothing", async
   const { worktree } = device.start("other");
   device.answer(() => succeeded(associationBody([{ number: 7, base: "main" }])));
   const input = { paths: device.paths, cwd: worktree };
-  const data = { ...summary(device, "other", 7), state: "pr-open", base: "main", stack: null };
+  // A launch that recorded no internal review value associates as before ADR-0020.
+  const data = {
+    ...summary(device, "other", 7),
+    state: "pr-open",
+    base: "main",
+    stack: null,
+    internalReview: null,
+  };
   expect<unknown>(await PullRequests.associate(input)).toEqual({
     tag: "Ok",
     value: { reason: "pr_associated", data },
@@ -141,6 +149,7 @@ test("a PR on a dependency's PR branch is recorded as stacked", async () => {
         state: "pr-open",
         base: "task/parent",
         stack: { parent, relay: "stacked", blocker: null },
+        internalReview: null,
       },
     },
   });
@@ -427,6 +436,7 @@ test("a merged parent relays the child onto the default branch", async () => {
           defaultBase: true,
           notDraft: true,
           stackRelayed: false,
+          reviewEnded: true,
         },
         events: [{ kind: "parent_relayed", parent, base: "main", head }],
       },

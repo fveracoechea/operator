@@ -13,6 +13,7 @@ import {
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { ownerGone } from "./leases.ts";
+import { finishHandoff, handoffDispatchable } from "./internal-reviews.ts";
 import { superviseSource } from "./sources.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
@@ -35,6 +36,13 @@ type LaunchResources = Partial<
     "workspaceId" | "tabId" | "paneId" | "worktreePath" | "worktreeWorkspaceId" | "branch"
   >
 >;
+
+// A start that does not resolve internal review, for example a report assignment, records none.
+export type LaunchReservation = Omit<
+  LaunchRow,
+  "attempt" | "ownerPid" | "leaseAt" | "internalReview"
+> &
+  Partial<Pick<LaunchRow, "internalReview">>;
 
 const abandonedDetail =
   "The dispatching process stopped before it recorded a launch outcome. Its recorded resources stay.";
@@ -118,6 +126,7 @@ function startRefusal(
     source: { id: string; state: string };
     key: string;
     assignmentState: string | undefined;
+    latest: LaunchRow | undefined;
     latestState: string | undefined;
     abandoned: boolean;
     maxRunning: number | undefined;
@@ -126,9 +135,11 @@ function startRefusal(
 ): LaunchFailure | null {
   const { source, key, assignmentState, maxRunning } = facts;
   const returned = latestReturned(db, source.id, key);
+  // A reviewer start after the implementer's handoff ended it is not an ordinary dispatch.
+  const handoff = assignmentState === "pr-open" && handoffDispatchable(db, facts.latest, facts.now);
   if (
     source.state !== "open" ||
-    !dispatchable(assignmentState, facts.latestState, facts.abandoned, returned)
+    (!handoff && !dispatchable(assignmentState, facts.latestState, facts.abandoned, returned))
   )
     return {
       reason: "assignment_not_dispatchable",
@@ -155,7 +166,7 @@ export function reserveLaunch(
   client: Database,
   checkout: string,
   repository: string,
-  launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+  launch: LaunchReservation,
   maxRunning?: number,
   supervisingPane: string | null = null,
 ) {
@@ -198,6 +209,7 @@ export function reserveLaunch(
         source,
         key: launch.assignment,
         assignmentState: assignment?.state,
+        latest,
         latestState: latest?.state,
         abandoned,
         maxRunning,
@@ -213,12 +225,15 @@ export function reserveLaunch(
       const attempt = (latest?.attempt ?? 0) + 1;
       if (abandoned) endAbandoned(db, latest.id, now);
       const row = {
+        internalReview: null,
         ...launch,
         attempt,
         ownerPid: process.pid,
         leaseAt: new Date(now).toISOString(),
       };
       db.insert(launches).values(row).run();
+      // Any start after the implementer's ends a pending internal review handoff.
+      finishHandoff(db, source.id, launch.assignment);
       superviseSource(db, source.id, supervisingPane);
       // A replaced PR owner keeps its open PR. A returned report resumes as running.
       db.update(assignments)

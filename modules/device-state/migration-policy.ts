@@ -73,6 +73,16 @@ const idleGuards: { applied: number; busy: (client: Database) => boolean; detail
     detail:
       "Migration is waiting for a reviewer move or a reviewer cleanup to finish. No handler ran.",
   },
+  // A handoff closes a pane and starts a reviewer, so it holds external effects.
+  {
+    applied: 16,
+    busy: (client) =>
+      heldBy(
+        client,
+        "SELECT owner_pid, lease_at FROM internal_reviews WHERE owner_pid IS NOT NULL",
+      ),
+    detail: "Migration is waiting for a running internal review handoff to finish. No handler ran.",
+  },
 ];
 
 /** Future workflow owners extend these guards when they add launches, waits, or held records. */
@@ -100,7 +110,9 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
   [1793846111627, []],
   [1793849821749, []],
   [1793851554124, []],
-  [1793853735164, []],
+  [1793853968253, []],
+  [1793856665186, []],
+  [1793858115743, []],
 ]);
 
 /** Each policy names queries that find records the migration must not run past. */

@@ -9,8 +9,12 @@
  * request stays pending for `mergePending` reads, then merges the PR at its pinned head or fails.
  * `mergeLost` applies a merge and then answers 502, and `deleteLost` answers 502 without
  * deleting. `postHold` writes `post-held` after a review post is recorded, then holds the answer
- * until the test writes `post-release` or removes its root. `cleanupHold` holds each remote
- * branch read and deletion the same way, with `cleanup-held` and `cleanup-release`.
+ * until the test writes `post-release` or removes its root. The summary comment post, its update,
+ * and the ready mutation record `commented`, `updated`, and `readied`, and `commentLost` and
+ * `readyLost` apply the effect once and then answer 502. `cleanupHold` holds each remote branch
+ * read and deletion the same way, with `cleanup-held` and `cleanup-release`.
+ * `reviewReadBarrier` holds each review read until that many review reads have arrived under the
+ * barrier since the root was created.
  * It is not evidence of the live GitHub integration.
  */
 export function fakeGithubScript(root: string) {
@@ -108,6 +112,20 @@ if (reviewsPath) {
   answer({ node_id: id, html_url: "https://github.com/r/" + id, state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[payload.event], commit_id: payload.commit_id });
   process.exit(0);
 }
+const commentsPath = args.find((arg) => arg.startsWith("repos/") && arg.endsWith("/comments"));
+if (commentsPath) {
+  // The summary comment reads its payload from standard input, as gh api --input - does.
+  const payload = JSON.parse(await Bun.stdin.text());
+  const pr = state.pulls.find((row) => row.number === Number(commentsPath.split("/")[4]));
+  state.commented ??= [];
+  const id = "comment-" + (state.commented.length + 1);
+  state.commented.push({ id, number: pr.number, body: payload.body });
+  pr.comments = [...(pr.comments ?? []), { id, body: payload.body, author: state.viewer ?? "owner" }];
+  await Bun.write(stateFile, JSON.stringify(state));
+  if (state.commentLost) { state.commentLost = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  answer({ node_id: id, html_url: "https://github.com/c/" + id });
+  process.exit(0);
+}
 if (query.includes("addPullRequestReviewThreadReply") || query.includes("unresolveReviewThread")) {
   // Thread writes: a reply appends a comment, and an unresolve reopens the thread.
   const thread = state.pulls.flatMap((row) => row.threads ?? []).find((row) => row.id === field("thread"));
@@ -121,8 +139,13 @@ if (query.includes("addPullRequestReviewThreadReply") || query.includes("unresol
   process.exit(0);
 }
 if (query.includes("files(first")) {
-  // A delay holds two concurrent waits between their state read and their write.
-  if (state.reviewReadDelayMs) await Bun.sleep(state.reviewReadDelayMs);
+  // A barrier holds each review read until that many reads have arrived, so concurrent waits all
+  // read their request before any of them writes. A failed test removes its root, which also ends it.
+  if (state.reviewReadBarrier) {
+    const readers = root + "/review-readers";
+    await Bun.write(readers + "/" + crypto.randomUUID(), "");
+    while ((await Array.fromAsync(new Bun.Glob("*").scan(readers))).length < state.reviewReadBarrier && (await Bun.file(stateFile).exists())) await Bun.sleep(20);
+  }
   // Each review read first applies the next queued change, so a test scripts what waits observe.
   const change = (state.reviewQueue ??= []).shift();
   if (change) { const index = state.pulls.findIndex((row) => row.number === Number(field("number"))); state.pulls[index] = { ...state.pulls[index], ...change }; await Bun.write(stateFile, JSON.stringify(state)); }
@@ -149,7 +172,26 @@ if (args.includes("PATCH")) {
   answer({ number, base: { ref: pr.baseRefName } });
 } else if (query.includes("pullRequests(")) {
   const branch = field("branch");
-  answer({ data: { repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, pullRequests: nodes(state.pulls.filter((pr) => pr.headRefName === branch && pr.state === "OPEN").map((pr) => ({ number: pr.number, url: pr.url, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRepository: { nameWithOwner: pr.headRepository } }))) } } });
+  answer({ data: { repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, pullRequests: nodes(state.pulls.filter((pr) => pr.headRefName === branch && pr.state === "OPEN").map((pr) => ({ number: pr.number, url: pr.url, isDraft: pr.isDraft ?? false, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), headRepository: { nameWithOwner: pr.headRepository } }))) } } });
+} else if (query.includes("ReadyFacts")) {
+  const pr = state.pulls.find((row) => row.number === Number(field("number")));
+  answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { pullRequest: {
+    id: "PR_" + pr.number, state: pr.state, isDraft: pr.isDraft ?? false, headRefOid: headOf(pr),
+    comments: nodes((pr.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/c/" + comment.id, author: author(comment.author ?? "reviewer") }))),
+  } } } });
+} else if (query.includes("updateIssueComment")) {
+  const comment = state.pulls.flatMap((row) => row.comments ?? []).find((row) => row.id === field("id"));
+  comment.body = field("body");
+  (state.updated ??= []).push({ id: comment.id, body: comment.body });
+  await Bun.write(stateFile, JSON.stringify(state));
+  answer({ data: { updateIssueComment: { issueComment: { id: comment.id } } } });
+} else if (query.includes("markPullRequestReadyForReview")) {
+  const pr = state.pulls.find((row) => "PR_" + row.number === field("id"));
+  (state.readied ??= []).push(pr.number);
+  pr.isDraft = false;
+  await Bun.write(stateFile, JSON.stringify(state));
+  if (state.readyLost) { state.readyLost = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  answer({ data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } });
 } else if (query.includes("RelayParent")) {
   const number = Number(field("number"));
   const index = state.pulls.findIndex((pr) => pr.number === number);
