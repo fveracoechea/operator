@@ -18,7 +18,7 @@ test("invalid input is a refusal that keeps the parser message", () => {
   });
 });
 
-test.each(["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "EISDIR", "ELOOP"])(
+test.each(["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR", "ELOOP"])(
   "a %s file system failure is a refusal",
   (code) => {
     const cause = Object.assign(new Error(`${code}: failed`), { code });

@@ -1,7 +1,17 @@
 import { isCodedError } from "../../lib/coded-error.ts";
 import { z } from "zod";
 
-const ioCodes = ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "EISDIR", "ELOOP"];
+const ioCodes = [
+  "ENOENT",
+  "EACCES",
+  "EPERM",
+  "EIO",
+  "EROFS",
+  "ENOSPC",
+  "ENOTDIR",
+  "EISDIR",
+  "ELOOP",
+];
 
 /** Invalid input and file system failures are refusals. Any other error stays a defect. */
 export function qualify<T>(
