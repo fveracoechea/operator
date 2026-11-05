@@ -7,6 +7,7 @@ import {
   observeParent,
   observePullRequest,
   openPullRequests,
+  readMergeRequest,
   remoteBranch,
   retarget,
 } from "./github.ts";
@@ -346,20 +347,29 @@ describe("GitHub reads and effects", () => {
     expect<unknown>(await retarget("owner/one", 7, "main")).toMatchObject({ tag: "Defect" });
   });
 
-  test("a merge request names the guarded head and method", async () => {
-    const call = github(() => ok({ merged: true }));
+  test("a background merge request names the guarded head, method, and a direct merge", async () => {
+    const pending = {
+      status: "pending",
+      details: { message: "Merge request enqueued.", uuid: "u1" },
+    };
+    const call = github(() => ({ status: "succeeded", value: { httpStatus: 202, body: pending } }));
     expect<unknown>(
       await mergePullRequest("owner/one", { number: 7, head: "h1", method: "rebase" }),
-    ).toEqual({ tag: "Ok", value: undefined });
+    ).toEqual({
+      tag: "Ok",
+      value: { status: "pending", uuid: "u1", message: "Merge request enqueued." },
+    });
     expect(call.mock.calls[0]?.[0]).toEqual({
       args: [
         "-X",
         "PUT",
-        "repos/owner/one/pulls/7/merge",
+        "repos/owner/one/pulls/7/merge-async",
         "-f",
         "sha=h1",
         "-f",
         "merge_method=rebase",
+        "-f",
+        "merge_action=direct_merge",
       ],
       timeoutMs: 60000,
     });
@@ -375,6 +385,58 @@ describe("GitHub reads and effects", () => {
     expect<unknown>(
       await mergePullRequest("owner/one", { number: 7, head: "h1", method: "merge" }),
     ).toMatchObject({ tag: "Defect" });
+  });
+
+  test("a merge request's state is read by its id, and an unreadable state stays uncertain", async () => {
+    const call = github(() =>
+      ok({ status: "merged", details: { message: "Pull request was merged.", sha: "m1" } }),
+    );
+    expect<unknown>(await readMergeRequest("owner/one", 7, "u1")).toEqual({
+      tag: "Ok",
+      value: { status: "merged", uuid: null, message: "Pull request was merged." },
+    });
+    expect(call.mock.calls[0]?.[0]).toEqual({
+      args: ["repos/owner/one/pulls/7/merge-async/u1"],
+      timeoutMs: 60000,
+    });
+    for (const status of ["pending", "enqueued", "failed"] as const) {
+      github(() => ok({ status, details: { message: "m" } }));
+      expect<unknown>(await readMergeRequest("owner/one", 7, "u1")).toEqual({
+        tag: "Ok",
+        value: { status, uuid: null, message: "m" },
+      });
+    }
+    for (const body of [{ merged: true }, { status: "done", details: { message: "m" } }, null]) {
+      github(() => ok(body));
+      expect<unknown>(await readMergeRequest("owner/one", 7, "u1")).toEqual({
+        tag: "Err",
+        error: {
+          reason: "github_uncertain",
+          detail: "GitHub did not describe the merge request in the expected form.",
+        },
+      });
+    }
+    github(() => Promise.reject(new Error("boom")));
+    expect<unknown>(await readMergeRequest("owner/one", 7, "u1")).toMatchObject({
+      tag: "Defect",
+    });
+    // A 409 names a request that already runs, so the merge stays pending without its id.
+    github(() => ({
+      status: "failed",
+      code: "http_409",
+      detail: "A merge request already exists for this pull request.",
+      httpStatus: 409,
+    }));
+    expect<unknown>(
+      await mergePullRequest("owner/one", { number: 7, head: "h1", method: "squash" }),
+    ).toEqual({
+      tag: "Ok",
+      value: {
+        status: "pending",
+        uuid: null,
+        message: "GitHub already runs a merge request for this PR.",
+      },
+    });
   });
 
   test("a remote branch reads as its commit, or null when GitHub has no such branch", async () => {

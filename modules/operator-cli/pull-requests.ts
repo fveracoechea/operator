@@ -139,6 +139,21 @@ const pullRequestExitCodes = {
   pr_handed_off: 4,
   handoff_defect: 1,
   internal_review_defect: 1,
+  // The handoff closes a pane and dispatches, so their failures exit as a dispatch does.
+  handoff_running: 4,
+  handoff_not_found: 4,
+  herdr_session_mismatch: 4,
+  assignment_not_dispatchable: 4,
+  launch_failed: 1,
+  launch_interrupted: 1,
+  dispatch_io_failed: 1,
+  preparation_failed: 1,
+  preparation_io_failed: 1,
+  herdr_unavailable: 1,
+  herdr_failed: 1,
+  herdr_no_answer: 1,
+  herdr_invalid_response: 1,
+  host_metadata_failed: 1,
 };
 
 export async function runPullRequests(

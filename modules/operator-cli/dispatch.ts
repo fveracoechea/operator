@@ -39,6 +39,7 @@ export function dispatchArgs(args: string[]) {
 
 const dispatchExitCodes = {
   assignment_not_dispatchable: 4,
+  running_cap_reached: 4,
   launch_failed: 1,
   launch_interrupted: 1,
   dispatch_io_failed: 1,

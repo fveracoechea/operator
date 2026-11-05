@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import type { Observation } from "./github.ts";
-import { decideMerge, verifiedMerge } from "./merge-machine.ts";
+import {
+  decideMerge,
+  followMergeRequest,
+  mergeRequestReads,
+  verifiedMerge,
+} from "./merge-machine.ts";
 
 const eligible: Observation = {
   state: "OPEN",
@@ -217,4 +222,42 @@ test("a single missing condition is named alone", () => {
   ).toMatchObject({
     detail: "The PR needs no unresolved review thread. Nothing was merged or changed.",
   });
+});
+
+test("a background merge request is read while it runs, and every end is verified", () => {
+  const request = { uuid: "u1", message: "Done." };
+  expect(followMergeRequest({ ...request, status: "pending" }, 0)).toEqual({
+    result: "read",
+    uuid: "u1",
+  });
+  expect(followMergeRequest({ ...request, status: "pending" }, mergeRequestReads - 1)).toEqual({
+    result: "read",
+    uuid: "u1",
+  });
+  expect(followMergeRequest({ ...request, status: "merged" }, 0)).toEqual({
+    result: "verify",
+    refusal: null,
+  });
+  expect(followMergeRequest({ ...request, status: "failed" }, 3)).toEqual({
+    result: "verify",
+    refusal: { reason: "pr_merge_refused", detail: "Done." },
+  });
+  expect(followMergeRequest({ ...request, status: "enqueued" }, 0)).toEqual({
+    result: "verify",
+    refusal: {
+      reason: "pr_merge_unverified",
+      detail:
+        "GitHub put the PR in a merge queue: Done. Nothing was recorded. Repeat operator pr merge after it merges.",
+    },
+  });
+  const running = {
+    result: "verify" as const,
+    refusal: {
+      reason: "pr_merge_unverified",
+      detail:
+        "GitHub still runs the merge request: Done. Nothing was recorded. Repeat operator pr merge.",
+    },
+  };
+  expect(followMergeRequest({ ...request, status: "pending" }, mergeRequestReads)).toEqual(running);
+  expect(followMergeRequest({ ...request, uuid: null, status: "pending" }, 0)).toEqual(running);
 });

@@ -369,9 +369,53 @@ type GithubEffectFailure = {
   detail: string;
 };
 
+const mergeRequestAnswer = z.object({
+  status: z.enum(["pending", "merged", "enqueued", "failed"]),
+  details: z.object({ message: z.string(), uuid: z.string().optional() }),
+});
+
+/** A merge request's state: `pending` runs in the background, and the others are final. */
+export type MergeRequest = {
+  status: z.infer<typeof mergeRequestAnswer>["status"];
+  uuid: string | null;
+  message: string;
+};
+
+function mergeRequestResult(answer: Awaited<ReturnType<typeof GithubApi.call>>) {
+  // GitHub answers 409 while an earlier request for this PR still runs, and the gh failure
+  // keeps no uuid to read, so the merge stays pending for the caller to verify.
+  if (answer.status === "failed" && answer.httpStatus === 409)
+    return Ok<MergeRequest>({
+      status: "pending",
+      uuid: null,
+      message: "GitHub already runs a merge request for this PR.",
+    });
+  if (answer.status === "failed")
+    return Err<GithubEffectFailure>({
+      reason: "github_failed",
+      detail: `${answer.code}: ${answer.detail}`,
+    });
+  if (answer.status === "uncertain")
+    return Err<GithubEffectFailure>({ reason: "github_uncertain", detail: answer.detail });
+  const parsed = mergeRequestAnswer.safeParse(answer.value.body);
+  // An unreadable answer can follow an accepted request, so the merge stays uncertain.
+  return parsed.success
+    ? Ok<MergeRequest>({
+        status: parsed.data.status,
+        uuid: parsed.data.details.uuid ?? null,
+        message: parsed.data.details.message,
+      })
+    : Err<GithubEffectFailure>({
+        reason: "github_uncertain",
+        detail: "GitHub did not describe the merge request in the expected form.",
+      });
+}
+
 /**
- * Asks GitHub to merge exactly the guarded head. GitHub refuses when the head moved. The
- * answer never proves the outcome, so the caller reads the PR again before it records a merge.
+ * Asks GitHub to merge exactly the guarded head, without a merge queue. The asynchronous
+ * endpoint merges every PR, also one that GitHub keeps in a stack, which the synchronous
+ * endpoint refuses. The answer never proves the outcome, so the caller reads the PR again before
+ * it records a merge.
  */
 export function mergePullRequest(
   repository: string,
@@ -383,22 +427,30 @@ export function mergePullRequest(
         args: [
           "-X",
           "PUT",
-          `repos/${repository}/pulls/${merge.number}/merge`,
+          `repos/${repository}/pulls/${merge.number}/merge-async`,
           "-f",
           `sha=${merge.head}`,
           "-f",
           `merge_method=${merge.method}`,
+          "-f",
+          "merge_action=direct_merge",
         ],
         timeoutMs: 60000,
       }),
     (cause, defect) => defect(cause),
-  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
-    if (answer.status === "failed")
-      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
-    if (answer.status === "uncertain")
-      return Err({ reason: "github_uncertain", detail: answer.detail });
-    return Ok(undefined);
-  });
+  ).flatMap(mergeRequestResult);
+}
+
+/** The current state of one background merge request. */
+export function readMergeRequest(repository: string, number: number, uuid: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: [`repos/${repository}/pulls/${number}/merge-async/${uuid}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap(mergeRequestResult);
 }
 
 const refAnswer = z.object({ object: z.object({ sha: z.string() }) });

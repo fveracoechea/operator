@@ -229,6 +229,80 @@ test("project removal deletes its launches and preparations with its sources", (
   });
 });
 
+test("a ready assignment waits while the plan's running cap is reached, and a replacement does not", () => {
+  using db = fixture();
+  registerSource(
+    db,
+    "/one",
+    {
+      id: "s2",
+      repository: "owner/one",
+      trackerKey: "APP-2",
+      state: "open",
+      registeredAt: "now",
+      endedAt: null,
+      plan: "{}",
+    },
+    [
+      ...["a", "b", "c"].map((key) => ({
+        sourceId: "s2",
+        key,
+        completion: "report",
+        state: "ready",
+      })),
+      { sourceId: "s2", key: "m", completion: "pr", state: "ready" },
+      { sourceId: "s2", key: "r", completion: "report", state: "ready" },
+    ],
+  );
+  function reserve(key: string, attempt = 1) {
+    return reserveLaunch(
+      db,
+      "/one",
+      "owner/one",
+      {
+        ...launch,
+        id: `${key}${attempt}`,
+        sourceId: "s2",
+        assignment: key,
+        name: `${key}${attempt}`,
+      },
+      1,
+    );
+  }
+  // Another source's worker holds no place in this plan.
+  reserveLaunch(db, "/one", "owner/one", launch);
+  // An ended assignment's worker holds no place, also before its pane exit is observed.
+  expect(reserve("m")).toMatchObject({ tag: "Ok" });
+  db.exec("UPDATE launches SET state = 'running' WHERE id = 'm1'");
+  db.exec("UPDATE assignments SET state = 'merged' WHERE key = 'm' AND source_id = 's2'");
+  expect(reserve("r")).toMatchObject({ tag: "Ok" });
+  db.exec("UPDATE launches SET state = 'running' WHERE id = 'r1'");
+  db.exec("UPDATE assignments SET state = 'completed' WHERE key = 'r' AND source_id = 's2'");
+  expect(reserve("a")).toMatchObject({ tag: "Ok" });
+  expect(reserve("b")).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "running_cap_reached",
+      detail:
+        "The plan's running cap of 1 is reached. Read next actions again after a worker ends. Nothing was launched.",
+    },
+  });
+  expect(db.query("SELECT state FROM assignments WHERE key = 'b'").get()).toEqual({
+    state: "ready",
+  });
+  // A failed worker frees its place, and its replacement starts while another plan worker runs.
+  updateLaunch(db, "a1", { state: "failed" });
+  expect(reserve("b")).toMatchObject({ tag: "Ok" });
+  db.exec("UPDATE launches SET state = 'running' WHERE id = 'b1'");
+  expect(reserve("a", 2)).toMatchObject({ tag: "Ok", value: { attempt: 2 } });
+  // Only the latest launch of an assignment counts, and an abandoned start holds nothing.
+  db.exec("UPDATE launches SET state = 'finished' WHERE id IN ('a2', 'b1')");
+  expect(reserve("c")).toMatchObject({ tag: "Ok" });
+  db.query("UPDATE launches SET owner_pid = ? WHERE id = 'c1'").run(stoppedPid);
+  db.exec("UPDATE assignments SET state = 'ready' WHERE key = 'b' AND source_id = 's2'");
+  expect(reserve("b", 2)).toMatchObject({ tag: "Ok" });
+});
+
 function reserveAgain(db: Database, attempt: number) {
   return reserveLaunch(db, "/one", "owner/one", {
     ...launch,
@@ -288,6 +362,29 @@ test("a running, PR-open, or returned assignment starts again only after its lat
             "Assignment read changed before dispatch. Read next actions again. Nothing was launched.",
         },
       });
+  }
+});
+
+test("a reviewer starts after the handoff ended the implementer, and its start ends the handoff", () => {
+  for (const [assignmentState, handoffState, allowed] of [
+    ["pr-open", "pending", true],
+    ["pr-open", "failed", true],
+    ["pr-open", "done", false],
+    ["abandoned", "pending", false],
+  ] as const) {
+    using db = fixture();
+    reserveLaunch(db, "/one", "owner/one", launch);
+    db.query("UPDATE launches SET state = 'finished'").run();
+    db.query("UPDATE assignments SET state = ?").run(assignmentState);
+    db.query(
+      "INSERT INTO internal_reviews (source_id, assignment, state, implementer_launch_id, handoff_state, started_at, updated_at, owner_pid, lease_at) VALUES ('s1', 'read', 'reviewing', 'l1', ?, 'now', 'now', ?, ?)",
+    ).run(handoffState, process.pid, new Date().toISOString());
+    expect(reserveAgain(db, 2).tag, `${assignmentState} ${handoffState}`).toBe(
+      allowed ? "Ok" : "Err",
+    );
+    expect(db.query("SELECT handoff_state AS state FROM internal_reviews").get()).toEqual({
+      state: allowed ? "done" : handoffState,
+    });
   }
 });
 
