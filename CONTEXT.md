@@ -199,7 +199,8 @@ A short fixed line that the CLI types into a worker's pane to name a pending rec
 Only a worker pane gets a doorbell, because no person types there.
 
 **Running cap**:
-A plan's optional limit on its assignments with a starting or live worker, at which next actions list none of its ready assignments.
+A plan's optional limit, `maxRunning`, on its assignments with a starting or live worker.
+At the limit, next actions show its ready assignments as waits, and dispatch refuses them.
 _Avoid_: quota, capacity setting
 
 **Promotion**:
@@ -220,6 +221,7 @@ _Avoid_: project gate
 The unpublished review of a draft PR by a fresh WorkerAgent that takes over the PR assignment from its implementer.
 The reviewer applies the valid findings, moves the PR to ready with one summary comment, and then owns the PR to its merge.
 It is on by default, and an assignment, a plan, or the device setting can turn it off.
+On the person's instruction, the SuperAgent can skip a running internal review, which marks the PR ready without a comment.
 _Avoid_: self-review, pre-PR review, internal review request
 
 **Internal review handoff**:

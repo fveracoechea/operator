@@ -22,17 +22,22 @@ The SuperAgent registers a work source, which is a plan of assignments from the 
 Each assignment completes through a pull request or through a report.
 The CLI keeps the state of each source and assignment, and `operator next` returns the next action for each one.
 
+This diagram shows the assignment states of `modules/work-sources/assignment-machine.ts`, with the transitions that `report-machine.ts`, `source-machine.ts`, dispatch, and the PR commands record.
+
 ```mermaid
 stateDiagram-v2
     state "pr-open" as pr_open
 
     [*] --> ready: source register
+    [*] --> ready: report accept --promote, worker stopped
+    [*] --> running: report accept --promote, worker kept
     ready --> running: dispatch
     running --> pr_open: pr associate
     pr_open --> merged: pr merge
     running --> reported: report submit
-    reported --> completed: report accept
+    reported --> completed: report accept, with or without --promote
     reported --> running: report return, then report resume
+    reported --> running: dispatch, after a return whose worker stopped
     ready --> abandoned: source reset
     running --> abandoned: source reset
     pr_open --> abandoned: source reset
@@ -44,21 +49,64 @@ stateDiagram-v2
 
 - `ready`: the assignment waits for its dependencies.
   A pull request dependency must be open or merged, and a report dependency must be completed.
+  A PR assignment also waits while more than one of its parent PRs is open.
+  When the plan sets `maxRunning`, ready work also waits while that many of its assignments have a starting or live worker.
+  `dispatch` refuses it then.
 - `running`: a WorkerAgent works in its own Herdr pane or worktree.
-- `pr-open`: with internal review on, the default, the implementer opens a draft PR and associates it.
-  The association closes the implementer's pane and starts a fresh WorkerAgent in the same worktree.
-  That reviewer checks the draft against the issue, the standards, and the skills that the brief names, and it applies the valid findings in at most two rounds.
-  `pr ready` posts one summary comment, marks the PR ready, and records the end of the review. The reviewer then owns the PR.
-  On your instruction, the SuperAgent can skip a running review with `internal-review skip`.
-  The owner answers review feedback and failing checks, then merges after an approving review.
+- `pr-open`: the owner carries the PR to its merge.
+  With internal review on, the default, the PR starts as a draft and goes through the internal review below first.
   With internal review off, the implementer opens a ready PR and owns it to the merge.
-- `reported`: the SuperAgent accepts the report, or returns it with a follow-up.
+  The owner answers review feedback and failing checks, then merges with `pr merge`.
+- `reported`: the SuperAgent accepts the report, returns it with a follow-up, or promotes it.
+  After a return, the worker resumes, or a dispatch replaces a worker that stopped.
+  A promotion accepts the report and adds a new PR assignment that takes over the report's worktree.
+  When the report's worker still runs, the PR assignment starts `running` with that worker, and the worker gets its new brief by steering message.
+  Otherwise the PR assignment starts `ready`, and a dispatch reopens the worktree.
 - `merged` and `completed`: the work is done, and the CLI removes the branch, pane, and worktree.
+  A promoted report keeps its pane and worktree for the PR assignment.
   Work that did not land stays until you decide.
 - `abandoned`: you ended the source with `source reset` before the work was done.
 
 A source is `open` until each assignment is merged or completed, and then it is `finished`.
 `source prune` deletes an ended source 14 days after its end.
+
+### Internal review
+
+With internal review on, `pr associate` of a draft PR records an internal review.
+It refuses a PR that is not a draft, and a worktree with changes that are not pushed.
+This diagram shows `modules/pull-requests/internal-review-machine.ts`, with the handoff states that `modules/device-state/internal-reviews.ts` records.
+
+```mermaid
+stateDiagram-v2
+    [*] --> reviewing: pr associate, draft PR
+    state reviewing {
+        [*] --> pending
+        pending --> done: reviewer launch reserved
+        pending --> failed: handoff step fails
+        failed --> pending: handoff
+        failed --> done: dispatch of the reviewer
+        done --> done: pr round, at most two
+    }
+    reviewing --> ready: pr ready
+    reviewing --> skipped: internal-review skip
+    ready --> [*]
+    skipped --> [*]
+```
+
+- `pending`: the CLI closes the implementer's pane and starts a fresh WorkerAgent in the same worktree.
+  `next` shows a running handoff as a wait, and a handoff whose process stopped as `retry_handoff`.
+- `failed`: `next` shows `retry_handoff`.
+  The SuperAgent runs `operator handoff` from the controlling checkout.
+- `done`: the reviewer checks the draft against the issue, the standards, and the skills that the brief names.
+  Each `pr round` records the findings at the worktree head, and leaves the handoff state `done`.
+  A second round needs a newer head, and there is no third round.
+  An applied blocker from round 1 requires round 2.
+- `ready`: `pr ready` checks a disposition for each finding, posts one summary comment, and marks the PR ready.
+  The reviewer then owns the PR to its merge.
+- `skipped`: on your instruction, the SuperAgent ends a running review with `internal-review skip`, which marks the PR ready with no comment.
+
+The implementer runs no PR command after the handoff.
+`pr merge` refuses until the internal review is `ready` or `skipped`.
 
 ## Install
 
@@ -119,6 +167,7 @@ in
   home.packages = [ operator ];
   programs.claude-code.skills = ownedSkills;
   programs.opencode.skills = ownedSkills;
+  xdg.configFile."opencode/plugins/operator.ts".source = "${operator}/share/opencode/plugins/operator.ts";
 }
 ```
 
@@ -226,11 +275,13 @@ The SuperAgent runs it in the background, so worker events reach it without text
 operator report submit --file <report.json> --json
 operator report resume --json
 operator report accept --source <source-id> --assignment <key> --json
+operator report accept --source <source-id> --assignment <key> --promote <promotion.json> --json
 operator report return --source <source-id> --assignment <key> --file <follow-up.md> --json
 ```
 
 The WorkerAgent submits and resumes from its own pane.
 Only the SuperAgent accepts or returns a report.
+`--promote` accepts a report whose worker had a worktree, and adds the PR assignment that the file describes.
 
 ### Worker questions
 
@@ -276,7 +327,9 @@ operator cleanup --source <source-id> --assignment <key> --json
 
 The WorkerAgent runs the `pr` commands in its worktree.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
-`pr merge` merges only with an approving review, passing checks, no unresolved thread, and an internal review that ended ready or skipped.
+`pr merge` merges only a ready PR whose base is the default branch.
+It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and an internal review that ended ready or skipped.
+It asks GitHub for the merge in the background, then records it only after GitHub shows the PR merged.
 `pr round` records the findings of one internal review round at the worktree head, and refuses a third round or a second round at the first round's head.
 The SuperAgent runs `handoff` from the controlling checkout when `next` shows `retry_handoff`.
 Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.

@@ -33,8 +33,9 @@ A PR stacks on one parent branch, so a PR assignment with several open parent PR
 A stacked PR is not merge eligible until its parent merged and its relay finished.
 Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation.
-It refuses unless the PR has approval, passing checks, no unresolved threads, and the default branch as its base.
-It also refuses while an internal review of the PR has not ended ready or skipped. Amended in #305.
+It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.
+ADR-0020 added the draft condition, implemented in #316.
+It also refuses while an internal review of the PR has not ended ready or skipped. Amended in #305, implemented in #328.
 It merges through GitHub's asynchronous merge endpoint as a direct merge pinned to the guarded head, because the synchronous endpoint refuses a PR that GitHub keeps in a stack, also after its relay.
 That endpoint also merges a stacked PR's open PRs below it, and the default branch base rules them out.
 It is used for every PR, not only after the synchronous endpoint refuses, because GitHub does not document that refusal's text. The cost is a merge that can wait up to two minutes of status reads, and no merge queue.

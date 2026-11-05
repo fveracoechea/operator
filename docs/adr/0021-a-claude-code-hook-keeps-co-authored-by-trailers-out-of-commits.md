@@ -4,6 +4,7 @@
 
 Accepted - 2026-10-31.
 Amended 2026-11-04: the same hook also guards a SuperAgent's turn end on the Stop event, and only that branch reads device state (ADR-0022).
+The Stop branch is implemented in #325.
 Amended 2026-11-05: the same commit check runs on OpenCode through Operator's OpenCode plugin and `operator opencode hook`.
 
 ## Context

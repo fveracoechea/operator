@@ -5,6 +5,7 @@
 Accepted - 2026-11-04.
 Decided in #313.
 Amends ADR-0021.
+Implemented: the coordination wait in #321, worker questions in #323, the turn-end guard in #325, steering messages in #326, and the retirement of worker-to-SuperAgent Herdr messages in #329.
 Amended 2026-11-05: OpenCode gets the turn-end guard through Operator's OpenCode plugin.
 
 ## Context
@@ -102,7 +103,7 @@ The plugin treats a failed, slow, or missing `operator` command as no opinion, a
 ### What each mechanism replaces
 
 - A worker's "report submitted" message: the coordination wait returns the report awaiting acceptance.
-- A worker's "draft PR ready for internal review" message: the coordination wait returns the idle PR owner after the implementer stops, which is the handoff point until ADR-0020's CLI handoff records it.
+- A worker's "draft PR ready for internal review" message: the coordination wait returns the idle PR owner after the implementer stops, which was the handoff point until ADR-0020's CLI handoff recorded it in #324.
 - A worker's "merge started" message: the coordination wait returns the ended assignment, or the cleanup retry or person decision, after the merge and its cleanup.
   A running merge or cleanup is a wait, so the SuperAgent learns of the merge only when it ends.
 - A refusal that the worker cannot fix: a worker question with the refusal as its content.
