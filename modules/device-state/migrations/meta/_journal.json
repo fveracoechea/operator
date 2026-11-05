@@ -85,6 +85,13 @@
       "when": 1793831388719,
       "tag": "0011_preparation_output",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793846111627,
+      "tag": "0012_report_promotions",
+      "breakpoints": true
     }
   ]
 }

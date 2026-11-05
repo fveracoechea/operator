@@ -13,6 +13,7 @@ import { decodeSource } from "./snapshot.ts";
 import {
   storedCleanup,
   storedLaunch,
+  storedPromotion,
   storedPullRequest,
   storedReport,
   storedSource,
@@ -550,6 +551,122 @@ test("an abandoned start offers a replacement worker", async () => {
     action: "replace_worker",
     reason: "launch_abandoned",
   });
+});
+
+/** Report `read` promoted into `build`, whose launch took over the worker. */
+function promoted(build: Partial<ReturnType<typeof storedLaunch>> = {}, state = "running") {
+  const read = storedSource([{ key: "read", completion: "report", state: "completed" }], {
+    launches: [
+      storedLaunch("read", { state: "finished", worktreePath: "/worktrees/read" }),
+      ...(state === "ready"
+        ? []
+        : [
+            storedLaunch("build", {
+              resources: "worktree",
+              worktreePath: "/worktrees/read",
+              ...build,
+            }),
+          ]),
+    ],
+    reports: [storedReport("read", { decision: "accepted", cleanupState: "done" })],
+  });
+  const { assignment, promotion } = storedPromotion("read", "build", {
+    state,
+    handoverLaunchId: state === "ready" ? null : "l-build",
+  });
+  return { ...read, assignments: [...read.assignments, assignment], promotions: [promotion] };
+}
+
+test("a worker that took over a promoted report shows notify_worker until Herdr sees it", async () => {
+  stored([promoted()]);
+  const unseen = await next();
+  expect(unseen.tag === "Ok" ? unseen.value.sources[0]?.actions : null).toEqual([
+    expect.objectContaining({
+      assignment: "build",
+      action: "notify_worker",
+      reason: "assignment_promoted",
+      brief: `${files}/build/brief.md`,
+      dependencyReports: [expect.objectContaining({ assignment: "read", report: 1 })],
+    }),
+  ]);
+  stored([promoted({ activity: "working", activityAt: "2026-01-05T00:00:00.000Z" })]);
+  const seen = await next();
+  expect(seen.tag === "Ok" ? seen.value.sources[0] : null).toMatchObject({
+    actions: [],
+    waits: [{ assignment: "build", reason: "assignment_active" }],
+  });
+  // A later replacement of the handover launch is an ordinary start.
+  stored([promoted({ id: "l-other", attempt: 2 })]);
+  const replaced = await next();
+  expect(replaced.tag === "Ok" ? replaced.value.sources[0]?.waits : null).toMatchObject([
+    { assignment: "build", reason: "assignment_active" },
+  ]);
+  expect(replaced.tag === "Ok" ? replaced.value.sources[0]?.waits[0] : null).not.toHaveProperty(
+    "brief",
+  );
+});
+
+test("a promoted report whose worker stopped offers its PR assignment for dispatch", async () => {
+  stored([promoted({}, "ready")]);
+  const result = await next();
+  expect(result.tag === "Ok" ? result.value.sources[0] : null).toMatchObject({
+    state: "open",
+    actions: [{ assignment: "build", action: "ready_assignment" }],
+  });
+});
+
+test("a reached running cap holds ready work as a named wait, counting each live worker", async () => {
+  const rows = [
+    { key: "owner", completion: "report" as const, state: "reported" },
+    { key: "start", completion: "report" as const, state: "running" },
+    { key: "gone", completion: "report" as const, state: "running" },
+    { key: "done", completion: "report" as const, state: "completed" },
+    { key: "merged", completion: "pr" as const, state: "merged" },
+    { key: "accepted", completion: "report" as const, state: "completed" },
+    { key: "a", completion: "report" as const, state: "ready" },
+    { key: "b", completion: "pr" as const, state: "ready", dependencies: ["done"] },
+    { key: "c", completion: "report" as const, state: "ready", dependencies: ["gone"] },
+  ];
+  // A worker that waits for acceptance and a live start hold places. An abandoned start, a
+  // finished worker, and an ended assignment whose pane exit is not yet observed hold none.
+  const launches = [
+    storedLaunch("owner"),
+    storedLaunch("start", { state: "starting" }),
+    storedLaunch("gone", { state: "starting", abandoned: true }),
+    storedLaunch("done", { state: "finished" }),
+    storedLaunch("merged"),
+    storedLaunch("accepted"),
+  ];
+  async function held(maxRunning: number | undefined) {
+    stored([
+      storedSource(rows, {
+        launches,
+        pullRequests: [storedPullRequest("merged", merged)],
+        cleanups: [storedCleanup("merged", { step: "remote_branch", state: "pending" })],
+        maxRunning,
+      }),
+    ]);
+    const result = await next();
+    const source = result.tag === "Ok" ? result.value.sources[0] : undefined;
+    return {
+      ready: source?.actions
+        .filter((row) => row.action === "ready_assignment")
+        .map((row) => ("assignment" in row ? row.assignment : null)),
+      capped: source?.waits.filter((row) => row.reason === "running_cap_reached"),
+    };
+  }
+  expect(await held(2)).toEqual({
+    ready: [],
+    capped: ["a", "b"].map((assignment) => ({
+      assignment,
+      action: "wait",
+      reason: "running_cap_reached",
+      blockers: [],
+      runningCap: { maxRunning: 2, running: 2 },
+    })),
+  });
+  expect(await held(3)).toEqual({ ready: ["a", "b"], capped: [] });
+  expect(await held(undefined)).toEqual({ ready: ["a", "b"], capped: [] });
 });
 
 test("an unplanned assignment carries no dependency reports", () => {

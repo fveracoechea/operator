@@ -34,6 +34,7 @@ function spies() {
     submit: spyOn(ReportAssignments, "submit").mockReturnValue(completed("report_submitted")),
     resume: spyOn(ReportAssignments, "resume").mockReturnValue(completed("report_resumed")),
     accept: spyOn(ReportAssignments, "accept").mockReturnValue(completed("report_accepted")),
+    promote: spyOn(ReportAssignments, "promote").mockReturnValue(completed("report_promoted")),
     return: spyOn(ReportAssignments, "return").mockReturnValue(completed("report_returned")),
   };
 }
@@ -44,8 +45,12 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
     file: "r.json",
     sourceId: "",
     assignment: "",
+    promote: null,
   });
   expect(reportArgs(["report", "resume"])).toMatchObject({ command: "resume" });
+  expect(
+    reportArgs(["report", "accept", "--promote", "p.json", "--source", "s", "--assignment", "a"]),
+  ).toEqual({ command: "accept", file: "", sourceId: "s", assignment: "a", promote: "p.json" });
   expect(reportArgs(["report", "accept", "--source", "s", "--assignment", "a"])).toMatchObject({
     command: "accept",
     sourceId: "s",
@@ -68,6 +73,10 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
     ["other", "submit", "--file", "r.json"],
     ["report", "accept", "--source", "s", "--assignment"],
     ["report", "accept", "--source", "s", "--assignment", "--json"],
+    ["report", "accept", "--source", "s", "--assignment", "a", "--promote"],
+    ["report", "accept", "--source", "s", "--assignment", "a", "--promote", "p", "--promote", "q"],
+    ["report", "return", "--source", "s", "--assignment", "a", "--file", "f", "--promote", "p"],
+    ["report", "submit", "--file", "r.json", "--promote", "p.json"],
   ])
     expect(reportArgs(args)).toBeNull();
 });
@@ -87,7 +96,7 @@ test("passes each command to the matching report operation", async () => {
   const called = spies();
   const { log } = quiet();
   const cwd = process.cwd();
-  const none = { file: "", sourceId: "", assignment: "" };
+  const none = { file: "", sourceId: "", assignment: "", promote: null };
   await runReports(["report", "submit", "--file", "r.json"], paths, true);
   expect(called.submit).toHaveBeenCalledWith({
     paths,
@@ -107,6 +116,25 @@ test("passes each command to the matching report operation", async () => {
     file: "",
     sourceId: "s",
     assignment: "a",
+    promote: null,
+  });
+  await runReports(
+    ["report", "accept", "--source", "s", "--assignment", "a", "--promote", "p.json"],
+    paths,
+    true,
+  );
+  expect(called.promote).toHaveBeenCalledWith({
+    paths,
+    cwd,
+    command: "accept",
+    file: "p.json",
+    sourceId: "s",
+    assignment: "a",
+    promote: "p.json",
+  });
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "report_accept",
+    reason: "report_promoted",
   });
   await runReports(
     ["report", "return", "--source", "s", "--assignment", "a", "--file", "f.md"],
@@ -120,6 +148,7 @@ test("passes each command to the matching report operation", async () => {
     file: "f.md",
     sourceId: "s",
     assignment: "a",
+    promote: null,
   });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "report_return",
@@ -158,6 +187,8 @@ test.each([
   ["report_changed", 4],
   ["self_decision_refused", 4],
   ["worker_launch_not_found", 4],
+  ["invalid_source_plan", 2],
+  ["source_io_failed", 1],
   ["report_missing", 3],
 ])("refuses %s with exit code %d", async (reason, code) => {
   spyOn(ReportAssignments, "resume").mockReturnValue(

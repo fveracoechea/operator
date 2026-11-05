@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { planSchema } from "./plan.ts";
+import { planSchema, promotionSchema } from "./plan.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
 import {
@@ -268,7 +268,12 @@ export const WorkSources = {
             assignments: parsed.data,
             workers: facts.launches.filter(liveWorker),
           }).map((change) => {
-            const keys = plan.value.assignments.map((assignment) => assignment.key);
+            // Promoted assignments follow the registered ones. ADR-0023.
+            const registered = plan.value.assignments.map((assignment) => assignment.key);
+            const keys = [
+              ...registered,
+              ...parsed.data.map((row) => row.key).filter((key) => !registered.includes(key)),
+            ];
             abandoned = keys.filter((key) => change.abandon.includes(key));
             // An assignment that was abandoned before the reset is neither kept nor changed.
             preserved = keys.filter(
@@ -354,6 +359,13 @@ export const WorkSources = {
       sources: sources.map((source) => nextActions(input, source, now)),
     }));
   },
+  /** The PR assignment that a promotion adds, read from the SuperAgent's file. ADR-0023. */
+  readPromotion(file: string) {
+    return fromPromise(
+      async () => promotionSchema.parse(await Bun.file(file).json()),
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    );
+  },
   /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */
   decideReport(
     facts: Omit<Parameters<typeof decideReport>[0], "assignments"> & {
@@ -370,7 +382,7 @@ export const WorkSources = {
 type Source = ReturnType<typeof decodeSource>;
 
 function dependencyReports(source: Source, assignment: string) {
-  const planned = source.plan.assignments.find((row) => row.key === assignment);
+  const planned = source.planned.find((row) => row.key === assignment);
   if (planned === undefined) return [];
   return planned.dependencies.flatMap((key) => {
     const report = source.reports.findLast(
@@ -398,8 +410,25 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   };
 }
 
+/** The plan's assignments whose latest worker starts or runs. Each holds one place under the cap. */
+function runningCount(source: Source) {
+  // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
+  // and worktree may still close.
+  const ended = new Set(
+    source.assignments
+      .filter((row) => ["merged", "completed", "abandoned"].includes(row.state))
+      .map((row) => row.key),
+  );
+  const latest = new Map(
+    source.launches.filter((row) => !ended.has(row.assignment)).map((row) => [row.assignment, row]),
+  );
+  return [...latest.values()].filter(liveWorker).length;
+}
+
 function decide(input: Input, source: Source) {
-  return source.plan.assignments.map((assignment) => {
+  const { maxRunning } = source.plan;
+  const running = runningCount(source);
+  return source.planned.map((assignment) => {
     // Decoding matched each planned key to one stored row.
     const current = assignmentStateSchema.parse(
       source.assignments.find((row) => row.key === assignment.key),
@@ -425,11 +454,19 @@ function decide(input: Input, source: Source) {
           ? undefined
           : { decision: report.decision, cleanup: report.cleanupState },
       cleanup: cleanupFact(cleanup),
+      // The worker that took over a promoted report has not been seen since the promotion.
+      handover:
+        launch !== undefined &&
+        launch.id === assignment.promotion?.handoverLaunchId &&
+        launch.activity === null,
+      capReached: maxRunning !== undefined && running >= maxRunning,
     });
+    const cap =
+      decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
     return described(
       input,
       source,
-      { assignment: assignment.key, ...decision },
+      { assignment: assignment.key, ...decision, ...cap },
       { assignment: assignment.key, launch, pullRequest, report, cleanup },
     );
   });
@@ -453,6 +490,7 @@ function described<T extends object>(
     pullRequest?: object;
     report?: object;
     cleanup?: object;
+    brief?: string;
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
@@ -460,6 +498,13 @@ function described<T extends object>(
   if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
+  // The worker reads its refreshed brief only after the SuperAgent tells it to.
+  if ("action" in decision && decision.action === "notify_worker")
+    row.brief = OperatorHome.assignmentFiles(input.paths, {
+      repository: source.repository,
+      sourceId: source.id,
+      assignment: records.assignment,
+    }).brief;
   // Gaps of accepted dependency work stay visible until the dependent itself ends.
   const carried = dependencyReports(source, records.assignment);
   if (carried.length > 0) row.dependencyReports = carried;
