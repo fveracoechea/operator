@@ -559,18 +559,20 @@ test("a reached running cap holds ready work as a named wait, counting each live
     { key: "gone", completion: "report" as const, state: "running" },
     { key: "done", completion: "report" as const, state: "completed" },
     { key: "merged", completion: "pr" as const, state: "merged" },
+    { key: "accepted", completion: "report" as const, state: "completed" },
     { key: "a", completion: "report" as const, state: "ready" },
     { key: "b", completion: "pr" as const, state: "ready", dependencies: ["done"] },
     { key: "c", completion: "report" as const, state: "ready", dependencies: ["gone"] },
   ];
   // A worker that waits for acceptance and a live start hold places. An abandoned start, a
-  // finished worker, and a merged PR's worker whose pane exit is not yet observed hold none.
+  // finished worker, and an ended assignment whose pane exit is not yet observed hold none.
   const launches = [
     storedLaunch("owner"),
     storedLaunch("start", { state: "starting" }),
     storedLaunch("gone", { state: "starting", abandoned: true }),
     storedLaunch("done", { state: "finished" }),
     storedLaunch("merged"),
+    storedLaunch("accepted"),
   ];
   async function held(maxRunning: number | undefined) {
     stored([

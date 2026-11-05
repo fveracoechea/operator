@@ -82,7 +82,8 @@ function latestReturned(db: Db, sourceId: string, assignment: string) {
 
 /** How many of the source's assignments have a latest launch that runs or starts with a live owner. */
 function runningCount(db: Db, sourceId: string, now: number) {
-  // A merged PR's owner ends with its cleanup, which can come before its pane exit is observed.
+  // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
+  // and worktree may still close.
   const ended = new Set(
     db
       .select({ key: assignments.key })

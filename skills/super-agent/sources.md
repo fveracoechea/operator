@@ -21,6 +21,7 @@ A PR dependency permits work at `pr-open` or `merged`.
 A report dependency waits for accepted `completed`, not submitted `reported`.
 While the cap is reached, each ready assignment of the plan is a wait with `running_cap_reached` and its `runningCap`, and dispatch refuses it with the same reason.
 A `replace_worker` action is never held, so a replacement continues started work even above the cap.
+A recorded merge or accepted report frees its place, also while its pane and worktree close.
 Plans are fixed after registration. Independent work needs an assignment in a new plan.
 
 Registration launches no worker, and next actions change no state.

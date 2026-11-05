@@ -239,6 +239,7 @@ test("a ready assignment waits while the plan's running cap is reached, and a re
         state: "ready",
       })),
       { sourceId: "s2", key: "m", completion: "pr", state: "ready" },
+      { sourceId: "s2", key: "r", completion: "report", state: "ready" },
     ],
   );
   function reserve(key: string, attempt = 1) {
@@ -258,10 +259,13 @@ test("a ready assignment waits while the plan's running cap is reached, and a re
   }
   // Another source's worker holds no place in this plan.
   reserveLaunch(db, "/one", "owner/one", launch);
-  // A merged PR's worker holds no place, also before its pane exit is observed.
+  // An ended assignment's worker holds no place, also before its pane exit is observed.
   expect(reserve("m")).toMatchObject({ tag: "Ok" });
   db.exec("UPDATE launches SET state = 'running' WHERE id = 'm1'");
   db.exec("UPDATE assignments SET state = 'merged' WHERE key = 'm' AND source_id = 's2'");
+  expect(reserve("r")).toMatchObject({ tag: "Ok" });
+  db.exec("UPDATE launches SET state = 'running' WHERE id = 'r1'");
+  db.exec("UPDATE assignments SET state = 'completed' WHERE key = 'r' AND source_id = 's2'");
   expect(reserve("a")).toMatchObject({ tag: "Ok" });
   expect(reserve("b")).toMatchObject({
     tag: "Err",

@@ -400,7 +400,8 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
 
 /** The plan's assignments whose latest worker starts or runs. Each holds one place under the cap. */
 function runningCount(source: Source) {
-  // A merged PR's owner ends with its cleanup, which can come before its pane exit is observed.
+  // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
+  // and worktree may still close.
   const ended = new Set(
     source.assignments
       .filter((row) => ["merged", "completed", "abandoned"].includes(row.state))
