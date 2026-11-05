@@ -248,12 +248,12 @@ test("a live internal review handoff blocks an upgrade once its records exist", 
   ] as const) {
     db.exec("DELETE FROM internal_reviews");
     db.query("INSERT INTO internal_reviews VALUES (?, ?)").run(pid, lease);
-    expect(idleForMigration(db, 12).tag, `${pid}`).toBe(blocked ? "Err" : "Ok");
+    expect(idleForMigration(db, 13).tag, `${pid}`).toBe(blocked ? "Err" : "Ok");
     // Before the migration that adds the table, the guard does not read it.
-    expect(idleForMigration(db, 11).tag).toBe("Ok");
+    expect(idleForMigration(db, 12).tag).toBe("Ok");
   }
   db.query("INSERT INTO internal_reviews VALUES (?, ?)").run(process.pid, lease);
-  expect(idleForMigration(db, 12)).toMatchObject({
+  expect(idleForMigration(db, 13)).toMatchObject({
     error: {
       detail:
         "Migration is waiting for a running internal review handoff to finish. No handler ran.",

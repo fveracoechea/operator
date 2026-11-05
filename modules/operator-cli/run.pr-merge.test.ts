@@ -354,6 +354,7 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
     [{ ...eligible, checks: [{ name: "lint", conclusion: "FAILURE" }] }, "pr_merge_blocked"],
     [{ ...eligible, threads: [{ comments: [{ id: "T1", body: "Fix." }] }] }, "pr_merge_blocked"],
     [{ ...eligible, baseRefName: "release" }, "pr_merge_blocked"],
+    [{ ...eligible, isDraft: true }, "pr_merge_blocked"],
     [{ ...eligible, head: "pushed-elsewhere" }, "pr_head_mismatch"],
     [{ ...eligible, state: "CLOSED" }, "pr_not_open"],
   ];
@@ -384,6 +385,30 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
   });
   expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
   expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await exists(worker.worktreePath)).toBe(true);
+}, 90000);
+
+test("a draft PR is never eligible and never merges", async () => {
+  const source = await setup("opencode");
+  const worker = await openPullRequest(source, { ...eligible, isDraft: true });
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    output: {
+      data: { events: [{ kind: "feedback" }], mergeConditions: { notDraft: false } },
+    },
+  });
+  expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
+    code: 3,
+    output: {
+      reason: "pr_merge_blocked",
+      blockers: [
+        {
+          reason: "pr_merge_blocked",
+          detail: "The PR needs the ready-for-review state. Nothing was merged or changed.",
+        },
+      ],
+    },
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
   expect(await exists(worker.worktreePath)).toBe(true);
 }, 90000);
 

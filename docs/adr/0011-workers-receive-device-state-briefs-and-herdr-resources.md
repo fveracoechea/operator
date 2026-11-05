@@ -34,6 +34,12 @@ A collision gets a distinct recorded name, never adoption or deletion of an unre
 
 One stable Herdr worktree-creation hook prepares every new worktree of a registered project, including those not dispatched by Operator.
 It copies ignored local environment files from the controlling checkout without overwriting existing files, then installs project dependencies from the lockfile.
+An install lifecycle script, such as Husky's `prepare`, can write ignored files outside the dependency folders.
+Preparation records each ignored file that appeared during the install, with its content hash, in the worktree's preparation record.
+Cleanup disposes such a file only while its content equals the record. A changed or unrecorded ignored file still blocks.
+Preparation does not run the install with `HUSKY=0`, because a project's shared `core.hooksPath` can point at Husky's output, and it keeps no allowlist of known hook folders, because any lifecycle script can write ignored files.
+The cost: a file that someone else writes while the install runs is recorded as install output.
+A worktree prepared before this record existed has none, so its install output blocks cleanup until the person instructs a forced removal.
 These project inputs are distinct from the coordination files that remain in device state.
 
 ## Consequences

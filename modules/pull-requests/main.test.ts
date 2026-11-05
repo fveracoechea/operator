@@ -42,6 +42,7 @@ const allMet = {
   checksPassing: true,
   threadsResolved: true,
   defaultBase: true,
+  notDraft: true,
   stackRelayed: true,
 };
 
@@ -432,6 +433,7 @@ test("a merged parent relays the child onto the default branch", async () => {
           checksPassing: false,
           threadsResolved: true,
           defaultBase: true,
+          notDraft: true,
           stackRelayed: false,
         },
         events: [{ kind: "parent_relayed", parent, base: "main", head }],

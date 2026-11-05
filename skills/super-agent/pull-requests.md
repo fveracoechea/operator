@@ -43,7 +43,7 @@ Send the reviewer no account of the implementer's work. Its inputs are the issue
 Keep these rules while a PR is a draft:
 
 - Keep `review.assignments` off. If it is on, `review next` shows `start_reviewer` for the draft. Run that command only after the PR is ready.
-- Ask nobody to approve the PR. The owner runs the guarded merge only after the PR is ready, also when a wait reports `merge_eligible` for the draft.
+- Ask nobody to approve the PR.
 
 To skip a running internal review, on the person's instruction, tell the owner to mark the draft ready with no comment.
 A draft associated before this release has no recorded review, so its replacement owner's brief does not make it the reviewer. Tell that owner to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
@@ -51,7 +51,7 @@ A draft associated before this release has no recorded review, so its replacemen
 ## Cleanup after a verified merge
 
 The merge starts cleanup in its own process. It deletes the remote branch, closes the owner's pane, and removes the worktree in that order, and stops at the first failure.
-Cleanup removes only what inspection proves landed: the worktree head must be in the merged head, and the worktree may hold only lockfile-installed `node_modules` folders and unchanged copies of `.env*.local` files from preparation.
+Cleanup removes only what inspection proves landed: the worktree head must be in the merged head, and the worktree may hold only lockfile-installed `node_modules` folders, unchanged copies of `.env*.local` files, and unchanged files that the preparation install wrote.
 A finished source still shows the cleanup that its merges owe.
 
 - `wait` with `cleanup_running`: a cleanup process runs. Do nothing.
