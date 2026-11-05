@@ -365,6 +365,29 @@ test("a running, PR-open, or returned assignment starts again only after its lat
   }
 });
 
+test("a reviewer starts after the handoff ended the implementer, and its start ends the handoff", () => {
+  for (const [assignmentState, handoffState, allowed] of [
+    ["pr-open", "pending", true],
+    ["pr-open", "failed", true],
+    ["pr-open", "done", false],
+    ["abandoned", "pending", false],
+  ] as const) {
+    using db = fixture();
+    reserveLaunch(db, "/one", "owner/one", launch);
+    db.query("UPDATE launches SET state = 'finished'").run();
+    db.query("UPDATE assignments SET state = ?").run(assignmentState);
+    db.query(
+      "INSERT INTO internal_reviews (source_id, assignment, state, implementer_launch_id, handoff_state, started_at, updated_at, owner_pid, lease_at) VALUES ('s1', 'read', 'reviewing', 'l1', ?, 'now', 'now', ?, ?)",
+    ).run(handoffState, process.pid, new Date().toISOString());
+    expect(reserveAgain(db, 2).tag, `${assignmentState} ${handoffState}`).toBe(
+      allowed ? "Ok" : "Err",
+    );
+    expect(db.query("SELECT handoff_state AS state FROM internal_reviews").get()).toEqual({
+      state: allowed ? "done" : handoffState,
+    });
+  }
+});
+
 test("a reservation names each refusal and records an abandoned start's end", () => {
   using db = fixture();
   for (const repository of ["owner/unregistered", "owner/one"])
