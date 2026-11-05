@@ -136,8 +136,10 @@ test.each([
     name: "no tracker operations",
     file: "work-sources/main.ts",
     before: "const id = crypto.randomUUID();",
+    // A busy machine can take seconds to start the controlled gh, and a timeout stops it before it
+    // records the call. With a limit above the behavior test's own, the start time never decides.
     after:
-      'await import("../tool-invocation/main.ts").then(({ToolInvocation}) => ToolInvocation.run({tool:"gh",args:["issue","list"],timeoutMs:1000})); const id = crypto.randomUUID();',
+      'await import("../tool-invocation/main.ts").then(({ToolInvocation}) => ToolInvocation.run({tool:"gh",args:["issue","list"],timeoutMs:60000})); const id = crypto.randomUUID();',
     testFile: "operator-cli/run.sources.test.ts",
     pattern: "registers a supplied mixed plan",
   },

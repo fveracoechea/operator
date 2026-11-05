@@ -226,7 +226,12 @@ describe("the release plan", () => {
 
   test("refuses to publish when the registry cannot say whether it holds the version", async () => {
     const fake = await jsrFake({ published: [version] });
-    const outage = Bun.serve({ port: 0, fetch: () => new Response(null, { status: 503 }) });
+    // Bound to the address it is read at, so no other listener on the same port answers instead.
+    const outage = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(null, { status: 503 }),
+    });
     const api = `http://127.0.0.1:${outage.port}`;
 
     let result;
