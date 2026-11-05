@@ -112,6 +112,33 @@ test("the ordered assignment table exposes only ready work, preserving active an
   });
 });
 
+test("a reached running cap holds only ready work whose dependencies are met", () => {
+  const ready: AssignmentState = { key: "one", completion: "pr", state: "ready" };
+  expect(decideAssignment({ assignment: ready, dependencies: [], capReached: true })).toEqual({
+    action: "wait",
+    reason: "running_cap_reached",
+    blockers: [],
+  });
+  expect(
+    decideAssignment({ assignment: ready, dependencies: [], capReached: false }),
+  ).toMatchObject({ action: "ready_assignment" });
+  expect(
+    decideAssignment({
+      assignment: ready,
+      dependencies: [{ key: "parent", completion: "pr", state: "running" }],
+      capReached: true,
+    }),
+  ).toMatchObject({ reason: "dependencies_pending" });
+  expect(
+    decideAssignment({
+      assignment: { key: "one", completion: "pr", state: "running" },
+      dependencies: [],
+      launch: "failed",
+      capReached: true,
+    }),
+  ).toMatchObject({ action: "replace_worker", reason: "launch_failed" });
+});
+
 test("a failed or interrupted launch offers a replacement, and activity never proves a result", () => {
   const running: AssignmentState = { key: "one", completion: "report", state: "running" };
   expect(decideAssignment({ assignment: running, dependencies: [], launch: "failed" })).toEqual({

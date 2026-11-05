@@ -410,7 +410,24 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   };
 }
 
+/** The plan's assignments whose latest worker starts or runs. Each holds one place under the cap. */
+function runningCount(source: Source) {
+  // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
+  // and worktree may still close.
+  const ended = new Set(
+    source.assignments
+      .filter((row) => ["merged", "completed", "abandoned"].includes(row.state))
+      .map((row) => row.key),
+  );
+  const latest = new Map(
+    source.launches.filter((row) => !ended.has(row.assignment)).map((row) => [row.assignment, row]),
+  );
+  return [...latest.values()].filter(liveWorker).length;
+}
+
 function decide(input: Input, source: Source) {
+  const { maxRunning } = source.plan;
+  const running = runningCount(source);
   return source.planned.map((assignment) => {
     // Decoding matched each planned key to one stored row.
     const current = assignmentStateSchema.parse(
@@ -442,11 +459,14 @@ function decide(input: Input, source: Source) {
         launch !== undefined &&
         launch.id === assignment.promotion?.handoverLaunchId &&
         launch.activity === null,
+      capReached: maxRunning !== undefined && running >= maxRunning,
     });
+    const cap =
+      decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
     return described(
       input,
       source,
-      { assignment: assignment.key, ...decision },
+      { assignment: assignment.key, ...decision, ...cap },
       { assignment: assignment.key, launch, pullRequest, report, cleanup },
     );
   });
