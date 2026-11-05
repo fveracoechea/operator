@@ -22,7 +22,7 @@ const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) 
     defaultBranchRef { name }
     viewerDefaultMergeMethod
     pullRequest(number: $number) {
-      state baseRefName headRefName headRefOid reviewDecision
+      state isDraft baseRefName headRefName headRefOid reviewDecision
       mergeCommit { oid }
       reviews(last: 100) { nodes { id state body url author { login } } }
       comments(last: 100) { nodes { id body url author { login } } }
@@ -50,6 +50,7 @@ const pullRequestAnswer = z.object({
         baseRefName: z.string(),
         headRefName: z.string(),
         headRefOid: z.string(),
+        isDraft: z.boolean(),
         reviewDecision: z.string().nullable(),
         mergeCommit: z.object({ oid: z.string() }).nullable(),
         reviews: z.object({
@@ -107,7 +108,7 @@ const associationQuery = `query($owner: String!, $name: String!, $branch: String
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
     pullRequests(headRefName: $branch, states: [OPEN], first: 10) {
-      nodes { number url baseRefName headRefName headRepository { nameWithOwner } }
+      nodes { number url isDraft baseRefName headRefName headRefOid headRepository { nameWithOwner } }
     }
   }
 }`;
@@ -121,8 +122,10 @@ const associationAnswer = z.object({
           z.object({
             number: z.number().int().positive(),
             url: z.string(),
+            isDraft: z.boolean(),
             baseRefName: z.string(),
             headRefName: z.string(),
+            headRefOid: z.string(),
             headRepository: z.object({ nameWithOwner: z.string() }).nullable(),
           }),
         ),
@@ -172,6 +175,7 @@ export type Observation = {
   mergeMethod: "merge" | "squash" | "rebase";
   base: string;
   defaultBranch: string | null;
+  draft: boolean;
   approved: boolean;
   /** Counts each thread past the read as unresolved, because the gate cannot see it. */
   unresolvedThreads: number;
@@ -242,6 +246,8 @@ export function openPullRequests(repository: string, branch: string) {
         url: pr.url,
         base: pr.baseRefName,
         defaultBranch: answer.data.repository.defaultBranchRef?.name ?? null,
+        draft: pr.isDraft,
+        head: pr.headRefOid,
       })),
   );
 }
@@ -317,6 +323,7 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
           : "rebase",
     base: pr.baseRefName,
     defaultBranch: data.repository.defaultBranchRef?.name ?? null,
+    draft: pr.isDraft,
     approved: pr.reviewDecision === "APPROVED",
     unresolvedThreads:
       threads.nodes.filter((thread) => !thread.isResolved).length + unread(threads),
@@ -362,9 +369,53 @@ type GithubEffectFailure = {
   detail: string;
 };
 
+const mergeRequestAnswer = z.object({
+  status: z.enum(["pending", "merged", "enqueued", "failed"]),
+  details: z.object({ message: z.string(), uuid: z.string().optional() }),
+});
+
+/** A merge request's state: `pending` runs in the background, and the others are final. */
+export type MergeRequest = {
+  status: z.infer<typeof mergeRequestAnswer>["status"];
+  uuid: string | null;
+  message: string;
+};
+
+function mergeRequestResult(answer: Awaited<ReturnType<typeof GithubApi.call>>) {
+  // GitHub answers 409 while an earlier request for this PR still runs, and the gh failure
+  // keeps no uuid to read, so the merge stays pending for the caller to verify.
+  if (answer.status === "failed" && answer.httpStatus === 409)
+    return Ok<MergeRequest>({
+      status: "pending",
+      uuid: null,
+      message: "GitHub already runs a merge request for this PR.",
+    });
+  if (answer.status === "failed")
+    return Err<GithubEffectFailure>({
+      reason: "github_failed",
+      detail: `${answer.code}: ${answer.detail}`,
+    });
+  if (answer.status === "uncertain")
+    return Err<GithubEffectFailure>({ reason: "github_uncertain", detail: answer.detail });
+  const parsed = mergeRequestAnswer.safeParse(answer.value.body);
+  // An unreadable answer can follow an accepted request, so the merge stays uncertain.
+  return parsed.success
+    ? Ok<MergeRequest>({
+        status: parsed.data.status,
+        uuid: parsed.data.details.uuid ?? null,
+        message: parsed.data.details.message,
+      })
+    : Err<GithubEffectFailure>({
+        reason: "github_uncertain",
+        detail: "GitHub did not describe the merge request in the expected form.",
+      });
+}
+
 /**
- * Asks GitHub to merge exactly the guarded head. GitHub refuses when the head moved. The
- * answer never proves the outcome, so the caller reads the PR again before it records a merge.
+ * Asks GitHub to merge exactly the guarded head, without a merge queue. The asynchronous
+ * endpoint merges every PR, also one that GitHub keeps in a stack, which the synchronous
+ * endpoint refuses. The answer never proves the outcome, so the caller reads the PR again before
+ * it records a merge.
  */
 export function mergePullRequest(
   repository: string,
@@ -376,22 +427,30 @@ export function mergePullRequest(
         args: [
           "-X",
           "PUT",
-          `repos/${repository}/pulls/${merge.number}/merge`,
+          `repos/${repository}/pulls/${merge.number}/merge-async`,
           "-f",
           `sha=${merge.head}`,
           "-f",
           `merge_method=${merge.method}`,
+          "-f",
+          "merge_action=direct_merge",
         ],
         timeoutMs: 60000,
       }),
     (cause, defect) => defect(cause),
-  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
-    if (answer.status === "failed")
-      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
-    if (answer.status === "uncertain")
-      return Err({ reason: "github_uncertain", detail: answer.detail });
-    return Ok(undefined);
-  });
+  ).flatMap(mergeRequestResult);
+}
+
+/** The current state of one background merge request. */
+export function readMergeRequest(repository: string, number: number, uuid: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: [`repos/${repository}/pulls/${number}/merge-async/${uuid}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap(mergeRequestResult);
 }
 
 const refAnswer = z.object({ object: z.object({ sha: z.string() }) });
@@ -435,4 +494,165 @@ export function deleteRemoteBranch(repository: string, branch: string) {
         ? `${answer.code}: ${answer.detail}`
         : answer.detail,
   );
+}
+
+// The ready step and the skip read the PR's node, draft state, and earlier comments.
+const readyQuery = `query ReadyFacts($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id state isDraft headRefOid
+      comments(last: 100) { nodes { id body url author { login } } }
+    }
+  }
+}`;
+
+const readyAnswer = z.object({
+  data: z.object({
+    viewer: z.object({ login: z.string() }),
+    repository: z.object({
+      pullRequest: z.object({
+        id: z.string(),
+        state: z.enum(["OPEN", "MERGED", "CLOSED"]),
+        isDraft: z.boolean(),
+        headRefOid: z.string(),
+        comments: z.object({ nodes: z.array(comment) }),
+      }),
+    }),
+  }),
+});
+
+/** The PR as the ready step needs it, with the viewer's own comment that holds the marker. */
+export function readyFacts(repository: string, number: number, marker: string) {
+  return query(
+    ["-f", `query=${readyQuery}`, ...repositoryFields(repository), "-F", `number=${number}`],
+    readyAnswer,
+  ).map(({ data }) => {
+    const pr = data.repository.pullRequest;
+    const posted = pr.comments.nodes.find(
+      (node) => node.author?.login === data.viewer.login && node.body.includes(marker),
+    );
+    return {
+      id: pr.id,
+      state: pr.state,
+      draft: pr.isDraft,
+      head: pr.headRefOid,
+      posted: posted === undefined ? null : { id: posted.id, url: posted.url, body: posted.body },
+    };
+  });
+}
+
+const postedAnswer = z.object({ node_id: z.string(), html_url: z.string() });
+
+/** Posts one PR comment. A lost answer is found again by its marker on the next read. */
+export function postComment(repository: string, number: number, body: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: [`repos/${repository}/issues/${number}/comments`, "--method", "POST", "--input", "-"],
+        input: JSON.stringify({ body }),
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<{ id: string; url: string }, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = postedAnswer.safeParse(answer.value.body);
+    return parsed.success
+      ? Ok({ id: parsed.data.node_id, url: parsed.data.html_url })
+      : Err({
+          reason: "github_uncertain",
+          detail: "GitHub answered the comment post in an unknown form.",
+        });
+  });
+}
+
+const updateMutation = `mutation($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) { issueComment { id } }
+}`;
+
+const updateAnswer = z.object({
+  data: z
+    .object({ updateIssueComment: z.object({ issueComment: z.object({ id: z.string() }) }) })
+    .nullable(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+/** Replaces the text of an earlier comment. A lost answer is found again by its text on the next read. */
+export function updateComment(id: string, body: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["graphql", "-f", `query=${updateMutation}`, "-f", `id=${id}`, "-f", `body=${body}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = updateAnswer.safeParse(answer.value.body);
+    if (!parsed.success)
+      return Err({
+        reason: "github_uncertain",
+        detail: "GitHub answered the comment update in an unknown form.",
+      });
+    const errors = parsed.data.errors ?? [];
+    if (errors.length > 0 || parsed.data.data === null)
+      return Err({
+        reason: "github_failed",
+        detail:
+          errors.map((error) => error.message).join(" ") || "GitHub kept the earlier comment.",
+      });
+    return Ok(undefined);
+  });
+}
+
+const readyMutation = `mutation($id: ID!) {
+  markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } }
+}`;
+
+const readyMutationAnswer = z.object({
+  data: z
+    .object({
+      markPullRequestReadyForReview: z.object({
+        pullRequest: z.object({ isDraft: z.boolean() }),
+      }),
+    })
+    .nullable(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+/** Moves a draft PR to ready for review with GitHub's own mutation. */
+export function markReady(id: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["graphql", "-f", `query=${readyMutation}`, "-f", `id=${id}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = readyMutationAnswer.safeParse(answer.value.body);
+    if (!parsed.success)
+      return Err({
+        reason: "github_uncertain",
+        detail: "GitHub answered the ready mutation in an unknown form.",
+      });
+    const errors = parsed.data.errors ?? [];
+    const pr = parsed.data.data?.markPullRequestReadyForReview.pullRequest;
+    if (errors.length > 0 || pr === undefined || pr.isDraft)
+      return Err({
+        reason: "github_failed",
+        detail: errors.map((error) => error.message).join(" ") || "The PR stayed a draft.",
+      });
+    return Ok(undefined);
+  });
 }

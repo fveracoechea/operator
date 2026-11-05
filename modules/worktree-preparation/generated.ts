@@ -6,12 +6,14 @@ import { approvedEnvFile } from "./env-files.ts";
  * each child when only the children match a pattern such as `node_modules/*`.
  * A dependency folder counts only beside a tracked manifest when a tracked Bun lockfile made
  * preparation install, and an environment file counts only while it equals the controller's copy.
+ * Another file that the install wrote counts only while it equals the recorded content.
  * Every other ignored entry is unknown, because it can hold unlanded work.
  */
 export function classifyIgnored(input: {
   ignored: string[];
   tracked: Set<string>;
   copiedUnchanged: Set<string>;
+  installedUnchanged: Set<string>;
 }) {
   const installed = input.tracked.has("bun.lock") || input.tracked.has("bun.lockb");
   const generated: string[] = [];
@@ -22,7 +24,8 @@ export function classifyIgnored(input: {
     const dependencies =
       installed && folder !== undefined && input.tracked.has(`${folder}package.json`);
     const environment = approvedEnvFile(entry) && input.copiedUnchanged.has(entry);
-    (dependencies || environment ? generated : unknown).push(entry);
+    const installOutput = input.installedUnchanged.has(entry);
+    (dependencies || environment || installOutput ? generated : unknown).push(entry);
   }
   return { generated, unknown };
 }

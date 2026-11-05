@@ -1,14 +1,25 @@
-import { fromPromise, fromThrowable, Ok, Err, type Result } from "unthrown";
+import {
+  all,
+  fromPromise,
+  fromThrowable,
+  Ok,
+  Err,
+  type AsyncResult,
+  type ErrOf,
+  type Result,
+} from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { planSchema } from "./plan.ts";
+import { planSchema, promotionSchema } from "./plan.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
 import {
   decodeSource,
+  findingSchema,
   type Cleanup,
+  type InternalReview,
   type Launch,
   type PullRequest,
   type Message,
@@ -16,6 +27,8 @@ import {
   type Report,
 } from "./snapshot.ts";
 import { OperatorHome } from "../operator-home/main.ts";
+import { Environment } from "../environment/main.ts";
+import { actionSet } from "./coordination.ts";
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 
@@ -89,6 +102,29 @@ function cleanupSummary(cleanup: Cleanup) {
   };
 }
 
+function reviewSummary(source: Source, review: InternalReview) {
+  return {
+    state: review.state,
+    readyHead: review.readyHead,
+    comment: review.commentUrl,
+    rounds: source.internalReviewRounds
+      .filter((round) => round.assignment === review.assignment)
+      .map((round) => ({
+        number: round.number,
+        head: round.head,
+        findings: round.findings.length,
+        blockers: round.findings.filter((finding) => finding.severity === "blocker").length,
+      })),
+    handoff: {
+      state:
+        review.handoffState === "pending" && !review.handoffRunning
+          ? "stopped"
+          : review.handoffState,
+      detail: review.handoffDetail,
+    },
+  };
+}
+
 function cleanupFact(cleanup: Cleanup | undefined) {
   if (cleanup === undefined) return undefined;
   if (cleanup.running) return "running";
@@ -98,18 +134,22 @@ function cleanupFact(cleanup: Cleanup | undefined) {
 
 function readProject(input: Input & { sourceId?: string }) {
   return Projects.current(input).flatMap(({ data: project }) =>
-    DeviceState.readSources(input.paths, project.repository, input.sourceId).flatMap((rows) =>
-      fromThrowable(
-        () => ({ project, sources: rows.map(decodeSource) }),
-        (cause, defect) =>
-          cause instanceof z.ZodError || cause instanceof SyntaxError
-            ? {
-                reason: "state_corrupt" as const,
-                detail: "Stored source records are invalid. They were not repaired.",
-              }
-            : defect(cause),
-      )(),
-    ),
+    readSources(input, project.repository).map((sources) => ({ project, sources })),
+  );
+}
+
+function readSources(input: Input & { sourceId?: string }, repository: string) {
+  return DeviceState.readSources(input.paths, repository, input.sourceId).flatMap((rows) =>
+    fromThrowable(
+      () => rows.map(decodeSource),
+      (cause, defect) =>
+        cause instanceof z.ZodError || cause instanceof SyntaxError
+          ? {
+              reason: "state_corrupt" as const,
+              detail: "Stored source records are invalid. They were not repaired.",
+            }
+          : defect(cause),
+    )(),
   );
 }
 
@@ -225,6 +265,22 @@ export const WorkSources = {
   dependencyReports(source: Source, assignment: string) {
     return dependencyReports(source, assignment);
   },
+  /**
+   * Validates the findings of one internal review round: each has an axis, a severity, a
+   * location, and a claim, and nothing else. ADR-0020.
+   */
+  parseFindings(text: string) {
+    return fromThrowable(
+      () => z.strictObject({ findings: z.array(findingSchema) }).parse(JSON.parse(text)).findings,
+      (cause, defect) =>
+        cause instanceof z.ZodError || cause instanceof SyntaxError
+          ? {
+              reason: "internal_review_findings_invalid" as const,
+              detail: `The findings file must hold JSON {"findings": [...]}, where each finding has only axis (Spec, Standards, or Skills), severity (blocker or nice-to-have), location, and claim. ${cause instanceof z.ZodError ? z.prettifyError(cause).replaceAll("\n", " ") : cause.message} Nothing was recorded.`,
+            }
+          : defect(cause),
+    )();
+  },
   /** The source state that follows from its assignment states, for writes that end work. */
   stateAfter(assignments: { key: string; completion: string; state: string }[]) {
     return decideSource({
@@ -270,7 +326,12 @@ export const WorkSources = {
             assignments: parsed.data,
             workers: facts.launches.filter(liveWorker),
           }).map((change) => {
-            const keys = plan.value.assignments.map((assignment) => assignment.key);
+            // Promoted assignments follow the registered ones. ADR-0023.
+            const registered = plan.value.assignments.map((assignment) => assignment.key);
+            const keys = [
+              ...registered,
+              ...parsed.data.map((row) => row.key).filter((key) => !registered.includes(key)),
+            ];
             abandoned = keys.filter((key) => change.abandon.includes(key));
             // An assignment that was abandoned before the reset is neither kept nor changed.
             preserved = keys.filter(
@@ -350,11 +411,43 @@ export const WorkSources = {
     });
   },
   next(input: Input & { sourceId?: string }) {
-    const now = Date.now();
-    // Decoding already refused rows that do not match their plan.
-    return read(input).map((sources) => ({
-      sources: sources.map((source) => nextActions(input, source, now)),
-    }));
+    return read(input).map((sources) => nextAnswer(input, sources));
+  },
+  /**
+   * Block until the set of non-wait actions differs from the set that the scope's last wait
+   * returned, or until the timeout ends, and return the normal next answer. The returned set is
+   * recorded, so a change between two waits returns at once, also after a restart.
+   */
+  wait(input: Input & { sourceId?: string; timeoutSeconds: number }) {
+    return coordinationWait(input);
+  },
+  /** The PR assignment that a promotion adds, read from the SuperAgent's file. ADR-0023. */
+  readPromotion(file: string) {
+    return fromPromise(
+      async () => promotionSchema.parse(await Bun.file(file).json()),
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    );
+  },
+  /**
+   * The sources that the pane supervises whose next actions show running work while no wait
+   * from that pane covers them. Work that waits only for its dependencies runs nothing yet.
+   */
+  unwatched(input: Input & { paneId: string }) {
+    return DeviceState.readSupervision(input.paths, input.paneId).flatMap((supervised) =>
+      all(
+        supervised
+          .filter((source) => !source.waiting)
+          .map((source) =>
+            readSources({ ...input, sourceId: source.id }, source.repository).map((sources) =>
+              nextAnswer(input, sources).sources.some((next) =>
+                next.waits.some((row) => row.reason !== "dependencies_pending"),
+              )
+                ? [source.id]
+                : [],
+            ),
+          ),
+      ).map((ids) => ids.flat()),
+    );
   },
   /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */
   decideReport(
@@ -370,9 +463,79 @@ export const WorkSources = {
 };
 
 type Source = ReturnType<typeof decodeSource>;
+type CoordinationScope = Parameters<typeof DeviceState.startCoordinationWait>[1];
+// The watch recurses, so it names the closed failures of the reads and the record it repeats.
+type WatchFailure =
+  | ErrOf<ReturnType<typeof readSources>>
+  | ErrOf<ReturnType<typeof DeviceState.finishCoordinationWait>>;
+type WatchOutcome = {
+  reason: "next_actions_changed" | "next_wait_timed_out";
+  data: ReturnType<typeof nextAnswer>;
+};
+
+function nextAnswer(input: Input, sources: Source[]) {
+  const now = Date.now();
+  // Decoding already refused rows that do not match their plan.
+  return { sources: sources.map((source) => nextActions(input, source, now)) };
+}
+
+// A wait reads only local device state, so it can read often.
+const coordinationPollMs = 2000;
+
+function coordinationWait(input: Input & { sourceId?: string; timeoutSeconds: number }) {
+  const deadline = Date.now() + input.timeoutSeconds * 1000;
+  return Projects.current(input).flatMap(({ data: project }) => {
+    const target = { repository: project.repository, scope: input.sourceId ?? "" };
+    const paneId = Environment.read().HERDR_PANE_ID ?? null;
+    return DeviceState.startCoordinationWait(input.paths, target, paneId)
+      .toAsync()
+      .flatMap((returned) => {
+        // The lease shows that this wait still runs, so other operations can tell.
+        const release = DeviceState.holdCoordinationWait(input.paths, target);
+        return fromPromise(
+          async () => {
+            try {
+              return await watchActions(input, target, returned, deadline);
+            } finally {
+              release();
+            }
+          },
+          // Stryker disable next-line ArrowFunction: equivalent: the watch returns its failures as values, so only a defect reaches this mapping
+          (cause, defect) => defect(cause),
+        ).flatMap((result) => result);
+      });
+  });
+}
+
+/** Reads next actions until their set differs from the returned set or the deadline passes. */
+function watchActions(
+  input: Input & { sourceId?: string },
+  target: CoordinationScope,
+  returned: string | null,
+  deadline: number,
+): AsyncResult<WatchOutcome, WatchFailure> {
+  // The project was resolved once, so each read touches only device state.
+  const read = readSources(input, target.repository).map((sources) => nextAnswer(input, sources));
+  return read.toAsync().flatMap((answer) => {
+    const current = actionSet(answer);
+    const changed = current !== returned;
+    // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
+    if (changed || Date.now() >= deadline)
+      return DeviceState.finishCoordinationWait(input.paths, target, current)
+        .toAsync()
+        .map(() => ({
+          reason: changed ? "next_actions_changed" : "next_wait_timed_out",
+          data: answer,
+        }));
+    return fromPromise(
+      () => Bun.sleep(Math.min(coordinationPollMs, deadline - Date.now())),
+      (cause, defect) => defect(cause),
+    ).flatMap(() => watchActions(input, target, returned, deadline));
+  });
+}
 
 function dependencyReports(source: Source, assignment: string) {
-  const planned = source.plan.assignments.find((row) => row.key === assignment);
+  const planned = source.planned.find((row) => row.key === assignment);
   if (planned === undefined) return [];
   return planned.dependencies.flatMap((key) => {
     const report = source.reports.findLast(
@@ -390,6 +553,13 @@ function dependencyReports(source: Source, assignment: string) {
           },
         ];
   });
+}
+
+/** A handoff that a reviewer start ended is no longer a fact. */
+function handoffFact(review: InternalReview | undefined) {
+  if (review === undefined || review.handoffState === "done") return undefined;
+  if (review.handoffState === "failed") return "failed";
+  return review.handoffRunning ? "running" : "stopped";
 }
 
 function pullRequestFacts(pullRequest: PullRequest | undefined) {
@@ -451,8 +621,24 @@ function messageAction(message: Message, now: number) {
   };
 }
 
+/** The plan's assignments whose latest worker starts or runs. Each holds one place under the cap. */
+function runningCount(source: Source) {
+  // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
+  // and worktree may still close.
+  const ended = new Set(
+    source.assignments
+      .filter((row) => ["merged", "completed", "abandoned"].includes(row.state))
+      .map((row) => row.key),
+  );
+  const latest = new Map(
+    source.launches.filter((row) => !ended.has(row.assignment)).map((row) => [row.assignment, row]),
+  );
+  return [...latest.values()].filter(liveWorker).length;
+}
+
 function decide(input: Input, source: Source, now: number) {
-  return source.plan.assignments.flatMap((assignment) => {
+  const running = runningCount(source);
+  return source.planned.flatMap((assignment) => {
     const questions = source.questions
       .filter(
         (row) =>
@@ -464,7 +650,7 @@ function decide(input: Input, source: Source, now: number) {
       .filter((row) => row.assignment === assignment.key)
       .flatMap((row) => messageAction(row, now));
     const recorded = [...questions, ...messages];
-    const decision = decideAssignmentRow(input, source, assignment);
+    const decision = decideAssignmentRow(input, source, assignment, running);
     return recorded.length > 0 && idleReasons.has(decision.reason)
       ? recorded
       : [...recorded, decision];
@@ -474,8 +660,10 @@ function decide(input: Input, source: Source, now: number) {
 function decideAssignmentRow(
   input: Input,
   source: Source,
-  assignment: Source["plan"]["assignments"][number],
+  assignment: Source["planned"][number],
+  running: number,
 ) {
+  const { maxRunning } = source.plan;
   // Decoding matched each planned key to one stored row.
   const current = assignmentStateSchema.parse(
     source.assignments.find((row) => row.key === assignment.key),
@@ -487,6 +675,7 @@ function decideAssignmentRow(
   const pullRequest = source.pullRequests.find((pr) => pr.assignment === assignment.key);
   const report = source.reports.findLast((row) => row.assignment === assignment.key);
   const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
+  const review = source.internalReviews.find((row) => row.assignment === assignment.key);
   const decision = decideAssignment({
     assignment: current,
     dependencies,
@@ -499,12 +688,17 @@ function decideAssignmentRow(
         ? undefined
         : { decision: report.decision, cleanup: report.cleanupState },
     cleanup: cleanupFact(cleanup),
+    handoff: handoffFact(review),
+    reviewing: review?.state === "reviewing",
+    capReached: maxRunning !== undefined && running >= maxRunning,
   });
+  const cap =
+    decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
   return described(
     input,
     source,
-    { assignment: assignment.key, ...decision },
-    { assignment: assignment.key, launch, pullRequest, report, cleanup },
+    { assignment: assignment.key, ...decision, ...cap },
+    { assignment: assignment.key, launch, pullRequest, report, cleanup, review },
   );
 }
 
@@ -519,6 +713,7 @@ function described<T extends object>(
     pullRequest: PullRequest | undefined;
     report: Report | undefined;
     cleanup: Cleanup | undefined;
+    review?: InternalReview | undefined;
   },
 ) {
   const row: T & {
@@ -526,6 +721,7 @@ function described<T extends object>(
     pullRequest?: object;
     report?: object;
     cleanup?: object;
+    internalReview?: object;
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
@@ -533,6 +729,7 @@ function described<T extends object>(
   if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
+  if (records.review !== undefined) row.internalReview = reviewSummary(source, records.review);
   // Gaps of accepted dependency work stay visible until the dependent itself ends.
   const carried = dependencyReports(source, records.assignment);
   if (carried.length > 0) row.dependencyReports = carried;

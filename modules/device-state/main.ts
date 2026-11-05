@@ -18,7 +18,7 @@ import {
   readSources,
   resetSource,
   pruneSource,
-  type SourceRow as StoredSource,
+  type StoredSource,
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 
@@ -32,7 +32,7 @@ import {
   readPreparation,
   renewLaunch,
   renewPreparation,
-  type LaunchRow,
+  type LaunchReservation,
 } from "./launches.ts";
 import {
   worktreeOwners,
@@ -42,8 +42,24 @@ import {
   recordPullRequestMerge,
   renewPullRequestRelay,
 } from "./pull-requests.ts";
+import {
+  claimHandoff,
+  endInternalReview,
+  failHandoff,
+  finishImplementer,
+  recordInternalReviewRound,
+  renewHandoff,
+  startHandoff,
+} from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
+import {
+  finishCoordinationWait,
+  readSupervision,
+  renewCoordinationWait,
+  startCoordinationWait,
+  type CoordinationScope,
+} from "./coordination-waits.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
 import { changeQuestion, readQuestion } from "./questions.ts";
@@ -132,9 +148,13 @@ export const DeviceState = {
     paths: Paths,
     checkout: string,
     repository: string,
-    launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+    launch: LaunchReservation,
+    maxRunning?: number,
+    supervisingPane: string | null = null,
   ) {
-    return writing(paths, (client) => reserveLaunch(client, checkout, repository, launch));
+    return writing(paths, (client) =>
+      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisingPane),
+    );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
     return writing(paths, (client) => updateLaunch(client, id, change));
@@ -200,14 +220,63 @@ export const DeviceState = {
   worktreeOwners(paths: Paths) {
     return reading(paths, (client) => worktreeOwners(client));
   },
-  /** With `review`, the association also queues the optional assignment-origin review request. */
+  /**
+   * With `review`, the association also queues the optional assignment-origin review request.
+   * With `internalReview`, it records the internal review and its pending handoff.
+   */
   associatePullRequest(
     paths: Paths,
     launchId: string,
     pr: Parameters<typeof associatePullRequest>[2],
     review = false,
+    internalReview = false,
   ) {
-    return writing(paths, (client) => associatePullRequest(client, launchId, pr, review));
+    return writing(paths, (client) =>
+      associatePullRequest(client, launchId, pr, review, internalReview),
+    );
+  },
+  /** `afterPid` is the associating process, whose hold the handoff it started takes over. */
+  claimHandoff(
+    paths: Paths,
+    repository: string,
+    sourceId: string,
+    assignment: string,
+    afterPid: number | null,
+  ) {
+    return writing(paths, (client) =>
+      claimHandoff(client, repository, sourceId, assignment, afterPid),
+    );
+  },
+  startHandoff(paths: Paths, sourceId: string, assignment: string, pid: number) {
+    return writing(paths, (client) => startHandoff(client, sourceId, assignment, pid));
+  },
+  failHandoff(paths: Paths, sourceId: string, assignment: string, detail: string) {
+    return writing(paths, (client) => failHandoff(client, sourceId, assignment, detail));
+  },
+  /** Renew this process's lease on a running handoff until the returned stop runs. */
+  holdHandoff(paths: Paths, sourceId: string, assignment: string) {
+    return hold(() => writing(paths, (client) => renewHandoff(client, sourceId, assignment)));
+  },
+  /** Ends the implementer launch whose pane the handoff closed. */
+  finishImplementer(paths: Paths, launchId: string) {
+    return writing(paths, (client) => finishImplementer(client, launchId));
+  },
+  /** Ends a running internal review ready or skipped, and queues the assignment reviewer with `queueReview`. */
+  endInternalReview(
+    paths: Paths,
+    target: Parameters<typeof endInternalReview>[1],
+    end: Parameters<typeof endInternalReview>[2],
+    queueReview: boolean,
+  ) {
+    return writing(paths, (client) => endInternalReview(client, target, end, queueReview));
+  },
+  /** Records one internal review round when the caller's rule permits it on the facts read in the write. */
+  recordInternalReviewRound<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    launchId: string,
+    decide: Parameters<typeof recordInternalReviewRound<E>>[2],
+  ) {
+    return writing(paths, (client) => recordInternalReviewRound(client, launchId, decide));
   },
   /** Apply one review-request transition that the caller's rule decides from the active request. */
   changeReviewRequest<E>(
@@ -284,6 +353,21 @@ export const DeviceState = {
   /** Renew this process's lease on a running cleanup until the returned stop runs. */
   holdCleanup(paths: Paths, sourceId: string, assignment: string) {
     return hold(() => writing(paths, (client) => renewCleanup(client, sourceId, assignment)));
+  },
+  /** Record this process as the scope's running coordination wait and read its last returned set. */
+  startCoordinationWait(paths: Paths, target: CoordinationScope, paneId: string | null) {
+    return writing(paths, (client) => startCoordinationWait(client, target, paneId));
+  },
+  finishCoordinationWait(paths: Paths, target: CoordinationScope, actions: string) {
+    return writing(paths, (client) => finishCoordinationWait(client, target, actions));
+  },
+  /** The sources that a Herdr pane supervises, and whether a wait from that pane covers each. */
+  readSupervision(paths: Paths, paneId: string) {
+    return reading(paths, (client) => readSupervision(client, paneId));
+  },
+  /** Renew this process's lease on a running coordination wait until the returned stop runs. */
+  holdCoordinationWait(paths: Paths, target: CoordinationScope) {
+    return hold(() => writing(paths, (client) => renewCoordinationWait(client, target)));
   },
   /** Renew this process's claim on a PR relay until the returned stop runs. */
   holdPullRequestRelay(paths: Paths, sourceId: string, assignment: string) {

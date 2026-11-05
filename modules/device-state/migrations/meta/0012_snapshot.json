@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a65df209-ad37-41c1-8cbb-41425eba1f72",
-  "prevId": "29cb8585-342f-4075-a81c-20e03f87f4db",
+  "id": "de4365b6-c073-4d0f-864f-b829a5bc1c57",
+  "prevId": "c4e497ab-5889-456a-aca3-2ea7eceee947",
   "tables": {
     "assignments": {
       "name": "assignments",
@@ -453,6 +453,123 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "promotions": {
+      "name": "promotions",
+      "columns": {
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignment": {
+          "name": "assignment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "report": {
+          "name": "report",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "report_number": {
+          "name": "report_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tracker_key": {
+          "name": "tracker_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "instructions": {
+          "name": "instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "branch": {
+          "name": "branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "internal_review": {
+          "name": "internal_review",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "worktree_path": {
+          "name": "worktree_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "handover_launch_id": {
+          "name": "handover_launch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "promoted_at": {
+          "name": "promoted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "one_promotion_per_report": {
+          "name": "one_promotion_per_report",
+          "columns": ["source_id", "report"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "promotions_source_id_assignment_assignments_source_id_key_fk": {
+          "name": "promotions_source_id_assignment_assignments_source_id_key_fk",
+          "tableFrom": "promotions",
+          "tableTo": "assignments",
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "promotions_source_id_report_assignments_source_id_key_fk": {
+          "name": "promotions_source_id_report_assignments_source_id_key_fk",
+          "tableFrom": "promotions",
+          "tableTo": "assignments",
+          "columnsFrom": ["source_id", "report"],
+          "columnsTo": ["source_id", "key"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "promotions_source_id_assignment_pk": {
+          "columns": ["source_id", "assignment"],
+          "name": "promotions_source_id_assignment_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -1445,242 +1562,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "worker_messages": {
-      "name": "worker_messages",
-      "columns": {
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "assignment": {
-          "name": "assignment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "launch_id": {
-          "name": "launch_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "message": {
-          "name": "message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "question_key": {
-          "name": "question_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "rung_at": {
-          "name": "rung_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "doorbell_failure": {
-          "name": "doorbell_failure",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "acknowledged_at": {
-          "name": "acknowledged_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reply": {
-          "name": "reply",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "worker_messages_launch_id_launches_id_fk": {
-          "name": "worker_messages_launch_id_launches_id_fk",
-          "tableFrom": "worker_messages",
-          "tableTo": "launches",
-          "columnsFrom": ["launch_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "worker_messages_source_id_assignment_assignments_source_id_key_fk": {
-          "name": "worker_messages_source_id_assignment_assignments_source_id_key_fk",
-          "tableFrom": "worker_messages",
-          "tableTo": "assignments",
-          "columnsFrom": ["source_id", "assignment"],
-          "columnsTo": ["source_id", "key"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "worker_messages_source_id_assignment_key_pk": {
-          "columns": ["source_id", "assignment", "key"],
-          "name": "worker_messages_source_id_assignment_key_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "worker_questions": {
-      "name": "worker_questions",
-      "columns": {
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "assignment": {
-          "name": "assignment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "launch_id": {
-          "name": "launch_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "question": {
-          "name": "question",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "asked_at": {
-          "name": "asked_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "answer": {
-          "name": "answer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "answered_by": {
-          "name": "answered_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "answered_at": {
-          "name": "answered_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "worker_questions_launch_id_launches_id_fk": {
-          "name": "worker_questions_launch_id_launches_id_fk",
-          "tableFrom": "worker_questions",
-          "tableTo": "launches",
-          "columnsFrom": ["launch_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "worker_questions_source_id_assignment_assignments_source_id_key_fk": {
-          "name": "worker_questions_source_id_assignment_assignments_source_id_key_fk",
-          "tableFrom": "worker_questions",
-          "tableTo": "assignments",
-          "columnsFrom": ["source_id", "assignment"],
-          "columnsTo": ["source_id", "key"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "worker_questions_source_id_assignment_key_pk": {
-          "columns": ["source_id", "assignment", "key"],
-          "name": "worker_questions_source_id_assignment_key_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "worktree_preparations": {
       "name": "worktree_preparations",
       "columns": {
@@ -1735,6 +1616,13 @@
         },
         "lease_at": {
           "name": "lease_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "installed": {
+          "name": "installed",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

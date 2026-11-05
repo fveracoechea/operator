@@ -113,7 +113,7 @@ test.each([
   {
     name: "reported eligibility",
     file: "pull-requests/wait-machine.ts",
-    replacements: [["progress.eligibleHead !== observed.head", "true"]],
+    replacements: [["facts.progress.eligibleHead !== facts.observed.head", "true"]],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "opencode: the owner associates",
   },
@@ -164,7 +164,7 @@ test.each([
     file: "pull-requests/wait-machine.ts",
     replacements: [["observed.checks.length > 0 &&", ""]],
     testFile: "pull-requests/wait-machine.test.ts",
-    pattern: "eligibility needs all five merge conditions",
+    pattern: "eligibility needs every merge condition",
   },
   {
     name: "own replies never end a wait",
@@ -341,10 +341,7 @@ test.each([
     name: "stacked PR ineligible before its relay",
     file: "pull-requests/main.ts",
     replacements: [
-      [
-        'const stackRelayed = relay === null || relay.state === "relayed";',
-        "const stackRelayed = true;",
-      ],
+      ['stackRelayed: relay === null || relay.state === "relayed",', "stackRelayed: true,"],
     ],
     testFile: "operator-cli/run.pr-relay.test.ts",
     pattern: "a stacked PR moved to main by hand",

@@ -1,5 +1,7 @@
 import type { WorkSources } from "../work-sources/main.ts";
 
+type Finding = { axis: string; severity: string; location: string; claim: string };
+
 type BriefInput = {
   sourceId: string;
   sourceTrackerKey: string;
@@ -8,6 +10,8 @@ type BriefInput = {
   completion: "pr" | "report";
   profile: string | null;
   instructions: string;
+  /** The person's own words, or null when neither the assignment nor the plan gives them. */
+  intent: string | null;
   workingDirectory: string;
   /** The worktree branch, or null for read-only work in a pane of the checkout. */
   branch: string | null;
@@ -19,6 +23,15 @@ type BriefInput = {
   stack: { assignment: string; number: number; branch: string } | null;
   /** The launch's resolved internal review value. Only a PR assignment uses it. ADR-0020. */
   internalReview: boolean;
+  /** The recorded internal review of the PR, which makes this start its reviewer while it runs. */
+  review: {
+    state: "reviewing" | "ready" | "skipped";
+    rounds: { number: number; head: string; findings: Finding[] }[];
+    /** The PR head that an ended review recorded. */
+    readyHead: string | null;
+  } | null;
+  /** The accepted report that this PR assignment was promoted from. ADR-0023. */
+  promotion: { report: string; number: number } | null;
 };
 
 function list(files: string[], directory: string) {
@@ -33,6 +46,19 @@ function quote(text: string) {
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
+}
+
+/** The person's words are the acceptance criteria, and the instructions are the SuperAgent's spec. */
+function acceptanceCriteria(input: BriefInput) {
+  if (input.intent === null) return "";
+  return `
+## Acceptance criteria
+
+The person gave these words for this work. They are its acceptance criteria.
+The task instructions above are the SuperAgent's spec for meeting them. Ask your supervising SuperAgent when the two disagree.
+
+${quote(input.intent)}
+`;
 }
 
 /** The content is copied, because a reset or removal can delete the producer's report file. */
@@ -59,11 +85,55 @@ Check whether each unresolved point applies to your task. Record a question for 
 ${reports.join("\n")}`;
 }
 
+/** The promoted worktree can hold prototype changes that the PR must not keep. ADR-0023. */
+function promotion(input: BriefInput) {
+  if (input.promotion === null) return "";
+  return `
+## Promotion
+
+The SuperAgent promoted report ${input.promotion.number} of \`${input.promotion.report}\` into this PR assignment.
+You work in that report's worktree, and its accepted report is listed above.
+The worktree can hold prototype changes that the PR must not keep. Clean the branch before your first push.
+`;
+}
+
 /** The relay and the guarded merge own a stack, so a `gh stack` write would race them. ADR-0010. */
 const stackRule = [
   "Use `gh stack view --json` only to read a stack.",
   "Run no other `gh stack` command, because the relay and `operator pr merge` own the rebase, push, base change, and merge.",
 ];
+
+function findingLine(finding: Finding) {
+  return `  - ${finding.axis}, ${finding.severity}, \`${finding.location}\`: ${finding.claim.replaceAll("\n", " ")}`;
+}
+
+/** The reviewer role comes from the recorded review, not from the PR's draft state. */
+function reviewer(number: number, review: NonNullable<BriefInput["review"]>) {
+  const rounds = review.rounds.map((round) =>
+    [
+      `- Round ${round.number} at \`${round.head}\`: ${round.findings.length === 0 ? "no findings." : ""}`.trimEnd(),
+      ...round.findings.map(findingLine),
+    ].join("\n"),
+  );
+  return [
+    `You are the internal reviewer of PR #${number}. Operator ended the implementer's session and started you in its worktree.`,
+    "Read the `internal-review.md` topic of the `worker-agent` skill before you start.",
+    "Do not use the PR body, the commit messages, or earlier owner messages as evidence.",
+    "Record each round's findings with `operator pr round --file <findings.json> --json` before you change code.",
+    ...(rounds.length === 0 ? ["No round is recorded yet."] : ["Recorded rounds:", ...rounds]),
+    "End the review with `operator pr ready --file <summary.json> --json`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.",
+    "Then you own the PR feedback loop below.",
+  ];
+}
+
+/** A launch after the review ended owns the PR, also when its review ended in an earlier launch. */
+function reviewEnded(number: number, review: NonNullable<BriefInput["review"]>) {
+  const end =
+    review.state === "ready"
+      ? `The internal review of PR #${number} ended ready at \`${review.readyHead ?? ""}\`.`
+      : `The internal review of PR #${number} was skipped on the person's instruction at \`${review.readyHead ?? ""}\`.`;
+  return [end, "You own the PR. Record no more review rounds."];
+}
 
 function feedbackLoop(input: BriefInput) {
   if (input.completion !== "pr") return "";
@@ -81,10 +151,12 @@ ${[
   "Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.",
   base,
   ...(input.stack === null ? [] : stackRule),
-  "Push with `git push -u`, so Git records the remote of your branch.",
+  "Commit all work and push with `git push -u`, so Git records the remote of your branch.",
   "Then run `operator pr associate --json` in your worktree.",
-  "Do not mark the PR ready for review. A fresh reviewer takes over the PR and owns it until its merge.",
-  "Then stop, and send no message. Your SuperAgent's coordination wait shows the handoff to internal review.",
+  "It refuses a PR that is not a draft, and a worktree with uncommitted, untracked, or unpushed work. Fix the cause and run it again.",
+  "Do not mark the PR ready for review.",
+  "After the association, Operator ends this session and starts a fresh reviewer in this worktree. The reviewer owns the PR until its merge.",
+  "Stop once the association succeeds. Your SuperAgent sees the handoff in `operator next`, so send it no message.",
 ].join("\n")}
 `;
   const opened =
@@ -97,13 +169,11 @@ ${[
         ]
       : [
           `PR #${input.pullRequest.number} is already open for this assignment: ${input.pullRequest.url}.`,
-          ...(input.internalReview
-            ? [
-                "Internal review is on for this assignment.",
-                "If the PR is a draft, you are its internal reviewer. Read the `internal-review.md` topic of the `worker-agent` skill before you start.",
-                "Do not use the PR body or earlier owner messages as evidence.",
-              ]
-            : []),
+          ...(input.review === null
+            ? []
+            : input.review.state === "reviewing"
+              ? reviewer(input.pullRequest.number, input.review)
+              : reviewEnded(input.pullRequest.number, input.review)),
           "Read its reviews, comments, unresolved threads, and checks before you wait.",
           "Inspect the worktree first. Keep work that is not landed.",
         ];
@@ -170,7 +240,7 @@ Read all of it before you start.
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
 ${input.instructions}
-${dependencyReports(input)}
+${acceptanceCriteria(input)}${dependencyReports(input)}${promotion(input)}
 ## Grilling authority
 
 The task instructions state who answers questions and what the SuperAgent may decide.

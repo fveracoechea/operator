@@ -10,6 +10,8 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
+import { WorkerQuestions } from "../worker-questions/main.ts";
+import { realPathOrNull } from "../../lib/real-path.ts";
 import { renderReport, submissionSchema, type Submission } from "./content.ts";
 import { qualify } from "./failures.ts";
 
@@ -23,8 +25,13 @@ type ReportRow = Facts["reports"][number];
 type Fields = {
   insert?: ReportRow;
   update?: Partial<Omit<ReportRow, "sourceId" | "assignment" | "number">>;
+  promote?: Extract<
+    ReturnType<Parameters<typeof DeviceState.changeReport>[2]>,
+    { tag: "Ok" }
+  >["value"]["promote"];
 };
-type Decision = { paths: Paths; target: Target; command: Command };
+/** A promotion names the PR assignment that it adds. ADR-0023. */
+type Decision = { paths: Paths; target: Target; command: Command; promote?: string };
 
 /** Carry an earlier step's refusal or defect into the command result. Its callback never runs. */
 function stop(result: Result<unknown, Failure>): Result<never, Failure> {
@@ -46,7 +53,7 @@ function reportNumber(report: Decided["report"]) {
   return "insert" in report ? report.insert : report.update;
 }
 
-function decide(facts: Facts, command: Command) {
+function decide(facts: Facts, command: Command, promote?: string) {
   return WorkSources.decideReport({
     command,
     assignment: facts.assignment,
@@ -54,13 +61,15 @@ function decide(facts: Facts, command: Command) {
     launch: facts.launch,
     latest: facts.reports.at(-1) ?? null,
     caller: caller(),
+    promotion:
+      promote === undefined ? undefined : { sourceState: facts.source.state, key: promote },
   });
 }
 
 /** Refuse from the facts before any file is written. */
 function read(decision: Decision) {
   return DeviceState.readReport(decision.paths, decision.target).flatMap((facts) =>
-    decide(facts, decision.command).map((decided) => ({ facts, decided })),
+    decide(facts, decision.command, decision.promote).map((decided) => ({ facts, decided })),
   );
 }
 
@@ -71,16 +80,17 @@ function record(
   fields: (facts: Facts, decided: Decided) => Fields,
 ) {
   return DeviceState.changeReport(decision.paths, decision.target, (facts) =>
-    decide(facts, decision.command).flatMap((decided) => {
+    decide(facts, decision.command, decision.promote).flatMap((decided) => {
       if (JSON.stringify(decided) !== JSON.stringify(expected))
         return Err<Failure>({
           reason: "report_changed",
           detail:
             "The assignment changed during this command. Read operator next. Nothing changed.",
         });
-      const { insert, update } = fields(facts, decided);
+      const { insert, update, promote } = fields(facts, decided);
       return Ok({
         insert,
+        promote,
         update:
           update === undefined ? undefined : { ...update, number: reportNumber(decided.report) },
         assignmentState: decided.assignmentState,
@@ -441,6 +451,183 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
   ).flatMap((result) => result);
 }
 
+/** The PR assignment's launch that takes over the running report worker's pane and worktree. */
+function handoverLaunch(
+  launch: NonNullable<Facts["launch"]>,
+  change: { key: string; name: string; branch: string; at: string },
+) {
+  return {
+    ...launch,
+    id: crypto.randomUUID(),
+    assignment: change.key,
+    attempt: 1,
+    state: "running",
+    name: change.name,
+    resources: "worktree",
+    branch: change.branch,
+    startedAt: change.at,
+    endedAt: null,
+    failureReason: null,
+    failureDetail: null,
+    // No observation since the handover. The worker reads its brief from a steering message.
+    activity: null,
+    activityAt: null,
+    ownerPid: null,
+    leaseAt: null,
+  };
+}
+
+/**
+ * Rewrite the kept worker's brief from the PR template, then tell the worker to read it in a
+ * recorded steering message. A stopped worker gets its brief at dispatch. ADR-0022 and ADR-0023.
+ */
+async function steerKeptWorker(request: PromoteInput, kept: boolean) {
+  if (!kept) return Ok({ brief: null, message: null });
+  const brief = await WorkerDispatch.refreshBrief(request);
+  if (brief.tag !== "Ok") return stop(brief);
+  return WorkerQuestions.steer({
+    ...request,
+    key: "promoted",
+    message: `The SuperAgent promoted your report into the PR assignment ${request.assignment}, which you now own. Read your new brief at ${brief.value} and follow it.`,
+  }).map(({ data }) => ({ brief: brief.value, message: data }));
+}
+
+type PromoteInput = {
+  paths: Paths;
+  cwd: string;
+  sourceId: string;
+  assignment: string;
+  file: string;
+};
+
+/** The supplied PR assignment and the report facts, refused before any rename. */
+async function promotionFacts(input: PromoteInput) {
+  const target = await superAgentTarget(input);
+  if (target.tag !== "Ok") return stop(target);
+  const supplied = await WorkSources.readPromotion(input.file);
+  if (supplied.tag !== "Ok") return stop(supplied);
+  const planned = supplied.value;
+  const decision = {
+    paths: input.paths,
+    target: target.value,
+    command: "promote" as const,
+    promote: planned.key,
+  };
+  const before = read(decision);
+  if (before.tag !== "Ok") return stop(before);
+  const { facts, decided } = before.value;
+  const recorded = facts.launch;
+  const worktreePath = recorded?.worktreePath ?? null;
+  // The rule refused a report without a worktree, so the launch has one.
+  // Stryker disable next-line ConditionalExpression: equivalent: the promote rule refuses a missing launch or worktree first
+  if (recorded === null || worktreePath === null)
+    return Err<Failure>({ reason: "report_defect", detail: "The worktree is not recorded." });
+  if ((await realPathOrNull(worktreePath)) === null)
+    return Err<Failure>({
+      reason: "promotion_worktree_missing",
+      detail: `The worktree ${worktreePath} of ${facts.assignment.key} no longer exists. Nothing changed.`,
+    });
+  return Ok({
+    checkout: target.value.checkout,
+    planned,
+    decision,
+    facts,
+    decided,
+    launch: { ...recorded, worktreePath },
+  });
+}
+
+/**
+ * Accept the report and add one PR assignment that takes over its worktree and, while it runs,
+ * its worker. The pane and the worktree stay, because the PR assignment owns them. ADR-0023.
+ */
+function promote(input: PromoteInput) {
+  return fromPromise(
+    async () => {
+      const prepared = await promotionFacts(input);
+      if (prepared.tag !== "Ok") return stop(prepared);
+      const { checkout, planned, decision, facts, decided, launch } = prepared.value;
+      const handover = await WorkerDispatch.handOver({
+        paths: input.paths,
+        checkout,
+        callerSocket: caller().socket,
+        assignment: planned,
+        launch,
+      });
+      if (handover.tag !== "Ok") return stop(handover);
+      const { name, branch } = handover.value;
+      const at = new Date().toISOString();
+      const taken =
+        name === null ? null : handoverLaunch(launch, { key: planned.key, name, branch, at });
+      const state = taken === null ? "ready" : "running";
+      const recorded = record(decision, decided, (current) => ({
+        update: {
+          decision: "accepted",
+          decidedAt: at,
+          cleanupState: "done",
+          cleanupDetail: `Promoted to ${planned.key}, which keeps the pane and the worktree.`,
+        },
+        promote: {
+          assignment: {
+            sourceId: current.source.id,
+            key: planned.key,
+            completion: "pr",
+            state,
+          },
+          promotion: {
+            sourceId: current.source.id,
+            assignment: planned.key,
+            report: current.assignment.key,
+            reportNumber: reportNumber(decided.report),
+            trackerKey: planned.trackerKey,
+            instructions: planned.instructions,
+            branch,
+            internalReview: planned.internalReview ?? null,
+            worktreePath: launch.worktreePath,
+            handoverLaunchId: taken?.id ?? null,
+            promotedAt: at,
+          },
+          launch: taken,
+        },
+      }));
+      if (recorded.tag !== "Ok") {
+        const undone = await handover.value.undo(recorded);
+        return stop(undone.tag === "Ok" ? recorded : undone);
+      }
+      const kept = await steerKeptWorker({ ...input, assignment: planned.key }, taken !== null);
+      if (kept.tag !== "Ok") return stop(kept);
+      const report = await acceptedReport(input);
+      if (report.tag !== "Ok") return stop(report);
+      const { number, conclusion, unresolved, reference } = report.value;
+      return Ok({
+        reason: "report_promoted",
+        data: {
+          sourceId: facts.source.id,
+          assignment: facts.assignment.key,
+          state: "completed",
+          report: number,
+          conclusion,
+          unresolved,
+          file: `${assignmentFiles(input.paths, facts).reports}/${number}/report.md`,
+          reference,
+          promoted: {
+            assignment: planned.key,
+            state,
+            branch,
+            worktreePath: launch.worktreePath,
+            name,
+            brief: kept.value.brief,
+          },
+          message: kept.value.message,
+          // A kept worker reads its new brief from the message. A stopped one needs a dispatch.
+          next: taken === null ? "dispatch" : "wait",
+        },
+      });
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
+}
+
 /** Report assignments: worker submission and resume, and SuperAgent acceptance or return. */
 export const ReportAssignments = {
   submit(input: { paths: Paths; file: string }) {
@@ -451,6 +638,16 @@ export const ReportAssignments = {
   },
   accept(input: { paths: Paths; cwd: string; sourceId: string; assignment: string }) {
     return accept(input);
+  },
+  /** Accept the report and promote it into the PR assignment that the file supplies. */
+  promote(input: {
+    paths: Paths;
+    cwd: string;
+    sourceId: string;
+    assignment: string;
+    file: string;
+  }) {
+    return promote(input);
   },
   return(input: { paths: Paths; cwd: string; sourceId: string; assignment: string; file: string }) {
     return returnReport(input);

@@ -13,7 +13,8 @@ The frontmatter `name` and the directory name are the same string.
 A `SKILL.md` is a router and stays under 150 lines, and every markdown file beside it is reached by a link from it.
 See [ADR-0002](../docs/adr/0002-an-owned-skill-discloses-rules-through-task-specific-topics.md) for the task-specific disclosure decision.
 No line of the `worker-agent` skill tells a worker to message its SuperAgent, because a worker reaches it only through recorded state ([ADR-0022](../docs/adr/0022-workeragents-reach-their-superagent-only-through-recorded-state.md)).
-`bun run quality` fails on any of those five rules.
+Every agent pays for each description on every turn, so all descriptions here total 2,200 characters at most.
+`bun run quality` fails on any of those six rules.
 Each `SKILL.md` description is the one source for when to load it.
 
 - [adr](./adr/SKILL.md)

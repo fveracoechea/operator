@@ -27,7 +27,7 @@ type Blocker =
 
 type Host = "opencode" | "claude-code";
 
-/** The executable, the owned and upstream skills, and Claude Code's commit hook of one host. */
+/** The executable, the owned and upstream skills, and Claude Code's hook groups of one host. */
 async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: Host) {
   const blockers: Blocker[] = [];
   const tool = host === "opencode" ? "opencode" : "claude";

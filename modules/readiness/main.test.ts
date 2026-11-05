@@ -146,6 +146,36 @@ describe("static blockers", () => {
     expect(hook).not.toHaveBeenCalled();
   });
 
+  test("Claude Code settings that run only the commit hook miss the turn-end guard", async () => {
+    const device = await scenario({ host: "claude-code", tools: ["gh", "herdr", "claude"] });
+    stub(GlobalLauncher, "check").mockReturnValue(OkAsync([]));
+    stub(OwnedSkills, "install").mockReturnValue(
+      OkAsync({
+        reason: "skills_checked" as const,
+        data: { hosts: ["claude-code" as const], checkOnly: true },
+      }),
+    );
+    stub(UpstreamSkills, "check").mockReturnValue(OkAsync([]));
+    const group = { hooks: [{ type: "command", command: "operator claude hook" }] };
+    await Bun.write(device.claudeSettings, JSON.stringify({ hooks: { PreToolUse: [group] } }), {
+      createPath: true,
+    });
+    const result = await Readiness.check(device);
+    expect(result).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [{ reason: "claude_hook_missing" }] },
+    });
+    if (result.tag === "Ok")
+      expect(result.value.blockers[0]?.detail).toContain(
+        "Claude Code does not run the Operator hook on Stop.",
+      );
+    await Bun.write(
+      device.claudeSettings,
+      JSON.stringify({ hooks: { PreToolUse: [group], Stop: [group] } }),
+    );
+    expect(await Readiness.check(device)).toEqual(Ok({ blockers: [] }));
+  });
+
   test("checks authentication when gh exists and names the Claude Code host", async () => {
     const device = await scenario({ host: "claude-code", tools: ["gh", "herdr", "claude"] });
     stub(GlobalLauncher, "check").mockReturnValue(

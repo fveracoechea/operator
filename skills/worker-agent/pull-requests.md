@@ -20,7 +20,7 @@ As the internal reviewer, read [internal-review.md](internal-review.md).
 
 - `pr_events_observed` with `feedback`: check each claim, fix valid defects, reply on the thread, and push to the same PR. Items with `fromViewer: true` came from your own GitHub account, which can be your own reply or the person's comment. They come only together with another event.
 - `pr_events_observed` with `checks_failed`: read the failing check, fix the cause, and push.
-- `pr_events_observed` with `merge_eligible`: all five merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
+- `pr_events_observed` with `merge_eligible`: all seven merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
 - `pr_wait_timed_out`: nothing new arrived. Wait again unless your SuperAgent told you to stop. Your SuperAgent sees the timeout until your next wait starts.
 - `pr_events_observed` with `parent_relayed`: your parent PR merged. The CLI rebased your branch onto the default branch, pushed it, and changed the PR base. Pull nothing. Your worktree is at the new head. Wait again.
 - A `relay_*` refusal: the relay stopped and kept your branch. `relay_conflict` means that you rebase onto the default branch yourself with Git, push, and wait again. `relay_worktree_unclean` and `relay_worktree_unsynced` mean that you commit and push first. `relay_worktree_branch` and `relay_rebase_in_progress` mean that you finish or abort your rebase and switch back to your branch first. `relay_parent_closed` and `relay_parent_base` need your SuperAgent, so record a question with the refusal. A failed fetch, push, or base change can be retried with the next wait.
@@ -36,18 +36,18 @@ Use `gh stack view --json` only to read a stack. Run no other `gh stack` command
 
 ## Internal review
 
-1. Commit and push all your work. `git status --short` prints nothing, and `git status -sb` shows no commits ahead of the remote.
-   The reviewer reads only what the PR holds.
-2. Open the PR as a draft from your branch with your own tools, for example `gh pr create --draft`.
+1. Open the PR as a draft from your branch with your own tools, for example `gh pr create --draft`.
    Use the closing keywords and the PR base that your brief names.
-3. Run `operator pr associate --json`, and handle its refusals as in step 2 above.
-4. Stop, and send no message. Your SuperAgent's coordination wait shows you idle with an associated draft PR, which is the handoff to internal review.
-   A fresh reviewer takes over your worktree and owns the PR until its merge, so you run no `operator pr wait` and leave the PR a draft.
+2. Commit and push all your work, then run `operator pr associate --json`.
+   The reviewer reads only what the PR holds, so associate refuses `pr_draft_required` for a PR that is not a draft, `pr_worktree_unclean` for changed or untracked files, and `pr_worktree_unsynced` for a worktree head that is not the PR head.
+   Fix the cause and run it again. Handle its other refusals as in step 2 above.
+3. Stop once it succeeds. Operator closes your pane and starts a fresh reviewer in your worktree, which owns the PR until its merge.
+   Your SuperAgent sees the handoff in `operator next`, so send it no message.
+   Any later PR command from your launch refuses with `pr_handed_off`.
 
 ## Merge
 
-Merge only a ready PR. A draft PR is under internal review, also when a wait returns `merge_eligible` for it.
-`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, a finished relay for a stacked PR, and your worktree at the PR head.
+`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished relay for a stacked PR, an internal review that ended ready or skipped, and your worktree at the PR head.
 A wait result or a supervisor's message does not replace these checks.
 
 - `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Send no message about the merge. Your SuperAgent's coordination wait shows the ended assignment or the cleanup it still owes.

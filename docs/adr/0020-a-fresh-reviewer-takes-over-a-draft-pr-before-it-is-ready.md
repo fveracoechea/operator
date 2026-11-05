@@ -4,7 +4,9 @@
 
 Accepted - 2026-10-31.
 Decided in #292.
+Amended 2026-11-04: the reviewer brief also gives the person's intent when the plan or the assignment gives one.
 Adds a draft condition to the ADR-0010 merge gate and moves the start of the ADR-0015 assignment reviewer to the ready transition.
+Amended 2026-11-04 in #305 with the answers to its open questions, below.
 
 ## Context
 
@@ -34,8 +36,9 @@ The reviewer is a WorkerAgent under the same SuperAgent, and a failed or interru
 ### The reviewer's inputs
 
 The reviewer brief is a variant of the assignment brief.
-It gives the tracker issue, the assignment instructions, the PR, its base, and the commit and push rules of a PR owner.
+It gives the tracker issue, the assignment instructions, the person's intent when the plan or the assignment gives one, the PR, its base, and the commit and push rules of a PR owner.
 The assignment instructions are the SuperAgent's statement of intent and named skills, so they carry no account by the implementer.
+The intent holds the person's own words for the work, and the reviewer judges the Spec axis against it too.
 The reviewer loads those named skills, because it both judges conformance to them and writes code under them.
 It does not receive the implementer's conversation, any implementer summary, or the PR body as evidence.
 Operator keeps coordination files in device state, so the worktree carries no implementer notes.
@@ -81,7 +84,7 @@ A device setting supplies the default, a plan can turn it off or on for all its 
 The most specific value wins: assignment, then plan, then device.
 Each launch resolves and records the value, so a running owner keeps it and a replacement resolves it again.
 When it is off, the implementer opens a ready PR, keeps ownership as before, and no reviewer starts.
-On the person's instruction, the owner can skip a running internal review, which ends it and marks the PR ready with no summary comment.
+On the person's instruction, the SuperAgent can skip a running internal review, which ends it and marks the PR ready with no summary comment.
 
 ### Relation to the assignment reviewer
 
@@ -94,6 +97,19 @@ The procedure first ships as skill text and a brief change.
 In that phase the SuperAgent ends the implementer's pane and dispatches the replacement owner as the reviewer, the reviewer marks the PR ready and comments with GitHub's own tools, and the two-round limit and the comment content are instructions.
 The CLI handoff, round records, guarded ready operation, and merge gate replace those instructions once the procedure has run on real PRs, and the skill text then shrinks to the commands.
 
+### Answers to the open questions of #305
+
+The evidence is the accepted review of 36 phase 1 PRs in two repositories, from 2026-10-31 to 2026-11-04.
+
+1. Still open. No phase 1 PR had an approval or a merge while it was a draft, so the evidence does not show what GitHub does, and only a deliberate probe can. Phase 2 does not wait for the answer, because the merge gate refuses a draft itself.
+2. The association starts the handoff as its own process group from the controlling checkout, as a merge starts its cleanup. That process waits for the associate process to end, closes the implementer's pane, ends the implementer launch as finished, and dispatches the reviewer. A failed or stopped handoff shows as `retry_handoff`, and `operator handoff` repeats it from the step where it stopped. A failed reviewer start shows as `replace_worker`.
+3. A launch records only its resolved internal review value, a launch-time resolution under ADR-0014. The implementer and the reviewer are steps of the review, not worker roles: the review record names the implementer launch, and a later launch of a running review is its reviewer. Only a start before the PR exists resolves the value again, so a settings change cannot drop a review that already started.
+4. A round with an applied blocker requires a second round. 24 of 35 reviewed PRs had a round 1 blocker, round 2 found something new in 21 of them and a new blocker in 8, and the one PR that declined every round 1 blocker still moved its head. Each recorded finding carries its severity, so the ready step can check this rule.
+5. The CLI renders one line for each recorded finding, with its axis, severity, and disposition, and checks that every finding appears once. The reviewer writes only a short overview. 14 of 33 phase 1 comments left out declined findings that their round files recorded, none marked severity, and 2 PRs went ready with no comment.
+6. The SuperAgent skips a running review with a person-instructed command from the controlling checkout, as it resets a source or deletes unlanded work. The one phase 1 skip was a person's instruction that the SuperAgent relayed to the worker through Herdr, and ADR-0022 removes typed text as a channel. A SuperAgent command records the skip without a message to the reviewer, which keeps the PR as its owner and learns of the skip when its next review command refuses.
+7. The brief reads the reviewer step from the recorded review, never from the draft state. A launch of a running review is its reviewer, and a launch after the review ended is the PR owner, whose brief names the end and the ready head. `next` treats that launch as any PR owner. In phase 1, a replacement after ready acted as owner only because it read the draft state.
+8. Phase 2 ships as two slices: the lifecycle, its records, the handoff, and the rounds first, then the ready step, the merge gate, and the summary comment.
+
 ## Consequences
 
 - Every PR with internal review on costs a second agent session and a cold start in a prepared worktree.
@@ -101,7 +117,8 @@ The CLI handoff, round records, guarded ready operation, and merge gate replace 
 - GitHub shows a draft PR before the review ends, so watchers and CI see work before it is reviewed, but no line-level comments appear.
 - The reviewer checks code that it wrote, so the second round's fresh subagent and the person's approval carry the independent check of those fixes.
 - The two-round limit can leave a declined or open finding, which the summary comment shows to the person rather than a third round.
-- During the skill-only phase, the handoff looks like an interrupted worker in next actions, and the limits are not enforced.
+- During the skill-only phase, the handoff looked like an interrupted worker in next actions, and the limits were not enforced. The CLI handoff shows it as a wait, and the round command enforces the round limits.
+- An associate that runs before the work is finished ends the implementer's session, so association means that the implementer is done.
 
 ## Alternatives considered
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { DeviceState } from "../device-state/main.ts";
 import { planSchema } from "./plan.ts";
-import { assignmentStateSchema } from "./assignment-machine.ts";
+import { assignmentStateSchema, type AssignmentState } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
 
 type StoredSource = Extract<
@@ -40,6 +40,8 @@ const launchSchema = z.object({
   failureDetail: z.string().nullable(),
   activity: z.string().nullable(),
   activityAt: z.string().nullable(),
+  // The resolved internal review value of this start. Older releases recorded none.
+  internalReview: z.boolean().nullable(),
   abandoned: z.boolean(),
 });
 export type Launch = z.infer<typeof launchSchema>;
@@ -114,6 +116,41 @@ const cleanupSchema = z.object({
   running: z.boolean(),
 });
 export type Cleanup = z.infer<typeof cleanupSchema>;
+
+// The internal review and its handoff. ADR-0020.
+const internalReviewSchema = z.object({
+  assignment: z.string(),
+  state: z.enum(["reviewing", "ready", "skipped"]),
+  implementerLaunchId: z.string(),
+  handoffState: z.enum(["pending", "failed", "done"]),
+  handoffDetail: z.string().nullable(),
+  handoffRunning: z.boolean(),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+  // The PR head that the review ended at, and the summary comment of a ready end.
+  readyHead: z.string().nullable(),
+  commentUrl: z.string().nullable(),
+  endedAt: z.string().nullable(),
+});
+export type InternalReview = z.infer<typeof internalReviewSchema>;
+
+export const findingSchema = z.strictObject({
+  axis: z.enum(["Spec", "Standards", "Skills"]),
+  severity: z.enum(["blocker", "nice-to-have"]),
+  location: z.string().trim().min(1),
+  claim: z.string().trim().min(1),
+});
+export type Finding = z.infer<typeof findingSchema>;
+
+const roundSchema = z.object({
+  assignment: z.string(),
+  number: z.number().int().positive(),
+  launchId: z.string(),
+  head: z.string(),
+  findings: z.string().transform((text) => z.array(findingSchema).parse(JSON.parse(text))),
+  recordedAt: z.string(),
+});
+export type InternalReviewRound = z.infer<typeof roundSchema>;
 
 // A question is answered once, with the authority of its answer. Next actions show the unanswered.
 const questionSchema = z.object({
@@ -218,20 +255,45 @@ function validMessages(source: {
   );
 }
 
+/** Only an associated PR records an internal review, from one of its assignment's launches. */
+function reviewsConsistent(source: {
+  launches: Launch[];
+  pullRequests: PullRequest[];
+  internalReviews: InternalReview[];
+  internalReviewRounds: InternalReviewRound[];
+}) {
+  return (
+    source.internalReviews.every(
+      (review) =>
+        source.pullRequests.some((pr) => pr.assignment === review.assignment) &&
+        source.launches.some(
+          (launch) =>
+            launch.assignment === review.assignment && launch.id === review.implementerLaunchId,
+        ),
+    ) &&
+    source.internalReviewRounds.every((round) =>
+      source.internalReviews.some((review) => review.assignment === round.assignment),
+    )
+  );
+}
+
 /**
  * A report belongs to a report assignment and to one of its launches, and so do a question and a
  * message to their own assignment. A launch already shows that its assignment left the ready state.
  */
-function validRecords(source: {
-  assignments: { key: string; completion: string; state: string }[];
-  launches: { id: string; assignment: string }[];
-  reports: { assignment: string; launchId: string }[];
-  questions: Question[];
-  messages: Message[];
-}) {
+function validRecords(
+  source: {
+    assignments: { key: string; completion: string; state: string }[];
+    launches: Launch[];
+    reports: { assignment: string; launchId: string }[];
+    questions: Question[];
+    messages: Message[];
+  } & Parameters<typeof reviewsConsistent>[0],
+) {
   return (
     validQuestions(source) &&
     validMessages(source) &&
+    reviewsConsistent(source) &&
     source.reports.every(
       (report) =>
         source.assignments.some(
@@ -241,6 +303,78 @@ function validRecords(source: {
           (launch) => launch.assignment === report.assignment && launch.id === report.launchId,
         ),
     )
+  );
+}
+
+const promotionSchema = z.object({
+  assignment: z.string(),
+  report: z.string(),
+  reportNumber: z.number().int().positive(),
+  trackerKey: z.string(),
+  instructions: z.string(),
+  branch: z.string(),
+  internalReview: z.boolean().nullable(),
+  worktreePath: z.string(),
+  handoverLaunchId: z.string().nullable(),
+  promotedAt: z.string(),
+});
+export type Promotion = z.infer<typeof promotionSchema>;
+type Plan = z.infer<typeof planSchema>;
+
+/**
+ * The registered plan stays unchanged. A promoted PR assignment joins it with the accepted
+ * report as its only dependency, and keeps the report assignment's start profile. ADR-0023.
+ */
+function withPromotions(plan: Plan, promotions: Promotion[]) {
+  return [
+    ...plan.assignments.map((assignment) => ({ ...assignment, promotion: null })),
+    ...promotions.map((promotion) => ({
+      key: promotion.assignment,
+      trackerKey: promotion.trackerKey,
+      instructions: promotion.instructions,
+      // The promoted work answers the report's intent and keeps its start profile.
+      intent: plan.assignments.find((row) => row.key === promotion.report)?.intent,
+      profile: plan.assignments.find((row) => row.key === promotion.report)?.profile,
+      dependencies: [promotion.report],
+      completion: "pr" as const,
+      resources: "worktree" as const,
+      branch: promotion.branch,
+      internalReview: promotion.internalReview ?? undefined,
+      promotion,
+    })),
+  ];
+}
+
+/** Each stored assignment row matches one registered or promoted assignment. */
+function sameAssignments(
+  rows: AssignmentState[],
+  assignments: { key: string; completion: string }[],
+) {
+  return (
+    rows.length === assignments.length &&
+    assignments.every((assignment) =>
+      rows.some((row) => row.key === assignment.key && row.completion === assignment.completion),
+    )
+  );
+}
+
+/** A promoted report is a completed report assignment with that accepted report. */
+function promotionsValid(
+  source: { assignments: AssignmentState[]; reports: Report[] },
+  promotions: Promotion[],
+) {
+  return promotions.every(
+    (promotion) =>
+      source.assignments.some(
+        (row) =>
+          row.key === promotion.report && row.completion === "report" && row.state === "completed",
+      ) &&
+      source.reports.some(
+        (report) =>
+          report.assignment === promotion.report &&
+          report.number === promotion.reportNumber &&
+          report.decision === "accepted",
+      ),
   );
 }
 
@@ -254,17 +388,17 @@ export function decodeSource(input: StoredSource) {
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
     reports: z.array(reportSchema).parse(input.reports),
     cleanups: z.array(cleanupSchema).parse(input.cleanups),
+    internalReviews: z.array(internalReviewSchema).parse(input.internalReviews),
+    internalReviewRounds: z.array(roundSchema).parse(input.internalReviewRounds),
     questions: z.array(questionSchema).parse(input.questions),
     messages: z.array(messageSchema).parse(input.messages),
   };
+  const promotions = z.array(promotionSchema).parse(input.promotions);
+  const assignments = withPromotions(source.plan, promotions);
   const consistent =
     source.trackerKey === source.plan.trackerKey &&
-    source.assignments.length === source.plan.assignments.length &&
-    source.plan.assignments.every((assignment) =>
-      source.assignments.some(
-        (row) => row.key === assignment.key && row.completion === assignment.completion,
-      ),
-    );
+    sameAssignments(source.assignments, assignments);
+  const validPromotions = promotionsValid(source, promotions);
   const expected = decideSource({ state: "open", assignments: source.assignments });
   const validState =
     source.state === "reset"
@@ -305,6 +439,7 @@ export function decodeSource(input: StoredSource) {
         source.assignments.some((row) => row.key === cleanup.assignment),
     );
   const validLifecycle =
+    validPromotions &&
     validLaunches &&
     validPullRequests &&
     validRecords(source) &&
@@ -317,8 +452,8 @@ export function decodeSource(input: StoredSource) {
       { code: "custom", path: [], message: "Source rows do not match the supplied plan." },
     ]);
   }
-  source.assignments = source.plan.assignments.map((assignment) =>
+  source.assignments = assignments.map((assignment) =>
     assignmentStateSchema.parse(input.assignments.find((row) => row.key === assignment.key)),
   );
-  return source;
+  return { ...source, planned: assignments };
 }

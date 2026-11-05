@@ -110,24 +110,34 @@ export function pendingMessage(
   };
 }
 
+/** Record a message for the running worker, then ring its doorbell outside the transaction. */
+async function deliver(input: Omit<Selector, "key">, sent: { key: string; message: string }) {
+  const target = await superAgentTarget({ ...input, key: "" });
+  if (target.tag !== "Ok") return stop(target);
+  const changed = DeviceState.changeMessage(input.paths, target.value, sent.key, (facts) =>
+    decide(facts, "send").map(() => ({
+      insert: pendingMessage(facts, { key: sent.key, message: sent.message, sentAt: now() }),
+    })),
+  );
+  if (changed.tag !== "Ok") return stop(changed);
+  const worker = launchName(changed.value.facts);
+  return (await ring(input.paths, target.value, sent.key, worker)).map((data) => ({
+    reason: "message_sent",
+    data,
+  }));
+}
+
 function send(input: Omit<Selector, "key"> & { file: string }) {
   return fromPromise(
-    async () => {
-      const target = await superAgentTarget({ ...input, key: "" });
-      if (target.tag !== "Ok") return stop(target);
-      const sent = messageSchema.parse(JSON.parse(await Bun.file(input.file).text()));
-      const changed = DeviceState.changeMessage(input.paths, target.value, sent.key, (facts) =>
-        decide(facts, "send").map(() => ({
-          insert: pendingMessage(facts, { key: sent.key, message: sent.message, sentAt: now() }),
-        })),
-      );
-      if (changed.tag !== "Ok") return stop(changed);
-      const worker = launchName(changed.value.facts);
-      return (await ring(input.paths, target.value, sent.key, worker)).map((data) => ({
-        reason: "message_sent",
-        data,
-      }));
-    },
+    async () => deliver(input, messageSchema.parse(JSON.parse(await Bun.file(input.file).text()))),
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect, "message") : defect(cause)),
+  ).flatMap((result) => result);
+}
+
+/** Another module's operation steers the worker that it hands work to. ADR-0023. */
+function steer(input: Omit<Selector, "key"> & { key: string; message: string }) {
+  return fromPromise(
+    async () => deliver(input, messageSchema.parse({ key: input.key, message: input.message })),
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect, "message") : defect(cause)),
   ).flatMap((result) => result);
 }
@@ -204,6 +214,7 @@ function acknowledgeFromPane(input: { paths: Paths; key: string; file: string | 
  */
 export const steering = {
   send,
+  steer,
   ring: ringAgain,
   close,
   read,

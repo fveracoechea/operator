@@ -28,6 +28,12 @@ type Facts = {
     cleanup: "pending" | "done" | "failed" | "kept" | null;
   };
   cleanup?: "running" | "pending" | "failed" | "done" | "unlanded_work" | "resource_mismatch";
+  /** The internal review handoff from the implementer to the reviewer, until a reviewer starts. */
+  handoff?: "running" | "stopped" | "failed";
+  /** A recorded internal review that has not ended. */
+  reviewing?: boolean;
+  /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
+  capReached?: boolean;
 };
 type Decision = {
   action:
@@ -38,6 +44,7 @@ type Decision = {
     | "review_report"
     | "resume_worker"
     | "retry_cleanup"
+    | "retry_handoff"
     | "person_decision"
     | "wait"
     | "ended";
@@ -51,6 +58,7 @@ type Decision = {
     | "pr_not_open"
     | "pr_relay_blocked"
     | "dependencies_pending"
+    | "running_cap_reached"
     | "assignment_active"
     | "assignment_ended"
     | "cleanup_running"
@@ -64,7 +72,11 @@ type Decision = {
     | "worker_interrupted"
     | "report_submitted"
     | "follow_up_returned"
-    | "cleanup_unfinished";
+    | "cleanup_unfinished"
+    | "internal_review_handoff"
+    | "internal_review_handoff_failed"
+    | "internal_review_handoff_stopped"
+    | "internal_review_running";
   blockers: {
     assignment: string;
     completion: "pr" | "report";
@@ -169,6 +181,27 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     when: ({ assignment, report }) => assignment.state === "reported" && report?.decision === null,
     decide: () => ({ action: "review_report", reason: "report_submitted", blockers: [] }),
   },
+  // The implementer's session ends at the handoff by design, so it is not an interrupted worker.
+  {
+    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "running",
+    decide: () => ({ action: "wait", reason: "internal_review_handoff", blockers: [] }),
+  },
+  {
+    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "failed",
+    decide: () => ({
+      action: "retry_handoff",
+      reason: "internal_review_handoff_failed",
+      blockers: [],
+    }),
+  },
+  {
+    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "stopped",
+    decide: () => ({
+      action: "retry_handoff",
+      reason: "internal_review_handoff_stopped",
+      blockers: [],
+    }),
+  },
   {
     when: (facts) => active(facts) && facts.launch === "failed",
     decide: () => ({ action: "replace_worker", reason: "launch_failed", blockers: [] }),
@@ -219,6 +252,12 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       (activity === "idle" || activity === "done"),
     decide: () => ({ action: "owner_attention", reason: "pr_owner_idle", blockers: [] }),
   },
+  // The reviewer waits on the PR only after it marks the draft ready.
+  {
+    when: ({ assignment, reviewing, pullRequest }) =>
+      assignment.state === "pr-open" && reviewing === true && pullRequest === "idle",
+    decide: () => ({ action: "wait", reason: "internal_review_running", blockers: [] }),
+  },
   {
     when: ({ assignment }) => assignment.state === "pr-open",
     decide: () => ({ action: "wait", reason: "pr_feedback_loop", blockers: [] }),
@@ -242,6 +281,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       reason: "dependencies_pending",
       blockers: dependencyBlockers(assignment, dependencies),
     }),
+  },
+  // Only ready work is held. A replacement keeps work that already holds its place going.
+  {
+    when: ({ capReached }) => capReached === true,
+    decide: () => ({ action: "wait", reason: "running_cap_reached", blockers: [] }),
   },
 ];
 

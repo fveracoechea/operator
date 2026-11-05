@@ -5,6 +5,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import {
   failed,
   git,
+  mergeRequest,
   prDevice,
   pullRequestBody,
   repository,
@@ -30,11 +31,14 @@ async function owner(relay: string | null = null, assignments?: string[]) {
   const head = git(started.worktree, "rev-parse", "HEAD");
   // A live process that is not this one, so the recorded cleanup stays visibly running.
   const detach = spyOn(ToolInvocation, "detach").mockReturnValue(process.ppid);
+  // A background merge request is read once each second, which the units skip.
+  const sleep = spyOn(Bun, "sleep").mockResolvedValue(undefined);
   return {
     device,
     ...started,
     head,
     detach,
+    sleep,
     input: { paths: device.paths, cwd: started.worktree },
   };
 }
@@ -64,14 +68,15 @@ function merged(head: string, mergeCommit = "m1") {
 }
 
 test("an eligible PR at the worktree head merges once and starts its cleanup", async () => {
-  const { device, head, detach, input } = await owner();
+  const { device, head, detach, sleep, input } = await owner();
   await using _ = device;
   let landed = false;
   device.answer((args) => {
     const kind = requestKind(args);
-    if (kind === "merge") {
+    if (kind === "merge") return mergeRequest("pending", "u1");
+    if (kind === "merge_read") {
       landed = true;
-      return succeeded({ merged: true });
+      return mergeRequest("merged");
     }
     return succeeded(
       pullRequestBody(landed ? { state: "MERGED", head, mergeCommit: "m1" } : { head }),
@@ -81,16 +86,25 @@ test("an eligible PR at the worktree head merges once and starts its cleanup", a
     tag: "Ok",
     value: { reason: "pr_merged", data: { ...merged(head), sourceId: device.sourceId } },
   });
-  expect(device.calls.map(requestKind)).toEqual(["pull_request", "merge", "pull_request"]);
+  expect(device.calls.map(requestKind)).toEqual([
+    "pull_request",
+    "merge",
+    "merge_read",
+    "pull_request",
+  ]);
   expect(device.calls[1]).toEqual([
     "-X",
     "PUT",
-    `repos/${repository}/pulls/7/merge`,
+    `repos/${repository}/pulls/7/merge-async`,
     "-f",
     `sha=${head}`,
     "-f",
     "merge_method=squash",
+    "-f",
+    "merge_action=direct_merge",
   ]);
+  expect(device.calls[2]).toEqual([`repos/${repository}/pulls/7/merge-async/u1`]);
+  expect(sleep.mock.calls).toEqual([[1000]]);
   expect(detach.mock.calls).toEqual([
     [
       {
@@ -229,7 +243,10 @@ test("a stacked PR merges only after its relay finished", async () => {
   await using __ = relayed.device;
   let landed = false;
   relayed.device.answer((args) => {
-    if (requestKind(args) === "merge") landed = true;
+    if (requestKind(args) === "merge") {
+      landed = true;
+      return mergeRequest("merged");
+    }
     return succeeded(
       pullRequestBody(
         landed
@@ -257,14 +274,34 @@ test("every merge answer is verified against GitHub's state", async () => {
       error: { reason: "github_uncertain", detail: "gh ended on SIGTERM" },
     },
     {
-      answer: succeeded({ merged: true }),
+      answer: mergeRequest("merged"),
       error: {
         reason: "pr_merge_unverified",
         detail: `GitHub does not report PR #7 merged at ${head}. Nothing was recorded. Repeat operator pr merge.`,
       },
     },
+    {
+      answer: mergeRequest("failed"),
+      error: { reason: "pr_merge_refused", detail: "Request failed." },
+    },
+    {
+      answer: mergeRequest("enqueued"),
+      error: {
+        reason: "pr_merge_unverified",
+        detail:
+          "GitHub put the PR in a merge queue: Request enqueued. Nothing was recorded. Repeat operator pr merge after it merges.",
+      },
+    },
+    {
+      answer: succeeded({ merged: true }),
+      error: {
+        reason: "github_uncertain",
+        detail: "GitHub did not describe the merge request in the expected form.",
+      },
+    },
   ];
   for (const { answer, error } of cases) {
+    device.calls.length = 0;
     device.answer((args) =>
       requestKind(args) === "merge" ? answer : succeeded(pullRequestBody({ head })),
     );
@@ -273,7 +310,7 @@ test("every merge answer is verified against GitHub's state", async () => {
   // A merge of a newer head is not the guarded merge.
   device.answer((args) =>
     requestKind(args) === "merge"
-      ? succeeded({ merged: true })
+      ? mergeRequest("merged")
       : succeeded(
           pullRequestBody(
             device.calls.length > 1
@@ -287,6 +324,75 @@ test("every merge answer is verified against GitHub's state", async () => {
     tag: "Err",
     error: { reason: "pr_merge_unverified" },
   });
+  expect(assignmentState(device)).toBe("pr-open");
+});
+
+test("a background merge is read until it ends, and pr_merged waits for GitHub's merged PR", async () => {
+  const { device, head, input } = await owner();
+  await using _ = device;
+  device.answer((args) => {
+    const kind = requestKind(args);
+    return kind === "merge" || kind === "merge_read"
+      ? mergeRequest("pending", "u1")
+      : succeeded(pullRequestBody({ head }));
+  });
+  expect<unknown>(await merge(input)).toEqual({
+    tag: "Err",
+    error: {
+      reason: "pr_merge_unverified",
+      detail:
+        "GitHub still runs the merge request: Request pending. Nothing was recorded. Repeat operator pr merge.",
+    },
+  });
+  expect(device.calls.filter((args) => requestKind(args) === "merge_read")).toHaveLength(120);
+  expect(assignmentState(device)).toBe("pr-open");
+
+  // A read that GitHub refuses or loses ends the reads, and the PR state still decides.
+  for (const [read, error] of [
+    [
+      failed("Not Found", 404),
+      {
+        reason: "pr_merge_unverified",
+        detail:
+          "GitHub did not answer the merge request read: github_refused: Not Found. Nothing was recorded. Repeat operator pr merge.",
+      },
+    ],
+    [
+      uncertain("gh ended on SIGTERM"),
+      { reason: "github_uncertain", detail: "gh ended on SIGTERM" },
+    ],
+  ] as const) {
+    device.calls.length = 0;
+    device.answer((args) => {
+      const kind = requestKind(args);
+      if (kind === "merge") return mergeRequest("pending", "u1");
+      return kind === "merge_read" ? read : succeeded(pullRequestBody({ head }));
+    });
+    expect<unknown>(await merge(input)).toEqual({ tag: "Err", error });
+    expect(device.calls.map(requestKind)).toEqual([
+      "pull_request",
+      "merge",
+      "merge_read",
+      "pull_request",
+    ]);
+  }
+
+  // A request that GitHub already runs for this PR is not a refusal, and the PR state decides.
+  device.calls.length = 0;
+  device.answer((args) =>
+    requestKind(args) === "merge"
+      ? failed("A merge request already exists for this pull request.", 409)
+      : succeeded(pullRequestBody({ head })),
+  );
+  expect<unknown>(await merge(input)).toEqual({
+    tag: "Err",
+    error: {
+      reason: "pr_merge_unverified",
+      detail:
+        "GitHub still runs the merge request: GitHub already runs a merge request for this PR. Nothing was recorded. Repeat operator pr merge.",
+    },
+  });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request", "merge", "pull_request"]);
   expect(assignmentState(device)).toBe("pr-open");
 });
 

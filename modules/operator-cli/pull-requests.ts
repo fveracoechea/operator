@@ -5,8 +5,11 @@ import { respond } from "./output.ts";
 const defaultTimeoutSeconds = 300;
 const ownerCommands = ["associate", "wait", "merge"] as const;
 
-/** The SuperAgent names the merged assignment, because cleanup runs outside the worktree. */
-function cleanupArgs(flags: string[]) {
+/**
+ * The SuperAgent names the assignment, because cleanup and a skip of an internal review run
+ * outside the worktree.
+ */
+function assignmentArgs(flags: string[]) {
   let sourceId: string | undefined;
   let assignment: string | undefined;
   let personInstructed = false;
@@ -26,13 +29,70 @@ function cleanupArgs(flags: string[]) {
   }
   return sourceId === undefined || assignment === undefined
     ? null
-    : { operation: "cleanup" as const, sourceId, assignment, personInstructed };
+    : { sourceId, assignment, personInstructed };
+}
+
+function cleanupArgs(flags: string[]) {
+  const parsed = assignmentArgs(flags);
+  return parsed === null ? null : { operation: "cleanup" as const, ...parsed };
+}
+
+/** The person's skip of a running internal review, which the SuperAgent attests. */
+function skipArgs(flags: string[]) {
+  const [name, ...rest] = flags;
+  const parsed = name === "skip" ? assignmentArgs(rest) : null;
+  return parsed === null ? null : { operation: "internal_review_skip" as const, ...parsed };
+}
+
+/** The association starts the handoff. The SuperAgent repeats it after a failure. */
+function handoffArgs(flags: string[]) {
+  const values = new Map<string, string>();
+  const rest = flags.values();
+  for (const flag of rest) {
+    if (flag === "--json" && !values.has(flag)) values.set(flag, "");
+    else if (["--source", "--assignment", "--after-pid"].includes(flag) && !values.has(flag)) {
+      const value = rest.next().value;
+      if (value === undefined || value.startsWith("--")) return null;
+      values.set(flag, value);
+    } else return null;
+  }
+  const sourceId = values.get("--source");
+  const assignment = values.get("--assignment");
+  const afterPid = values.get("--after-pid");
+  if (sourceId === undefined || assignment === undefined) return null;
+  if (afterPid !== undefined && !/^\d{1,10}$/.test(afterPid)) return null;
+  return {
+    operation: "handoff" as const,
+    sourceId,
+    assignment,
+    afterPid: afterPid === undefined ? null : Number(afterPid),
+  };
+}
+
+/** The reviewer names its findings or summary file. Its worktree still selects the assignment. */
+function fileArgs<O extends string>(operation: O, flags: string[]) {
+  let json = false;
+  let file: string | undefined;
+  const rest = flags.values();
+  for (const flag of rest) {
+    if (flag === "--json" && !json) json = true;
+    else if (flag === "--file" && file === undefined) {
+      const value = rest.next().value;
+      if (value === undefined || value.startsWith("--")) return null;
+      file = value;
+    } else return null;
+  }
+  return file === undefined ? null : { operation, file };
 }
 
 /** No owner flag selects an assignment or a PR. The caller's worktree is the only selector. */
 export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
   if (group === "cleanup") return cleanupArgs(args.slice(1));
+  if (group === "handoff") return handoffArgs(args.slice(1));
+  if (group === "internal-review") return skipArgs(args.slice(1));
+  if (group === "pr" && name === "round") return fileArgs("pr_round" as const, flags);
+  if (group === "pr" && name === "ready") return fileArgs("pr_ready" as const, flags);
   const command = ownerCommands.find((known) => known === name);
   if (group !== "pr" || command === undefined) return null;
   return ownerArgs(command, flags);
@@ -76,6 +136,24 @@ const pullRequestExitCodes = {
   relay_push_failed: 1,
   relay_retarget_failed: 1,
   relay_claim_lost: 1,
+  pr_handed_off: 4,
+  handoff_defect: 1,
+  internal_review_defect: 1,
+  // The handoff closes a pane and dispatches, so their failures exit as a dispatch does.
+  handoff_running: 4,
+  handoff_not_found: 4,
+  herdr_session_mismatch: 4,
+  assignment_not_dispatchable: 4,
+  launch_failed: 1,
+  launch_interrupted: 1,
+  dispatch_io_failed: 1,
+  preparation_failed: 1,
+  preparation_io_failed: 1,
+  herdr_unavailable: 1,
+  herdr_failed: 1,
+  herdr_no_answer: 1,
+  herdr_invalid_response: 1,
+  host_metadata_failed: 1,
 };
 
 export async function runPullRequests(
@@ -88,11 +166,19 @@ export async function runPullRequests(
   const input = { paths, cwd: process.cwd() };
   const result = await (parsed.operation === "cleanup"
     ? PullRequests.cleanup({ ...input, ...parsed })
-    : parsed.operation === "pr_merge"
-      ? PullRequests.merge(input)
-      : parsed.operation === "pr_associate"
-        ? PullRequests.associate(input)
-        : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
+    : parsed.operation === "handoff"
+      ? PullRequests.handoff({ ...input, ...parsed })
+      : parsed.operation === "internal_review_skip"
+        ? PullRequests.skipReview({ ...input, ...parsed })
+        : parsed.operation === "pr_round"
+          ? PullRequests.round({ ...input, file: parsed.file })
+          : parsed.operation === "pr_ready"
+            ? PullRequests.ready({ ...input, file: parsed.file })
+            : parsed.operation === "pr_merge"
+              ? PullRequests.merge(input)
+              : parsed.operation === "pr_associate"
+                ? PullRequests.associate(input)
+                : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
   respond({
     operation: parsed.operation,
     result,

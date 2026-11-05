@@ -14,23 +14,31 @@ export type MergeConditions = {
   checksPassing: boolean;
   threadsResolved: boolean;
   defaultBase: boolean;
+  /** A draft PR is under internal review, so it never merges. */
+  notDraft: boolean;
   /** A stacked PR's parent merged and the relay finished, so no parent commit rides along. */
   stackRelayed: boolean;
+  /** The internal review ended ready or skipped, or the assignment has none. ADR-0020. */
+  reviewEnded: boolean;
 };
 type WaitEvent =
   | { kind: "feedback"; items: FeedbackItem[] }
   | { kind: "checks_failed"; head: string; checks: Check[] }
   | { kind: "merge_eligible"; head: string }
   | { kind: "pr_merged" | "pr_closed" };
-// A PR without a stack parent has nothing to relay.
-type Facts = { progress: Progress; observed: Observation; stackRelayed: boolean };
+// A PR without a stack parent has nothing to relay, and one without internal review has ended it.
+type Gates = { stackRelayed: boolean; reviewEnded: boolean };
+type Facts = Gates & { progress: Progress; observed: Observation };
 type Decision =
   | { result: "not_open"; events: WaitEvent[]; progress: Progress }
   | { result: "reported"; events: WaitEvent[]; progress: Progress }
   | { result: "none" };
 
-/** The five conditions that the later merge gate checks again before it merges. */
-export function mergeConditions(observed: Observation, stackRelayed: boolean): MergeConditions {
+/** The seven conditions that the later merge gate checks again before it merges. */
+export function mergeConditions(
+  observed: Observation,
+  { stackRelayed, reviewEnded }: Gates,
+): MergeConditions {
   return {
     approved: observed.approved,
     // Just after a push GitHub can report no checks yet, so no checks is not passing checks.
@@ -41,12 +49,14 @@ export function mergeConditions(observed: Observation, stackRelayed: boolean): M
     threadsResolved: observed.unresolvedThreads === 0,
     // A repository without a default branch reports null, which no base name equals.
     defaultBase: observed.base === observed.defaultBranch,
+    notDraft: !observed.draft,
     stackRelayed,
+    reviewEnded,
   };
 }
 
-function eligible({ observed, stackRelayed }: Facts) {
-  return Object.values(mergeConditions(observed, stackRelayed)).every(Boolean);
+function eligible(facts: Facts) {
+  return Object.values(mergeConditions(facts.observed, facts)).every(Boolean);
 }
 
 // A review with no body and no verdict only holds inline comments, which are reported themselves.
@@ -66,8 +76,8 @@ function unseenFailures({ progress, observed }: Facts) {
   );
 }
 
-function newlyEligible({ progress, observed, stackRelayed }: Facts) {
-  return eligible({ progress, observed, stackRelayed }) && progress.eligibleHead !== observed.head;
+function newlyEligible(facts: Facts) {
+  return eligible(facts) && facts.progress.eligibleHead !== facts.observed.head;
 }
 
 function report(facts: Facts): Decision {

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test as bunTest } from "bun:test";
 import { Database } from "bun:sqlite";
 // Bun has no permission or recursive removal API.
 import { chmod, rm } from "node:fs/promises";
@@ -13,6 +13,14 @@ afterEach(async () => {
   if (device !== undefined) await rm(device.root, { recursive: true, force: true });
   device = undefined;
 });
+
+// Each test starts about fifty processes in a row: the public CLI, Git, and the controlled tools.
+// A busy machine can take seconds to start one, so a test outgrows the 30-second default.
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void>) {
+  bunTest(name, run, 60000);
+}
 
 const plan = {
   trackerKey: "github:example/one#20",
