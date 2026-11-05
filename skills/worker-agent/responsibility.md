@@ -28,7 +28,7 @@ Record each answer with its `by` in your report's decisions or your PR body.
 
 Use native host subagents only within your delegated task.
 You remain responsible for their work and evidence.
-Ask the SuperAgent for a separate assignment when work needs independent scheduling, dependency links, or separate acceptance.
+Request a separate assignment in a recorded question when work needs independent scheduling, dependency links, or separate acceptance.
 
 Preserve unlanded work and report blockers without bypassing them.
 Use only the commands that the running CLI and your brief supply. Never replace a guarded workflow with a direct merge or an invented command.

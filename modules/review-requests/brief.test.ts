@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { superAgentMessages } from "../../lib/superagent-messages.ts";
 import { renderReviewerBrief } from "./brief.ts";
 
 const input = {
@@ -95,4 +96,10 @@ test("each trigger has its words, and a request names its origin", () => {
     "- Round 2, a thread that the author resolved: `COMMENT` at `c2`. Draft: `/d/2.json`.\n- Round 3, other: `APPROVE` at `c3`. Draft: `/d/3.json`.\n",
   );
   expect(renderReviewerBrief(input)).toContain("Operator never pushes this branch.\n\n## Skills");
+});
+
+test("the brief never tells the reviewer to message its SuperAgent, which reads the recorded post", () => {
+  const brief = renderReviewerBrief(input);
+  expect(superAgentMessages(brief)).toEqual([]);
+  expect(brief).toContain("`operator review wait` returns it");
 });
