@@ -1,7 +1,9 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
+import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
 import { coordinationWaits, sources } from "./schema.ts";
+import type { SourceFailure } from "./sources.ts";
 
 export type CoordinationScope = { repository: string; scope: string };
 
@@ -17,6 +19,7 @@ function key(target: CoordinationScope) {
  * the scope's last wait returned. A scope that never returned a set has none.
  * The pane becomes the supervising pane of the scope's source. A wait without a source claims
  * only the open sources that no pane supervises yet, so it never takes over another's sources.
+ * A wait for a source that the project does not have records nothing.
  */
 export function startCoordinationWait(
   client: Database,
@@ -24,7 +27,19 @@ export function startCoordinationWait(
   paneId: string | null,
 ) {
   return transaction(client, true, () =>
-    checkHistory(client).map((db) => {
+    checkHistory(client).flatMap((db): Result<string | null, SourceFailure> => {
+      const known =
+        target.scope === "" ||
+        db
+          .select({ id: sources.id })
+          .from(sources)
+          .where(and(eq(sources.repository, target.repository), eq(sources.id, target.scope)))
+          .get() !== undefined;
+      if (!known)
+        return Err({
+          reason: "source_not_found",
+          detail: "The source does not exist in this project.",
+        });
       const now = new Date().toISOString();
       const running = { ownerPid: process.pid, leaseAt: now, paneId, startedAt: now };
       const row = db.select().from(coordinationWaits).where(key(target)).get();
@@ -45,7 +60,7 @@ export function startCoordinationWait(
             ),
           )
           .run();
-      return row?.actions ?? null;
+      return Ok(row?.actions ?? null);
     }),
   );
 }

@@ -71,6 +71,7 @@ test("a finished wait records its set and ends, and the next wait of the scope r
     },
   ]);
   // Each scope keeps its own set.
+  source(db, "s1");
   expect(startCoordinationWait(db, one, null)).toMatchObject({ tag: "Ok", value: null });
   expect(startCoordinationWait(db, all, "pane-2")).toMatchObject({ tag: "Ok", value: '["a"]' });
   expect(rows(db).map((row) => [row.scope, row.owner_pid, row.pane_id])).toEqual([
@@ -162,8 +163,22 @@ test("a wait for one source makes its pane that source's supervising pane", () =
   expect(panes(db)[0]).toEqual(["s1", "pane-1"]);
 });
 
+test("a wait for a source that the project does not have refuses and records nothing", () => {
+  using db = fixture();
+  registerProject(db, { repository: "owner/two", checkout: "/two", registeredAt: "now" });
+  source(db, "s1", "open", "owner/two");
+  for (const target of [one, { repository: "owner/one", scope: "missing" }])
+    expect(startCoordinationWait(db, target, "pane-1")).toMatchObject({
+      tag: "Err",
+      error: { reason: "source_not_found" },
+    });
+  expect(rows(db)).toEqual([]);
+  expect(panes(db)).toEqual([["s1", null]]);
+});
+
 test("deleted sources and a removed project delete their coordination waits", () => {
   using db = fixture();
+  source(db, "s1");
   startCoordinationWait(db, all, null);
   startCoordinationWait(db, one, null);
   deleteSourceRecords(drizzle(db), ["s1"]);
