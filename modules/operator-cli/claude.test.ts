@@ -1,7 +1,11 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { ErrAsync, fromSafePromise, OkAsync } from "unthrown";
 import { ClaudeHook } from "../claude-hook/main.ts";
+import { Environment } from "../environment/main.ts";
+import { OperatorHome } from "../operator-home/main.ts";
 import { runClaudeHook } from "./claude.ts";
+
+const paths = OperatorHome.resolve(Environment.parse({ HOME: "/isolated/hook", NODE_ENV: "test" }));
 
 afterEach(() => {
   mock.restore();
@@ -19,7 +23,7 @@ test.each([[["claude"]], [["claude", "hook", "--json"]], [["x", "hook"]], [["cla
   "leaves other arguments to the other commands: %p",
   async (args) => {
     const answer = spyOn(ClaudeHook, "answer");
-    expect(await runClaudeHook(args)).toBe(false);
+    expect(await runClaudeHook(args, paths)).toBe(false);
     expect(answer).not.toHaveBeenCalled();
   },
 );
@@ -29,8 +33,8 @@ test("answers the event on standard input and exits 0", async () => {
   const answer = spyOn(ClaudeHook, "answer").mockReturnValue(OkAsync("deny"));
   const { log } = quiet();
   process.exitCode = 7;
-  expect(await runClaudeHook(["claude", "hook"])).toBe(true);
-  expect(answer).toHaveBeenCalledWith("event");
+  expect(await runClaudeHook(["claude", "hook"], paths)).toBe(true);
+  expect(answer).toHaveBeenCalledWith({ event: "event", paths });
   expect(log).toHaveBeenCalledWith("deny");
   expect(process.exitCode).toBe(0);
 });
@@ -39,7 +43,7 @@ test("an event with no opinion prints nothing", async () => {
   spyOn(Bun.stdin, "text").mockResolvedValue("event");
   spyOn(ClaudeHook, "answer").mockReturnValue(OkAsync(""));
   const { log } = quiet();
-  await runClaudeHook(["claude", "hook"]);
+  await runClaudeHook(["claude", "hook"], paths);
   expect(log).not.toHaveBeenCalled();
   expect(process.exitCode).toBe(0);
 });
@@ -50,7 +54,7 @@ test("a refusal or a defect exits 1 with its reason on standard error", async ()
     ErrAsync({ reason: "claude_hook_event_invalid", detail: "not an event" }),
   );
   const { log, error } = quiet();
-  await runClaudeHook(["claude", "hook"]);
+  await runClaudeHook(["claude", "hook"], paths);
   expect(error).toHaveBeenLastCalledWith("operator: not an event");
   expect(process.exitCode).toBe(1);
   answer.mockReturnValue(
@@ -60,7 +64,7 @@ test("a refusal or a defect exits 1 with its reason on standard error", async ()
     }),
   );
   process.exitCode = 0;
-  await runClaudeHook(["claude", "hook"]);
+  await runClaudeHook(["claude", "hook"], paths);
   expect(error).toHaveBeenLastCalledWith("operator: Error: broken");
   expect(process.exitCode).toBe(1);
   expect(log).not.toHaveBeenCalled();

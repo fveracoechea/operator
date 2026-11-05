@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { hookEntry, installHook, refusedWrite } from "./settings.ts";
+import { hookEntries, installHook, refusedWrite } from "./settings.ts";
 
 let root = "";
 let file = "";
@@ -16,7 +16,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("a new device gets a settings file with only the hook", async () => {
+test("a new device gets a settings file with only the hook groups", async () => {
   expect(await installHook({ file, check: false })).toEqual({ reason: "installed" });
   expect(await Bun.file(file).json()).toEqual({
     hooks: {
@@ -26,6 +26,7 @@ test("a new device gets a settings file with only the hook", async () => {
           hooks: [{ type: "command", if: "Bash(git *)", command: "operator claude hook" }],
         },
       ],
+      Stop: [{ hooks: [{ type: "command", command: "operator claude hook" }] }],
     },
   });
 });
@@ -40,7 +41,7 @@ test("the hook joins existing settings and hooks without changing them", async (
   expect(await installHook({ file, check: false })).toEqual({ reason: "installed" });
   expect(await Bun.file(file).json()).toEqual({
     model: "opus",
-    hooks: { PreToolUse: [own, hookEntry], Stop: [own] },
+    hooks: { PreToolUse: [own, hookEntries.PreToolUse], Stop: [own, hookEntries.Stop] },
   });
 });
 
@@ -52,7 +53,7 @@ test("a repeated install leaves the file unwritten", async () => {
   expect(await Bun.file(file).text()).toBe(`${before}\n\n`);
 });
 
-test("any PreToolUse group that runs the hook command counts as installed", async () => {
+test("any group that runs the hook command counts as installed for its event", async () => {
   const entry = {
     matcher: "*",
     hooks: [
@@ -60,16 +61,41 @@ test("any PreToolUse group that runs the hook command counts as installed", asyn
       { type: "command", command: "operator claude hook" },
     ],
   };
-  await Bun.write(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Edit" }, entry] } }), {
-    createPath: true,
-  });
+  await Bun.write(
+    file,
+    JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Edit" }, entry], Stop: [entry] } }),
+    { createPath: true },
+  );
   expect(await installHook({ file, check: true })).toEqual({ reason: "already_installed" });
+});
+
+test("a file with one of the groups gets only the missing one", async () => {
+  for (const [event, other] of [
+    ["PreToolUse", "Stop"],
+    ["Stop", "PreToolUse"],
+  ] as const) {
+    await Bun.write(file, JSON.stringify({ hooks: { [event]: [hookEntries[event]] } }), {
+      createPath: true,
+    });
+    const result = await installHook({ file, check: true });
+    expect(result).toMatchObject({ reason: "claude_hook_missing" });
+    expect("detail" in result && result.detail).toContain(
+      `on ${other}. Run operator install --claude, or add this ${other} group to ${file}: ${JSON.stringify(hookEntries[other])}`,
+    );
+    expect("detail" in result && result.detail).not.toContain(JSON.stringify(hookEntries[event]));
+    expect(await installHook({ file, check: false })).toEqual({ reason: "installed" });
+    expect(await Bun.file(file).json()).toEqual({
+      hooks: { [event]: [hookEntries[event]], [other]: [hookEntries[other]] },
+    });
+  }
 });
 
 test("check mode reports a missing hook and writes nothing", async () => {
   const result = await installHook({ file, check: true });
   expect(result).toMatchObject({ reason: "claude_hook_missing" });
-  expect("detail" in result && result.detail).toContain(JSON.stringify(hookEntry));
+  expect("detail" in result && result.detail).toContain(
+    `on PreToolUse and Stop. Run operator install --claude, or add this PreToolUse group to ${file}: ${JSON.stringify(hookEntries.PreToolUse)}, and add this Stop group to ${file}: ${JSON.stringify(hookEntries.Stop)}`,
+  );
   expect(await Bun.file(file).exists()).toBe(false);
 });
 
@@ -79,7 +105,9 @@ test("a linked settings file belongs to its owner, so install names the entry to
   await symlink(`${root}/dotfiles/settings.json`, file);
   const result = await installHook({ file, check: false });
   expect(result).toMatchObject({ reason: "claude_settings_external" });
-  expect("detail" in result && result.detail).toContain(JSON.stringify(hookEntry));
+  expect("detail" in result && result.detail).toContain(
+    `guard the SuperAgent's turn end, add this PreToolUse group to ${file}: ${JSON.stringify(hookEntries.PreToolUse)}, and add this Stop group`,
+  );
   expect(await Bun.file(`${root}/dotfiles/settings.json`).text()).toBe("{}\n");
 });
 

@@ -7,6 +7,7 @@ import { registerProject, removeProject } from "./projects.ts";
 import { deleteSourceRecords, registerSource } from "./sources.ts";
 import {
   finishCoordinationWait,
+  readSupervision,
   renewCoordinationWait,
   startCoordinationWait,
 } from "./coordination-waits.ts";
@@ -193,4 +194,53 @@ test("each write waits for the writer reservation", () => {
   expect(startCoordinationWait(reserved.subject, all, null)).toMatchObject(busy);
   expect(finishCoordinationWait(reserved.subject, all, "[]")).toMatchObject(busy);
   expect(renewCoordinationWait(reserved.subject, all)).toMatchObject(busy);
+});
+
+test("supervision lists the pane's sources and whether a running wait from that pane covers each", () => {
+  using db = fixture();
+  registerProject(db, {
+    repository: "owner/two",
+    checkout: "/two",
+    registeredAt: "now",
+  });
+  source(db, "s1");
+  source(db, "s2");
+  source(db, "s3", "finished");
+  source(db, "s4", "open", "owner/two");
+  db.query("UPDATE sources SET supervising_pane = 'pane-1' WHERE id != 's2'").run();
+  db.query("UPDATE sources SET supervising_pane = 'other' WHERE id = 's2'").run();
+  expect(readSupervision(db, "pane-1")).toMatchObject({
+    tag: "Ok",
+    value: [
+      { id: "s1", repository: "owner/one", waiting: false },
+      { id: "s3", repository: "owner/one", waiting: false },
+      { id: "s4", repository: "owner/two", waiting: false },
+    ],
+  });
+  // A wait for one source covers only that source, and a project wait covers its project.
+  startCoordinationWait(db, one, "pane-1");
+  expect(readSupervision(db, "pane-1")).toMatchObject({
+    value: [{ waiting: true }, { waiting: false }, { waiting: false }],
+  });
+  startCoordinationWait(db, { repository: "owner/two", scope: "" }, "pane-1");
+  expect(readSupervision(db, "pane-1")).toMatchObject({
+    value: [{ waiting: true }, { waiting: false }, { waiting: true }],
+  });
+});
+
+test("a finished wait, a gone process, or a wait from another pane covers nothing", () => {
+  using db = fixture();
+  source(db, "s1");
+  db.query("UPDATE sources SET supervising_pane = 'pane-1'").run();
+  startCoordinationWait(db, all, "pane-2");
+  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ id: "s1", waiting: false }] });
+  startCoordinationWait(db, all, "pane-1");
+  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ waiting: true }] });
+  finishCoordinationWait(db, all, "[]");
+  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ waiting: false }] });
+  startCoordinationWait(db, all, "pane-1");
+  db.query("UPDATE coordination_waits SET lease_at = '2000-01-01T00:00:00.000Z'").run();
+  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ waiting: false }] });
+  // A pane that supervises nothing has no sources.
+  expect(readSupervision(db, "pane-3")).toMatchObject({ tag: "Ok", value: [] });
 });

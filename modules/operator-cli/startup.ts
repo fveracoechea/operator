@@ -64,7 +64,7 @@ export async function startup(args: string[], json: boolean) {
   if (paths === null) return null;
   const release = await OperatorRelease.manifest();
   if (!supportedRuntime(release.supportedBun, json)) return null;
-  if (await runClaudeHook(args)) return null;
+  if (await runClaudeHook(args, paths)) return null;
   if (await herdrEventWithoutState(args, paths, json)) return null;
   if (!compatibleState(args, paths, json)) return null;
   return { paths, release };

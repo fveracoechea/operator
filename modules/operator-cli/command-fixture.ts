@@ -28,8 +28,9 @@ export function fixtureCommand() {
   };
 }
 
-/** Claude Code user settings that run the commit hook, as a ready Claude Code device has. */
+/** Claude Code user settings that run the Operator hook, as a ready Claude Code device has. */
 export async function writeClaudeHookSettings(home: string) {
-  const settings = { hooks: { PreToolUse: [{ hooks: [{ command: "operator claude hook" }] }] } };
+  const group = { hooks: [{ command: "operator claude hook" }] };
+  const settings = { hooks: { PreToolUse: [group], Stop: [group] } };
   await Bun.write(`${home}/.claude/settings.json`, JSON.stringify(settings), { createPath: true });
 }
