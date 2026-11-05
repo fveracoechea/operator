@@ -137,10 +137,11 @@ export const DeviceState = {
     checkout: string,
     repository: string,
     launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+    maxRunning?: number,
     supervisingPane: string | null = null,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, supervisingPane),
+      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisingPane),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {

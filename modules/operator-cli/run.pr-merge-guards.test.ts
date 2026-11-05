@@ -36,6 +36,13 @@ test.each([
     pattern: "every merge refusal",
   },
   {
+    name: "a draft PR is observed again before merge",
+    file: "pull-requests/wait-machine.ts",
+    replacements: [["notDraft: !observed.draft,", "notDraft: true,"]],
+    testFile: "operator-cli/run.pr-merge.test.ts",
+    pattern: "a draft PR is never eligible",
+  },
+  {
     name: "local head before merge",
     file: "pull-requests/merge-machine.ts",
     replacements: [

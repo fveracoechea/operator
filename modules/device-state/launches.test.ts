@@ -95,12 +95,12 @@ function pane(db: Database) {
 
 test("a dispatch makes its pane the source's supervising pane, and a refused dispatch claims nothing", () => {
   using db = fixture();
-  expect(reserveLaunch(db, "/other", "owner/one", launch, "super-1").tag).toBe("Err");
+  expect(reserveLaunch(db, "/other", "owner/one", launch, undefined, "super-1").tag).toBe("Err");
   expect(pane(db)).toEqual({ pane: null });
   reserveLaunch(db, "/one", "owner/one", launch);
   expect(pane(db)).toEqual({ pane: null });
   db.query("UPDATE launches SET state = 'failed'").run();
-  reserveLaunch(db, "/one", "owner/one", { ...launch, id: "l2", name: "x" }, "super-1");
+  reserveLaunch(db, "/one", "owner/one", { ...launch, id: "l2", name: "x" }, undefined, "super-1");
   expect(pane(db)).toEqual({ pane: "super-1" });
 });
 
@@ -217,6 +217,18 @@ test("a preparation runs once at a time and records its finished outcome", () =>
   expect(beginPreparation(db, "/wt", "owner/one")).toMatchObject({ value: { state: "running" } });
 });
 
+test("a finished preparation records its install output, and the next start clears it", () => {
+  using db = fixture();
+  beginPreparation(db, "/wt", "owner/one");
+  expect(readPreparation(db, "/wt")).toMatchObject({ value: { installed: null } });
+  finishPreparation(db, "/wt", { state: "prepared", detail: "done", installed: "[]" });
+  expect(readPreparation(db, "/wt")).toMatchObject({
+    value: { state: "prepared", installed: "[]" },
+  });
+  expect(beginPreparation(db, "/wt", "owner/one")).toMatchObject({ value: { installed: null } });
+  expect(readPreparation(db, "/wt")).toMatchObject({ value: { installed: null } });
+});
+
 test("project removal deletes its launches and preparations with its sources", () => {
   using db = fixture();
   reserveLaunch(db, "/one", "owner/one", launch);
@@ -230,6 +242,80 @@ test("project removal deletes its launches and preparations with its sources", (
   expect(db.query("SELECT count(*) AS count FROM worktree_preparations").get()).toEqual({
     count: 0,
   });
+});
+
+test("a ready assignment waits while the plan's running cap is reached, and a replacement does not", () => {
+  using db = fixture();
+  registerSource(
+    db,
+    "/one",
+    {
+      id: "s2",
+      repository: "owner/one",
+      trackerKey: "APP-2",
+      state: "open",
+      registeredAt: "now",
+      endedAt: null,
+      plan: "{}",
+    },
+    [
+      ...["a", "b", "c"].map((key) => ({
+        sourceId: "s2",
+        key,
+        completion: "report",
+        state: "ready",
+      })),
+      { sourceId: "s2", key: "m", completion: "pr", state: "ready" },
+      { sourceId: "s2", key: "r", completion: "report", state: "ready" },
+    ],
+  );
+  function reserve(key: string, attempt = 1) {
+    return reserveLaunch(
+      db,
+      "/one",
+      "owner/one",
+      {
+        ...launch,
+        id: `${key}${attempt}`,
+        sourceId: "s2",
+        assignment: key,
+        name: `${key}${attempt}`,
+      },
+      1,
+    );
+  }
+  // Another source's worker holds no place in this plan.
+  reserveLaunch(db, "/one", "owner/one", launch);
+  // An ended assignment's worker holds no place, also before its pane exit is observed.
+  expect(reserve("m")).toMatchObject({ tag: "Ok" });
+  db.exec("UPDATE launches SET state = 'running' WHERE id = 'm1'");
+  db.exec("UPDATE assignments SET state = 'merged' WHERE key = 'm' AND source_id = 's2'");
+  expect(reserve("r")).toMatchObject({ tag: "Ok" });
+  db.exec("UPDATE launches SET state = 'running' WHERE id = 'r1'");
+  db.exec("UPDATE assignments SET state = 'completed' WHERE key = 'r' AND source_id = 's2'");
+  expect(reserve("a")).toMatchObject({ tag: "Ok" });
+  expect(reserve("b")).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "running_cap_reached",
+      detail:
+        "The plan's running cap of 1 is reached. Read next actions again after a worker ends. Nothing was launched.",
+    },
+  });
+  expect(db.query("SELECT state FROM assignments WHERE key = 'b'").get()).toEqual({
+    state: "ready",
+  });
+  // A failed worker frees its place, and its replacement starts while another plan worker runs.
+  updateLaunch(db, "a1", { state: "failed" });
+  expect(reserve("b")).toMatchObject({ tag: "Ok" });
+  db.exec("UPDATE launches SET state = 'running' WHERE id = 'b1'");
+  expect(reserve("a", 2)).toMatchObject({ tag: "Ok", value: { attempt: 2 } });
+  // Only the latest launch of an assignment counts, and an abandoned start holds nothing.
+  db.exec("UPDATE launches SET state = 'finished' WHERE id IN ('a2', 'b1')");
+  expect(reserve("c")).toMatchObject({ tag: "Ok" });
+  db.query("UPDATE launches SET owner_pid = ? WHERE id = 'c1'").run(stoppedPid);
+  db.exec("UPDATE assignments SET state = 'ready' WHERE key = 'b' AND source_id = 's2'");
+  expect(reserve("b", 2)).toMatchObject({ tag: "Ok" });
 });
 
 function reserveAgain(db: Database, attempt: number) {

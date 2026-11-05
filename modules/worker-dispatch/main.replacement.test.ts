@@ -1,5 +1,6 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, test } from "bun:test";
-import { ErrAsync } from "unthrown";
+import { ErrAsync, Ok } from "unthrown";
+import { DeviceState } from "../device-state/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { dispatchDevice, git, removeDevices } from "./dispatch-fixture.ts";
 import { WorkerDispatch } from "./main.ts";
@@ -154,4 +155,111 @@ test("a PR owner whose PR worktree is gone is refused before any record", async 
     },
   });
   expect(await device.launches("impl")).toHaveLength(1);
+});
+
+/** Records report 1 of `survey` and its promotion into `build`, as `report accept --promote` does. */
+function promoteSurvey(device: Awaited<ReturnType<typeof dispatchDevice>>, launchId: string) {
+  const target = {
+    by: "key" as const,
+    repository: "example/one",
+    checkout: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "survey",
+  };
+  const report = {
+    sourceId: device.sourceId,
+    assignment: "survey",
+    number: 1,
+    launchId,
+    submittedAt: "2026-01-01T00:00:00.000Z",
+    conclusion: "Build it.",
+    evidence: "[]",
+    unresolved: "[]",
+    decisions: "[]",
+    files: "[]",
+    decision: "accepted",
+    decidedAt: "2026-01-01T00:00:00.000Z",
+    followUp: null,
+    cleanupState: "done",
+    cleanupDetail: "Promoted to build.",
+  };
+  expect(
+    DeviceState.changeReport(device.paths, target, () =>
+      Ok({
+        insert: report,
+        assignmentState: "completed",
+        promote: {
+          assignment: { sourceId: device.sourceId, key: "build", completion: "pr", state: "ready" },
+          promotion: {
+            sourceId: device.sourceId,
+            assignment: "build",
+            report: "survey",
+            reportNumber: 1,
+            trackerKey: "github:example/one#9",
+            instructions: "Build what survey found.",
+            branch: "task/build",
+            internalReview: false,
+            worktreePath: `${device.root}/worktrees/report-one-6-survey`,
+            handoverLaunchId: null,
+            promotedAt: "2026-01-01T00:00:00.000Z",
+          },
+          launch: null,
+        },
+      }),
+    ).tag,
+  ).toBe("Ok");
+}
+
+test("a promoted assignment whose worker stopped starts in the promoted report's worktree", async () => {
+  await using device = await dispatchDevice();
+  const survey = await WorkerDispatch.dispatch(device.request("survey"));
+  expect(survey.tag).toBe("Ok");
+  const worktree = `${device.root}/worktrees/report-one-6-survey`;
+  device.exited("p2");
+  const [launch] = await device.launches("survey");
+  promoteSurvey(device, launch?.id ?? "");
+  // Promotion renamed the worktree branch before the worker stopped.
+  git(worktree, "branch", "-m", "task/survey", "task/build");
+  device.reopening();
+
+  expect(await WorkerDispatch.dispatch(device.request("build"))).toMatchObject({
+    tag: "Ok",
+    value: { attempt: 1, name: "pr-one-9-build", branch: "task/build", worktreePath: worktree },
+  });
+  expect(device.herdr.openWorktree).toHaveBeenLastCalledWith({
+    workspaceId: "w1",
+    path: worktree,
+    label: "pr-one-9-build",
+  });
+  expect(device.herdr.createWorktree).toHaveBeenCalledTimes(1);
+  const brief = await Bun.file(
+    OperatorHome.assignmentFiles(device.paths, {
+      repository: "example/one",
+      sourceId: device.sourceId,
+      assignment: "build",
+    }).brief,
+  ).text();
+  expect(brief).toContain("The SuperAgent promoted report 1 of `survey` into this PR assignment.");
+  expect(brief).toContain("### `survey` report 1");
+  expect(brief).toContain(`on branch \`task/build\``);
+});
+
+test("a promoted assignment whose worktree is gone is not started anywhere else", async () => {
+  await using device = await dispatchDevice();
+  expect((await WorkerDispatch.dispatch(device.request("survey"))).tag).toBe("Ok");
+  device.exited("p2");
+  const [launch] = await device.launches("survey");
+  promoteSurvey(device, launch?.id ?? "");
+  const worktree = `${device.root}/worktrees/report-one-6-survey`;
+  git(device.checkout, "worktree", "remove", "--force", worktree);
+
+  expect(await WorkerDispatch.dispatch(device.request("build"))).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "promotion_worktree_missing",
+      detail: `The worktree ${worktree} of promoted report survey is missing. Ask the person how to recover it. Nothing was launched.`,
+    },
+  });
+  expect(await device.launches("build")).toEqual([]);
+  expect(device.herdr.createWorktree).toHaveBeenCalledTimes(1);
 });

@@ -146,6 +146,20 @@ test("renames a tab with one label argument, even when the label has spaces", as
   expect(await calls()).toEqual([["tab", "rename", "w2:t1", "super 284 jarvis"]]);
 });
 
+test("renames the agent in a pane, and a refusal names the command", async () => {
+  await answer({ json: { result: { type: "agent_renamed" } } });
+  expect(await Herdr.renameAgent({ paneId: "w2:p1", name: "pr-app-1-fix" })).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(await calls()).toEqual([["agent", "rename", "w2:p1", "pr-app-1-fix"]]);
+  await answer({ stderr: "name taken", exit: 1 });
+  expect(await Herdr.renameAgent({ paneId: "w2:p1", name: "taken" })).toMatchObject({
+    tag: "Err",
+    error: { reason: "herdr_failed", detail: "herdr agent rename exited 1: name taken" },
+  });
+});
+
 test("creates a worktree at a base commit only when one is given, and opens a worktree", async () => {
   await answer({
     json: {

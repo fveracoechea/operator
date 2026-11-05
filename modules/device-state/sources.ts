@@ -11,6 +11,7 @@ import {
   coordinationWaits,
   launches,
   projects,
+  promotions,
   pullRequests,
   reports,
   sources,
@@ -90,6 +91,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
+          promotions: (typeof promotions.$inferSelect)[];
         }[],
         SourceFailure
       > => {
@@ -154,6 +156,12 @@ export function readSources(client: Database, repository: string, sourceId?: str
                 // A cleanup with no owner is gone, so it is not running.
                 running: !ownerGone(cleanup, now),
               })),
+            promotions: db
+              .select()
+              .from(promotions)
+              .where(eq(promotions.sourceId, source.id))
+              .orderBy(asc(promotions.promotedAt), asc(promotions.assignment))
+              .all(),
           })),
         );
       },
@@ -352,6 +360,7 @@ export function pruneSource(
  */
 export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(coordinationWaits).where(inArray(coordinationWaits.scope, ids)).run();
+  db.delete(promotions).where(inArray(promotions.sourceId, ids)).run();
   db.delete(reports).where(inArray(reports.sourceId, ids)).run();
   db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
   db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();

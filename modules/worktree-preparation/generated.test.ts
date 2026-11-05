@@ -9,6 +9,7 @@ test("lockfile dependency folders beside a tracked manifest are preparation outp
       ignored: ["node_modules/", "packages/a/node_modules/", "packages/b/node_modules/"],
       tracked,
       copiedUnchanged: new Set(),
+      installedUnchanged: new Set(),
     }),
   ).toEqual({
     generated: ["node_modules/", "packages/a/node_modules/"],
@@ -22,6 +23,7 @@ test("without a tracked Bun lockfile no dependency folder came from preparation"
       ignored: ["node_modules/"],
       tracked: new Set(["package.json"]),
       copiedUnchanged: new Set(),
+      installedUnchanged: new Set(),
     }),
   ).toEqual({ generated: [], unknown: ["node_modules/"] });
 });
@@ -32,6 +34,7 @@ test("only unchanged copies of approved environment files are preparation output
       ignored: [".env.local", "app/.env.test.local", ".env", "notes.local"],
       tracked,
       copiedUnchanged: new Set([".env.local", ".env", "notes.local"]),
+      installedUnchanged: new Set(),
     }),
   ).toEqual({
     generated: [".env.local"],
@@ -51,6 +54,7 @@ test("children that a node_modules/* pattern lists belong to their dependency fo
       ],
       tracked,
       copiedUnchanged: new Set(),
+      installedUnchanged: new Set(),
     }),
   ).toEqual({
     generated: [
@@ -69,6 +73,7 @@ test("other ignored content, a linked folder, or a folder named like one is unkn
       ignored: [".cache/", "node_modules", "my_node_modules/", "dist/node_modules/", "build.log"],
       tracked,
       copiedUnchanged: new Set(),
+      installedUnchanged: new Set(),
     }),
   ).toEqual({
     generated: [],
@@ -82,6 +87,7 @@ test("a tracked binary Bun lockfile also made preparation install", () => {
       ignored: ["node_modules/"],
       tracked: new Set(["bun.lockb", "package.json"]),
       copiedUnchanged: new Set(),
+      installedUnchanged: new Set(),
     }),
   ).toEqual({ generated: ["node_modules/"], unknown: [] });
 });
@@ -92,6 +98,18 @@ test("an entry outside every dependency folder never borrows a manifest", () => 
       ignored: [".cache/"],
       tracked: new Set(["bun.lock", "undefinedpackage.json", "package.json"]),
       copiedUnchanged: new Set(),
+      installedUnchanged: new Set(),
     }),
   ).toEqual({ generated: [], unknown: [".cache/"] });
+});
+
+test("only install output that is still unchanged is preparation output", () => {
+  expect(
+    classifyIgnored({
+      ignored: [".husky/_/h", ".husky/_/notes", "dist/"],
+      tracked,
+      copiedUnchanged: new Set(),
+      installedUnchanged: new Set([".husky/_/h", "dist/"]),
+    }),
+  ).toEqual({ generated: [".husky/_/h", "dist/"], unknown: [".husky/_/notes"] });
 });

@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import type { Observation } from "./github.ts";
-import { decideMerge, verifiedMerge } from "./merge-machine.ts";
+import {
+  decideMerge,
+  followMergeRequest,
+  mergeRequestReads,
+  verifiedMerge,
+} from "./merge-machine.ts";
 
 const eligible: Observation = {
   state: "OPEN",
@@ -9,6 +14,7 @@ const eligible: Observation = {
   mergeMethod: "squash",
   base: "main",
   defaultBranch: "main",
+  draft: false,
   approved: true,
   unresolvedThreads: 0,
   feedback: [],
@@ -16,7 +22,7 @@ const eligible: Observation = {
   checksComplete: true,
 };
 
-test("only a fresh observation with all five merge conditions and the local head merges", () => {
+test("only a fresh observation with all six merge conditions and the local head merges", () => {
   expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: "h1" })).toEqual({
     result: "merge",
     head: "h1",
@@ -40,6 +46,7 @@ test("each missing condition refuses with its own explanation", () => {
     [{ unresolvedThreads: 1 }, "no unresolved review thread"],
     [{ base: "release" }, "the default branch as base"],
     [{ defaultBranch: null }, "the default branch as base"],
+    [{ draft: true }, "the ready-for-review state"],
   ];
   for (const [change, text] of cases) {
     const decision = decideMerge({
@@ -106,6 +113,7 @@ test("each refusal names every missing condition and carries the observed condit
     checksPassing: false,
     threadsResolved: false,
     defaultBase: false,
+    notDraft: false,
     stackRelayed: false,
   };
   const blocked = {
@@ -114,11 +122,12 @@ test("each refusal names every missing condition and carries the observed condit
     checks: [],
     unresolvedThreads: 2,
     base: "release",
+    draft: true,
   };
   expect(decideMerge({ observed: blocked, localHead: "h1", stackRelayed: false })).toEqual({
     result: "refused",
     reason: "pr_merge_blocked",
-    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, a finished parent-merge relay. ${nothing}`,
+    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay. ${nothing}`,
     conditions: none,
   });
   expect(
@@ -138,6 +147,7 @@ test("each refusal names every missing condition and carries the observed condit
     checksPassing: true,
     threadsResolved: true,
     defaultBase: true,
+    notDraft: true,
     stackRelayed: true,
   };
   expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: null })).toEqual({
@@ -161,4 +171,42 @@ test("a single missing condition is named alone", () => {
   ).toMatchObject({
     detail: "The PR needs no unresolved review thread. Nothing was merged or changed.",
   });
+});
+
+test("a background merge request is read while it runs, and every end is verified", () => {
+  const request = { uuid: "u1", message: "Done." };
+  expect(followMergeRequest({ ...request, status: "pending" }, 0)).toEqual({
+    result: "read",
+    uuid: "u1",
+  });
+  expect(followMergeRequest({ ...request, status: "pending" }, mergeRequestReads - 1)).toEqual({
+    result: "read",
+    uuid: "u1",
+  });
+  expect(followMergeRequest({ ...request, status: "merged" }, 0)).toEqual({
+    result: "verify",
+    refusal: null,
+  });
+  expect(followMergeRequest({ ...request, status: "failed" }, 3)).toEqual({
+    result: "verify",
+    refusal: { reason: "pr_merge_refused", detail: "Done." },
+  });
+  expect(followMergeRequest({ ...request, status: "enqueued" }, 0)).toEqual({
+    result: "verify",
+    refusal: {
+      reason: "pr_merge_unverified",
+      detail:
+        "GitHub put the PR in a merge queue: Done. Nothing was recorded. Repeat operator pr merge after it merges.",
+    },
+  });
+  const running = {
+    result: "verify" as const,
+    refusal: {
+      reason: "pr_merge_unverified",
+      detail:
+        "GitHub still runs the merge request: Done. Nothing was recorded. Repeat operator pr merge.",
+    },
+  };
+  expect(followMergeRequest({ ...request, status: "pending" }, mergeRequestReads)).toEqual(running);
+  expect(followMergeRequest({ ...request, uuid: null, status: "pending" }, 0)).toEqual(running);
 });

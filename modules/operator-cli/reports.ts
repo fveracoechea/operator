@@ -15,7 +15,12 @@ function commandOf(value: string | undefined) {
     : null;
 }
 
-function reportFlags(flags: string[], required: readonly string[]) {
+/** Acceptance can promote the report into a PR assignment. ADR-0023. */
+const optional: Partial<Record<keyof typeof commands, readonly string[]>> = {
+  accept: ["--promote"],
+};
+
+function reportFlags(flags: string[], required: readonly string[], allowed: readonly string[]) {
   const values: Record<string, string> = {};
   let json = false;
   const rest = flags.values();
@@ -26,7 +31,7 @@ function reportFlags(flags: string[], required: readonly string[]) {
     }
     const value = rest.next().value;
     if (
-      !required.includes(flag) ||
+      !(required.includes(flag) || allowed.includes(flag)) ||
       Object.hasOwn(values, flag) ||
       value === undefined ||
       value.startsWith("--")
@@ -41,13 +46,14 @@ export function reportArgs(args: string[]) {
   const [group, name, ...flags] = args;
   const command = group === "report" ? commandOf(name) : null;
   if (command === null) return null;
-  const values = reportFlags(flags, commands[command]);
+  const values = reportFlags(flags, commands[command], optional[command] ?? []);
   if (values === null) return null;
   return {
     command,
     file: values["--file"] ?? "",
     sourceId: values["--source"] ?? "",
     assignment: values["--assignment"] ?? "",
+    promote: values["--promote"] ?? null,
   };
 }
 
@@ -57,6 +63,9 @@ const reportExitCodes = {
   report_changed: 4,
   self_decision_refused: 4,
   worker_launch_not_found: 4,
+  // A promotion reads its PR assignment as part of the source's plan. ADR-0023.
+  invalid_source_plan: 2,
+  source_io_failed: 1,
 };
 
 export async function runReports(
@@ -71,9 +80,11 @@ export async function runReports(
     ? ReportAssignments.submit(selected)
     : parsed.command === "resume"
       ? ReportAssignments.resume(selected)
-      : parsed.command === "accept"
-        ? ReportAssignments.accept(selected)
-        : ReportAssignments.return(selected));
+      : parsed.command === "accept" && parsed.promote !== null
+        ? ReportAssignments.promote({ ...selected, file: parsed.promote })
+        : parsed.command === "accept"
+          ? ReportAssignments.accept(selected)
+          : ReportAssignments.return(selected));
   const operation = `report_${parsed.command}`;
   respond({ operation, result, exitCodes: reportExitCodes, defect: "report_defect", json });
   return true;

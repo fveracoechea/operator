@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b72e886d-ba67-4e56-a84a-381f4e4cf3ec",
+  "id": "c4e497ab-5889-456a-aca3-2ea7eceee947",
   "prevId": "4c437c4a-77a1-40ad-a999-4b7b61c065f9",
   "tables": {
     "assignments": {
@@ -156,87 +156,6 @@
         "cleanups_source_id_assignment_pk": {
           "columns": ["source_id", "assignment"],
           "name": "cleanups_source_id_assignment_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "coordination_waits": {
-      "name": "coordination_waits",
-      "columns": {
-        "repository": {
-          "name": "repository",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "actions": {
-          "name": "actions",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "returned_at": {
-          "name": "returned_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "owner_pid": {
-          "name": "owner_pid",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "lease_at": {
-          "name": "lease_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "pane_id": {
-          "name": "pane_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "coordination_waits_repository_projects_repository_fk": {
-          "name": "coordination_waits_repository_projects_repository_fk",
-          "tableFrom": "coordination_waits",
-          "tableTo": "projects",
-          "columnsFrom": ["repository"],
-          "columnsTo": ["repository"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "coordination_waits_repository_scope_pk": {
-          "columns": ["repository", "scope"],
-          "name": "coordination_waits_repository_scope_pk"
         }
       },
       "uniqueConstraints": {},
@@ -1501,13 +1420,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "supervising_pane": {
-          "name": "supervising_pane",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -1587,6 +1499,13 @@
         },
         "lease_at": {
           "name": "lease_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "installed": {
+          "name": "installed",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

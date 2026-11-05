@@ -6,6 +6,7 @@ type Planned = {
   completion: "pr" | "report";
   state: string;
   dependencies?: string[];
+  intent?: string;
 };
 
 export const sourceId = "one";
@@ -16,6 +17,7 @@ export function storedSource(
   rows: Partial<Omit<Stored, "source" | "assignments">> & {
     state?: string;
     endedAt?: string | null;
+    maxRunning?: number;
   } = {},
 ): Stored {
   return {
@@ -28,6 +30,7 @@ export function storedSource(
       endedAt: rows.endedAt ?? null,
       plan: JSON.stringify({
         trackerKey: "APP-1",
+        maxRunning: rows.maxRunning,
         assignments: planned.map((row) => {
           const base = {
             key: row.key,
@@ -35,6 +38,7 @@ export function storedSource(
             instructions: `Do ${row.key}.`,
             completion: row.completion,
             dependencies: row.dependencies ?? [],
+            intent: row.intent,
           };
           return row.completion === "pr"
             ? { ...base, resources: "worktree", branch: `task/${row.key}` }
@@ -52,6 +56,7 @@ export function storedSource(
     pullRequests: rows.pullRequests ?? [],
     reports: rows.reports ?? [],
     cleanups: rows.cleanups ?? [],
+    promotions: rows.promotions ?? [],
   };
 }
 
@@ -161,5 +166,31 @@ export function storedCleanup(
     leaseAt: null,
     running: false,
     ...change,
+  };
+}
+
+/** The stored rows of a report promoted into a PR assignment, which the plan does not list. */
+export function storedPromotion(
+  report: string,
+  assignment: string,
+  change: Partial<Stored["promotions"][number]> & { state?: string } = {},
+) {
+  const { state = "running", ...promotion } = change;
+  return {
+    assignment: { sourceId, key: assignment, completion: "pr", state },
+    promotion: {
+      sourceId,
+      assignment,
+      report,
+      reportNumber: 1,
+      trackerKey: `APP-${assignment}`,
+      instructions: `Build ${assignment}.`,
+      branch: `task/${assignment}`,
+      internalReview: null,
+      worktreePath: `/worktrees/${report}`,
+      handoverLaunchId: `l-${assignment}`,
+      promotedAt: "2026-01-04T00:00:00.000Z",
+      ...promotion,
+    },
   };
 }

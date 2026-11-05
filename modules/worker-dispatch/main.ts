@@ -11,6 +11,7 @@ import { renderBrief } from "./brief.ts";
 import { internalReview } from "./internal-review.ts";
 import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts";
 import { cleanWorktree } from "./worktree-cleanup.ts";
+import { handOver } from "./handover.ts";
 import { ensureWorkspace, launchSettings, preparedAgain } from "./launch-checks.ts";
 import { chooseNames, launchBase } from "./names.ts";
 import { installPlugin, observe } from "./hooks.ts";
@@ -45,7 +46,10 @@ function notDispatchable(assignment: string) {
   });
 }
 
-function assignmentFacts(input: Request) {
+/** Dispatch starts an assignment that next lists as ready or as needing a replacement. */
+const dispatchActions = ["ready_assignment", "replace_worker"];
+
+function assignmentFacts(input: Request, actions = dispatchActions) {
   return (
     DoAsync()
       .bind("project", () => Projects.current(input).map(({ data }) => data))
@@ -57,21 +61,36 @@ function assignmentFacts(input: Request) {
       )
       .bind("next", () => WorkSources.next(input))
       .bind("planned", ({ source, next }) => {
-        const planned = source.plan.assignments.find((row) => row.key === input.assignment);
+        const planned = source.planned.find((row) => row.key === input.assignment);
+        const held = next.sources
+          .flatMap((row) => row.waits)
+          .some(
+            (row) =>
+              "assignment" in row &&
+              row.assignment === input.assignment &&
+              row.reason === "running_cap_reached",
+          );
+        if (held)
+          return Err<Failure>({
+            reason: "running_cap_reached",
+            detail: `The plan's running cap of ${source.plan.maxRunning} is reached, so ${input.assignment} waits. Read operator next after a worker ends. Nothing was launched.`,
+          });
         const action = next.sources
           .flatMap((row) => row.actions)
           .find(
             (row) =>
               "assignment" in row &&
               row.assignment === input.assignment &&
-              (row.action === "ready_assignment" || row.action === "replace_worker"),
+              actions.includes(row.action),
           );
         // Stryker disable next-line ConditionalExpression: equivalent: next gives a dispatch action only for a planned assignment
         return planned === undefined || action === undefined
           ? notDispatchable(input.assignment)
           : Ok({
               ...planned,
+              intent: planned.intent ?? source.plan.intent ?? null,
               sourceTrackerKey: source.trackerKey,
+              maxRunning: source.plan.maxRunning,
               dependencyReports: WorkSources.dependencyReports(source, planned.key),
             });
       })
@@ -103,14 +122,19 @@ function assignmentFacts(input: Request) {
           : null;
       })
       // An open PR lives on the worktree of an earlier start, even after a later start failed.
-      .let("previous", ({ source, pullRequest }) =>
-        source.launches.findLast(
+      // A promoted assignment's first start takes over the promoted report's worktree. ADR-0023.
+      .let("previous", ({ source, pullRequest, planned }) => {
+        const launch = source.launches.findLast(
           (row) =>
             row.assignment === input.assignment &&
             (pullRequest === null ||
               (row.worktreePath !== null && row.branch === pullRequest.branch)),
-        ),
-      )
+        );
+        const promotion = planned.promotion;
+        return launch === undefined && promotion !== null
+          ? { worktreePath: promotion.worktreePath, branch: promotion.branch }
+          : launch;
+      })
   );
 }
 
@@ -133,15 +157,21 @@ function chooseResources(input: Request, facts: Facts) {
         // Stryker disable next-line ConditionalExpression, LogicalOperator: equivalent: a launch with a worktree always records its branch, and the real-path check below refuses a missing path too
         if (path === null || branch === null) return null;
         return (await realPathOrNull(path)) === null ? null : { path, branch };
-      }).flatMap((reuse) =>
+      }).flatMap((reuse) => {
         // A PR owner continues only on the PR's worktree. A new branch would lose the PR.
-        facts.pullRequest !== null && reuse === null
-          ? Err<Failure>({
-              reason: "pr_worktree_missing",
-              detail: `The recorded worktree of PR #${facts.pullRequest.number} on ${facts.pullRequest.branch} is missing. Ask the person how to recover it. Nothing was launched.`,
-            })
-          : Ok(reuse),
-      ),
+        if (facts.pullRequest !== null && reuse === null)
+          return Err<Failure>({
+            reason: "pr_worktree_missing",
+            detail: `The recorded worktree of PR #${facts.pullRequest.number} on ${facts.pullRequest.branch} is missing. Ask the person how to recover it. Nothing was launched.`,
+          });
+        // A promoted assignment exists to keep the report's worktree. ADR-0023.
+        if (facts.planned.promotion !== null && reuse === null)
+          return Err<Failure>({
+            reason: "promotion_worktree_missing",
+            detail: `The worktree ${facts.planned.promotion.worktreePath} of promoted report ${facts.planned.promotion.report} is missing. Ask the person how to recover it. Nothing was launched.`,
+          });
+        return Ok(reuse);
+      }),
     )
     .bind("base", ({ reuse }) =>
       facts.stack === null || reuse !== null
@@ -201,8 +231,8 @@ function place(input: {
 
 function writeBrief(
   request: Request,
-  settings: Settings,
-  placement: Placement,
+  settings: Facts & { launch: { profile: string | null } },
+  placement: { workingDirectory: string },
   branch: string | null,
 ) {
   const files = OperatorHome.assignmentFiles(request.paths, {
@@ -210,6 +240,7 @@ function writeBrief(
     sourceId: request.sourceId,
     assignment: settings.planned.key,
   });
+  const promotion = settings.planned.promotion;
   return fromPromise(
     async () => {
       const text = renderBrief({
@@ -220,6 +251,7 @@ function writeBrief(
         completion: settings.planned.completion,
         profile: settings.launch.profile,
         instructions: settings.planned.instructions,
+        intent: settings.planned.intent,
         workingDirectory: placement.workingDirectory,
         branch,
         reports: { directory: files.reports, files: await listFiles(files.reports) },
@@ -228,6 +260,8 @@ function writeBrief(
         dependencyReports: settings.planned.dependencyReports,
         stack: settings.stack,
         internalReview: settings.internalReview,
+        promotion:
+          promotion === null ? null : { report: promotion.report, number: promotion.reportNumber },
       });
       await Bun.write(files.brief, text);
       return files.brief;
@@ -344,6 +378,7 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
       activity: null,
       activityAt: null,
     },
+    settings.planned.maxRunning,
     // The dispatching pane supervises the source.
     Environment.read().HERDR_PANE_ID ?? null,
   );
@@ -448,10 +483,39 @@ function dispatch(request: Request) {
   );
 }
 
+/**
+ * Rewrite the brief of the worker that took over a promoted report, from the running release's
+ * PR template. Only an assignment that next lists for notify_worker has one. ADR-0023.
+ */
+function refreshBrief(request: Request) {
+  return assignmentFacts(request, ["notify_worker"]).flatMap((facts) => {
+    const launch = facts.source.launches.findLast((row) => row.assignment === request.assignment);
+    const worktreePath = launch?.worktreePath ?? null;
+    // Stryker disable next-line ConditionalExpression: equivalent: next lists notify_worker only for a running handover launch with its worktree
+    if (launch === undefined || worktreePath === null) return notDispatchable(request.assignment);
+    return writeBrief(
+      request,
+      { ...facts, launch: { profile: launch.profile } },
+      { workingDirectory: worktreePath },
+      launch.branch,
+    );
+  });
+}
+
 /** Launches WorkerAgents through Herdr and handles the stable plugin hooks. */
 export const WorkerDispatch = {
   dispatch(input: Request) {
     return dispatch(input);
+  },
+  refreshBrief(input: Request) {
+    return refreshBrief(input);
+  },
+  /**
+   * Gives a promoted report's worktree branch, and a still running worker's Herdr name and tab,
+   * the PR assignment's names. The answer can undo both while the promotion is not recorded.
+   */
+  handOver(input: Parameters<typeof handOver>[0]) {
+    return handOver(input);
   },
   observe(input: { paths: Paths }) {
     return observe(input);
