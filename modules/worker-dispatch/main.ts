@@ -57,6 +57,19 @@ function assignmentFacts(input: Request) {
       .bind("next", () => WorkSources.next(input))
       .bind("planned", ({ source, next }) => {
         const planned = source.plan.assignments.find((row) => row.key === input.assignment);
+        const held = next.sources
+          .flatMap((row) => row.waits)
+          .some(
+            (row) =>
+              "assignment" in row &&
+              row.assignment === input.assignment &&
+              row.reason === "running_cap_reached",
+          );
+        if (held)
+          return Err<Failure>({
+            reason: "running_cap_reached",
+            detail: `The plan's running cap of ${source.plan.maxRunning} is reached, so ${input.assignment} waits. Read operator next after a worker ends. Nothing was launched.`,
+          });
         const action = next.sources
           .flatMap((row) => row.actions)
           .find(
@@ -72,6 +85,7 @@ function assignmentFacts(input: Request) {
               ...planned,
               intent: planned.intent ?? source.plan.intent ?? null,
               sourceTrackerKey: source.trackerKey,
+              maxRunning: source.plan.maxRunning,
               dependencyReports: WorkSources.dependencyReports(source, planned.key),
             });
       })
@@ -345,6 +359,7 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
       activity: null,
       activityAt: null,
     },
+    settings.planned.maxRunning,
   );
 }
 

@@ -131,8 +131,11 @@ export const DeviceState = {
     checkout: string,
     repository: string,
     launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+    maxRunning?: number,
   ) {
-    return writing(paths, (client) => reserveLaunch(client, checkout, repository, launch));
+    return writing(paths, (client) =>
+      reserveLaunch(client, checkout, repository, launch, maxRunning),
+    );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
     return writing(paths, (client) => updateLaunch(client, id, change));

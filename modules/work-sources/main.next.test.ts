@@ -552,6 +552,60 @@ test("an abandoned start offers a replacement worker", async () => {
   });
 });
 
+test("a reached running cap holds ready work as a named wait, counting each live worker", async () => {
+  const rows = [
+    { key: "owner", completion: "report" as const, state: "reported" },
+    { key: "start", completion: "report" as const, state: "running" },
+    { key: "gone", completion: "report" as const, state: "running" },
+    { key: "done", completion: "report" as const, state: "completed" },
+    { key: "merged", completion: "pr" as const, state: "merged" },
+    { key: "accepted", completion: "report" as const, state: "completed" },
+    { key: "a", completion: "report" as const, state: "ready" },
+    { key: "b", completion: "pr" as const, state: "ready", dependencies: ["done"] },
+    { key: "c", completion: "report" as const, state: "ready", dependencies: ["gone"] },
+  ];
+  // A worker that waits for acceptance and a live start hold places. An abandoned start, a
+  // finished worker, and an ended assignment whose pane exit is not yet observed hold none.
+  const launches = [
+    storedLaunch("owner"),
+    storedLaunch("start", { state: "starting" }),
+    storedLaunch("gone", { state: "starting", abandoned: true }),
+    storedLaunch("done", { state: "finished" }),
+    storedLaunch("merged"),
+    storedLaunch("accepted"),
+  ];
+  async function held(maxRunning: number | undefined) {
+    stored([
+      storedSource(rows, {
+        launches,
+        pullRequests: [storedPullRequest("merged", merged)],
+        cleanups: [storedCleanup("merged", { step: "remote_branch", state: "pending" })],
+        maxRunning,
+      }),
+    ]);
+    const result = await next();
+    const source = result.tag === "Ok" ? result.value.sources[0] : undefined;
+    return {
+      ready: source?.actions
+        .filter((row) => row.action === "ready_assignment")
+        .map((row) => ("assignment" in row ? row.assignment : null)),
+      capped: source?.waits.filter((row) => row.reason === "running_cap_reached"),
+    };
+  }
+  expect(await held(2)).toEqual({
+    ready: [],
+    capped: ["a", "b"].map((assignment) => ({
+      assignment,
+      action: "wait",
+      reason: "running_cap_reached",
+      blockers: [],
+      runningCap: { maxRunning: 2, running: 2 },
+    })),
+  });
+  expect(await held(3)).toEqual({ ready: ["a", "b"], capped: [] });
+  expect(await held(undefined)).toEqual({ ready: ["a", "b"], capped: [] });
+});
+
 test("an unplanned assignment carries no dependency reports", () => {
   const source = decodeSource(open);
   expect(WorkSources.dependencyReports(source, "missing")).toEqual([]);
