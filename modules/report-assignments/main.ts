@@ -575,12 +575,8 @@ function promote(input: PromoteInput) {
         },
       }));
       if (recorded.tag !== "Ok") {
-        const stayed = await handover.value.undo();
-        if (stayed.length === 0) return stop(recorded);
-        return Err<Failure>({
-          reason: "promotion_undo_failed",
-          detail: `The promotion was not recorded, and these renames stayed: ${stayed.join(" ")} Restore them, then promote again.`,
-        });
+        const undone = await handover.value.undo(recorded);
+        return stop(undone.tag === "Ok" ? recorded : undone);
       }
       const request = { ...input, assignment: planned.key };
       const brief = taken === null ? null : await WorkerDispatch.refreshBrief(request);

@@ -388,12 +388,31 @@ test("a refused promotion names each rename that it could not restore", async ()
   expect(await promote(sourceId)).toMatchObject({
     error: {
       reason: "promotion_undo_failed",
-      detail:
-        "The promotion was not recorded, and these renames stayed: herdr agent rename exited 1 Restore them, then promote again.",
+      detail: `The promotion was not recorded (report_changed), and these renames stayed: Herdr agent pr-one-9-build in pane w1:p1 was not renamed back to ${launch.name}. Restore them, then promote again.`,
     },
   });
   // The steps after a failed one still run.
   expect(called.tab.mock.calls.at(-1)).toEqual([{ tabId: "w1:t1", label: launch.name }]);
   expect(await git(["symbolic-ref", "--short", "HEAD"], worktree)).toBe("report/read");
   expect((await device.show(sourceId)).assignments).toHaveLength(2);
+});
+
+test("a refused Herdr rename names the branch that it could not restore", async () => {
+  const { sourceId, launch, worktree } = await submitted();
+  device.inPane(superPane);
+  const called = herdr([launch.name]);
+  // Another branch takes the report's name before the undo, so the branch cannot go back.
+  called.agent.mockImplementation(() => {
+    Bun.spawnSync(["git", "-C", worktree, "branch", "report/read"]);
+    return ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent rename exited 1" });
+  });
+  expect(await promote(sourceId)).toMatchObject({
+    error: {
+      reason: "promotion_undo_failed",
+      detail:
+        "The promotion was not recorded (herdr_failed), and these renames stayed: Branch task/build was not renamed back to report/read. Restore them, then promote again.",
+    },
+  });
+  expect(await git(["symbolic-ref", "--short", "HEAD"], worktree)).toBe("task/build");
+  expect((await device.show(sourceId)).reports).toMatchObject([{ decision: null }]);
 });

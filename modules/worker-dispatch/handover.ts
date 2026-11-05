@@ -25,8 +25,18 @@ type Launch = {
   branch: string | null;
 };
 
-/** The names that the PR assignment takes over, and the undo of their renames. */
-type Handover = { name: string | null; branch: string; undo: () => Promise<string[]> };
+/**
+ * The names that the PR assignment takes over, and the undo of their renames. The undo takes the
+ * refusal that stopped the promotion.
+ */
+type Handover = {
+  name: string | null;
+  branch: string;
+  undo: (refused: Result<unknown, Failure>) => AsyncResult<void, Failure>;
+};
+
+/** One rename back, and what stays when it fails. */
+type Step = { stayed: string; run: () => AsyncResult<unknown, Failure> };
 
 function renameBranch(checkout: string, from: string, to: string) {
   return fromPromise(
@@ -48,6 +58,7 @@ function renameBranch(checkout: string, from: string, to: string) {
         }),
   );
 }
+
 /**
  * A running worker is handed over only on its own Herdr server, while Herdr still names it.
  * A worker that Herdr no longer lists has stopped, so a later dispatch starts the PR assignment.
@@ -63,14 +74,21 @@ function liveWorker(launch: Launch, callerSocket: string | null) {
   return Herdr.agentNames().map((agents) => (agents.includes(launch.name) ? agents : null));
 }
 
-/** Each step of an undo that failed, so the caller can name what stayed renamed. */
-async function restore(steps: (() => AsyncResult<unknown, Failure>)[]) {
-  const failed: string[] = [];
-  for (const step of steps) {
-    const result = await step();
-    if (result.tag !== "Ok") failed.push(result.tag === "Err" ? result.error.detail : "defect");
-  }
-  return failed;
+/** Runs every step, also after a failed one, and refuses with each rename that stayed. */
+function restore(refused: Result<unknown, Failure>, steps: Step[]) {
+  const reason = refused.tag === "Err" ? refused.error.reason : "defect";
+  return fromSafePromise(async () => {
+    const stayed: string[] = [];
+    for (const step of steps) if ((await step.run()).tag !== "Ok") stayed.push(step.stayed);
+    return stayed;
+  }).flatMap((stayed): Result<void, Failure> =>
+    stayed.length === 0
+      ? Ok(undefined)
+      : Err({
+          reason: "promotion_undo_failed",
+          detail: `The promotion was not recorded (${reason}), and these renames stayed: ${stayed.join(" ")} Restore them, then promote again.`,
+        }),
+  );
 }
 
 /**
@@ -113,34 +131,48 @@ export function handOver(input: {
         : renameBranch(checkout, from, names.branch),
     )
     .flatMap(({ agents, names }) => {
-      const branchBack =
+      const branchBack: Step[] =
         from === null || from === names.branch
           ? []
-          : [() => renameBranch(checkout, names.branch, from)];
+          : [
+              {
+                stayed: `Branch ${names.branch} was not renamed back to ${from}.`,
+                run: () => renameBranch(checkout, names.branch, from),
+              },
+            ];
       const kept: Handover = {
         name: null,
         branch: names.branch,
-        undo: () => restore(branchBack),
+        undo: (refused) => restore(refused, branchBack),
       };
       const paneId = launch.paneId;
       // Stryker disable next-line ConditionalExpression: equivalent: a live worker always has its pane
       if (agents === null || paneId === null) return OkAsync(kept);
       const tabId = launch.tabId;
-      const tabBack = tabId === null ? [] : [() => Herdr.renameTab({ tabId, label: launch.name })];
+      const agentBack: Step = {
+        stayed: `Herdr agent ${names.name} in pane ${paneId} was not renamed back to ${launch.name}.`,
+        run: () => Herdr.renameAgent({ paneId, name: launch.name }),
+      };
+      const tabBack: Step[] =
+        tabId === null
+          ? []
+          : [
+              {
+                stayed: `Tab ${tabId} was not relabelled ${launch.name}.`,
+                run: () => Herdr.renameTab({ tabId, label: launch.name }),
+              },
+            ];
       const taken: Handover = {
         name: names.name,
         branch: names.branch,
-        undo: () =>
-          restore([
-            () => Herdr.renameAgent({ paneId, name: launch.name }),
-            ...tabBack,
-            ...branchBack,
-          ]),
+        undo: (refused) => restore(refused, [agentBack, ...tabBack, ...branchBack]),
       };
       return fromSafePromise(async () => {
         const renamed = await Herdr.renameAgent({ paneId, name: names.name });
         if (renamed.tag !== "Ok") {
-          await kept.undo();
+          const undone = await kept.undo(renamed);
+          // Stryker disable next-line ArrowFunction: equivalent: the callback runs only for a success
+          if (undone.tag !== "Ok") return undone.map(() => taken);
           // The refusal passes through. Its callback never runs.
           // Stryker disable next-line ArrowFunction: equivalent: the callback runs only for a success
           return renamed.map(() => taken);
@@ -149,7 +181,9 @@ export function handOver(input: {
         const labelled =
           tabId === null ? Ok(undefined) : await Herdr.renameTab({ tabId, label: names.name });
         if (labelled.tag !== "Ok") {
-          await restore([() => Herdr.renameAgent({ paneId, name: launch.name }), ...branchBack]);
+          const undone = await restore(labelled, [agentBack, ...branchBack]);
+          // Stryker disable next-line ArrowFunction: equivalent: the callback runs only for a success
+          if (undone.tag !== "Ok") return undone.map(() => taken);
           // The refusal passes through. Its callback never runs.
           // Stryker disable next-line ArrowFunction: equivalent: the callback runs only for a success
           return labelled.map(() => taken);
