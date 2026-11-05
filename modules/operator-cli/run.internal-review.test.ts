@@ -206,18 +206,25 @@ async function shown(source: string) {
   return statusSchema.parse((await run(["source", "show", "--source", source])).output).data;
 }
 
-/** The association starts the handoff in its own process. Each test waits until it stops. */
+/**
+ * The association starts the handoff in its own process. The reviewer's reservation ends the
+ * handoff before the reviewer runs, so each test waits until no launch is starting either.
+ */
 async function handedOff(source: string) {
-  let review = (await shown(source)).internalReviews[0];
-  for (
-    let attempt = 0;
-    attempt < 200 && (review === undefined || review.handoffRunning);
-    attempt++
-  ) {
-    await Bun.sleep(100);
-    review = (await shown(source)).internalReviews[0];
+  function settled(state: Awaited<ReturnType<typeof shown>>) {
+    const review = state.internalReviews[0];
+    return (
+      review !== undefined &&
+      !review.handoffRunning &&
+      state.launches.every((launch) => launch.state !== "starting")
+    );
   }
-  return review;
+  let state = await shown(source);
+  for (let attempt = 0; attempt < 300 && !settled(state); attempt++) {
+    await Bun.sleep(100);
+    state = await shown(source);
+  }
+  return state.internalReviews[0];
 }
 
 async function calls(file: string, text: string) {
