@@ -191,8 +191,8 @@ An answer to a worker question reaches the worker as a steering message.
 _Avoid_: nudge, pane message
 
 **Turn-end guard**:
-The Stop branch of Operator's Claude Code hook, which keeps a SuperAgent from ending its turn while it supervises running work and no coordination wait runs.
-It blocks at most once in a row, and OpenCode has no equivalent.
+The Stop branch of Operator's Claude Code hook, and the idle hook of Operator's OpenCode plugin, which keep a SuperAgent from ending its turn while it supervises running work and no coordination wait runs.
+It blocks at most once in a row.
 
 **Doorbell**:
 A short fixed line that the CLI types into a worker's pane to name a pending record, and that carries no instruction of its own.
