@@ -6,6 +6,7 @@ type Planned = {
   completion: "pr" | "report";
   state: string;
   dependencies?: string[];
+  intent?: string;
 };
 
 export const sourceId = "one";
@@ -37,6 +38,7 @@ export function storedSource(
             instructions: `Do ${row.key}.`,
             completion: row.completion,
             dependencies: row.dependencies ?? [],
+            intent: row.intent,
           };
           return row.completion === "pr"
             ? { ...base, resources: "worktree", branch: `task/${row.key}` }
@@ -56,6 +58,8 @@ export function storedSource(
     cleanups: rows.cleanups ?? [],
     internalReviews: rows.internalReviews ?? [],
     internalReviewRounds: rows.internalReviewRounds ?? [],
+    promotions: rows.promotions ?? [],
+    questions: rows.questions ?? [],
   };
 }
 
@@ -165,6 +169,52 @@ export function storedCleanup(
     ownerPid: null,
     leaseAt: null,
     running: false,
+    ...change,
+  };
+}
+
+/** The stored rows of a report promoted into a PR assignment, which the plan does not list. */
+export function storedPromotion(
+  report: string,
+  assignment: string,
+  change: Partial<Stored["promotions"][number]> & { state?: string } = {},
+) {
+  const { state = "running", ...promotion } = change;
+  return {
+    assignment: { sourceId, key: assignment, completion: "pr", state },
+    promotion: {
+      sourceId,
+      assignment,
+      report,
+      reportNumber: 1,
+      trackerKey: `APP-${assignment}`,
+      instructions: `Build ${assignment}.`,
+      branch: `task/${assignment}`,
+      internalReview: null,
+      worktreePath: `/worktrees/${report}`,
+      handoverLaunchId: `l-${assignment}`,
+      promotedAt: "2026-01-04T00:00:00.000Z",
+      ...promotion,
+    },
+  };
+}
+
+export function storedQuestion(
+  assignment: string,
+  change: Partial<Stored["questions"][number]> = {},
+): Stored["questions"][number] {
+  return {
+    sourceId,
+    assignment,
+    key: "scope",
+    launchId: `l-${assignment}`,
+    question: `Is ${assignment} in scope?`,
+    askedAt: "2026-01-03T00:00:00.000Z",
+    state: "open",
+    answer: null,
+    answeredBy: null,
+    answeredAt: null,
+    endedAt: null,
     ...change,
   };
 }

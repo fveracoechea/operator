@@ -27,6 +27,7 @@ Label an answer `person` only when the person gave it. Every other answer is a `
 Then tell your SuperAgent through Herdr that the report is submitted.
 A submitted report requires the SuperAgent's acceptance before it completes report work.
 When the SuperAgent returns follow-up instructions, run `operator report resume --json` in the same pane, read them, and submit a new report.
+When the SuperAgent promotes your report, it names a new brief. Read it: you now own a PR assignment in the same pane and worktree, and your Herdr name changed.
 
 Read [responsibility.md](responsibility.md) when asking questions or using native subagents.
 Read [pull-requests.md](pull-requests.md) when your brief has a PR completion type.

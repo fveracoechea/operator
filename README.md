@@ -187,10 +187,12 @@ Then it installs these upstream skills globally with the pinned `skills` install
 - `show-me` from `humanlayer/skills`.
 
 The upstream installer can replace your edits to those skills.
-`install --claude` also adds the commit hook to `~/.claude/settings.json`. The hook runs `operator claude hook` before a git command and blocks a commit whose message has a Co-Authored-By trailer.
-When that file is a link, for example into a dotfiles repository, `install` changes nothing and reports `claude_settings_external` with the hook entry to add.
+`install --claude` also adds the commit hook to `~/.claude/settings.json`, as a `PreToolUse` group and a `Stop` group that both run `operator claude hook`.
+Before a git command, the hook blocks a commit whose message has a Co-Authored-By trailer.
+At the end of a SuperAgent's turn, the hook is the turn-end guard: while the sources that its Herdr pane supervises have running work and no `next --wait` from that pane runs, it blocks the end once and tells the SuperAgent to start the wait in the background. Missing or unusable device state lets the turn end. OpenCode has no turn-end guard.
+When that file is a link, for example into a dotfiles repository, `install` changes nothing and reports `claude_settings_external` with the hook groups to add.
 `ready` requires the Operator skills and Matt's `code-review` skill.
-`install --check` checks the Operator skills, and with `--claude` the commit hook. It reports `skills_missing` for skills that are not installed, `skill_copy_conflict` for skills with different contents, and `claude_hook_missing` when Claude Code settings do not run the commit hook.
+`install --check` checks the Operator skills, and with `--claude` the commit hook. It reports `skills_missing` for skills that are not installed, `skill_copy_conflict` for skills with different contents, and `claude_hook_missing` when Claude Code settings do not run the commit hook on both events.
 `ready` checks `gh` and its login, `herdr`, the `operator` command, the host, the skills, and the commit hook on Claude Code.
 
 ### Assignments and dispatch
@@ -199,6 +201,7 @@ When that file is a link, for example into a dotfiles repository, `install` chan
 operator source register --file /absolute/path/assignments.json --json
 operator source show --source <source-id> --json
 operator next --json
+operator next --wait --timeout 300 --json
 operator herdr install --json
 operator dispatch --source <source-id> --assignment <key> --json
 operator source reset --source <source-id> --person-instructed --json
@@ -207,6 +210,8 @@ operator source prune --json
 
 The SuperAgent reads the tracker and gives the CLI a JSON plan.
 `next` returns the next actions and writes nothing.
+`next --wait` blocks until the next actions other than waits change, or until its timeout, and then returns the normal next answer.
+The SuperAgent runs it in the background, so worker events reach it without text typed into its pane.
 `herdr install` links the Herdr plugin that prepares each worktree and records worker activity.
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
 
@@ -221,6 +226,20 @@ operator report return --source <source-id> --assignment <key> --file <follow-up
 
 The WorkerAgent submits and resumes from its own pane.
 Only the SuperAgent accepts or returns a report.
+
+### Worker questions
+
+```sh
+operator question ask --file <question.json> --json
+operator question wait --key <key> --timeout 300 --json
+operator question withdraw --key <key> --json
+operator question escalate --source <source-id> --assignment <key> --key <question> --json
+operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json
+```
+
+The WorkerAgent asks, waits for the answer, and withdraws from its own pane.
+`next` shows an open question as `answer_question`, and a question that the SuperAgent escalates to the person as `person_decision`.
+Only the SuperAgent answers, and `--by person` records an answer that the person gave.
 
 ### Pull requests
 

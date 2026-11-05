@@ -28,6 +28,8 @@ type BriefInput = {
     state: "reviewing" | "ready" | "skipped";
     rounds: { number: number; head: string; findings: Finding[] }[];
   } | null;
+  /** The accepted report that this PR assignment was promoted from. ADR-0023. */
+  promotion: { report: string; number: number } | null;
 };
 
 function list(files: string[], directory: string) {
@@ -79,6 +81,18 @@ The SuperAgent accepted these reports of the assignments that this work depends 
 Check whether each unresolved point applies to your task. Tell your supervising SuperAgent about each point that does.
 
 ${reports.join("\n")}`;
+}
+
+/** The promoted worktree can hold prototype changes that the PR must not keep. ADR-0023. */
+function promotion(input: BriefInput) {
+  if (input.promotion === null) return "";
+  return `
+## Promotion
+
+The SuperAgent promoted report ${input.promotion.number} of \`${input.promotion.report}\` into this PR assignment.
+You work in that report's worktree, and its accepted report is listed above.
+The worktree can hold prototype changes that the PR must not keep. Clean the branch before your first push.
+`;
 }
 
 /** The relay and the guarded merge own a stack, so a `gh stack` write would race them. ADR-0010. */
@@ -212,12 +226,13 @@ Read all of it before you start.
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
 ${input.instructions}
-${acceptanceCriteria(input)}${dependencyReports(input)}
+${acceptanceCriteria(input)}${dependencyReports(input)}${promotion(input)}
 ## Grilling authority
 
 The task instructions state who answers questions and what the SuperAgent may decide.
 Do the work within this task without asking for approval of each command or step. Decide what the instructions and the repository settle, and record those decisions in your report or PR.
 Send each question to your supervising SuperAgent, not to the person.
+Record it with \`operator question ask\` from this pane, and read the answer with \`operator question wait\`, as the \`worker-agent\` skill describes.
 The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
 A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
 

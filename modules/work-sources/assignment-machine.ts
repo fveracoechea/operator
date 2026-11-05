@@ -32,6 +32,8 @@ type Facts = {
   handoff?: "running" | "stopped" | "failed";
   /** A recorded internal review that has not ended. */
   reviewing?: boolean;
+  /** A promoted report's worker took over this assignment and has not been seen since. */
+  handover?: boolean;
   /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
   capReached?: boolean;
 };
@@ -43,6 +45,7 @@ type Decision = {
     | "worker_attention"
     | "review_report"
     | "resume_worker"
+    | "notify_worker"
     | "retry_cleanup"
     | "retry_handoff"
     | "person_decision"
@@ -73,6 +76,7 @@ type Decision = {
     | "report_submitted"
     | "follow_up_returned"
     | "cleanup_unfinished"
+    | "assignment_promoted"
     | "internal_review_handoff"
     | "internal_review_handoff_failed"
     | "internal_review_handoff_stopped"
@@ -261,6 +265,12 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: ({ assignment }) => assignment.state === "pr-open",
     decide: () => ({ action: "wait", reason: "pr_feedback_loop", blockers: [] }),
+  },
+  // The report worker that a promotion kept reads its PR brief only when the SuperAgent says so.
+  {
+    when: ({ assignment, launch, handover }) =>
+      assignment.state === "running" && launch === "running" && handover === true,
+    decide: () => ({ action: "notify_worker", reason: "assignment_promoted", blockers: [] }),
   },
   // Before a PR or a report exists, an idle or done host has stopped without a result.
   {

@@ -103,7 +103,7 @@ test.each([
   {
     name: "handoff blocks migration",
     file: "device-state/migration-policy.ts",
-    replacements: [["applied: 13,", "applied: 99,"]],
+    replacements: [["applied: 16,", "applied: 99,"]],
     testFile: "device-state/migration-policy.test.ts",
     pattern: "a live internal review handoff blocks an upgrade",
   },

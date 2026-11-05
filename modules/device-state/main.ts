@@ -18,7 +18,7 @@ import {
   readSources,
   resetSource,
   pruneSource,
-  type SourceRow as StoredSource,
+  type StoredSource,
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 
@@ -52,8 +52,16 @@ import {
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
+import {
+  finishCoordinationWait,
+  readSupervision,
+  renewCoordinationWait,
+  startCoordinationWait,
+  type CoordinationScope,
+} from "./coordination-waits.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
+import { changeQuestion, readQuestion } from "./questions.ts";
 import {
   changeReviewRequest,
   readReviewRequest,
@@ -140,9 +148,10 @@ export const DeviceState = {
     repository: string,
     launch: LaunchReservation,
     maxRunning?: number,
+    supervisingPane: string | null = null,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning),
+      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisingPane),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
@@ -158,6 +167,18 @@ export const DeviceState = {
   },
   readReport(paths: Paths, target: ReportTarget) {
     return reading(paths, (client) => readReport(client, target));
+  },
+  /** Apply one question transition that the caller's rule decides from facts read in the same transaction. */
+  changeQuestion<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: ReportTarget,
+    key: string,
+    decide: Parameters<typeof changeQuestion<E>>[3],
+  ) {
+    return writing(paths, (client) => changeQuestion(client, target, key, decide));
+  },
+  readQuestion(paths: Paths, target: ReportTarget, key: string) {
+    return reading(paths, (client) => readQuestion(client, target, key));
   },
   launchNames(paths: Paths) {
     return reading(paths, (client) => launchNames(client));
@@ -309,6 +330,21 @@ export const DeviceState = {
   /** Renew this process's lease on a running cleanup until the returned stop runs. */
   holdCleanup(paths: Paths, sourceId: string, assignment: string) {
     return hold(() => writing(paths, (client) => renewCleanup(client, sourceId, assignment)));
+  },
+  /** Record this process as the scope's running coordination wait and read its last returned set. */
+  startCoordinationWait(paths: Paths, target: CoordinationScope, paneId: string | null) {
+    return writing(paths, (client) => startCoordinationWait(client, target, paneId));
+  },
+  finishCoordinationWait(paths: Paths, target: CoordinationScope, actions: string) {
+    return writing(paths, (client) => finishCoordinationWait(client, target, actions));
+  },
+  /** The sources that a Herdr pane supervises, and whether a wait from that pane covers each. */
+  readSupervision(paths: Paths, paneId: string) {
+    return reading(paths, (client) => readSupervision(client, paneId));
+  },
+  /** Renew this process's lease on a running coordination wait until the returned stop runs. */
+  holdCoordinationWait(paths: Paths, target: CoordinationScope) {
+    return hold(() => writing(paths, (client) => renewCoordinationWait(client, target)));
   },
   /** Renew this process's claim on a PR relay until the returned stop runs. */
   holdPullRequestRelay(paths: Paths, sourceId: string, assignment: string) {

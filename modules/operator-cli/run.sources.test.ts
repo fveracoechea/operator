@@ -317,6 +317,68 @@ test("a held writer refuses source registration without partial records", async 
   expect((await run(cwd, ["source", "register", "--file", `${root}/plan.json`])).code).toBe(0);
 }, 15000);
 
+test("next --wait returns a change in non-wait actions, also one that came between waits, and times out on none", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  expect((await run(cwd, ["source", "register", "--file", `${root}/plan.json`])).code).toBe(0);
+  const actions = z.object({
+    reason: z.string(),
+    data: z.object({ sources: z.array(z.object({ actions: z.array(z.unknown()) })) }),
+  });
+  // The scope never returned a set, so the first wait returns at once.
+  const first = await run(cwd, ["next", "--wait", "--timeout", "60"]);
+  expect(first).toMatchObject({
+    code: 0,
+    output: {
+      operation: "next_wait",
+      reason: "next_actions_changed",
+      data: { sources: [{ actions: [{ action: "ready_assignment", assignment: "investigate" }] }] },
+    },
+  });
+  expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
+    code: 0,
+    output: { reason: "next_wait_timed_out", data: actions.parse(first.output).data },
+  });
+  const database = `${root}/state/operator/operator.sqlite`;
+  {
+    using db = new Database(database, { readonly: true });
+    expect(
+      db.query("SELECT repository, scope, owner_pid, actions FROM coordination_waits").all(),
+    ).toEqual([
+      {
+        repository: "example/one",
+        scope: "",
+        owner_pid: null,
+        actions: expect.stringContaining("ready_assignment") as unknown,
+      },
+    ]);
+  }
+  // A change while no wait runs returns at once from the next wait.
+  {
+    using db = new Database(database);
+    db.query("UPDATE assignments SET state = 'abandoned' WHERE key = 'investigate'").run();
+  }
+  const between = await run(cwd, ["next", "--wait", "--timeout", "60"]);
+  expect(between).toMatchObject({ code: 0, output: { reason: "next_actions_changed" } });
+  expect(actions.parse(between.output).data).not.toEqual(actions.parse(first.output).data);
+  // A change during a running wait ends it before its timeout.
+  const waiting = run(cwd, ["next", "--wait", "--timeout", "120"]);
+  await Bun.sleep(1500);
+  {
+    using db = new Database(database);
+    db.query("UPDATE assignments SET state = 'ready' WHERE key = 'investigate'").run();
+  }
+  expect(await waiting).toMatchObject({
+    code: 0,
+    output: {
+      reason: "next_actions_changed",
+      data: { sources: [{ actions: [{ action: "ready_assignment", assignment: "investigate" }] }] },
+    },
+  });
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+}, 60000);
+
 test("next uses completion-type-specific dependency facts and leaves all records unchanged", async () => {
   const cwd = await repository();
   const mixed = {

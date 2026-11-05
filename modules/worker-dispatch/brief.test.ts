@@ -19,6 +19,7 @@ const input = {
   stack: null,
   internalReview: false,
   review: null,
+  promotion: null,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
@@ -185,6 +186,7 @@ const authority = `## Grilling authority
 The task instructions state who answers questions and what the SuperAgent may decide.
 Do the work within this task without asking for approval of each command or step. Decide what the instructions and the repository settle, and record those decisions in your report or PR.
 Send each question to your supervising SuperAgent, not to the person.
+Record it with \`operator question ask\` from this pane, and read the answer with \`operator question wait\`, as the \`worker-agent\` skill describes.
 The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
 A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
 
@@ -423,4 +425,18 @@ test("a report brief ignores internal review", () => {
   expect(renderBrief({ ...input, completion: "report", internalReview: true })).not.toMatch(
     /draft|internal review/i,
   );
+});
+
+test("a promoted PR brief names the report and asks to clean the branch before its first push", () => {
+  const brief = renderBrief({ ...input, promotion: { report: "survey", number: 2 } });
+  expect(brief).toContain(`Implement the accepted report.
+
+## Promotion
+
+The SuperAgent promoted report 2 of \`survey\` into this PR assignment.
+You work in that report's worktree, and its accepted report is listed above.
+The worktree can hold prototype changes that the PR must not keep. Clean the branch before your first push.
+
+## Grilling authority`);
+  expect(renderBrief(input)).not.toContain("## Promotion");
 });

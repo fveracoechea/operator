@@ -207,6 +207,10 @@ export const Herdr = {
       created,
     ).map(placed);
   },
+  /** Renames the agent in a pane, so its name follows a new assignment. */
+  renameAgent(input: { paneId: string; name: string }) {
+    return invoke(["agent", "rename", input.paneId, input.name], z.unknown()).map(() => undefined);
+  },
   agentNames() {
     return invoke(["agent", "list"], agentList).map((value) =>
       value.result.agents.flatMap((agent) => (agent.name ? [agent.name] : [])),

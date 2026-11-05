@@ -20,14 +20,14 @@ export function okValue<T>(result: { tag: string; value?: T }) {
   return result.value ?? expect.unreachable("The result has no value.");
 }
 
-function assignment(key: string, dependencies: string[] = []) {
+function assignment(key: string, worktree: boolean) {
   return {
     key,
     trackerKey: `github:example/one#${key.length}`,
     instructions: `Do ${key}.`,
     completion: "report",
-    resources: "pane",
-    dependencies,
+    dependencies: [],
+    ...(worktree ? { resources: "worktree", branch: `report/${key}` } : { resources: "pane" }),
   };
 }
 
@@ -58,13 +58,13 @@ export async function reportDevice() {
   }
 
   /** A source of report assignments. A second assignment keeps the source open. */
-  async function source(keys: string[] = ["read", "later"]) {
+  async function source(keys: string[] = ["read", "later"], worktree = false) {
     const file = `${root}/plan-${crypto.randomUUID()}.json`;
     await Bun.write(
       file,
       JSON.stringify({
         trackerKey: "github:example/one#1",
-        assignments: keys.map((key) => assignment(key)),
+        assignments: keys.map((key) => assignment(key, worktree)),
       }),
     );
     return okValue(await WorkSources.register({ paths, cwd: checkout, file })).id;
