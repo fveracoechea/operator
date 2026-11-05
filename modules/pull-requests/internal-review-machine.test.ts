@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decideInternalReview } from "./internal-review-machine.ts";
+import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
 
 const draft = {
   event: "associate" as const,
@@ -130,4 +130,14 @@ test("round refusals keep their order: owner, end, limit, then head", () => {
       review: { state: "reviewing", rounds: [{ head: "h1" }, { head: "h2" }] },
     }),
   ).toMatchObject({ reason: "internal_review_round_limit" });
+});
+
+test("only the launch that the handoff ended loses its PR commands", () => {
+  expect(decideOwnership({ implementer: false })).toBeNull();
+  expect(decideOwnership({ implementer: true })).toEqual({
+    result: "refused",
+    reason: "pr_handed_off",
+    detail:
+      "This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. Nothing was changed.",
+  });
 });

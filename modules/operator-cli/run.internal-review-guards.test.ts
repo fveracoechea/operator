@@ -303,7 +303,7 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
       handoff: { state: "failed", detail: expect.stringContaining("the pane is busy") as unknown },
     },
   });
-  // The implementer handed its PR over, so its PR commands refuse.
+  // The implementer handed its PR over, so each of its PR commands refuses the same way.
   for (const command of [
     ["pr", "wait", "--timeout", "0"],
     ["pr", "merge"],
@@ -311,7 +311,15 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
   ])
     expect(await run(command, worker.worktreePath)).toMatchObject({
       code: 4,
-      output: { reason: "pr_handed_off" },
+      output: {
+        reason: "pr_handed_off",
+        blockers: [
+          {
+            detail:
+              "This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. Nothing was changed.",
+          },
+        ],
+      },
     });
   await herdrFail({});
   expect(await run(["handoff", "--source", source, "--assignment", "implement"])).toMatchObject({
@@ -322,7 +330,7 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
     },
   });
   expect((await shown(source)).launches.map((row) => row.state)).toEqual(["finished", "running"]);
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "internal_review_running" });
 }, 180000);
 
 test("with internal review off, associate records a ready PR and the owner keeps it", async () => {

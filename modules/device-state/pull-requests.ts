@@ -135,7 +135,10 @@ export function activeOwner(db: Db, launchId: string) {
   return Ok(owner);
 }
 
-/** Records a new internal review in the association's own write. Its handoff is pending. */
+/**
+ * Records a new internal review in the association's own write. Its handoff is pending and held
+ * by the associating process until the handoff process that it starts takes it over.
+ */
 function insertInternalReview(
   db: Db,
   review: { sourceId: string; assignment: string; implementerLaunchId: string },
@@ -149,8 +152,8 @@ function insertInternalReview(
       handoffDetail: null,
       startedAt: now,
       updatedAt: now,
-      ownerPid: null,
-      leaseAt: null,
+      ownerPid: process.pid,
+      leaseAt: now,
     })
     .run();
 }

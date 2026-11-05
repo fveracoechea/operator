@@ -28,12 +28,13 @@ A `merge_eligible` report from the owner is not a merge. The owner runs `operato
 ## Internal review
 
 An internal review is on by default for each PR assignment, and an assignment, a plan, or `review.internal` can turn it off.
-With it on, the implementer opens a draft PR and associates it. Associate refuses a PR that is not a draft and a worktree with uncommitted or unpushed work.
+With it on, the implementer opens a draft PR and associates it. Associate refuses a PR that is not a draft and a worktree with uncommitted, untracked, or unpushed work.
 The association records the review and starts the handoff in its own process: it closes the implementer's pane and dispatches a fresh reviewer into the same worktree.
 The reviewer owns the PR until its merge, and its brief makes it the reviewer from the recorded review.
 Send the reviewer no account of the implementer's work. Its inputs are the issue, the assignment instructions, and the diff.
 
 - `wait` with `internal_review_handoff`: the handoff runs. Do nothing.
+- `wait` with `internal_review_running`: the reviewer reviews the draft. Do nothing. Once it marks the PR ready and waits on it, `next` shows the PR feedback loop.
 - `retry_handoff` with `internal_review_handoff_failed` or `internal_review_handoff_stopped`: the handoff could not close the implementer's pane, or its process ended before the reviewer started. Run `operator handoff --source <id> --assignment <key> --json` from the controlling checkout, in the Herdr session that started the implementer. It skips each finished step.
 - `replace_worker` with `launch_failed` after a handoff: the reviewer's start failed. Dispatch it as any replacement. The new launch is the reviewer.
 
@@ -45,6 +46,7 @@ Keep these rules while a PR is a draft:
 - Ask nobody to approve the PR. The owner runs the guarded merge only after the PR is ready, also when a wait reports `merge_eligible` for the draft.
 
 To skip a running internal review, on the person's instruction, tell the owner to mark the draft ready with no comment.
+A draft associated before this release has no recorded review, so its replacement owner's brief does not make it the reviewer. Tell that owner to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
 
 ## Cleanup after a verified merge
 

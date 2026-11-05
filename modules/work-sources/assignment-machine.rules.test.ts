@@ -159,3 +159,29 @@ test("an internal review handoff is a wait while it runs, and a retry after it s
     decision("retry_handoff", "internal_review_handoff_stopped"),
   );
 });
+
+test("a running internal review is a wait until its reviewer starts the PR wait", () => {
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", pullRequest: "idle", reviewing: true }),
+  ).toEqual(decision("wait", "internal_review_running"));
+  // The reviewer waits on the PR only after it marks it ready, so the feedback loop runs.
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", pullRequest: "waiting", reviewing: true }),
+  ).toEqual(decision("wait", "pr_feedback_loop"));
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", pullRequest: "idle", reviewing: false }),
+  ).toEqual(decision("wait", "pr_feedback_loop"));
+  // Only an open PR has a running review.
+  expect<unknown>(
+    decide(prRow("running"), { launch: "running", pullRequest: "idle", reviewing: true }),
+  ).toEqual(decision("wait", "assignment_active"));
+  // An idle reviewer still needs attention.
+  expect<unknown>(
+    decide(prRow("pr-open"), {
+      launch: "running",
+      pullRequest: "idle",
+      activity: "idle",
+      reviewing: true,
+    }),
+  ).toEqual(decision("owner_attention", "pr_owner_idle"));
+});

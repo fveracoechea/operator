@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
@@ -81,6 +81,7 @@ export function claimHandoff(
   repository: string,
   sourceId: string,
   assignment: string,
+  afterPid: number | null,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<Claimed, HandoffFailure> => {
@@ -111,8 +112,10 @@ export function claimHandoff(
       const { review, implementer } = recorded;
       const facts = { implementer, latest, checkout: project.checkout };
       if (review.handoffState === "done") return Ok({ review, ...facts });
-      // The association records its handoff process at start, so that process may take its own claim.
-      if (review.ownerPid !== process.pid && !ownerGone(review, Date.now()))
+      // The association holds the handoff until it records the process that it started, and
+      // that process may take over from either.
+      const held = review.ownerPid !== process.pid && review.ownerPid !== afterPid;
+      if (held && !ownerGone(review, Date.now()))
         return Err({
           reason: "handoff_running",
           detail: `Process ${review.ownerPid} is still handing off assignment ${assignment}. Read operator next later. Nothing was changed.`,
@@ -133,8 +136,8 @@ export function claimHandoff(
 }
 
 /**
- * Records the process that an association started for its handoff, so next shows it running
- * before that process claims it. A handoff that a process already claimed or ended stays.
+ * Hands the association's hold to the process that it started for its handoff. A handoff that
+ * this process already claimed or ended stays.
  */
 export function startHandoff(client: Database, sourceId: string, assignment: string, pid: number) {
   // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
@@ -145,7 +148,7 @@ export function startHandoff(client: Database, sourceId: string, assignment: str
         .where(
           and(
             key(sourceId, assignment),
-            isNull(internalReviews.ownerPid),
+            eq(internalReviews.ownerPid, process.pid),
             eq(internalReviews.handoffState, "pending"),
           ),
         )
