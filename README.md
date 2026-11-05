@@ -37,6 +37,7 @@ stateDiagram-v2
     running --> reported: report submit
     reported --> completed: report accept, with or without --promote
     reported --> running: report return, then report resume
+    reported --> running: dispatch, after a return whose worker stopped
     ready --> abandoned: source reset
     running --> abandoned: source reset
     pr_open --> abandoned: source reset
@@ -49,13 +50,15 @@ stateDiagram-v2
 - `ready`: the assignment waits for its dependencies.
   A pull request dependency must be open or merged, and a report dependency must be completed.
   A PR assignment also waits while more than one of its parent PRs is open.
-  When the plan sets `maxRunning`, ready work also waits while that many of the plan's assignments have a starting or live worker, and `dispatch` refuses.
+  When the plan sets `maxRunning`, ready work also waits while that many of its assignments have a starting or live worker.
+  `dispatch` refuses it then.
 - `running`: a WorkerAgent works in its own Herdr pane or worktree.
 - `pr-open`: the owner carries the PR to its merge.
   With internal review on, the default, the PR starts as a draft and goes through the internal review below first.
   With internal review off, the implementer opens a ready PR and owns it to the merge.
   The owner answers review feedback and failing checks, then merges with `pr merge`.
 - `reported`: the SuperAgent accepts the report, returns it with a follow-up, or promotes it.
+  After a return, the worker resumes, or a dispatch replaces a worker that stopped.
   A promotion accepts the report and adds a new PR assignment that takes over the report's worktree.
   When the report's worker still runs, the PR assignment starts `running` with that worker, and the worker gets its new brief by steering message.
   Otherwise the PR assignment starts `ready`, and a dispatch reopens the worktree.
@@ -70,13 +73,14 @@ A source is `open` until each assignment is merged or completed, and then it is 
 ### Internal review
 
 With internal review on, `pr associate` of a draft PR records an internal review.
+It refuses a PR that is not a draft, and a worktree with changes that are not pushed.
 This diagram shows `modules/pull-requests/internal-review-machine.ts`, with the handoff states that `modules/device-state/internal-reviews.ts` records.
 
 ```mermaid
 stateDiagram-v2
     [*] --> reviewing: pr associate, draft PR
     state reviewing {
-        [*] --> pending: pr associate
+        [*] --> pending
         pending --> done: reviewer launch reserved
         pending --> failed: handoff step fails
         failed --> pending: handoff
@@ -91,9 +95,11 @@ stateDiagram-v2
 
 - `pending`: the CLI closes the implementer's pane and starts a fresh WorkerAgent in the same worktree.
   `next` shows a running handoff as a wait, and a handoff whose process stopped as `retry_handoff`.
-- `failed`: `next` shows `retry_handoff`. The SuperAgent runs `operator handoff` from the controlling checkout.
+- `failed`: `next` shows `retry_handoff`.
+  The SuperAgent runs `operator handoff` from the controlling checkout.
 - `done`: the reviewer checks the draft against the issue, the standards, and the skills that the brief names.
-  Each `pr round` records the findings at the worktree head. A second round needs a newer head, and there is no third round.
+  Each `pr round` records the findings at the worktree head, and leaves the handoff state `done`.
+  A second round needs a newer head, and there is no third round.
   An applied blocker from round 1 requires round 2.
 - `ready`: `pr ready` checks a disposition for each finding, posts one summary comment, and marks the PR ready.
   The reviewer then owns the PR to its merge.
@@ -270,7 +276,7 @@ operator report return --source <source-id> --assignment <key> --file <follow-up
 
 The WorkerAgent submits and resumes from its own pane.
 Only the SuperAgent accepts or returns a report.
-`--promote` accepts a report from a worktree and adds the PR assignment that the file describes.
+`--promote` accepts a report whose worker had a worktree, and adds the PR assignment that the file describes.
 
 ### Worker questions
 
@@ -316,7 +322,8 @@ operator cleanup --source <source-id> --assignment <key> --json
 
 The WorkerAgent runs the `pr` commands in its worktree.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
-`pr merge` merges only a ready PR on the default branch, with an approving review, passing checks, no unresolved thread, and an internal review that ended ready or skipped.
+`pr merge` merges only a ready PR whose base is the default branch.
+It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and an internal review that ended ready or skipped.
 It asks GitHub for the merge in the background, then records it only after GitHub shows the PR merged.
 `pr round` records the findings of one internal review round at the worktree head, and refuses a third round or a second round at the first round's head.
 The SuperAgent runs `handoff` from the controlling checkout when `next` shows `retry_handoff`.

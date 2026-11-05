@@ -14,7 +14,7 @@ A migration runs only on an idle device.
 The device is idle when these conditions are true in every registered project:
 
 - No assignment is `running`, `pr-open`, or `reported`.
-- No reviewer is reviewing or posting a review.
+- No reviewer is reviewing, starting, moving, cleaning up, or posting a review.
 - No worker launch, worktree preparation, cleanup, internal review handoff, or project removal is in progress.
 
 Finish or reset that work with the release that started it.
@@ -140,8 +140,9 @@ Read the `detail` first, because it names the path or the command to fix.
 | `skills_missing` | A skill of the new release has no link or copy. | JSR and source: run `install` without `--check`. Nix: add the link and rebuild. |
 | `upstream_skills_missing` | A required upstream skill is missing. | Run `operator install` with the host flags. |
 | `upstream_resolution_failed`, `upstream_installer_unavailable`, `upstream_install_failed`, `upstream_install_unconfirmed` | The upstream install failed after the owned skills were done. | Fix the cause in `detail`, then run `operator install` again. |
-| `claude_settings_external` | `~/.claude/settings.json` is a link, for example into a dotfiles repository, so `install` did not change it. | Add the hook groups in `detail` to the linked file. |
-| `claude_hook_missing` | Claude Code settings do not run `operator claude hook` on both the `PreToolUse` and `Stop` events. | Run `operator install --claude`, or add the missing groups to a linked settings file. |
+| `claude_settings_external` | `~/.claude/settings.json` or its folder is a link or read-only, for example a dotfiles link, so `install` did not change it. | Add the hook groups in `detail` to that file. |
+| `claude_settings_invalid` | `~/.claude/settings.json` is not valid JSON settings. | Fix the file, then run `operator install --claude` again. |
+| `claude_hook_missing` | `install --check` or `ready` found that Claude Code settings do not run `operator claude hook` on both the `PreToolUse` and `Stop` events. | Run `operator install --claude`, or add the missing groups to a linked settings file. |
 | `herdr_plugin_conflict` | Herdr links another directory under the Operator plugin id. | Give the linked directory to the person. Operator does not replace it. |
 | `herdr_plugin_outdated`, `herdr_plugin_missing` | A dispatch found a plugin manifest from another release, or none. | Run `operator herdr install`. |
 
