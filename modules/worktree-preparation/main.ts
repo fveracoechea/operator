@@ -48,20 +48,6 @@ function owner(paths: Paths, worktree: string) {
     );
 }
 
-/** The ignored files of the worktree outside dependency folders, which the install fills. */
-async function ignoredFiles(worktree: string) {
-  const listed = await git(worktree, [
-    "ls-files",
-    "-z",
-    "--others",
-    "--ignored",
-    "--exclude-standard",
-    "--",
-    ":(exclude,glob)**/node_modules/**",
-  ]);
-  return listed === null ? null : listed.split("\0").filter((file) => file !== "");
-}
-
 async function prepare(input: { controller: string; worktree: string }) {
   const listed = await git(input.controller, [
     "ls-files",
@@ -116,6 +102,20 @@ async function prepare(input: { controller: string; worktree: string }) {
         ? null
         : await recordInstalled({ worktree: input.worktree, before: new Set(before), after }),
   };
+}
+
+/** The ignored files of the worktree outside dependency folders, which the install fills. */
+async function ignoredFiles(worktree: string) {
+  const listed = await git(worktree, [
+    "ls-files",
+    "-z",
+    "--others",
+    "--ignored",
+    "--exclude-standard",
+    "--",
+    ":(exclude,glob)**/node_modules/**",
+  ]);
+  return listed === null ? null : listed.split("\0").filter((file) => file !== "");
 }
 
 function qualify<T>(cause: CodedError, defect: (cause: CodedError) => T) {

@@ -292,7 +292,7 @@ test("skipped releases apply each fixed migration in order with one pre-migratio
   );
   expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(13);
   expect(db.query("SELECT * FROM later").all()).toEqual([{ repository: "example/one" }]);
   expect(await backups()).toHaveLength(1);
 });
@@ -348,7 +348,7 @@ test("device-wide active assignments and migration-specific held records stop st
   expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
   db.exec("UPDATE sources SET state = 'finished'");
   expect((await run(["--version"], entry)).code).toBe(0);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(13);
 });
 
 test("retention keeps three verified backups only after success and corruption names the latest valid copy", async () => {
