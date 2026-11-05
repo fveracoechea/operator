@@ -577,33 +577,29 @@ function promoted(build: Partial<ReturnType<typeof storedLaunch>> = {}, state = 
   return { ...read, assignments: [...read.assignments, assignment], promotions: [promotion] };
 }
 
-test("a worker that took over a promoted report shows notify_worker until Herdr sees it", async () => {
+test("a worker that took over a promoted report runs its PR assignment like any other start", async () => {
+  // The promotion's steering message, not a next action, tells the worker to read its brief.
   stored([promoted()]);
   const unseen = await next();
-  expect(unseen.tag === "Ok" ? unseen.value.sources[0]?.actions : null).toEqual([
-    expect.objectContaining({
-      assignment: "build",
-      action: "notify_worker",
-      reason: "assignment_promoted",
-      brief: `${files}/build/brief.md`,
-      dependencyReports: [expect.objectContaining({ assignment: "read", report: 1 })],
-    }),
-  ]);
-  stored([promoted({ activity: "working", activityAt: "2026-01-05T00:00:00.000Z" })]);
-  const seen = await next();
-  expect(seen.tag === "Ok" ? seen.value.sources[0] : null).toMatchObject({
+  expect(unseen.tag === "Ok" ? unseen.value.sources[0] : null).toMatchObject({
     actions: [],
-    waits: [{ assignment: "build", reason: "assignment_active" }],
+    waits: [
+      {
+        assignment: "build",
+        action: "wait",
+        reason: "assignment_active",
+        dependencyReports: [expect.objectContaining({ assignment: "read", report: 1 })],
+      },
+    ],
   });
-  // A later replacement of the handover launch is an ordinary start.
-  stored([promoted({ id: "l-other", attempt: 2 })]);
-  const replaced = await next();
-  expect(replaced.tag === "Ok" ? replaced.value.sources[0]?.waits : null).toMatchObject([
-    { assignment: "build", reason: "assignment_active" },
-  ]);
-  expect(replaced.tag === "Ok" ? replaced.value.sources[0]?.waits[0] : null).not.toHaveProperty(
+  expect(unseen.tag === "Ok" ? unseen.value.sources[0]?.waits[0] : null).not.toHaveProperty(
     "brief",
   );
+  stored([promoted({ activity: "idle", activityAt: "2026-01-05T00:00:00.000Z" })]);
+  const idle = await next();
+  expect(idle.tag === "Ok" ? idle.value.sources[0]?.actions : null).toMatchObject([
+    { assignment: "build", action: "worker_attention", reason: "worker_idle" },
+  ]);
 });
 
 test("a promoted report whose worker stopped offers its PR assignment for dispatch", async () => {

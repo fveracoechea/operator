@@ -18,5 +18,5 @@ When the question needs the person, move it to the person first:
 Use `--by person` only for an answer that the person gave.
 An answer that you infer, or one that you accept on the person's behalf, is `--by super-agent`.
 Run these commands from your own pane. The worker's pane refuses them with `self_decision_refused`.
-The worker reads the answer with `operator question wait`, so do not also type it into the worker's pane.
+The answer reaches the worker as the steering message `answer:<question>`, which rings its doorbell. The worker reads it with `operator question wait`, so do not also type it into the worker's pane.
 A question whose assignment ends is abandoned and takes no answer.

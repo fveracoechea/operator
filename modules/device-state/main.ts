@@ -63,6 +63,7 @@ import {
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
 import { changeQuestion, readQuestion } from "./questions.ts";
+import { changeMessage, readMessage } from "./messages.ts";
 import {
   changeReviewRequest,
   readReviewRequest,
@@ -180,6 +181,18 @@ export const DeviceState = {
   },
   readQuestion(paths: Paths, target: ReportTarget, key: string) {
     return reading(paths, (client) => readQuestion(client, target, key));
+  },
+  /** Apply one steering message transition that the caller's rule decides from facts read in the same transaction. */
+  changeMessage<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: ReportTarget,
+    key: string,
+    decide: Parameters<typeof changeMessage<E>>[3],
+  ) {
+    return writing(paths, (client) => changeMessage(client, target, key, decide));
+  },
+  readMessage(paths: Paths, target: ReportTarget, key: string) {
+    return reading(paths, (client) => readMessage(client, target, key));
   },
   launchNames(paths: Paths) {
     return reading(paths, (client) => launchNames(client));

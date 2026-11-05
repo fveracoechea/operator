@@ -257,34 +257,6 @@ test("a stopped wait or an idle PR owner needs attention, but a running wait doe
   ).toEqual({ action: "worker_attention", reason: "worker_idle", blockers: [] });
 });
 
-test("a worker that took over a promoted report needs the SuperAgent's word until it is seen", () => {
-  const facts = {
-    assignment: { key: "build", completion: "pr", state: "running" } as const,
-    dependencies: [{ key: "read", completion: "report", state: "completed" } as const],
-    launch: "running" as const,
-    handover: true,
-  };
-  expect(decideAssignment(facts)).toEqual({
-    action: "notify_worker",
-    reason: "assignment_promoted",
-    blockers: [],
-  });
-  // A seen worker, a stopped one, or one with a PR follows the ordinary rules.
-  expect(decideAssignment({ ...facts, handover: false, activity: "idle" })).toMatchObject({
-    reason: "worker_idle",
-  });
-  expect(decideAssignment({ ...facts, launch: "interrupted" })).toMatchObject({
-    reason: "worker_interrupted",
-  });
-  expect(
-    decideAssignment({
-      ...facts,
-      assignment: { ...facts.assignment, state: "pr-open" },
-      pullRequest: "waiting",
-    }),
-  ).toMatchObject({ reason: "pr_feedback_loop" });
-});
-
 test("a running worker that stops with no PR or report needs attention", () => {
   for (const assignment of [
     { key: "one", completion: "pr", state: "running" },

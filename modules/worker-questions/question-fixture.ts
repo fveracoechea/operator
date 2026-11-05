@@ -1,10 +1,12 @@
 import { expect, spyOn } from "bun:test";
+import { ErrAsync, OkAsync } from "unthrown";
 // Bun has no temporary-directory or folder creation API.
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
+import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -35,9 +37,21 @@ export async function questionDevice() {
     expect(await Bun.spawn(["git", ...args], { cwd: checkout, stderr: "pipe" }).exited).toBe(0);
   expect((await Projects.register({ paths, cwd: checkout })).tag).toBe("Ok");
   const real = Environment.read();
+  /** Each doorbell that a command typed, and whether the next one fails. */
+  const doorbells: { name: string; text: string }[] = [];
+  const herdr = { fails: false };
 
-  /** The command runs in this Herdr pane, or outside Herdr when the pane is null. */
+  /**
+   * The command runs in this Herdr pane, or outside Herdr when the pane is null. Herdr records
+   * each doorbell instead of typing it.
+   */
   function inPane(paneId: string | null) {
+    spyOn(Herdr, "prompt").mockImplementation((input) => {
+      doorbells.push(input);
+      return herdr.fails
+        ? ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent exited 1: gone" })
+        : OkAsync(null);
+    });
     return spyOn(Environment, "read").mockReturnValue({
       ...real,
       HERDR_PANE_ID: paneId ?? undefined,
@@ -65,6 +79,11 @@ export async function questionDevice() {
     return okValue(await WorkSources.register({ paths, cwd: checkout, file })).id;
   }
 
+  /** The Herdr agent name of a launch that `launch` recorded. */
+  function launchName(id: string) {
+    return `report-read-${id.slice(0, 8)}`;
+  }
+
   /** Record a running launch of `read` in the worker pane. */
   function launch(sourceId: string) {
     const id = crypto.randomUUID();
@@ -74,7 +93,7 @@ export async function questionDevice() {
         sourceId,
         assignment: "read",
         state: "starting",
-        name: `report-read-${id.slice(0, 8)}`,
+        name: launchName(id),
         resources: "pane",
         branch: null,
         host: "opencode",
@@ -124,5 +143,18 @@ export async function questionDevice() {
     return next.sources[0]?.actions ?? expect.unreachable("The source is missing.");
   }
 
-  return { root, paths, checkout, inPane, source, launch, observe, write, actions };
+  return {
+    root,
+    paths,
+    checkout,
+    inPane,
+    source,
+    launch,
+    launchName,
+    observe,
+    write,
+    actions,
+    doorbells,
+    herdr,
+  };
 }

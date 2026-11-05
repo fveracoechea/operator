@@ -202,6 +202,59 @@ function validQuestions(source: {
   );
 }
 
+// A steering message waits on the worker while pending and on the SuperAgent while replied.
+const messageSchema = z.object({
+  assignment: z.string(),
+  key: z.string(),
+  launchId: z.string(),
+  message: z.string(),
+  questionKey: z.string().nullable(),
+  sentAt: z.string(),
+  state: z.enum(["pending", "acknowledged", "replied", "closed", "abandoned"]),
+  rungAt: z.string().nullable(),
+  doorbellFailure: z.string().nullable(),
+  acknowledgedAt: z.string().nullable(),
+  reply: z.string().nullable(),
+  endedAt: z.string().nullable(),
+});
+export type Message = z.infer<typeof messageSchema>;
+
+/** Only an acknowledgement records its time, only a reply has text, and only an end has an end. */
+function validMessage(message: Message) {
+  const open = message.state === "pending" || message.state === "replied";
+  return (
+    (message.endedAt === null) === open &&
+    (message.state !== "pending" || message.acknowledgedAt === null) &&
+    (message.state !== "acknowledged" || message.acknowledgedAt !== null) &&
+    (message.state !== "replied" || message.reply !== null) &&
+    (message.reply === null || message.acknowledgedAt !== null) &&
+    (message.state !== "acknowledged" || message.reply === null)
+  );
+}
+
+/** A message belongs to a launch of its assignment, and an ended assignment leaves none open. */
+function validMessages(source: {
+  assignments: { key: string; state: string }[];
+  launches: { id: string; assignment: string }[];
+  messages: Message[];
+}) {
+  return source.messages.every(
+    (message) =>
+      validMessage(message) &&
+      source.launches.some(
+        (launch) => launch.assignment === message.assignment && launch.id === message.launchId,
+      ) &&
+      !(
+        ["pending", "replied"].includes(message.state) &&
+        source.assignments.some(
+          (row) =>
+            row.key === message.assignment &&
+            ["merged", "completed", "abandoned"].includes(row.state),
+        )
+      ),
+  );
+}
+
 /** Only an associated PR records an internal review, from one of its assignment's launches. */
 function reviewsConsistent(source: {
   launches: Launch[];
@@ -225,8 +278,8 @@ function reviewsConsistent(source: {
 }
 
 /**
- * A report belongs to a report assignment and to one of its launches, and so does a question to
- * its own assignment. A launch already shows that its assignment left the ready state.
+ * A report belongs to a report assignment and to one of its launches, and so do a question and a
+ * message to their own assignment. A launch already shows that its assignment left the ready state.
  */
 function validRecords(
   source: {
@@ -234,10 +287,12 @@ function validRecords(
     launches: Launch[];
     reports: { assignment: string; launchId: string }[];
     questions: Question[];
+    messages: Message[];
   } & Parameters<typeof reviewsConsistent>[0],
 ) {
   return (
     validQuestions(source) &&
+    validMessages(source) &&
     reviewsConsistent(source) &&
     source.reports.every(
       (report) =>
@@ -336,6 +391,7 @@ export function decodeSource(input: StoredSource) {
     internalReviews: z.array(internalReviewSchema).parse(input.internalReviews),
     internalReviewRounds: z.array(roundSchema).parse(input.internalReviewRounds),
     questions: z.array(questionSchema).parse(input.questions),
+    messages: z.array(messageSchema).parse(input.messages),
   };
   const promotions = z.array(promotionSchema).parse(input.promotions);
   const assignments = withPromotions(source.plan, promotions);

@@ -5,6 +5,7 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { launches, assignments, sources, workerQuestions } from "./schema.ts";
 import { locate, type ReportTarget } from "./reports.ts";
 import type { StateFailure } from "./failures.ts";
+import { applyMessage, type MessageRow } from "./messages.ts";
 
 export type QuestionRow = typeof workerQuestions.$inferSelect;
 
@@ -18,6 +19,8 @@ export type QuestionFacts = {
 export type QuestionChange = {
   insert?: QuestionRow;
   update?: Partial<Omit<QuestionRow, "sourceId" | "assignment" | "key">>;
+  /** The steering message that delivers an answer, recorded in the same transaction. */
+  message?: MessageRow;
 };
 
 type TargetFailure = StateFailure | { reason: string; detail: string };
@@ -93,6 +96,8 @@ export function changeQuestion<E extends { reason: string; detail: string }>(
                   ),
                 )
                 .run();
+            if (change.message)
+              applyMessage(db, facts.assignment, change.message.key, { insert: change.message });
             return { facts, change };
           }),
       ),

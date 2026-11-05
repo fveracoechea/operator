@@ -4,7 +4,7 @@ import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import { assignments, launches, promotions, reports, sources } from "./schema.ts";
-import { abandonQuestions, controlledSource } from "./sources.ts";
+import { abandonConversations, controlledSource } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type ReportRow = typeof reports.$inferSelect;
@@ -162,7 +162,7 @@ function apply(db: Db, facts: ReportFacts, change: ReportChange) {
       .set({ state: change.assignmentState })
       .where(and(eq(assignments.sourceId, sourceId), eq(assignments.key, key)))
       .run();
-  if (change.assignmentState === "completed") abandonQuestions(db, sourceId, [key]);
+  if (change.assignmentState === "completed") abandonConversations(db, sourceId, [key]);
   if (change.source !== undefined)
     db.update(sources).set(change.source).where(eq(sources.id, sourceId)).run();
   if (change.promote !== undefined) {

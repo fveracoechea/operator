@@ -22,6 +22,7 @@ import {
   type InternalReview,
   type Launch,
   type PullRequest,
+  type Message,
   type Question,
   type Report,
 } from "./snapshot.ts";
@@ -569,7 +570,8 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   };
 }
 
-// An unanswered question explains an idle worker, so the question replaces that attention.
+// An unanswered question, a reply, or a message that needs attention explains an idle worker, so it
+// replaces that attention. A pending message inside its period leaves the idle attention shown.
 const idleReasons = new Set(["worker_idle", "pr_owner_idle"]);
 
 /** The SuperAgent answers an open question. A question that it moved to the person waits on the person. */
@@ -581,6 +583,41 @@ function questionAction(question: Question) {
     reason: open ? ("question_open" as const) : ("question_awaiting_person" as const),
     blockers: [],
     question: { key: question.key, question: question.question, askedAt: question.askedAt },
+  };
+}
+
+// A worker can be in a long turn when its doorbell rings, so the period exceeds a normal turn.
+const acknowledgementPeriodMs = 15 * 60 * 1000;
+
+/**
+ * A reply waits on the SuperAgent. A pending message whose doorbell failed, or that the worker
+ * left unacknowledged past the period since its last ring, needs worker attention.
+ */
+function messageAction(message: Message, now: number) {
+  const shown = {
+    key: message.key,
+    message: message.message,
+    sentAt: message.sentAt,
+    questionKey: message.questionKey,
+  };
+  if (message.state === "replied")
+    return {
+      assignment: message.assignment,
+      action: "read_reply" as const,
+      reason: "message_replied" as const,
+      blockers: [],
+      message: { ...shown, reply: message.reply },
+    };
+  if (message.state !== "pending") return [];
+  const failed = message.doorbellFailure !== null;
+  const rung = Date.parse(message.rungAt ?? message.sentAt);
+  if (!failed && now - rung < acknowledgementPeriodMs) return [];
+  return {
+    assignment: message.assignment,
+    action: "worker_attention" as const,
+    reason: failed ? ("doorbell_failed" as const) : ("message_unacknowledged" as const),
+    blockers: [],
+    message: { ...shown, rungAt: message.rungAt, doorbellFailure: message.doorbellFailure },
   };
 }
 
@@ -599,7 +636,7 @@ function runningCount(source: Source) {
   return [...latest.values()].filter(liveWorker).length;
 }
 
-function decide(input: Input, source: Source) {
+function decide(input: Input, source: Source, now: number) {
   const running = runningCount(source);
   return source.planned.flatMap((assignment) => {
     const questions = source.questions
@@ -609,10 +646,14 @@ function decide(input: Input, source: Source) {
           (row.state === "open" || row.state === "awaiting_person"),
       )
       .map(questionAction);
+    const messages = source.messages
+      .filter((row) => row.assignment === assignment.key)
+      .flatMap((row) => messageAction(row, now));
+    const recorded = [...questions, ...messages];
     const decision = decideAssignmentRow(input, source, assignment, running);
-    return questions.length > 0 && idleReasons.has(decision.reason)
-      ? questions
-      : [...questions, decision];
+    return recorded.length > 0 && idleReasons.has(decision.reason)
+      ? recorded
+      : [...recorded, decision];
   });
 }
 
@@ -647,11 +688,6 @@ function decideAssignmentRow(
         ? undefined
         : { decision: report.decision, cleanup: report.cleanupState },
     cleanup: cleanupFact(cleanup),
-    // The worker that took over a promoted report has not been seen since the promotion.
-    handover:
-      launch !== undefined &&
-      launch.id === assignment.promotion?.handoverLaunchId &&
-      launch.activity === null,
     handoff: handoffFact(review),
     reviewing: review?.state === "reviewing",
     capReached: maxRunning !== undefined && running >= maxRunning,
@@ -686,7 +722,6 @@ function described<T extends object>(
     report?: object;
     cleanup?: object;
     internalReview?: object;
-    brief?: string;
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
@@ -695,13 +730,6 @@ function described<T extends object>(
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
   if (records.review !== undefined) row.internalReview = reviewSummary(source, records.review);
-  // The worker reads its refreshed brief only after the SuperAgent tells it to.
-  if ("action" in decision && decision.action === "notify_worker")
-    row.brief = OperatorHome.assignmentFiles(input.paths, {
-      repository: source.repository,
-      sourceId: source.id,
-      assignment: records.assignment,
-    }).brief;
   // Gaps of accepted dependency work stay visible until the dependent itself ends.
   const carried = dependencyReports(source, records.assignment);
   if (carried.length > 0) row.dependencyReports = carried;
@@ -709,7 +737,7 @@ function described<T extends object>(
 }
 
 function nextActions(input: Input, source: Source, now: number) {
-  const decisions = decide(input, source);
+  const decisions = decide(input, source, now);
   // An ended source keeps the cleanup that its completed work still owes.
   const cleanup = decisions.filter(
     (decision) => decision.action === "retry_cleanup" || decision.action === "person_decision",
