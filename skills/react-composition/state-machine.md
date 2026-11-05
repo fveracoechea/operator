@@ -4,8 +4,10 @@ When the parts of a compound share state with phases, such as closed and open, o
 This topic adds what a machine changes in a compound, so read [compound-components.md](compound-components.md) first.
 
 The general machine rules are when state is a machine, and how to write its states, its events and its transition function.
-They are in the project's code style document, such as `CODE_STYLE.md`, because each project has its own machine runner.
+They are in the repo's code style document, `CODE_STYLE.md` in most Terzo repos, because each repo has its own machine runner.
 This topic does not repeat them.
+
+<!-- Jarvis authoring note: terzo-ai/jarvis#198 records the decision to keep the general machine rules out of Jarvis. -->
 
 The examples are a document search: a find field in the page bar, and a viewer that counts the matches.
 

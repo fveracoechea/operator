@@ -16,7 +16,6 @@ A module has only the entry files its callers need.
 A server-only module is usually `main.ts` and `schemas.ts`, because the HTTP routes that call it live outside the module.
 An SPA module is `main.ts`, plus `schemas.ts` for the responses it parses.
 The wire schemas are an interface of their own, because routes, handlers and fixtures parse against them.
-[entry-file-lint.md](entry-file-lint.md) makes lint reject an import that skips an entry file.
 
 ### Let `$functions.ts` be the interface when every caller crosses the RPC
 
