@@ -8,7 +8,7 @@ type BriefInput = {
   completion: "pr" | "report";
   profile: string | null;
   instructions: string;
-  /** The person's own words, or null when the plan gives none. */
+  /** The person's own words, or null when neither the assignment nor the plan gives them. */
   intent: string | null;
   workingDirectory: string;
   /** The worktree branch, or null for read-only work in a pane of the checkout. */

@@ -3,7 +3,7 @@
 Read the tracker with its existing tools, then supply a JSON plan to `operator source register --file <path> --json` from the registered controlling checkout.
 The CLI reads no tracker.
 
-The top-level fields are `trackerKey` and `assignments`.
+The top-level fields are `trackerKey` and `assignments`, with optional `intent` and `internalReview`.
 Each assignment supplies `key`, `trackerKey`, `instructions`, `completion`, `resources`, and `dependencies`.
 `completion` is `pr` or `report`.
 Use `pane` for read-only reports.

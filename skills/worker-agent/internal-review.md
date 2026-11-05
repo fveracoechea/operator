@@ -25,7 +25,7 @@ An internal review round is one review of the whole PR diff against its base at 
 
 Check three axes:
 
-- Spec: the change does what the issue asks, and nothing that the issue excludes. When your brief has acceptance criteria, the change also meets each one. They are the person's own words, and they win over the instructions.
+- Spec: the change does what the issue asks, and nothing that the issue excludes. When your brief has acceptance criteria, the change also meets each one. They are the person's own words. When they disagree with the instructions, ask your supervising SuperAgent before you decide the finding.
 - Standards: the change follows the documented standards, the repository patterns, and the person's opinions in `my-opinions`.
 - Skills: the change follows each skill that the assignment instructions name. Cite the skill and its rule for each Skills finding.
 
