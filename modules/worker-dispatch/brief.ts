@@ -25,6 +25,8 @@ type BriefInput = {
   review: {
     state: "reviewing" | "ready" | "skipped";
     rounds: { number: number; head: string; findings: Finding[] }[];
+    /** The PR head that an ended review recorded. */
+    readyHead: string | null;
   } | null;
 };
 
@@ -90,8 +92,18 @@ function reviewer(number: number, review: NonNullable<BriefInput["review"]>) {
     "Do not use the PR body, the commit messages, or earlier owner messages as evidence.",
     "Record each round's findings with `operator pr round --file <findings.json> --json` before you change code.",
     ...(rounds.length === 0 ? ["No round is recorded yet."] : ["Recorded rounds:", ...rounds]),
-    "If the PR is already ready for review, the review has ended and you own the PR feedback loop below.",
+    "End the review with `operator pr ready --file <summary.json> --json`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.",
+    "Then you own the PR feedback loop below.",
   ];
+}
+
+/** A launch after the review ended owns the PR, also when its review ended in an earlier launch. */
+function reviewEnded(number: number, review: NonNullable<BriefInput["review"]>) {
+  const end =
+    review.state === "ready"
+      ? `The internal review of PR #${number} ended ready at \`${review.readyHead ?? ""}\`.`
+      : `The internal review of PR #${number} was skipped on the person's instruction.`;
+  return [end, "You own the PR. Record no more review rounds."];
 }
 
 function feedbackLoop(input: BriefInput) {
@@ -128,9 +140,11 @@ ${[
         ]
       : [
           `PR #${input.pullRequest.number} is already open for this assignment: ${input.pullRequest.url}.`,
-          ...(input.review?.state === "reviewing"
-            ? reviewer(input.pullRequest.number, input.review)
-            : []),
+          ...(input.review === null
+            ? []
+            : input.review.state === "reviewing"
+              ? reviewer(input.pullRequest.number, input.review)
+              : reviewEnded(input.pullRequest.number, input.review)),
           "Read its reviews, comments, unresolved threads, and checks before you wait.",
           "Inspect the worktree first. Keep work that is not landed.",
         ];

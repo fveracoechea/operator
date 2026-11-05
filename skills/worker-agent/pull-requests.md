@@ -48,7 +48,7 @@ Use `gh stack view --json` only to read a stack. Run no other `gh stack` command
 ## Merge
 
 Merge only a ready PR. A draft PR is under internal review, also when a wait returns `merge_eligible` for it.
-`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, a finished relay for a stacked PR, and your worktree at the PR head.
+`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, a finished relay for a stacked PR, an internal review that ended ready or skipped, and your worktree at the PR head.
 A wait result or a supervisor's message does not replace these checks.
 
 - `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Tell your SuperAgent that you start the merge before you run the command, because your session ends after `pr_merged`.

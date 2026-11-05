@@ -23,7 +23,15 @@ import { decideWait, mergeConditions, progressSchema } from "./wait-machine.ts";
 import { merge } from "./merge.ts";
 import { cleanup } from "./cleanup.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
-import { handoff, owned, round, startHandoff, worktreeFacts } from "./internal-review.ts";
+import {
+  handoff,
+  owned,
+  reviewEnded,
+  round,
+  startHandoff,
+  worktreeFacts,
+} from "./internal-review.ts";
+import { ready, skip } from "./internal-review-ready.ts";
 
 type Request = { paths: Paths; cwd: string };
 type Failure = { reason: string; detail: string };
@@ -115,8 +123,9 @@ function reviewGate(owner: Owner, pr: { draft: boolean; head: string }) {
 
 /**
  * The owner opens the PR with its own tools and closing keywords. The CLI only records it.
- * When device settings enable assignment reviews, the same write queues a review request.
- * A new internal review starts its handoff, which ends the implementer's session.
+ * When device settings enable assignment reviews, the same write queues a review request, unless
+ * an internal review starts, whose ready transition queues it instead. A new internal review
+ * starts its handoff, which ends the implementer's session.
  */
 function associate(input: Request) {
   return resolveOwner(input).flatMap((owner) =>
@@ -142,7 +151,7 @@ function associate(input: Request) {
                     branch: owner.branch,
                     relay: relay === null ? null : JSON.stringify(relay),
                   },
-                  settings.data.config.review?.assignments === true,
+                  settings.data.config.review?.assignments === true && !review,
                   review,
                 )
                   .toAsync()
@@ -354,7 +363,7 @@ function poll(
             // and the relay counts from the next wait.
             mergeConditions: mergeConditions(
               { ...observed, base: relayed.base, checks: [] },
-              false,
+              { stackRelayed: false, reviewEnded: reviewEnded(owner) },
             ),
             events: [
               {
@@ -381,17 +390,20 @@ function decideOnce(
   {
     // A stacked PR is not eligible before its relay. A relay by another wait counts from the next wait.
     const relay = parseRelay(pr.relay);
-    const stackRelayed = relay === null || relay.state === "relayed";
+    const gates = {
+      stackRelayed: relay === null || relay.state === "relayed",
+      reviewEnded: reviewEnded(owner),
+    };
     // The decision runs inside the write transaction on the progress that it reads there.
     // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: a successful write always runs the decision, which replaces this start value before it is read
     const outcome: { decision: ReturnType<typeof decideWait> } = { decision: { result: "none" } };
     const data = {
       ...summary(owner, pr),
       head: observed.head,
-      mergeConditions: mergeConditions(observed, stackRelayed),
+      mergeConditions: mergeConditions(observed, gates),
     };
     return DeviceState.recordPullRequestWait(input.paths, owner.launchId, (row) => {
-      const decision = decideWait({ progress: progress(row.progress), observed, stackRelayed });
+      const decision = decideWait({ progress: progress(row.progress), observed, ...gates });
       outcome.decision = decision;
       return decision.result === "none"
         ? null
@@ -482,5 +494,13 @@ export const PullRequests = {
   /** Records one internal review round's findings at the reviewer's worktree head. */
   round(input: Request & { file: string }) {
     return round(input);
+  },
+  /** The reviewer's guarded ready step: one summary comment, the ready mutation, the ready record. */
+  ready(input: Request & { file: string }) {
+    return ready(input);
+  },
+  /** Ends a running internal review on the person's instruction, from the controlling checkout. */
+  skipReview(input: Parameters<typeof skip>[0]) {
+    return skip(input);
   },
 };

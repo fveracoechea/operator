@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #228, #231, #232, and #233.
 Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
+Amended 2026-11-04 in #305: the merge also requires that an internal review of the PR ended ready or was skipped (ADR-0020).
 
 ## Context
 
@@ -32,6 +33,7 @@ A stacked PR is not merge eligible until its parent merged and its relay finishe
 Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation.
 It refuses unless the PR has approval, passing checks, no unresolved threads, and the default branch as its base.
+It also refuses while an internal review of the PR has not ended ready or skipped. Amended in #305.
 GitHub CI and GitHub reviews are the gates, not a separate local gate declaration or a supervisor's claim.
 
 After verified merge, the CLI deletes the remote branch, closes the worker pane, and removes the worktree in that order without a separate approval grant.

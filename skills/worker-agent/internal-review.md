@@ -5,7 +5,7 @@ Operator started you when the implementer associated the draft, so you are a fre
 You apply the valid findings yourself, mark the PR ready, and then run the PR feedback loop and the guarded merge.
 
 Operator records each round and enforces its limits through `operator pr round`.
-In this release, it does not record or check the summary comment or the ready step. Follow those steps as written.
+`operator pr ready` checks every finding's disposition, posts the summary comment, marks the PR ready, and records the end of the review.
 
 ## 1. Read the inputs
 
@@ -17,7 +17,7 @@ Your inputs are the tracker issue, the assignment instructions in your brief, th
 
 The PR body, the commit messages, and any message from the implementer are claims, not evidence.
 Check each claim against the code before you use it.
-Your brief lists the rounds that Operator recorded, with their findings. They are evidence, and so are earlier `internal-review-round-<n>.md` decision files in your brief's report directory.
+Your brief lists the rounds that Operator recorded, with their findings. They are evidence.
 
 ## 2. Review one round
 
@@ -51,43 +51,48 @@ The command refuses a file with any other shape, a third round, a second round a
 
 Decide for each finding: apply it, or decline it with a reason.
 Apply each valid finding, commit, and push to the same draft PR branch.
-Write each decision and its commit or reason in `internal-review-round-<n>.md` in the report directory that your brief names.
+Keep each decision and each reason for the summary file in step 5.
 
-## 4. Do a second round when the first round had a blocker
+## 4. Do a second round when you applied a blocker
 
-A round that had a blocker needs a second round at the new head, because the fixes need a review too.
+A round 1 blocker that you applied needs a second round at the new head, because the fix needs a review too.
+`operator pr ready` refuses with `internal_review_second_round_required` until that round exists.
 Push the fixes of round 1 first. `operator pr round` refuses round 2 at the head of round 1.
 Give the second round to a fresh native subagent with the inputs from step 1, the round 1 findings, and no account of your own reasoning.
-Apply and record its valid findings as in step 3.
-If you declined every blocker of round 1, the head did not move. Skip the second round and give each reason in the summary comment.
+Apply its valid findings as in step 3.
+If you declined every blocker of round 1, no second round is required. Give each reason in the summary file.
 
-The limit is two rounds, and `operator pr round` refuses a third. After round 2, record the decisions and continue to step 5.
+The limit is two rounds, and `operator pr round` refuses a third. After round 2, continue to step 5.
 
-## 5. Post the summary and mark the PR ready
+## 5. End the review with the ready step
 
-Load the `no-slop` skill before you write the comment.
-Post exactly one comment with `gh pr comment <number> --body-file <file>`, then run `gh pr ready <number>`.
-Write the comment file outside the checkout.
+Load the `no-slop` skill before you write the overview.
+Write a JSON summary file outside the checkout:
 
-The comment is short. It uses bold labels and bullets, and names each finding once:
-
-```markdown
-**Internal review**: 2 rounds, at `<head SHA>`.
-
-**Applied**
-
-- **Spec**: <finding in one line>. Fixed in `<short SHA>`.
-
-**Declined**
-
-- **Standards**: <finding in one line>. <reason>.
+```json
+{
+  "overview": "<one or two sentences on what the review found and changed>",
+  "dispositions": [
+    { "round": 1, "finding": 1, "disposition": "applied" },
+    { "round": 1, "finding": 2, "disposition": "declined", "reason": "<why>" }
+  ]
+}
 ```
 
+`finding` numbers each finding of a round from 1, in the order of its round file.
+Give every recorded finding exactly one disposition, and every declined finding a reason.
+Commit and push all work, then run `operator pr ready --file <file> --json` in your worktree.
+
+It posts one summary comment and then marks the PR ready. The CLI renders one line for each recorded finding with its axis, severity, and disposition, under your overview.
+It refuses, and changes nothing, for a summary that leaves out or repeats a finding, for a round 1 blocker that you applied without a round 2, and for a worktree that is unclean or not at the PR head. Fix the cause and run it again.
+After `github_uncertain`, run it again. It finds its earlier comment and posts no second one.
+Do not post the comment or mark the PR ready with `gh`.
 Write no line-level review comments and no other PR comments.
 
 ## 6. Own the PR to its merge
 
-After the PR is ready, follow [pull-requests.md](pull-requests.md) from step 3 on: run `operator pr wait --json`, handle each result, and run the guarded merge on `merge_eligible`.
-A draft is never merged. Run `operator pr wait --json` only after the PR is ready.
+After the ready step, follow [pull-requests.md](pull-requests.md) from step 3 on: run `operator pr wait --json`, handle each result, and run the guarded merge on `merge_eligible`.
+During the review, a wait reports the draft's feedback and failing checks, and never `merge_eligible`.
 
-If the SuperAgent tells you that the person skipped the internal review, stop the review, run `gh pr ready <number>` with no comment, and continue with step 6.
+The person can skip a running review. The SuperAgent records the skip, which marks the PR ready with no comment.
+`operator pr round` and `operator pr ready` then refuse with `internal_review_ended`. Stop the review and continue with this step.

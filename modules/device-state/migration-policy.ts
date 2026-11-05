@@ -107,6 +107,7 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
   [1793127419030, []],
   [1793140707700, []],
   [1793831121076, []],
+  [1793843591131, []],
 ]);
 
 /** Each policy names queries that find records the migration must not run past. */

@@ -6,7 +6,7 @@ import { mergePullRequest, observePullRequest, type Observation } from "./github
 import { decideMerge, verifiedMerge } from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
-import { owned } from "./internal-review.ts";
+import { owned, reviewEnded } from "./internal-review.ts";
 
 type Request = { paths: Paths; cwd: string };
 type Failure = { reason: string; detail: string };
@@ -121,6 +121,7 @@ function guarded(
     observed,
     localHead: local,
     stackRelayed: relay === null || relay.state === "relayed",
+    reviewEnded: reviewEnded(owner),
   });
   if (decision.result === "refused")
     return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
@@ -148,8 +149,9 @@ function guarded(
 
 /**
  * The owner's guarded merge. A fresh GitHub observation must show approval, passing checks,
- * no unresolved thread, and the default branch as base, and the owner's worktree must hold the
- * PR head. A refusal performs no merge request and writes nothing.
+ * no unresolved thread, and the default branch as base, any internal review must have ended
+ * ready or skipped, and the owner's worktree must hold the PR head. A refusal performs no merge
+ * request and writes nothing.
  */
 export function merge(input: Request) {
   return resolveOwner(input)

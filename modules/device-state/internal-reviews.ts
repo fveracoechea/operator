@@ -3,9 +3,18 @@ import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
-import { internalReviewRounds, internalReviews, launches, projects, sources } from "./schema.ts";
+import {
+  assignments,
+  internalReviewRounds,
+  internalReviews,
+  launches,
+  projects,
+  pullRequests,
+  sources,
+} from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { activeOwner, type PullRequestFailure } from "./pull-requests.ts";
+import { requestAssignmentReview } from "./review-requests.ts";
 
 export type InternalReviewRow = typeof internalReviews.$inferSelect;
 export type InternalReviewRoundRow = typeof internalReviewRounds.$inferSelect;
@@ -284,6 +293,92 @@ export function recordInternalReviewRound<E extends { reason: string; detail: st
           });
         },
       ),
+    ),
+  );
+}
+
+export type ReviewEnd = Pick<InternalReviewRow, "readyHead" | "commentId" | "commentUrl"> & {
+  state: "ready" | "skipped";
+};
+type EndFailure =
+  | PullRequestFailure
+  | { reason: "internal_review_not_recorded" | "internal_review_ended"; detail: string };
+
+/** The SuperAgent's skip names no launch, so it checks the open PR assignment itself. */
+function openAssignment(db: Db, sourceId: string, assignment: string) {
+  const row = db
+    .select({ source: sources.state, assignment: assignments.state })
+    .from(assignments)
+    .innerJoin(sources, eq(sources.id, assignments.sourceId))
+    .where(and(eq(assignments.sourceId, sourceId), eq(assignments.key, assignment)))
+    .get();
+  return row?.source === "open" && row.assignment === "pr-open"
+    ? Ok(undefined)
+    : Err<EndFailure>({
+        reason: "pr_owner_inactive",
+        detail: `Assignment ${assignment} has no open PR in an open source. Nothing was changed.`,
+      });
+}
+
+/**
+ * Ends a running internal review ready or skipped, with the PR head it ended at. The ready step
+ * names its reviewer launch, which must still own the PR. With `queueReview`, the same write
+ * queues the assignment reviewer, which starts at the ready transition. A repeated end with the
+ * same state and head changes nothing. ADR-0015, ADR-0020.
+ */
+export function endInternalReview(
+  client: Database,
+  target: { sourceId: string; assignment: string; launchId: string | null },
+  end: ReviewEnd,
+  queueReview: boolean,
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      (target.launchId === null
+        ? openAssignment(db, target.sourceId, target.assignment)
+        : activeOwner(db, target.launchId)
+      ).flatMap((): Result<{ changed: boolean; review: InternalReviewRow }, EndFailure> => {
+        const review = db
+          .select()
+          .from(internalReviews)
+          .where(key(target.sourceId, target.assignment))
+          .get();
+        if (review === undefined)
+          return Err({
+            reason: "internal_review_not_recorded",
+            detail: `Assignment ${target.assignment} has no internal review. Nothing was changed.`,
+          });
+        if (review.state === end.state && review.readyHead === end.readyHead)
+          return Ok({ changed: false, review });
+        if (review.state !== "reviewing")
+          return Err({
+            reason: "internal_review_ended",
+            detail: `The internal review already ended ${review.state}. Nothing was changed.`,
+          });
+        const now = new Date().toISOString();
+        const ended = { ...review, ...end, endedAt: now, updatedAt: now };
+        db.update(internalReviews).set(ended).where(key(target.sourceId, target.assignment)).run();
+        const pr = db
+          .select()
+          .from(pullRequests)
+          .where(
+            and(
+              eq(pullRequests.sourceId, target.sourceId),
+              eq(pullRequests.assignment, target.assignment),
+            ),
+          )
+          .get();
+        // Stryker disable next-line ConditionalExpression: equivalent: a recorded review always has its associated PR
+        if (queueReview && pr !== undefined)
+          requestAssignmentReview(db, {
+            repository: pr.repository,
+            number: pr.number,
+            url: pr.url,
+            sourceId: target.sourceId,
+            assignment: target.assignment,
+          });
+        return Ok({ changed: true, review: ended });
+      }),
     ),
   );
 }

@@ -45,6 +45,11 @@ export function worktreeFacts(worktree: string) {
   }, qualify);
 }
 
+/** An assignment without an internal review, from before ADR-0020 or with it off, has ended it. */
+export function reviewEnded(owner: Owner) {
+  return owner.reviewState === null || ["ready", "skipped"].includes(owner.reviewState);
+}
+
 /** The launch that the handoff ended no longer owns the PR, also while its pane still runs. */
 export function handedOff(owner: Owner): Failure | null {
   return owner.implementerLaunchId === owner.launchId

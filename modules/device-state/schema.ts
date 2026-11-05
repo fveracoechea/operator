@@ -196,6 +196,11 @@ export const internalReviews = sqliteTable(
     // The handoff process and its lease. A gone process or a stale lease is a stopped handoff.
     ownerPid: integer("owner_pid"),
     leaseAt: text("lease_at"),
+    // The end of the review: the PR head it ended at, and the summary comment of a ready end.
+    readyHead: text("ready_head"),
+    commentId: text("comment_id"),
+    commentUrl: text("comment_url"),
+    endedAt: text("ended_at"),
   },
   (table) => [
     primaryKey({ columns: [table.sourceId, table.assignment] }),

@@ -151,6 +151,10 @@ function insertInternalReview(
       updatedAt: now,
       ownerPid: null,
       leaseAt: null,
+      readyHead: null,
+      commentId: null,
+      commentUrl: null,
+      endedAt: null,
     })
     .run();
 }

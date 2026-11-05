@@ -29,6 +29,7 @@ afterAll(async () => {
 
 const flow = "operator-cli/run.internal-review.test.ts";
 const guards = "operator-cli/run.internal-review-guards.test.ts";
+const ready = "operator-cli/run.internal-review-ready.test.ts";
 
 test.each([
   {
@@ -92,6 +93,53 @@ test.each([
     replacements: [["applied: 12,", "applied: 99,"]],
     testFile: "device-state/migration-policy.test.ts",
     pattern: "a live internal review handoff blocks an upgrade",
+  },
+  {
+    name: "a second round after an applied blocker",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [["facts.review.rounds.length === 1 &&", "false &&"]],
+    testFile: ready,
+    pattern: "rendered comment",
+  },
+  {
+    name: "every finding has a disposition",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [["when: (facts) => undecided(facts).length > 0,", "when: () => false,"]],
+    testFile: ready,
+    pattern: "rendered comment",
+  },
+  {
+    name: "a comment found again after a lost answer",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [["post: !facts.posted,", "post: true,"]],
+    testFile: ready,
+    pattern: "lost comment",
+  },
+  {
+    name: "a skip needs the person's instruction",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [["when: (facts) => !facts.personInstructed,", "when: () => false,"]],
+    testFile: ready,
+    pattern: "person-instructed skip",
+  },
+  {
+    name: "merge waits for the end of the review",
+    file: "pull-requests/internal-review.ts",
+    replacements: [["return owner.reviewState === null ||", "return true ||"]],
+    testFile: ready,
+    pattern: "rendered comment",
+  },
+  {
+    name: "the assignment reviewer waits for the end of the review",
+    file: "pull-requests/main.ts",
+    replacements: [
+      [
+        "settings.data.config.review?.assignments === true && !review,",
+        "settings.data.config.review?.assignments === true,",
+      ],
+    ],
+    testFile: ready,
+    pattern: "rendered comment",
   },
 ])(
   "a deliberate break of internal review guard $name makes its behavior test fail",

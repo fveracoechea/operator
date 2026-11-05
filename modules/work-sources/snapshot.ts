@@ -127,6 +127,10 @@ const internalReviewSchema = z.object({
   handoffRunning: z.boolean(),
   startedAt: z.string(),
   updatedAt: z.string(),
+  // The PR head that the review ended at, and the summary comment of a ready end.
+  readyHead: z.string().nullable(),
+  commentUrl: z.string().nullable(),
+  endedAt: z.string().nullable(),
 });
 export type InternalReview = z.infer<typeof internalReviewSchema>;
 

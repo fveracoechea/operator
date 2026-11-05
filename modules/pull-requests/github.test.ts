@@ -121,7 +121,7 @@ test("threads and checks beyond one read keep the merge gate closed", () => {
   );
   // An unread thread can be unresolved, and an unread check can fail.
   expect(observed).toMatchObject({ unresolvedThreads: 101, checksComplete: false });
-  expect(mergeConditions(observed, true)).toMatchObject({
+  expect(mergeConditions(observed, { stackRelayed: true, reviewEnded: true })).toMatchObject({
     threadsResolved: false,
     checksPassing: false,
   });
