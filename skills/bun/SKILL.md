@@ -35,7 +35,6 @@ Bun reads the flag on the command line only, so put it in the `test` script and 
 
 Name no path root in the `test` script, since bun finds every test file on its own.
 `bun test` runs a file that matches any path filter, so a root like `.` or `src` matches every file, and `bun run test <file>` no longer narrows the run to one file.
-`jarvis structure` reports a root as `test-script-no-roots`.
 
 ### Import the module dynamically after `mock.module`
 
