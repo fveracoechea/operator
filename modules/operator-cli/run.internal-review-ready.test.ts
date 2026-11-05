@@ -274,6 +274,8 @@ async function config(review: { assignments?: boolean }) {
 const githubSchema = z.looseObject({
   commented: z.array(z.object({ id: z.string(), number: z.number(), body: z.string() })).optional(),
   readied: z.array(z.number()).optional(),
+  updated: z.array(z.object({ id: z.string(), body: z.string() })).optional(),
+  pulls: z.array(z.looseObject({ comments: z.array(z.looseObject({})).optional() })),
 });
 
 async function githubState() {
@@ -495,6 +497,43 @@ test("a retry after a lost comment or ready answer posts one comment and records
   const { commented, readied } = await githubState();
   expect(commented).toHaveLength(1);
   expect(readied).toEqual([7]);
+}, 180000);
+
+test("a retry after a later push updates the earlier comment to the new head and rounds", async () => {
+  const source = await setup("opencode");
+  const { reviewer, head } = await reviewing(source);
+  expect((await run(["pr", "round", "--file", await findings([nit])], reviewer)).code).toBe(0);
+  const first = await summary("One nit.", [{ round: 1, finding: 1, disposition: "applied" }]);
+  await github({ commentLost: true });
+  expect(await run(["pr", "ready", "--file", first], reviewer)).toMatchObject({
+    code: 1,
+    output: { reason: "github_uncertain" },
+  });
+  expect((await githubState()).commented?.[0]?.body).toContain(head);
+
+  // The review still runs, so the reviewer pushes more work before it ends the review again.
+  const { comments } = (await githubState()).pulls[0] ?? {};
+  const later = await push(reviewer, "later.txt", { comments });
+  const file = await summary("One nit, and a later fix.", [
+    { round: 1, finding: 1, disposition: "applied" },
+  ]);
+  expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_ready", data: { head: later, comment: { id: "comment-1" } } },
+  });
+  const { commented, updated, readied } = await githubState();
+  expect(commented).toHaveLength(1);
+  expect(updated).toHaveLength(1);
+  expect(updated?.[0]).toMatchObject({ id: "comment-1" });
+  expect(updated?.[0]?.body).toContain(`at \`${later}\``);
+  expect(updated?.[0]?.body).toContain("One nit, and a later fix.");
+  expect(readied).toEqual([7]);
+
+  // A retry after the end refuses and changes nothing on GitHub.
+  expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
+    output: { reason: "internal_review_ended" },
+  });
+  expect((await githubState()).updated).toHaveLength(1);
 }, 180000);
 
 test("a person-instructed skip ends the review with no comment, and the reviewer keeps the PR", async () => {

@@ -439,7 +439,7 @@ Read its reviews, comments, unresolved threads, and checks before you wait.`);
       pullRequest,
       review: { state: "skipped", rounds: [], readyHead: "h3" },
     }),
-  ).toContain(`The internal review of PR #7 was skipped on the person's instruction.
+  ).toContain(`The internal review of PR #7 was skipped on the person's instruction at \`h3\`.
 You own the PR. Record no more review rounds.`);
 });
 

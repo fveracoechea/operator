@@ -11,7 +11,7 @@ import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
-import { markReady, postComment, readyFacts } from "./github.ts";
+import { markReady, postComment, readyFacts, updateComment } from "./github.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
 import { worktreeFacts } from "./internal-review.ts";
 import { qualify, resolveOwner, type Paths } from "./owner.ts";
@@ -50,7 +50,7 @@ function parseSummary(text: string) {
 }
 
 /** The hidden line that finds this review's comment again after a lost answer. */
-export function commentMarker(sourceId: string, assignment: string) {
+function commentMarker(sourceId: string, assignment: string) {
   return `<!-- operator-internal-review ${sourceId}/${assignment} -->`;
 }
 
@@ -69,7 +69,7 @@ function findingLine(finding: Finding, disposition: Disposition) {
  * The one summary comment. The reviewer writes the overview, and the CLI renders one line for
  * each recorded finding with its axis, severity, and disposition, so none can drop out.
  */
-export function renderSummary(input: {
+function renderSummary(input: {
   marker: string;
   head: string;
   overview: string;
@@ -119,9 +119,9 @@ function reviewOf(source: Source | undefined, assignment: string) {
   return { review, rounds };
 }
 
-function refusal(decision: { result: string }, event: string): Failure {
-  return "reason" in decision && "detail" in decision
-    ? { reason: String(decision.reason), detail: String(decision.detail) }
+function refusal(decision: ReturnType<typeof decideInternalReview>, event: string): Failure {
+  return decision.result === "refused"
+    ? { reason: decision.reason, detail: decision.detail }
     : { reason: "internal_review_defect", detail: `The ${event} event decided nothing.` };
 }
 
@@ -152,6 +152,13 @@ export function ready(input: { paths: Paths; cwd: string; file: string }) {
           const marker = commentMarker(owner.sourceId, owner.assignment);
           return worktreeFacts(owner.worktreePath).flatMap(({ changed, localHead }) =>
             readyFacts(owner.repository, number, marker).flatMap((pr) => {
+              const body = renderSummary({
+                marker,
+                head: pr.head,
+                overview: summary.overview,
+                rounds,
+                dispositions: summary.dispositions,
+              });
               const decision = decideInternalReview({
                 event: "ready",
                 review: { state: review.state, rounds },
@@ -160,20 +167,17 @@ export function ready(input: { paths: Paths; cwd: string; file: string }) {
                 changed,
                 localHead,
                 pr,
-                posted: pr.posted !== null,
+                posted: pr.posted === null ? "none" : pr.posted.body === body ? "current" : "stale",
               });
               if (decision.result !== "ready") return ErrAsync(refusal(decision, "ready"));
-              const body = renderSummary({
-                marker,
-                head: decision.head,
-                overview: summary.overview,
-                rounds,
-                dispositions: summary.dispositions,
-              });
+              const earlier = pr.posted;
               const comment =
-                decision.post || pr.posted === null
+                decision.comment === "post" || earlier === null
                   ? postComment(owner.repository, number, body)
-                  : OkAsync(pr.posted);
+                  : (decision.comment === "update"
+                      ? updateComment(earlier.id, body)
+                      : OkAsync(undefined)
+                    ).map(() => ({ id: earlier.id, url: earlier.url }));
               return comment.flatMap((posted) =>
                 (decision.markReady ? markReady(pr.id) : OkAsync(undefined)).flatMap(() =>
                   queueReview(input.paths).flatMap((queue) =>

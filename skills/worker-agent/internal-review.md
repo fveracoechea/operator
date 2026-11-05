@@ -2,7 +2,7 @@
 
 You are the internal reviewer of a draft PR when your brief says so.
 Operator started you when the implementer associated the draft, so you are a fresh reader. You also own the PR from now until its merge.
-You apply the valid findings yourself, mark the PR ready, and then run the PR feedback loop and the guarded merge.
+You apply the valid findings yourself, end the review with the ready step, and then run the PR feedback loop and the guarded merge.
 
 Operator records each round and enforces its limits through `operator pr round`.
 `operator pr ready` checks every finding's disposition, posts the summary comment, marks the PR ready, and records the end of the review.
@@ -85,7 +85,7 @@ Commit and push all work, then run `operator pr ready --file <file> --json` in y
 
 It posts one summary comment and then marks the PR ready. The CLI renders one line for each recorded finding with its axis, severity, and disposition, under your overview.
 It refuses, and changes nothing, for a summary that leaves out or repeats a finding, for a round 1 blocker that you applied without a round 2, and for a worktree that is unclean or not at the PR head. Fix the cause and run it again.
-After `github_uncertain`, run it again. It finds its earlier comment and posts no second one.
+After `github_uncertain`, run it again. It finds its earlier comment and posts no second one. If you pushed or recorded a round since, it updates that comment.
 Do not post the comment or mark the PR ready with `gh`.
 Write no line-level review comments and no other PR comments.
 

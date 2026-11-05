@@ -35,8 +35,11 @@ type ReadyFacts = {
   changed: boolean;
   localHead: string | null;
   pr: PullRequest;
-  /** GitHub already holds this review's summary comment, for example after a lost answer. */
-  posted: boolean;
+  /**
+   * This review's summary comment on GitHub: none, the same text as now, or an older text, for
+   * example after a lost answer and a later push.
+   */
+  posted: "none" | "current" | "stale";
 };
 type SkipFacts = {
   event: "skip";
@@ -54,7 +57,7 @@ type Decision =
   | { result: "associate"; review: boolean }
   | { result: "handoff"; closePane: boolean; dispatch: boolean }
   | { result: "round"; number: number; head: string }
-  | { result: "ready"; head: string; post: boolean; markReady: boolean }
+  | { result: "ready"; head: string; comment: "post" | "update" | "keep"; markReady: boolean }
   | { result: "skip"; head: string; markReady: boolean };
 type Rule<F> = { when: (facts: F) => boolean; refuse: (facts: F) => Refusal };
 
@@ -165,14 +168,6 @@ function undecided(facts: ReadyFacts) {
 }
 
 const readyRules: Rule<ReadyFacts>[] = [
-  {
-    when: (facts) => facts.implementer,
-    refuse: () =>
-      refused(
-        "pr_handed_off",
-        `This launch handed the PR to its internal reviewer. Stop here. ${unchanged}`,
-      ),
-  },
   {
     when: (facts) => facts.review.state !== "reviewing",
     refuse: (facts) =>
@@ -315,16 +310,20 @@ function round(facts: RoundFacts): Decision {
   return { result: "round", number: facts.review.rounds.length + 1, head: facts.localHead };
 }
 
+const commentEffect = { none: "post", stale: "update", current: "keep" } as const;
+
 /**
  * The ready step posts the summary comment unless GitHub already holds it, and marks a draft
- * ready, so a retry after a lost answer repeats neither.
+ * ready, so a retry after a lost answer repeats neither. A retry at a newer head or with other
+ * rounds updates the earlier comment, so the one comment describes the PR that went ready.
  */
 function ready(facts: ReadyFacts): Decision {
   return (
+    decideOwnership(facts) ??
     readyRules.find((rule) => rule.when(facts))?.refuse(facts) ?? {
       result: "ready",
       head: facts.pr.head,
-      post: !facts.posted,
+      comment: commentEffect[facts.posted],
       markReady: facts.pr.draft,
     }
   );

@@ -485,7 +485,7 @@ export function readyFacts(repository: string, number: number, marker: string) {
       state: pr.state,
       draft: pr.isDraft,
       head: pr.headRefOid,
-      posted: posted === undefined ? null : { id: posted.id, url: posted.url },
+      posted: posted === undefined ? null : { id: posted.id, url: posted.url, body: posted.body },
     };
   });
 }
@@ -514,6 +514,48 @@ export function postComment(repository: string, number: number, body: string) {
           reason: "github_uncertain",
           detail: "GitHub answered the comment post in an unknown form.",
         });
+  });
+}
+
+const updateMutation = `mutation($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) { issueComment { id } }
+}`;
+
+const updateAnswer = z.object({
+  data: z
+    .object({ updateIssueComment: z.object({ issueComment: z.object({ id: z.string() }) }) })
+    .nullable(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+/** Replaces the text of an earlier comment. A lost answer is found again by its text on the next read. */
+export function updateComment(id: string, body: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["graphql", "-f", `query=${updateMutation}`, "-f", `id=${id}`, "-f", `body=${body}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = updateAnswer.safeParse(answer.value.body);
+    if (!parsed.success)
+      return Err({
+        reason: "github_uncertain",
+        detail: "GitHub answered the comment update in an unknown form.",
+      });
+    const errors = parsed.data.errors ?? [];
+    if (errors.length > 0 || parsed.data.data === null)
+      return Err({
+        reason: "github_failed",
+        detail:
+          errors.map((error) => error.message).join(" ") || "GitHub kept the earlier comment.",
+      });
+    return Ok(undefined);
   });
 }
 

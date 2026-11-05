@@ -125,9 +125,16 @@ test.each([
   {
     name: "a comment found again after a lost answer",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["post: !facts.posted,", "post: true,"]],
+    replacements: [['current: "keep"', 'current: "post"']],
     testFile: ready,
     pattern: "lost comment",
+  },
+  {
+    name: "a comment from an older head is updated",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [['stale: "update"', 'stale: "keep"']],
+    testFile: ready,
+    pattern: "later push",
   },
   {
     name: "a skip needs the person's instruction",

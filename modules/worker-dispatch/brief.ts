@@ -117,7 +117,7 @@ function reviewEnded(number: number, review: NonNullable<BriefInput["review"]>) 
   const end =
     review.state === "ready"
       ? `The internal review of PR #${number} ended ready at \`${review.readyHead ?? ""}\`.`
-      : `The internal review of PR #${number} was skipped on the person's instruction.`;
+      : `The internal review of PR #${number} was skipped on the person's instruction at \`${review.readyHead ?? ""}\`.`;
   return [end, "You own the PR. Record no more review rounds."];
 }
 

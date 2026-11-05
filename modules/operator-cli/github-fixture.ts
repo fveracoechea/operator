@@ -7,8 +7,8 @@
  * `head` reports its branch head there. `mergeLost` applies a merge and then answers 502, and
  * `deleteLost` answers 502 without deleting. `postHold` writes `post-held` after a review post is
  * recorded, then holds the answer until the test writes `post-release` or removes its root.
- * The summary comment post and the ready mutation record `commented` and `readied`, and
- * `commentLost` and `readyLost` apply the effect once and then answer 502.
+ * The summary comment post, its update, and the ready mutation record `commented`, `updated`,
+ * and `readied`, and `commentLost` and `readyLost` apply the effect once and then answer 502.
  * `cleanupHold` holds each remote branch read and deletion the same way, with `cleanup-held` and
  * `cleanup-release`.
  * It is not evidence of the live GitHub integration.
@@ -138,6 +138,12 @@ if (args.includes("PATCH")) {
     id: "PR_" + pr.number, state: pr.state, isDraft: pr.isDraft ?? false, headRefOid: headOf(pr),
     comments: nodes((pr.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/c/" + comment.id, author: author(comment.author ?? "reviewer") }))),
   } } } });
+} else if (query.includes("updateIssueComment")) {
+  const comment = state.pulls.flatMap((row) => row.comments ?? []).find((row) => row.id === field("id"));
+  comment.body = field("body");
+  (state.updated ??= []).push({ id: comment.id, body: comment.body });
+  await Bun.write(stateFile, JSON.stringify(state));
+  answer({ data: { updateIssueComment: { issueComment: { id: comment.id } } } });
 } else if (query.includes("markPullRequestReadyForReview")) {
   const pr = state.pulls.find((row) => "PR_" + row.number === field("id"));
   (state.readied ??= []).push(pr.number);
