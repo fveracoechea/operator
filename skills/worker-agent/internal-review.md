@@ -9,7 +9,7 @@ Follow each limit below as written.
 
 ## 1. Read the inputs
 
-Your inputs are the tracker issue, the assignment instructions in your brief, the PR base, and the diff.
+Your inputs are the tracker issue, the assignment instructions and acceptance criteria in your brief, the PR base, and the diff.
 
 - Read the issue with the tracker's own CLI, for example `gh issue view <number> --comments`.
 - Read the diff with `gh pr diff <number>`, and the base and head with `gh pr view <number> --json baseRefName,headRefOid,isDraft`.
@@ -25,11 +25,11 @@ An internal review round is one review of the whole PR diff against its base at 
 
 Check three axes:
 
-- Spec: the change does what the issue asks, and nothing that the issue excludes.
+- Spec: the change does what the issue asks, and nothing that the issue excludes. When your brief has acceptance criteria, the change also meets each one. They are the person's own words. When they disagree with the instructions, ask your supervising SuperAgent before you decide the finding.
 - Standards: the change follows the documented standards, the repository patterns, and the person's opinions in `my-opinions`.
 - Skills: the change follows each skill that the assignment instructions name. Cite the skill and its rule for each Skills finding.
 
-Load the `code-review` skill for Spec and Standards, with the PR base as its fixed point and the issue as its spec.
+Load the `code-review` skill for Spec and Standards, with the PR base as its fixed point. Give it the issue and the brief's acceptance criteria as its spec.
 Do the Skills axis yourself.
 Read the checks with `gh pr checks <number>`. A failing check is a blocker finding.
 
@@ -76,6 +76,6 @@ Write no line-level review comments and no other PR comments.
 ## 6. Own the PR to its merge
 
 After the PR is ready, follow [pull-requests.md](pull-requests.md) from step 3 on: run `operator pr wait --json`, handle each result, and run the guarded merge on `merge_eligible`.
-A draft is never merged. Run `operator pr wait --json` only after the PR is ready.
+Run `operator pr wait --json` only after the PR is ready.
 
 If the SuperAgent tells you that the person skipped the internal review, stop the review, run `gh pr ready <number>` with no comment, and continue with step 6.

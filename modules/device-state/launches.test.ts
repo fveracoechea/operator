@@ -202,6 +202,18 @@ test("a preparation runs once at a time and records its finished outcome", () =>
   expect(beginPreparation(db, "/wt", "owner/one")).toMatchObject({ value: { state: "running" } });
 });
 
+test("a finished preparation records its install output, and the next start clears it", () => {
+  using db = fixture();
+  beginPreparation(db, "/wt", "owner/one");
+  expect(readPreparation(db, "/wt")).toMatchObject({ value: { installed: null } });
+  finishPreparation(db, "/wt", { state: "prepared", detail: "done", installed: "[]" });
+  expect(readPreparation(db, "/wt")).toMatchObject({
+    value: { state: "prepared", installed: "[]" },
+  });
+  expect(beginPreparation(db, "/wt", "owner/one")).toMatchObject({ value: { installed: null } });
+  expect(readPreparation(db, "/wt")).toMatchObject({ value: { installed: null } });
+});
+
 test("project removal deletes its launches and preparations with its sources", () => {
   using db = fixture();
   reserveLaunch(db, "/one", "owner/one", launch);

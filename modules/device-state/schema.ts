@@ -110,6 +110,8 @@ export const worktreePreparations = sqliteTable("worktree_preparations", {
   // The preparing hook process and its lease. A gone process or a stale lease ends a preparation.
   ownerPid: integer("owner_pid"),
   leaseAt: text("lease_at"),
+  // JSON of the ignored files that the install wrote, with a content hash each. Null before it.
+  installed: text(),
 });
 
 // One PR for each PR assignment. Its observation progress lets a restarted wait continue.

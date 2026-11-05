@@ -3,7 +3,7 @@
 Read the tracker with its existing tools, then supply a JSON plan to `operator source register --file <path> --json` from the registered controlling checkout.
 The CLI reads no tracker.
 
-The top-level fields are `trackerKey` and `assignments`.
+The top-level fields are `trackerKey` and `assignments`, with optional `intent` and `internalReview`.
 Each assignment supplies `key`, `trackerKey`, `instructions`, `completion`, `resources`, and `dependencies`.
 `completion` is `pr` or `report`.
 Use `pane` for read-only reports.
@@ -13,6 +13,9 @@ Dependencies name unique assignment keys within this plan.
 An optional top-level `maxRunning` caps the plan's assignments with a starting or live worker, including PR owners in their feedback loop and internal reviewers.
 Leave it out unless the person asks to protect CI minutes or the device on a large plan.
 Instructions state your delegated authority and when the WorkerAgent must ask the person.
+An optional `intent` on the plan or on an assignment holds the person's own words for the work. An assignment's `intent` wins over the plan's.
+Copy the person's words verbatim into `intent`. Put your interpretation, scope, and build steps in `instructions`.
+The brief shows `intent` as the acceptance criteria, and the internal reviewer judges the Spec axis against it.
 
 Inspect the saved source with `operator source show --source <source-id> --json`.
 Read `operator next --json`, or select one project source with `--source <source-id>`.

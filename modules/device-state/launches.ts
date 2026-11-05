@@ -413,6 +413,7 @@ export function beginPreparation(client: Database, path: string, repository: str
           finishedAt: null,
           ownerPid: process.pid,
           leaseAt: now,
+          installed: null,
         };
         db.insert(worktreePreparations)
           .values(row)
@@ -427,7 +428,7 @@ export function beginPreparation(client: Database, path: string, repository: str
 export function finishPreparation(
   client: Database,
   path: string,
-  outcome: { state: "prepared" | "failed"; detail: string },
+  outcome: { state: "prepared" | "failed"; detail: string; installed?: string | null },
 ) {
   // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
