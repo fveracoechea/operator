@@ -339,7 +339,9 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
     await run(["pr", "ready", "--file", await summary("x", [applied, declined])], reviewer),
   ).toMatchObject({ code: 3, output: { reason: "internal_review_second_round_required" } });
 
+  // A person marks the draft ready outside Operator while the review runs.
   const second = await push(reviewer, "fix.txt", {
+    isDraft: false,
     reviewDecision: "APPROVED",
     checks: [{ name: "ci", conclusion: "SUCCESS" }],
   });
@@ -348,7 +350,7 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
     output: { data: { round: 2, head: second } },
   });
 
-  // An approved draft with passing checks is still not eligible while the review runs.
+  // An approved PR with passing checks is still not eligible while the review runs.
   expect(await run(["pr", "wait", "--timeout", "0"], reviewer)).toMatchObject({
     output: { reason: "pr_wait_timed_out", data: { mergeConditions: { reviewEnded: false } } },
   });

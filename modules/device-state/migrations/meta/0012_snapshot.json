@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0f697de3-c5f8-48a3-b42a-ff91d621149a",
-  "prevId": "711bf19d-e771-43c3-9720-5211cbbc1e6d",
+  "id": "dda6e062-25f6-4ef2-8d4e-5ab72e66d6c4",
+  "prevId": "c4e497ab-5889-456a-aca3-2ea7eceee947",
   "tables": {
     "assignments": {
       "name": "assignments",
@@ -312,34 +312,6 @@
         },
         "lease_at": {
           "name": "lease_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ready_head": {
-          "name": "ready_head",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "comment_id": {
-          "name": "comment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "comment_url": {
-          "name": "comment_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ended_at": {
-          "name": "ended_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1721,6 +1693,13 @@
         },
         "lease_at": {
           "name": "lease_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "installed": {
+          "name": "installed",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

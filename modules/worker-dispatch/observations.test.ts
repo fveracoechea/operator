@@ -322,6 +322,7 @@ function preparations(
             finishedAt: null,
             ownerPid: null,
             leaseAt: null,
+            installed: null,
             ...row,
           },
     );

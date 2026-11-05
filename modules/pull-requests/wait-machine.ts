@@ -14,6 +14,8 @@ export type MergeConditions = {
   checksPassing: boolean;
   threadsResolved: boolean;
   defaultBase: boolean;
+  /** A draft PR is under internal review, so it never merges. */
+  notDraft: boolean;
   /** A stacked PR's parent merged and the relay finished, so no parent commit rides along. */
   stackRelayed: boolean;
   /** The internal review ended ready or skipped, or the assignment has none. ADR-0020. */
@@ -32,7 +34,7 @@ type Decision =
   | { result: "reported"; events: WaitEvent[]; progress: Progress }
   | { result: "none" };
 
-/** The six conditions that the later merge gate checks again before it merges. */
+/** The seven conditions that the later merge gate checks again before it merges. */
 export function mergeConditions(
   observed: Observation,
   { stackRelayed, reviewEnded }: Gates,
@@ -47,6 +49,7 @@ export function mergeConditions(
     threadsResolved: observed.unresolvedThreads === 0,
     // A repository without a default branch reports null, which no base name equals.
     defaultBase: observed.base === observed.defaultBranch,
+    notDraft: !observed.draft,
     stackRelayed,
     reviewEnded,
   };

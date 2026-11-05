@@ -9,6 +9,7 @@ const eligible: Observation = {
   mergeMethod: "squash",
   base: "main",
   defaultBranch: "main",
+  draft: false,
   approved: true,
   unresolvedThreads: 0,
   feedback: [],
@@ -43,6 +44,7 @@ test("each missing condition refuses with its own explanation", () => {
     [{ unresolvedThreads: 1 }, "no unresolved review thread"],
     [{ base: "release" }, "the default branch as base"],
     [{ defaultBranch: null }, "the default branch as base"],
+    [{ draft: true }, "the ready-for-review state"],
   ];
   for (const [change, text] of cases) {
     const decision = decideMerge({
@@ -73,6 +75,7 @@ test("a PR whose internal review has not ended does not merge, also when GitHub 
       checksPassing: true,
       threadsResolved: true,
       defaultBase: true,
+      notDraft: true,
       stackRelayed: true,
       reviewEnded: false,
     },
@@ -146,6 +149,7 @@ test("each refusal names every missing condition and carries the observed condit
     checksPassing: false,
     threadsResolved: false,
     defaultBase: false,
+    notDraft: false,
     stackRelayed: false,
     reviewEnded: false,
   };
@@ -155,13 +159,14 @@ test("each refusal names every missing condition and carries the observed condit
     checks: [],
     unresolvedThreads: 2,
     base: "release",
+    draft: true,
   };
   expect(
     decideMerge({ observed: blocked, localHead: "h1", stackRelayed: false, reviewEnded: false }),
   ).toEqual({
     result: "refused",
     reason: "pr_merge_blocked",
-    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, a finished parent-merge relay, an internal review that ended ready or skipped. ${nothing}`,
+    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay, an internal review that ended ready or skipped. ${nothing}`,
     conditions: none,
   });
   expect(
@@ -182,6 +187,7 @@ test("each refusal names every missing condition and carries the observed condit
     checksPassing: true,
     threadsResolved: true,
     defaultBase: true,
+    notDraft: true,
     stackRelayed: true,
     reviewEnded: true,
   };

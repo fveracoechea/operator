@@ -14,6 +14,7 @@ const open: Observation = {
   mergeMethod: "squash",
   base: "main",
   defaultBranch: "main",
+  draft: false,
   approved: false,
   unresolvedThreads: 0,
   feedback: [],
@@ -134,6 +135,7 @@ test("eligibility needs every merge condition and is reported once per head", ()
     checksPassing: true,
     threadsResolved: true,
     defaultBase: true,
+    notDraft: true,
     stackRelayed: true,
     reviewEnded: true,
   });
@@ -155,6 +157,7 @@ test("eligibility needs every merge condition and is reported once per head", ()
     { ...eligible, defaultBranch: null },
     { ...eligible, checks: [{ name: "ci", state: "pending" as const, url: null }] },
     { ...eligible, checks: [] },
+    { ...eligible, draft: true },
   ])
     expect(
       decideWait({ stackRelayed: true, reviewEnded: true, progress: empty, observed: blocked }),
@@ -346,5 +349,46 @@ test("a running internal review is never eligible, and its end makes the same he
     result: "reported",
     events: [{ kind: "merge_eligible", head: "h1" }],
     progress: { seen: [], failures: [], eligibleHead: "h1" },
+  });
+});
+
+test("a draft's feedback and failing checks are reported, and it becomes eligible when ready", () => {
+  const draft = {
+    ...open,
+    draft: true,
+    approved: true,
+    feedback: [item("c1")],
+    checks: [{ name: "ci", state: "passing" as const, url: null }],
+  };
+  const first = decideWait({
+    stackRelayed: true,
+    reviewEnded: true,
+    progress: empty,
+    observed: draft,
+  });
+  expect(first).toMatchObject({ result: "reported", events: [{ kind: "feedback" }] });
+  if (first.result !== "reported") return;
+  expect(first.progress.eligibleHead).toBeNull();
+  const failing = { ...draft, checks: [{ name: "ci", state: "failing" as const, url: null }] };
+  expect(
+    decideWait({
+      stackRelayed: true,
+      reviewEnded: true,
+      progress: first.progress,
+      observed: failing,
+    }),
+  ).toMatchObject({ events: [{ kind: "checks_failed", head: "h1" }] });
+  // Marking the draft ready at the same head reports that head as eligible.
+  expect(
+    decideWait({
+      stackRelayed: true,
+      reviewEnded: true,
+      progress: first.progress,
+      observed: { ...draft, draft: false },
+    }),
+  ).toEqual({
+    result: "reported",
+    events: [{ kind: "merge_eligible", head: "h1" }],
+    progress: { seen: ["c1"], failures: [], eligibleHead: "h1" },
   });
 });
