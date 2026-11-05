@@ -101,3 +101,15 @@ export const planSchema = z
       }
     }
   });
+
+/**
+ * The PR assignment that the SuperAgent supplies when it promotes an accepted report. Its
+ * completion, worktree, and dependency on the report follow from the promotion. ADR-0023.
+ */
+export const promotionSchema = z.strictObject({
+  key,
+  trackerKey: key,
+  instructions: shared.instructions,
+  branch,
+  internalReview: z.boolean().optional(),
+});

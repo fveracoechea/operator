@@ -18,6 +18,7 @@ const input = {
   dependencyReports: [],
   stack: null,
   internalReview: false,
+  promotion: null,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
@@ -381,4 +382,18 @@ test("a report brief ignores internal review", () => {
   expect(renderBrief({ ...input, completion: "report", internalReview: true })).not.toMatch(
     /draft|internal review/i,
   );
+});
+
+test("a promoted PR brief names the report and asks to clean the branch before its first push", () => {
+  const brief = renderBrief({ ...input, promotion: { report: "survey", number: 2 } });
+  expect(brief).toContain(`Implement the accepted report.
+
+## Promotion
+
+The SuperAgent promoted report 2 of \`survey\` into this PR assignment.
+You work in that report's worktree, and its accepted report is listed above.
+The worktree can hold prototype changes that the PR must not keep. Clean the branch before your first push.
+
+## Grilling authority`);
+  expect(renderBrief(input)).not.toContain("## Promotion");
 });

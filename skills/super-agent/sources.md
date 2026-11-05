@@ -26,6 +26,7 @@ While the cap is reached, each ready assignment of the plan is a wait with `runn
 A `replace_worker` action is never held, so a replacement continues started work even above the cap.
 A recorded merge or accepted report frees its place, also while its pane and worktree close.
 Plans are fixed after registration. Independent work needs an assignment in a new plan.
+Promotion of an accepted report is the one exception. It adds one PR assignment, and next actions and reset include it. Read [reports.md](reports.md).
 
 Registration launches no worker, and next actions change no state.
 Start a `ready_assignment` candidate with `operator dispatch`, as [dispatch.md](dispatch.md) describes.
