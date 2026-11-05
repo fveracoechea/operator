@@ -3,6 +3,7 @@ import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fromThrowable } from "unthrown";
 import { z } from "zod";
+import { sha256 } from "../../lib/sha256.ts";
 
 const recordSchema = z.array(z.object({ path: z.string(), hash: z.string() }));
 
@@ -10,7 +11,7 @@ const recordSchema = z.array(z.object({ path: z.string(), hash: z.string() }));
 async function regularHash(file: string) {
   const info = await lstat(file).catch(() => null);
   if (info === null || !info.isFile()) return null;
-  return new Bun.CryptoHasher("sha256").update(await Bun.file(file).bytes()).digest("hex");
+  return sha256(await Bun.file(file).bytes());
 }
 
 /**
@@ -54,6 +55,14 @@ async function folderFiles(worktree: string, folder: string) {
   return files;
 }
 
+/** Whether every file still has its recorded content. */
+async function allUnchanged(worktree: string, files: string[], hashes: Map<string, string>) {
+  for (const file of files)
+    if (!hashes.has(file) || (await regularHash(`${worktree}/${file}`)) !== hashes.get(file))
+      return false;
+  return true;
+}
+
 /**
  * The ignored entries that are unchanged install output. A file counts while its content equals
  * the recorded hash, and a folder counts while it holds files and each of them counts.
@@ -69,13 +78,12 @@ export async function installedUnchanged(input: {
   if (recorded === undefined) return unchanged;
   const hashes = new Map(recorded.map((row) => [row.path, row.hash]));
   for (const entry of input.ignored) {
-    const files = entry.endsWith("/") ? await folderFiles(input.worktree, entry) : [entry];
+    const folder = entry.endsWith("/");
+    // A folder with no recorded file, such as node_modules, cannot count, so it is not read.
+    if (folder && !recorded.some((row) => row.path.startsWith(entry))) continue;
+    const files = folder ? await folderFiles(input.worktree, entry) : [entry];
     if (files === null || files.length === 0) continue;
-    let all = true;
-    for (const file of files)
-      all &&=
-        hashes.has(file) && (await regularHash(`${input.worktree}/${file}`)) === hashes.get(file);
-    if (all) unchanged.add(entry);
+    if (await allUnchanged(input.worktree, files, hashes)) unchanged.add(entry);
   }
   return unchanged;
 }

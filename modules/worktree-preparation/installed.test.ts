@@ -3,13 +3,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { sha256 } from "../../lib/sha256.ts";
 import { installedUnchanged, recordInstalled } from "./installed.ts";
 
 let worktree = "";
-
-function sha256(text: string) {
-  return new Bun.CryptoHasher("sha256").update(text).digest("hex");
-}
 
 beforeEach(async () => {
   worktree = await realpath(await mkdtemp(path.join(tmpdir(), "operator-installed-")));
@@ -47,6 +44,14 @@ test("recorded files and folders count while each of their files is unchanged", 
   await Bun.write(`${worktree}/dist/sub/c.js`, "new\n");
   await symlink(`${worktree}/old`, `${worktree}/.husky/_/link`);
   expect(await installedUnchanged({ worktree, record, ignored })).toEqual(new Set([".husky/_/h"]));
+});
+
+test("a folder with no recorded file is not read", async () => {
+  const record = JSON.stringify([{ path: "dist/a.js", hash: sha256("dist/a.js\n") }]);
+  // Reading a file as a folder throws, so the result shows that it was skipped.
+  expect(await installedUnchanged({ worktree, record, ignored: ["old/", "dist/"] })).toEqual(
+    new Set(),
+  );
 });
 
 test.each([

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Err, Ok } from "unthrown";
+import { sha256 } from "../../lib/sha256.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -156,9 +157,9 @@ test("the install records the ignored files that its lifecycle scripts wrote", a
   expect(JSON.parse(installed ?? "null")).toEqual([
     {
       path: ".husky/_/.gitignore",
-      hash: new Bun.CryptoHasher("sha256").update("*\n").digest("hex"),
+      hash: sha256("*\n"),
     },
-    { path: ".husky/_/h", hash: new Bun.CryptoHasher("sha256").update("hook\n").digest("hex") },
+    { path: ".husky/_/h", hash: sha256("hook\n") },
   ]);
   const ignored = [".husky/_/.gitignore", ".husky/_/h", "ignored.txt", "node_modules/"];
   expect(
