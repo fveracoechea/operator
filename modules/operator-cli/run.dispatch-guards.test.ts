@@ -31,14 +31,16 @@ test.each([
   {
     name: "single reservation",
     file: "device-state/launches.ts",
-    replacements: [["!dispatchable(assignment, facts.latest, facts.abandoned, returned)", "false"]],
+    replacements: [
+      ["!dispatchable(assignmentState, facts.latestState, facts.abandoned, returned)", "false"],
+    ],
     testFile: "device-state/launches.test.ts",
     pattern: "a reservation starts the assignment once",
   },
   {
     name: "running cap reservation",
     file: "device-state/launches.ts",
-    replacements: [["runningAssignments(db, source.id, facts.now) >= maxRunning", "false"]],
+    replacements: [["runningCount(db, source.id, facts.now) >= maxRunning", "false"]],
     testFile: "device-state/launches.test.ts",
     pattern: "a ready assignment waits while the plan's running cap is reached",
   },

@@ -558,20 +558,29 @@ test("a reached running cap holds ready work as a named wait, counting each live
     { key: "start", completion: "report" as const, state: "running" },
     { key: "gone", completion: "report" as const, state: "running" },
     { key: "done", completion: "report" as const, state: "completed" },
+    { key: "merged", completion: "pr" as const, state: "merged" },
     { key: "a", completion: "report" as const, state: "ready" },
     { key: "b", completion: "pr" as const, state: "ready", dependencies: ["done"] },
     { key: "c", completion: "report" as const, state: "ready", dependencies: ["gone"] },
   ];
-  // A worker that waits for acceptance and a live start hold places. An abandoned start and a
-  // finished worker hold none.
+  // A worker that waits for acceptance and a live start hold places. An abandoned start, a
+  // finished worker, and a merged PR's worker whose pane exit is not yet observed hold none.
   const launches = [
     storedLaunch("owner"),
     storedLaunch("start", { state: "starting" }),
     storedLaunch("gone", { state: "starting", abandoned: true }),
     storedLaunch("done", { state: "finished" }),
+    storedLaunch("merged"),
   ];
   async function held(maxRunning: number | undefined) {
-    stored([storedSource(rows, { launches, maxRunning })]);
+    stored([
+      storedSource(rows, {
+        launches,
+        pullRequests: [storedPullRequest("merged", merged)],
+        cleanups: [storedCleanup("merged", { step: "remote_branch", state: "pending" })],
+        maxRunning,
+      }),
+    ]);
     const result = await next();
     const source = result.tag === "Ok" ? result.value.sources[0] : undefined;
     return {

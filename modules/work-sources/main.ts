@@ -400,10 +400,16 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
 
 /** The plan's assignments whose latest worker starts or runs. Each holds one place under the cap. */
 function runningCount(source: Source) {
-  return source.plan.assignments.filter((assignment) => {
-    const launch = source.launches.findLast((row) => row.assignment === assignment.key);
-    return launch !== undefined && liveWorker(launch);
-  }).length;
+  // A merged PR's owner ends with its cleanup, which can come before its pane exit is observed.
+  const ended = new Set(
+    source.assignments
+      .filter((row) => ["merged", "completed", "abandoned"].includes(row.state))
+      .map((row) => row.key),
+  );
+  const latest = new Map(
+    source.launches.filter((row) => !ended.has(row.assignment)).map((row) => [row.assignment, row]),
+  );
+  return [...latest.values()].filter(liveWorker).length;
 }
 
 function decide(input: Input, source: Source) {

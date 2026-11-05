@@ -80,8 +80,22 @@ function latestReturned(db: Db, sourceId: string, assignment: string) {
   return report?.decision === "returned";
 }
 
-/** The source's assignments whose latest launch runs or starts with a live owner. */
-function runningAssignments(db: Db, sourceId: string, now: number) {
+/** How many of the source's assignments have a latest launch that runs or starts with a live owner. */
+function runningCount(db: Db, sourceId: string, now: number) {
+  // A merged PR's owner ends with its cleanup, which can come before its pane exit is observed.
+  const ended = new Set(
+    db
+      .select({ key: assignments.key })
+      .from(assignments)
+      .where(
+        and(
+          eq(assignments.sourceId, sourceId),
+          inArray(assignments.state, ["merged", "completed", "abandoned"]),
+        ),
+      )
+      .all()
+      .map((row) => row.key),
+  );
   const latest = new Map<string, LaunchRow>();
   for (const row of db
     .select()
@@ -89,7 +103,7 @@ function runningAssignments(db: Db, sourceId: string, now: number) {
     .where(eq(launches.sourceId, sourceId))
     .orderBy(launches.attempt)
     .all())
-    latest.set(row.assignment, row);
+    if (!ended.has(row.assignment)) latest.set(row.assignment, row);
   return [...latest.values()].filter(
     (row) => row.state === "running" || (row.state === "starting" && !ownerGone(row, now)),
   ).length;
@@ -101,25 +115,28 @@ function startRefusal(
   facts: {
     source: { id: string; state: string };
     key: string;
-    assignment: string | undefined;
-    latest: string | undefined;
+    assignmentState: string | undefined;
+    latestState: string | undefined;
     abandoned: boolean;
     maxRunning: number | undefined;
     now: number;
   },
 ): LaunchFailure | null {
-  const { source, key, assignment, maxRunning } = facts;
+  const { source, key, assignmentState, maxRunning } = facts;
   const returned = latestReturned(db, source.id, key);
-  if (source.state !== "open" || !dispatchable(assignment, facts.latest, facts.abandoned, returned))
+  if (
+    source.state !== "open" ||
+    !dispatchable(assignmentState, facts.latestState, facts.abandoned, returned)
+  )
     return {
       reason: "assignment_not_dispatchable",
       detail: `Assignment ${key} changed before dispatch. Read next actions again. Nothing was launched.`,
     };
   // Only ready work waits for a place. A replacement continues started work. ADR-0006.
   if (
-    assignment === "ready" &&
+    assignmentState === "ready" &&
     maxRunning !== undefined &&
-    runningAssignments(db, source.id, facts.now) >= maxRunning
+    runningCount(db, source.id, facts.now) >= maxRunning
   )
     return {
       reason: "running_cap_reached",
@@ -177,8 +194,8 @@ export function reserveLaunch(
       const refused = startRefusal(db, {
         source,
         key: launch.assignment,
-        assignment: assignment?.state,
-        latest: latest?.state,
+        assignmentState: assignment?.state,
+        latestState: latest?.state,
         abandoned,
         maxRunning,
         now,
