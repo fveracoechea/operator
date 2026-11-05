@@ -525,9 +525,7 @@ test("a missing source or plan row permits no stack parent", async () => {
     await PullRequests.associate({ paths: device.paths, cwd: child.worktree }),
   ).toEqual(refused);
   spyOn(WorkSources, "show").mockImplementation((input) =>
-    show(input).map((source) =>
-      source === undefined ? source : { ...source, plan: { ...source.plan, assignments: [] } },
-    ),
+    show(input).map((source) => (source === undefined ? source : { ...source, planned: [] })),
   );
   expect<unknown>(
     await PullRequests.associate({ paths: device.paths, cwd: child.worktree }),

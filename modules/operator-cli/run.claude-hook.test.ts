@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 // Bun has no temporary-directory, symlink, or recursive removal API.
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
 import { writeUpstreamTools } from "../../scripts/upstream-tools-fixture.ts";
@@ -21,8 +23,8 @@ afterEach(async () => {
   await rm(tools, { recursive: true, force: true });
 });
 
-async function run(args: string[], stdin = "") {
-  const child = Bun.spawn([process.execPath, cli, ...args], {
+function spawn(args: string[], stdin = "", env: Record<string, string | undefined> = {}) {
+  return Bun.spawn([process.execPath, cli, ...args], {
     cwd: root,
     env: Environment.child({
       HOME: `${root}/home`,
@@ -30,11 +32,17 @@ async function run(args: string[], stdin = "") {
       XDG_STATE_HOME: `${root}/state`,
       PATH: `${tools}/tools`,
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      HERDR_PANE_ID: undefined,
+      ...env,
     }),
     stdin: new TextEncoder().encode(stdin),
     stdout: "pipe",
     stderr: "pipe",
   });
+}
+
+async function run(args: string[], stdin = "", env: Record<string, string | undefined> = {}) {
+  const child = spawn(args, stdin, env);
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -103,7 +111,10 @@ test("install --claude adds the hook to user settings once", async () => {
   const settings = await Bun.file(`${root}/home/.claude/settings.json`).text();
   expect(JSON.parse(settings)).toMatchObject({
     model: "opus",
-    hooks: { PreToolUse: [{ matcher: "Bash" }] },
+    hooks: {
+      PreToolUse: [{ matcher: "Bash" }],
+      Stop: [{ hooks: [{ command: "operator claude hook" }] }],
+    },
   });
   const again = await run(["install", "--claude", "--json"]);
   expect(JSON.parse(again.stdout)).toMatchObject({
@@ -114,7 +125,8 @@ test("install --claude adds the hook to user settings once", async () => {
   expect(
     JSON.parse((await run(["install", "--claude", "--check", "--json"])).stdout),
   ).toMatchObject({ reason: "skills_checked", data: { claudeHook: "already_installed" } });
-});
+  // Four CLI runs, two of them full installs, outlast the default timeout on a loaded machine.
+}, 15000);
 
 test("install --opencode leaves Claude Code settings alone", async () => {
   await registerTestDevice(root);
@@ -131,7 +143,8 @@ test("check mode names the missing hook", async () => {
   const result = await run(["install", "--claude", "--check", "--json"]);
   expect(result.code).toBe(3);
   expect(JSON.parse(result.stdout)).toMatchObject({ reason: "claude_hook_missing" });
-});
+  // A full install and a check outlast the default timeout on a loaded machine.
+}, 15000);
 
 test("a dotfiles link refuses the write and names the entry to add", async () => {
   await registerTestDevice(root);
@@ -143,4 +156,121 @@ test("a dotfiles link refuses the write and names the entry to add", async () =>
   expect(JSON.parse(result.stdout)).toMatchObject({ reason: "claude_settings_external" });
   expect(result.stderr).toContain('"command":"operator claude hook"');
   expect(await Bun.file(`${root}/dotfiles/settings.json`).text()).toBe("{}\n");
+});
+
+function stop(active = false) {
+  return JSON.stringify({
+    session_id: "s",
+    transcript_path: `${root}/t.jsonl`,
+    cwd: root,
+    permission_mode: "default",
+    hook_event_name: "Stop",
+    stop_hook_active: active,
+  });
+}
+
+// Project commands read the checkout with the real git, not the upstream fixture's git.
+const git = { PATH: path.dirname(Bun.which("git") ?? "") };
+
+/** A registered project in the hook's cwd with one source, whose id this returns. */
+async function registeredSource() {
+  for (const args of [
+    ["init", "-q", "-b", "main"],
+    ["remote", "add", "origin", "https://github.com/example/one.git"],
+  ]) {
+    const child = Bun.spawn(["git", ...args], {
+      cwd: root,
+      env: Environment.child({ GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }),
+    });
+    expect(await child.exited).toBe(0);
+  }
+  const project = await run(["project", "register", "--json"], "", git);
+  expect(project.code, project.stderr).toBe(0);
+  const plan = {
+    trackerKey: "github:example/one#10",
+    assignments: [
+      {
+        key: "investigate",
+        trackerKey: "github:example/one#11",
+        instructions: "Read and report.",
+        completion: "report",
+        resources: "pane",
+        dependencies: [],
+      },
+    ],
+  };
+  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  const registered = await run(
+    ["source", "register", "--file", `${root}/plan.json`, "--json"],
+    "",
+    git,
+  );
+  expect(registered.code, registered.stderr).toBe(0);
+  return z.object({ data: z.object({ id: z.string() }) }).parse(JSON.parse(registered.stdout)).data
+    .id;
+}
+
+/** Polls until the background wait records itself, because its process starts slowly under load. */
+async function recordedWait() {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    {
+      using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+      const row = db
+        .query<{ running: number }, []>(
+          "SELECT count(*) AS running FROM coordination_waits WHERE owner_pid IS NOT NULL",
+        )
+        .get();
+      if (row?.running === 1) return true;
+    }
+    await Bun.sleep(100);
+  }
+  return false;
+}
+
+function update(sql: string) {
+  using db = new Database(`${root}/state/operator/operator.sqlite`);
+  db.query(sql).run();
+}
+
+test("the turn-end guard blocks once while the pane supervises running work and no wait runs", async () => {
+  const id = await registeredSource();
+  const pane = { HERDR_PANE_ID: "pane-1" };
+  const waitEnv = { ...git, ...pane };
+  const allowed = { code: 0, stdout: "", stderr: "" };
+  // Ready work runs nothing, and a pane that supervises no source has nothing to guard.
+  update(`UPDATE sources SET supervising_pane = 'pane-1' WHERE id = '${id}'`);
+  expect(await run(["claude", "hook"], stop(), pane)).toEqual(allowed);
+  update("UPDATE assignments SET state = 'running'");
+  expect(await run(["claude", "hook"], stop(), { HERDR_PANE_ID: "pane-2" })).toEqual(allowed);
+  expect(await run(["claude", "hook"], stop())).toEqual(allowed);
+  const blocked = await run(["claude", "hook"], stop(), pane);
+  expect(blocked.code, blocked.stderr).toBe(0);
+  expect(JSON.parse(blocked.stdout)).toEqual({
+    decision: "block",
+    reason: expect.stringContaining(`running work in ${id}`) as string,
+  });
+  // The turn that the block continued may end.
+  expect(await run(["claude", "hook"], stop(true), pane)).toEqual(allowed);
+  // A wait from the pane covers the source while it runs.
+  expect((await run(["next", "--wait", "--timeout", "0", "--json"], "", waitEnv)).code).toBe(0);
+  const waiting = spawn(["next", "--wait", "--timeout", "60", "--json"], "", waitEnv);
+  try {
+    expect(await recordedWait()).toBe(true);
+    expect(await run(["claude", "hook"], stop(), pane)).toEqual(allowed);
+  } finally {
+    waiting.kill();
+    await waiting.exited;
+  }
+  expect(JSON.parse((await run(["claude", "hook"], stop(), pane)).stdout)).toMatchObject({
+    decision: "block",
+  });
+}, 60000);
+
+test("the turn-end guard lets the turn end when device state is missing or incompatible", async () => {
+  const pane = { HERDR_PANE_ID: "pane-1" };
+  expect(await run(["claude", "hook"], stop(), pane)).toEqual({ code: 0, stdout: "", stderr: "" });
+  await Bun.write(`${root}/state/operator/operator.sqlite`, "not a database", {
+    createPath: true,
+  });
+  expect(await run(["claude", "hook"], stop(), pane)).toEqual({ code: 0, stdout: "", stderr: "" });
 });

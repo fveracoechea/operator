@@ -3,8 +3,8 @@ import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
-import { assignments, launches, reports, sources } from "./schema.ts";
-import { controlledSource } from "./sources.ts";
+import { assignments, launches, promotions, reports, sources } from "./schema.ts";
+import { abandonQuestions, controlledSource } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type ReportRow = typeof reports.$inferSelect;
@@ -23,17 +23,28 @@ export type ReportFacts = {
   reports: ReportRow[];
 };
 
+export type PromotionRow = typeof promotions.$inferSelect;
+
+/** The PR assignment that a promotion adds, and the launch that takes over a running worker. */
+export type Promotion = {
+  assignment: typeof assignments.$inferInsert;
+  promotion: PromotionRow;
+  launch: LaunchRow | null;
+};
+
 export type ReportChange = {
   assignmentState?: string;
   source?: { state: string; endedAt: string | null };
   finishLaunch?: string;
   insert?: ReportRow;
   update?: Partial<Omit<ReportRow, "sourceId" | "assignment" | "number">> & { number: number };
+  promote?: Promotion;
 };
 
 type TargetFailure = StateFailure | { reason: string; detail: string };
 
-function locate(db: Db, target: ReportTarget) {
+/** The assignment that a worker pane or a SuperAgent selector names. */
+export function locate(db: Db, target: ReportTarget) {
   if (target.by === "pane") {
     const launch = db
       .select()
@@ -151,8 +162,14 @@ function apply(db: Db, facts: ReportFacts, change: ReportChange) {
       .set({ state: change.assignmentState })
       .where(and(eq(assignments.sourceId, sourceId), eq(assignments.key, key)))
       .run();
+  if (change.assignmentState === "completed") abandonQuestions(db, sourceId, [key]);
   if (change.source !== undefined)
     db.update(sources).set(change.source).where(eq(sources.id, sourceId)).run();
+  if (change.promote !== undefined) {
+    db.insert(assignments).values(change.promote.assignment).run();
+    if (change.promote.launch !== null) db.insert(launches).values(change.promote.launch).run();
+    db.insert(promotions).values(change.promote.promotion).run();
+  }
   // An accepted report ends its running launch, so the later pane close is not an interruption.
   // Stryker disable next-line ConditionalExpression: equivalent: an absent launch id matches no launch row
   if (change.finishLaunch !== undefined)

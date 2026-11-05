@@ -14,6 +14,7 @@ import {
 import type { StateFailure } from "./failures.ts";
 import { ownerGone } from "./leases.ts";
 import { finishHandoff, handoffDispatchable } from "./internal-reviews.ts";
+import { superviseSource } from "./sources.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
@@ -167,6 +168,7 @@ export function reserveLaunch(
   repository: string,
   launch: LaunchReservation,
   maxRunning?: number,
+  supervisingPane: string | null = null,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<LaunchRow, LaunchFailure> => {
@@ -232,6 +234,7 @@ export function reserveLaunch(
       db.insert(launches).values(row).run();
       // Any start after the implementer's ends a pending internal review handoff.
       finishHandoff(db, source.id, launch.assignment);
+      superviseSource(db, source.id, supervisingPane);
       // A replaced PR owner keeps its open PR. A returned report resumes as running.
       db.update(assignments)
         .set({ state: "running" })

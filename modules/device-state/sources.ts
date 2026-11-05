@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
 // Bun has no synchronous file existence API for directories.
 import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
@@ -8,19 +8,24 @@ import { ownerGone } from "./leases.ts";
 import {
   assignments,
   cleanups,
+  coordinationWaits,
   internalReviewRounds,
   internalReviews,
   launches,
   projects,
+  promotions,
   pullRequests,
   reports,
   sources,
+  workerQuestions,
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { removeStateDirectory } from "./project-files.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
+/** A source without its supervising pane, which a wait or a dispatch claims later and next actions never read. */
+export type StoredSource = Omit<SourceRow, "supervisingPane">;
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
@@ -29,11 +34,11 @@ export type SourceFailure =
 export function registerSource(
   client: Database,
   checkout: string,
-  source: SourceRow,
+  source: StoredSource,
   rows: AssignmentRow[],
 ) {
   return transaction(client, true, () =>
-    checkHistory(client).flatMap((db): Result<SourceRow, SourceFailure> => {
+    checkHistory(client).flatMap((db): Result<StoredSource, SourceFailure> => {
       const controller = db
         .select()
         .from(projects)
@@ -67,6 +72,15 @@ export function registerSource(
   );
 }
 
+/** The pane that dispatches or waits for a source's work supervises it from now on. */
+export function superviseSource(db: Db, sourceId: string, pane: string | null) {
+  if (pane !== null)
+    db.update(sources).set({ supervisingPane: pane }).where(eq(sources.id, sourceId)).run();
+}
+
+// Next actions read no supervising pane, so a claim never changes their answer.
+const { supervisingPane: _pane, ...sourceColumns } = getTableColumns(sources);
+
 export function readSources(client: Database, repository: string, sourceId?: string) {
   return transaction(client, false, () =>
     checkHistory(client).flatMap(
@@ -74,7 +88,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
         db,
       ): Result<
         {
-          source: SourceRow;
+          source: StoredSource;
           assignments: AssignmentRow[];
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
@@ -82,12 +96,14 @@ export function readSources(client: Database, repository: string, sourceId?: str
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
           internalReviews: (typeof internalReviews.$inferSelect & { handoffRunning: boolean })[];
           internalReviewRounds: (typeof internalReviewRounds.$inferSelect)[];
+          promotions: (typeof promotions.$inferSelect)[];
+          questions: (typeof workerQuestions.$inferSelect)[];
         }[],
         SourceFailure
       > => {
         const now = Date.now();
         const rows = db
-          .select()
+          .select(sourceColumns)
           .from(sources)
           .where(
             sourceId === undefined
@@ -161,6 +177,18 @@ export function readSources(client: Database, repository: string, sourceId?: str
               .from(internalReviewRounds)
               .where(eq(internalReviewRounds.sourceId, source.id))
               .orderBy(asc(internalReviewRounds.assignment), asc(internalReviewRounds.number))
+              .all(),
+            promotions: db
+              .select()
+              .from(promotions)
+              .where(eq(promotions.sourceId, source.id))
+              .orderBy(asc(promotions.promotedAt), asc(promotions.assignment))
+              .all(),
+            questions: db
+              .select()
+              .from(workerQuestions)
+              .where(eq(workerQuestions.sourceId, source.id))
+              .orderBy(asc(workerQuestions.askedAt), asc(workerQuestions.key))
               .all(),
           })),
         );
@@ -301,6 +329,7 @@ export function resetSource<E extends { reason: string; detail: string }>(
               .set({ state: "abandoned" })
               .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
               .run();
+            abandonQuestions(db, source.id, abandon);
             db.update(sources)
               .set({ state: "reset", endedAt })
               .where(eq(sources.id, source.id))
@@ -361,10 +390,28 @@ export function pruneSource(
 export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(internalReviewRounds).where(inArray(internalReviewRounds.sourceId, ids)).run();
   db.delete(internalReviews).where(inArray(internalReviews.sourceId, ids)).run();
+  db.delete(workerQuestions).where(inArray(workerQuestions.sourceId, ids)).run();
+  db.delete(coordinationWaits).where(inArray(coordinationWaits.scope, ids)).run();
+  db.delete(promotions).where(inArray(promotions.sourceId, ids)).run();
   db.delete(reports).where(inArray(reports.sourceId, ids)).run();
   db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
   db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
   db.delete(launches).where(inArray(launches.sourceId, ids)).run();
   db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();
   db.delete(sources).where(inArray(sources.id, ids)).run();
+}
+
+/** A question that is unanswered when its assignment ends can no longer be answered. */
+export function abandonQuestions(db: Db, sourceId: string, keys: string[]) {
+  // An empty list matches no question.
+  db.update(workerQuestions)
+    .set({ state: "abandoned", endedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(workerQuestions.sourceId, sourceId),
+        inArray(workerQuestions.assignment, keys),
+        inArray(workerQuestions.state, ["open", "awaiting_person"]),
+      ),
+    )
+    .run();
 }

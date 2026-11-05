@@ -13,6 +13,8 @@
  * and the ready mutation record `commented`, `updated`, and `readied`, and `commentLost` and
  * `readyLost` apply the effect once and then answer 502. `cleanupHold` holds each remote branch
  * read and deletion the same way, with `cleanup-held` and `cleanup-release`.
+ * `reviewReadBarrier` holds each review read until that many review reads have arrived under the
+ * barrier since the root was created.
  * It is not evidence of the live GitHub integration.
  */
 export function fakeGithubScript(root: string) {
@@ -137,8 +139,13 @@ if (query.includes("addPullRequestReviewThreadReply") || query.includes("unresol
   process.exit(0);
 }
 if (query.includes("files(first")) {
-  // A delay holds two concurrent waits between their state read and their write.
-  if (state.reviewReadDelayMs) await Bun.sleep(state.reviewReadDelayMs);
+  // A barrier holds each review read until that many reads have arrived, so concurrent waits all
+  // read their request before any of them writes. A failed test removes its root, which also ends it.
+  if (state.reviewReadBarrier) {
+    const readers = root + "/review-readers";
+    await Bun.write(readers + "/" + crypto.randomUUID(), "");
+    while ((await Array.fromAsync(new Bun.Glob("*").scan(readers))).length < state.reviewReadBarrier && (await Bun.file(stateFile).exists())) await Bun.sleep(20);
+  }
   // Each review read first applies the next queued change, so a test scripts what waits observe.
   const change = (state.reviewQueue ??= []).shift();
   if (change) { const index = state.pulls.findIndex((row) => row.number === Number(field("number"))); state.pulls[index] = { ...state.pulls[index], ...change }; await Bun.write(stateFile, JSON.stringify(state)); }

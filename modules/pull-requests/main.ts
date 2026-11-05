@@ -58,7 +58,7 @@ function parents(input: Request, owner: Owner) {
   }).map((source) => {
     // Stryker disable next-line ArrayDeclaration: equivalent: an entry that is not a PR row has no branch, so it matches no base and lists as none
     if (source === undefined) return [];
-    const planned = source.plan.assignments.find((row) => row.key === owner.assignment);
+    const planned = source.planned.find((row) => row.key === owner.assignment);
     return source.pullRequests
       .filter((pr) => planned?.dependencies.includes(pr.assignment) === true)
       .map((pr) => ({

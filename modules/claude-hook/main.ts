@@ -6,8 +6,16 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { commitHasTrailer } from "./commit.ts";
 import { installHook } from "./settings.ts";
+import { turnEnd } from "./turn-end.ts";
 
-const eventSchema = z.object({
+// Claude Code sets stop_hook_active while a turn continues because a Stop hook blocked its end.
+const stopSchema = z.object({
+  hook_event_name: z.literal("Stop"),
+  stop_hook_active: z.boolean(),
+  cwd: z.string(),
+});
+
+const toolSchema = z.object({
   hook_event_name: z.string(),
   tool_name: z.string(),
   // Only Bash input has a command. Other tools describe no command to check.
@@ -15,6 +23,8 @@ const eventSchema = z.object({
   tool_input: z.looseObject({ command: z.string().catch("") }),
   cwd: z.string(),
 });
+
+const eventSchema = z.union([stopSchema, toolSchema]);
 
 const deny = JSON.stringify({
   hookSpecificOutput: {
@@ -26,14 +36,18 @@ const deny = JSON.stringify({
 });
 
 /**
- * Operator's Claude Code hook and its entry in the person's user settings.
- * The hook only denies. It never allows a tool, so Claude Code keeps its own permission flow.
+ * Operator's Claude Code hook and its entries in the person's user settings.
+ * The hook only denies a commit or blocks a turn's end once. It never allows a tool, so Claude
+ * Code keeps its own permission flow.
  */
 export const ClaudeHook = {
-  /** Answers one hook event with the text for standard output. Empty text has no opinion. */
-  answer(event: string) {
+  /**
+   * Answers one hook event with the text for standard output. Empty text has no opinion.
+   * Only the Stop event reads device state, so the commit check works without it.
+   */
+  answer(input: { event: string; paths: ReturnType<typeof OperatorHome.resolve> }) {
     return fromThrowable(
-      () => eventSchema.parse(JSON.parse(event)),
+      () => eventSchema.parse(JSON.parse(input.event)),
       (cause, defect) =>
         // Stryker disable next-line ConditionalExpression: equivalent: JSON.parse and the schema throw only these errors
         cause instanceof SyntaxError || cause instanceof z.ZodError
@@ -46,16 +60,18 @@ export const ClaudeHook = {
     )()
       .toAsync()
       .flatMap((parsed) =>
-        fromPromise(
-          async () =>
-            parsed.hook_event_name === "PreToolUse" &&
-            parsed.tool_name === "Bash" &&
-            (await commitHasTrailer(parsed.tool_input.command, parsed.cwd))
-              ? deny
-              : "",
-          // Stryker disable next-line ArrowFunction: equivalent: commitHasTrailer reads a message file with a fallback, so it never rejects
-          (cause, defect) => defect(cause),
-        ),
+        "stop_hook_active" in parsed
+          ? turnEnd({ paths: input.paths, ...parsed })
+          : fromPromise(
+              async () =>
+                parsed.hook_event_name === "PreToolUse" &&
+                parsed.tool_name === "Bash" &&
+                (await commitHasTrailer(parsed.tool_input.command, parsed.cwd))
+                  ? deny
+                  : "",
+              // Stryker disable next-line ArrowFunction: equivalent: commitHasTrailer reads a message file with a fallback, so it never rejects
+              (cause, defect) => defect(cause),
+            ),
       );
   },
   /** Check mode, and a Nix release, only read the settings. */

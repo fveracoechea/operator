@@ -15,7 +15,7 @@ import {
   renewPullRequestWait,
   worktreeOwners,
 } from "./pull-requests.ts";
-import { busy, reservedCopy } from "./state-fixture.ts";
+import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -480,6 +480,19 @@ test("a verified merge records the merge, the merged state, the cleanup, and the
   using db = fixture();
   start(db, "l1", "change", "p1");
   associatePullRequest(db, "l1", pr);
+  for (const [key, state] of [
+    ["open", "open"],
+    ["person", "awaiting_person"],
+    ["gone", "withdrawn"],
+  ] as const)
+    insertRow(db, "worker_questions", {
+      source_id: "s1",
+      assignment: "change",
+      key,
+      launch_id: "l1",
+      state,
+      ended_at: state === "withdrawn" ? "earlier" : null,
+    });
   const seen: unknown[] = [];
   expect(
     recordPullRequestMerge(db, "l1", merge, (rows) => {
@@ -504,6 +517,16 @@ test("a verified merge records the merge, the merged state, the cleanup, and the
     at: 1,
   });
   expect(assignmentState(db, "change")).toEqual({ state: "merged" });
+  // A merged assignment can no longer answer, so its unanswered questions are abandoned.
+  expect(
+    db
+      .query("SELECT key, state, ended_at IS NOT NULL AS ended FROM worker_questions ORDER BY key")
+      .all(),
+  ).toEqual([
+    { key: "gone", state: "withdrawn", ended: 1 },
+    { key: "open", state: "abandoned", ended: 1 },
+    { key: "person", state: "abandoned", ended: 1 },
+  ]);
   expect(
     db
       .query(

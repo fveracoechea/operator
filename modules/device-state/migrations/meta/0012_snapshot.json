@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4702ae0a-623a-46d8-99b8-d0dcd1617740",
+  "id": "de4365b6-c073-4d0f-864f-b829a5bc1c57",
   "prevId": "c4e497ab-5889-456a-aca3-2ea7eceee947",
   "tables": {
     "assignments": {
@@ -156,193 +156,6 @@
         "cleanups_source_id_assignment_pk": {
           "columns": ["source_id", "assignment"],
           "name": "cleanups_source_id_assignment_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "internal_review_rounds": {
-      "name": "internal_review_rounds",
-      "columns": {
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "assignment": {
-          "name": "assignment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "number": {
-          "name": "number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "launch_id": {
-          "name": "launch_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "head": {
-          "name": "head",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "findings": {
-          "name": "findings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "recorded_at": {
-          "name": "recorded_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "internal_review_rounds_launch_id_launches_id_fk": {
-          "name": "internal_review_rounds_launch_id_launches_id_fk",
-          "tableFrom": "internal_review_rounds",
-          "tableTo": "launches",
-          "columnsFrom": ["launch_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "internal_review_rounds_source_id_assignment_internal_reviews_source_id_assignment_fk": {
-          "name": "internal_review_rounds_source_id_assignment_internal_reviews_source_id_assignment_fk",
-          "tableFrom": "internal_review_rounds",
-          "tableTo": "internal_reviews",
-          "columnsFrom": ["source_id", "assignment"],
-          "columnsTo": ["source_id", "assignment"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "internal_review_rounds_source_id_assignment_number_pk": {
-          "columns": ["source_id", "assignment", "number"],
-          "name": "internal_review_rounds_source_id_assignment_number_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "internal_reviews": {
-      "name": "internal_reviews",
-      "columns": {
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "assignment": {
-          "name": "assignment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "implementer_launch_id": {
-          "name": "implementer_launch_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "handoff_state": {
-          "name": "handoff_state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "handoff_detail": {
-          "name": "handoff_detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_pid": {
-          "name": "owner_pid",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "lease_at": {
-          "name": "lease_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "internal_reviews_implementer_launch_id_launches_id_fk": {
-          "name": "internal_reviews_implementer_launch_id_launches_id_fk",
-          "tableFrom": "internal_reviews",
-          "tableTo": "launches",
-          "columnsFrom": ["implementer_launch_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "internal_reviews_source_id_assignment_assignments_source_id_key_fk": {
-          "name": "internal_reviews_source_id_assignment_assignments_source_id_key_fk",
-          "tableFrom": "internal_reviews",
-          "tableTo": "assignments",
-          "columnsFrom": ["source_id", "assignment"],
-          "columnsTo": ["source_id", "key"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "internal_reviews_source_id_assignment_pk": {
-          "columns": ["source_id", "assignment"],
-          "name": "internal_reviews_source_id_assignment_pk"
         }
       },
       "uniqueConstraints": {},
@@ -553,13 +366,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "internal_review": {
-          "name": "internal_review",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -647,6 +453,123 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "promotions": {
+      "name": "promotions",
+      "columns": {
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignment": {
+          "name": "assignment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "report": {
+          "name": "report",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "report_number": {
+          "name": "report_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tracker_key": {
+          "name": "tracker_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "instructions": {
+          "name": "instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "branch": {
+          "name": "branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "internal_review": {
+          "name": "internal_review",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "worktree_path": {
+          "name": "worktree_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "handover_launch_id": {
+          "name": "handover_launch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "promoted_at": {
+          "name": "promoted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "one_promotion_per_report": {
+          "name": "one_promotion_per_report",
+          "columns": ["source_id", "report"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "promotions_source_id_assignment_assignments_source_id_key_fk": {
+          "name": "promotions_source_id_assignment_assignments_source_id_key_fk",
+          "tableFrom": "promotions",
+          "tableTo": "assignments",
+          "columnsFrom": ["source_id", "assignment"],
+          "columnsTo": ["source_id", "key"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "promotions_source_id_report_assignments_source_id_key_fk": {
+          "name": "promotions_source_id_report_assignments_source_id_key_fk",
+          "tableFrom": "promotions",
+          "tableTo": "assignments",
+          "columnsFrom": ["source_id", "report"],
+          "columnsTo": ["source_id", "key"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "promotions_source_id_assignment_pk": {
+          "columns": ["source_id", "assignment"],
+          "name": "promotions_source_id_assignment_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

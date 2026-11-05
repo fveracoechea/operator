@@ -75,7 +75,7 @@ const idleGuards: { applied: number; busy: (client: Database) => boolean; detail
   },
   // A handoff closes a pane and starts a reviewer, so it holds external effects.
   {
-    applied: 13,
+    applied: 16,
     busy: (client) =>
       heldBy(
         client,
@@ -107,8 +107,11 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
   [1793127419030, []],
   [1793140707700, []],
   [1793831388719, []],
-  [1793847326946, []],
-  [1793847328311, []],
+  [1793846111627, []],
+  [1793849821749, []],
+  [1793851554124, []],
+  [1793853968253, []],
+  [1793856665186, []],
 ]);
 
 /** Each policy names queries that find records the migration must not run past. */

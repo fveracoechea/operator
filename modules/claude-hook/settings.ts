@@ -7,24 +7,23 @@ import { writeFile } from "../../lib/write-file.ts";
 
 const command = "operator claude hook";
 
-/** The PreToolUse group that Operator adds. The `if` rule keeps the hook off other commands. */
-export const hookEntry = {
-  matcher: "Bash",
-  hooks: [{ type: "command", if: "Bash(git *)", command }],
+/**
+ * The groups that Operator adds, one for each hook event. The `if` rule keeps the commit check
+ * off other commands, and the Stop group is the turn-end guard.
+ */
+export const hookEntries = {
+  PreToolUse: { matcher: "Bash", hooks: [{ type: "command", if: "Bash(git *)", command }] },
+  Stop: { hooks: [{ type: "command", command }] },
 };
 
+const events = ["PreToolUse", "Stop"] as const;
+
+const groupsSchema = z
+  .array(z.looseObject({ hooks: z.array(z.looseObject({})).optional() }))
+  .optional();
+
 const settingsSchema = z.looseObject({
-  hooks: z
-    .looseObject({
-      PreToolUse: z
-        .array(
-          z.looseObject({
-            hooks: z.array(z.looseObject({})).optional(),
-          }),
-        )
-        .optional(),
-    })
-    .optional(),
+  hooks: z.looseObject({ PreToolUse: groupsSchema, Stop: groupsSchema }).optional(),
 });
 
 type Outcome =
@@ -66,7 +65,7 @@ async function readSettings(file: string) {
 }
 
 /**
- * Adds the hook group to Claude Code user settings, after every group the person has.
+ * Adds each missing hook group to Claude Code user settings, after every group the person has.
  * A linked or read-only file belongs to its owner, such as a dotfiles repository, so Operator
  * names the entry and leaves the file unchanged.
  */
@@ -77,25 +76,32 @@ export async function installHook(input: { file: string; check: boolean }): Prom
       reason: "claude_settings_invalid",
       detail: `${input.file} is not a Claude Code settings object. Repair it, then install again.`,
     };
-  const groups = settings.hooks?.PreToolUse ?? [];
-  if (groups.some((group) => group.hooks?.some((hook) => hook.command === command)))
-    return { reason: "already_installed" };
-  const entry = `add this PreToolUse group to ${input.file}: ${JSON.stringify(hookEntry)}`;
+  const missing = events.filter(
+    (event) =>
+      !(settings.hooks?.[event] ?? []).some((group) =>
+        group.hooks?.some((hook) => hook.command === command),
+      ),
+  );
+  if (missing.length === 0) return { reason: "already_installed" };
+  const entry = missing
+    .map(
+      (event) => `add this ${event} group to ${input.file}: ${JSON.stringify(hookEntries[event])}`,
+    )
+    .join(", and ");
   if (input.check)
     return {
       reason: "claude_hook_missing",
-      detail: `Claude Code does not run the Operator commit hook. Run operator install --claude, or ${entry}`,
+      detail: `Claude Code does not run the Operator hook on ${missing.join(" and ")}. Run operator install --claude, or ${entry}`,
     };
   const external = {
     reason: "claude_settings_external" as const,
-    detail: `Operator does not change a linked or read-only Claude Code settings file. To keep commits free of Co-Authored-By trailers, ${entry}`,
+    detail: `Operator does not change a linked or read-only Claude Code settings file. To keep commits free of Co-Authored-By trailers and guard the SuperAgent's turn end, ${entry}`,
   };
   if ((await linked(input.file)) || (await linked(path.dirname(input.file)))) return external;
   // Loose objects keep every field that the schema does not name.
-  const next = {
-    ...settings,
-    hooks: { ...settings.hooks, PreToolUse: [...groups, hookEntry] },
-  };
+  const hooks = { ...settings.hooks };
+  for (const event of missing) hooks[event] = [...(hooks[event] ?? []), hookEntries[event]];
+  const next = { ...settings, hooks };
   try {
     await mkdir(path.dirname(input.file), { recursive: true });
     await writeFile(
