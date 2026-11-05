@@ -54,10 +54,11 @@ test("text in strings is not a suppression, and multiline comments retain line n
   ).toEqual([2]);
 });
 
-test("test, fixture, declaration, and generated paths are not units", () => {
+test("test, live contract, fixture, declaration, and generated paths are not units", () => {
   for (const name of [
     "lib/a.test.ts",
     "lib/a.spec.ts",
+    "modules/a/main.contract.ts",
     "lib/a-fixture.ts",
     "lib/fixtures/a.ts",
     "lib/generated/a.ts",

@@ -24,6 +24,7 @@
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
     "test": "bun scripts/test-watchdog.ts",
     "test:timings": "bun scripts/test-watchdog.ts --update-timings",
+    "test:live": "bun scripts/live-contracts.ts",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
     "quality": "bun run --parallel quality:static test",
     "quality:static": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries"

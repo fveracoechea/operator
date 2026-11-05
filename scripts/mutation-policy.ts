@@ -6,7 +6,7 @@ export function excludedUnit(name: string): boolean {
   // A unit ends in .ts, so an excluded folder name is always followed by a slash.
   return (
     !name.endsWith(".ts") ||
-    /(?:\.test|\.spec|\.d|-fixture)\.ts$|\.generated\.|(?:^|\/)(?:fixtures?|generated|__tests__)\//.test(
+    /(?:\.test|\.spec|\.contract|\.d|-fixture)\.ts$|\.generated\.|(?:^|\/)(?:fixtures?|generated|__tests__)\//.test(
       name,
     )
   );
