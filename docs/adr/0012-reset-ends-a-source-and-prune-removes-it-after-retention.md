@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #207, #231, and #233.
 Implemented in #252.
+Amended 2026-11-04: an open source can gain a PR assignment by promotion of an accepted report (ADR-0023).
 
 ## Context
 
@@ -17,10 +18,11 @@ An archive would duplicate PR history but would not add a permanent home for rep
 A work source has an open lifecycle that ends as finished or reset.
 Every registration gets a new source identity, so the same parent issue can start a new source after the earlier one ends.
 Only one source of that parent is open at a time.
+An open source keeps its registered assignments and can gain one PR assignment for each report that the SuperAgent promotes at acceptance.
 Reset runs on the person's instruction, not an autonomous SuperAgent choice.
 
 Reset refuses while a worker is running.
-It preserves merged PR assignments and completed report assignments, abandons incomplete assignments, and marks the source reset.
+It preserves merged PR assignments and completed report assignments, abandons incomplete assignments, promoted ones included, and marks the source reset.
 It needs no reset grant or plan-approval machine.
 It removes no worktree or branch and changes no tracker content.
 A finished source accounts for completed reports as well as merged PR work.
@@ -46,4 +48,4 @@ Failed cleanup remains visible in next actions.
 - Source archives and indefinite retention were rejected because GitHub keeps PR history and the person accepted bounded report retention.
 - Deleting worktrees during reset or prune was rejected because ending records does not establish that project work is safe to delete.
 
-Related: ADR-0003, explicit source lifecycle; ADR-0010, PR completion and cleanup; ADR-0013, report retention and cross-project consumption; ADR-0007, migration backups have separate retention.
+Related: ADR-0003, explicit source lifecycle; ADR-0010, PR completion and cleanup; ADR-0013, report retention and cross-project consumption; ADR-0007, migration backups have separate retention; ADR-0023, promotion adds a PR assignment to an open source.
