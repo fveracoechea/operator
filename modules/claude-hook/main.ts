@@ -1,12 +1,11 @@
 import path from "node:path";
-import { Err, Ok, fromPromise, fromThrowable } from "unthrown";
+import { Err, Ok, OkAsync, fromPromise, fromThrowable } from "unthrown";
 import { z } from "zod";
 import { isCodedError } from "../../lib/coded-error.ts";
+import { AgentGuards } from "../agent-guards/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
-import { commitHasTrailer } from "./commit.ts";
 import { installHook } from "./settings.ts";
-import { turnEnd } from "./turn-end.ts";
 
 // Claude Code sets stop_hook_active while a turn continues because a Stop hook blocked its end.
 const stopSchema = z.object({
@@ -26,14 +25,31 @@ const toolSchema = z.object({
 
 const eventSchema = z.union([stopSchema, toolSchema]);
 
-const deny = JSON.stringify({
-  hookSpecificOutput: {
-    hookEventName: "PreToolUse",
-    permissionDecision: "deny",
-    permissionDecisionReason:
-      "Commit messages carry no Co-Authored-By trailer. Remove every Co-Authored-By line from the message, then commit again.",
-  },
-});
+function deny(reason: string) {
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    },
+  });
+}
+
+/**
+ * The turn-end guard of a SuperAgent's pane. A turn that a block continued may end, so the guard
+ * blocks at most once in a row. An agent outside a Herdr pane supervises nothing.
+ */
+function stop(input: {
+  paths: ReturnType<typeof OperatorHome.resolve>;
+  cwd: string;
+  stop_hook_active: boolean;
+}) {
+  const paneId = Environment.read().HERDR_PANE_ID;
+  if (input.stop_hook_active || paneId === undefined) return OkAsync("");
+  return AgentGuards.turnEnd({ paths: input.paths, cwd: input.cwd, paneId }).map((reason) =>
+    reason === null ? "" : JSON.stringify({ decision: "block", reason }),
+  );
+}
 
 /**
  * Operator's Claude Code hook and its entries in the person's user settings.
@@ -61,17 +77,12 @@ export const ClaudeHook = {
       .toAsync()
       .flatMap((parsed) =>
         "stop_hook_active" in parsed
-          ? turnEnd({ paths: input.paths, ...parsed })
-          : fromPromise(
-              async () =>
-                parsed.hook_event_name === "PreToolUse" &&
-                parsed.tool_name === "Bash" &&
-                (await commitHasTrailer(parsed.tool_input.command, parsed.cwd))
-                  ? deny
-                  : "",
-              // Stryker disable next-line ArrowFunction: equivalent: commitHasTrailer reads a message file with a fallback, so it never rejects
-              (cause, defect) => defect(cause),
-            ),
+          ? stop({ paths: input.paths, ...parsed })
+          : parsed.hook_event_name === "PreToolUse" && parsed.tool_name === "Bash"
+            ? AgentGuards.commit({ command: parsed.tool_input.command, cwd: parsed.cwd }).map(
+                (reason) => (reason === null ? "" : deny(reason)),
+              )
+            : OkAsync(""),
       );
   },
   /** Check mode, and a Nix release, only read the settings. */

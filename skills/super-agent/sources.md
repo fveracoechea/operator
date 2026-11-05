@@ -49,7 +49,7 @@ Run the wait as a background command, so its result arrives as a new turn and ne
 
 Keep the host's command timeout above the wait timeout.
 Handle each result, then start the next wait before you end your turn.
-On Claude Code, the turn-end guard blocks the end of a turn once while your pane's sources have running work and no wait from your pane runs. Its reason tells you to start the wait. OpenCode has no guard, so this rule is yours to keep.
+The turn-end guard keeps your turn going once while your pane's sources have running work and no wait from your pane runs. Its reason tells you to start the wait. A wait you already run in the background skips it on OpenCode.
 While a wait runs, the person can still prompt you. Answer, and leave the wait running.
 A host without background commands runs the wait in the foreground when the person asks you to watch.
 

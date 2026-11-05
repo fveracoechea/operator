@@ -100,6 +100,16 @@ test("a Stop event in a pane with unwatched running work blocks the turn's end",
   });
 });
 
+test("a Stop event outside a Herdr pane supervises nothing", async () => {
+  spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), HERDR_PANE_ID: undefined });
+  const unwatched = spyOn(WorkSources, "unwatched");
+  expect(await ClaudeHook.answer({ event: stop(false), paths })).toMatchObject({
+    tag: "Ok",
+    value: "",
+  });
+  expect(unwatched).not.toHaveBeenCalled();
+});
+
 test("a Stop event on a device with no state lets the turn end", async () => {
   spyOn(Environment, "read").mockReturnValue({
     ...Environment.read(),

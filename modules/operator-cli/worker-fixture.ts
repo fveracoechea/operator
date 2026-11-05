@@ -7,7 +7,7 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
-import { fixtureCommand, writeClaudeHookSettings } from "./command-fixture.ts";
+import { fixtureCommand, writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
 
 const command = fixtureCommand();
 const gitEnv = {
@@ -122,6 +122,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   await symlink(`${root}/claude-skills`, `${root}/home/.claude/skills`);
   await symlink(`${root}/upstream/code-review`, `${root}/claude-skills/code-review`);
   await writeClaudeHookSettings(`${root}/home`);
+  await writeOpenCodePlugin(`${root}/config`);
 
   const main = await checkout("checkout", "example/one");
 

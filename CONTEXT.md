@@ -66,16 +66,21 @@ Its checkout has no legacy project-local Operator folder.
 
 **Ready**:
 The result of the current static readiness checks, not proof that an agent or provider will work.
-Required tools, GitHub authentication, required skill contents, and the commit hook on Claude Code must pass those checks.
+Required tools, GitHub authentication, required skill contents, and the commit hook on Claude Code or the plugin on OpenCode must pass those checks.
 
 **Static readiness check**:
-A current observation of required executable availability, GitHub authentication, required skill files, or the Claude Code hook entries in Claude Code settings.
+A current observation of required executable availability, GitHub authentication, required skill files, the Claude Code hook entries in Claude Code settings, or the version marker of the OpenCode plugin file.
 It launches no agent and retains no live-probe evidence.
 
 **Commit hook**:
 Operator's Claude Code hook, `operator claude hook`, which denies a `git commit` whose message carries a Co-Authored-By trailer and, on the Stop event, acts as the turn-end guard.
 It never allows a tool. `operator install --claude` adds it to the person's Claude Code user settings.
 _Avoid_: permission rule, attribution setting
+
+**OpenCode plugin**:
+Operator's file in OpenCode's global plugins folder, which runs `operator opencode hook` for the same two guards as the commit hook.
+It refuses a shell `git commit` with a Co-Authored-By trailer, and continues a SuperAgent's idle session at most once in a row.
+`operator install --opencode` writes it, and readiness checks its version marker.
 
 **Operator release**:
 One matched version of the CLI, its owned skills, and its shipped database migrations.
@@ -186,8 +191,8 @@ An answer to a worker question reaches the worker as a steering message.
 _Avoid_: nudge, pane message
 
 **Turn-end guard**:
-The Stop branch of Operator's Claude Code hook, which keeps a SuperAgent from ending its turn while it supervises running work and no coordination wait runs.
-It blocks at most once in a row, and OpenCode has no equivalent.
+The Stop branch of Operator's Claude Code hook, and the idle hook of Operator's OpenCode plugin, which keep a SuperAgent from ending its turn while it supervises running work and no coordination wait runs.
+It blocks at most once in a row.
 
 **Doorbell**:
 A short fixed line that the CLI types into a worker's pane to name a pending record, and that carries no instruction of its own.

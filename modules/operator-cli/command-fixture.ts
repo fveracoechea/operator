@@ -3,6 +3,7 @@ import { symlink } from "node:fs/promises";
 import { Environment } from "../environment/main.ts";
 
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
+const plugin = Bun.fileURLToPath(new URL("../opencode-plugin/plugin.ts", import.meta.url));
 
 /**
  * The command that the workflow fixtures run.
@@ -33,4 +34,9 @@ export async function writeClaudeHookSettings(home: string) {
   const group = { hooks: [{ command: "operator claude hook" }] };
   const settings = { hooks: { PreToolUse: [group], Stop: [group] } };
   await Bun.write(`${home}/.claude/settings.json`, JSON.stringify(settings), { createPath: true });
+}
+
+/** Operator's OpenCode plugin under an OpenCode settings folder, as a ready OpenCode device has. */
+export async function writeOpenCodePlugin(config: string) {
+  await Bun.write(`${config}/opencode/plugins/operator.ts`, Bun.file(plugin), { createPath: true });
 }

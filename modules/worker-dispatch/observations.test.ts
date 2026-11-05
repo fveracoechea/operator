@@ -205,7 +205,13 @@ test("a workspace with no checkout is the project workspace when each of its pan
     ]),
   );
   function pane(workspaceId: string, cwd: string | null) {
-    return { paneId: `${workspaceId}:p`, tabId: `${workspaceId}:t`, workspaceId, cwd };
+    return {
+      paneId: `${workspaceId}:p`,
+      tabId: `${workspaceId}:t`,
+      workspaceId,
+      cwd,
+      agentSession: null,
+    };
   }
   spyOn(Herdr, "panes").mockReturnValue(
     OkAsync([
@@ -237,10 +243,16 @@ test("a pane in a folder below the controlling checkout is in it, and a sibling 
   );
   spyOn(Herdr, "panes").mockReturnValue(
     OkAsync([
-      { paneId: "p1", tabId: "t1", workspaceId: "w1", cwd: checkout },
-      { paneId: "p2", tabId: "t2", workspaceId: "w1", cwd: `${checkout}-copy` },
-      { paneId: "p3", tabId: "t3", workspaceId: "w2", cwd: `${checkout}/packages/x` },
-      { paneId: "p4", tabId: "t4", workspaceId: "w2", cwd: checkout },
+      { paneId: "p1", tabId: "t1", workspaceId: "w1", cwd: checkout, agentSession: null },
+      { paneId: "p2", tabId: "t2", workspaceId: "w1", cwd: `${checkout}-copy`, agentSession: null },
+      {
+        paneId: "p3",
+        tabId: "t3",
+        workspaceId: "w2",
+        cwd: `${checkout}/packages/x`,
+        agentSession: null,
+      },
+      { paneId: "p4", tabId: "t4", workspaceId: "w2", cwd: checkout, agentSession: null },
     ]),
   );
   expect(await projectWorkspace(checkout)).toMatchObject({
@@ -258,7 +270,7 @@ test("a workspace whose checkout is the controller wins without a pane read", as
     ]),
   );
   const panes = spyOn(Herdr, "panes").mockReturnValue(
-    OkAsync([{ paneId: "p1", tabId: "t1", workspaceId: "w1", cwd: checkout }]),
+    OkAsync([{ paneId: "p1", tabId: "t1", workspaceId: "w1", cwd: checkout, agentSession: null }]),
   );
   expect(await projectWorkspace(checkout)).toMatchObject({
     tag: "Ok",
