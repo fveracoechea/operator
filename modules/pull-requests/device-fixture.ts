@@ -371,6 +371,7 @@ export function pullRequestBody(facts: PullRequestFacts = {}) {
           baseRefName: facts.base ?? "main",
           headRefName: "task/parent",
           headRefOid: facts.head ?? "h1",
+          isDraft: false,
           reviewDecision: facts.approved === false ? null : "APPROVED",
           mergeCommit:
             facts.mergeCommit === undefined || facts.mergeCommit === null

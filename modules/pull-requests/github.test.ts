@@ -24,6 +24,7 @@ function answer(change: Record<string, unknown> = {}) {
         baseRefName: "main",
         headRefName: "task/1",
         headRefOid: "abc",
+        isDraft: false,
         reviewDecision: null,
         mergeCommit: null,
         reviews: { nodes: [] },
@@ -513,6 +514,11 @@ test("a merge commit and an unanswered review decision are kept", () => {
   expect(observation(answer()).mergeCommit).toBeNull();
 });
 
+test("a draft PR is observed as a draft", () => {
+  expect(observation(answer()).draft).toBe(false);
+  expect(observation(answer({ isDraft: true })).draft).toBe(true);
+});
+
 describe("GitHub answers in the expected form", () => {
   afterEach(() => {
     mock.restore();
@@ -524,6 +530,7 @@ describe("GitHub answers in the expected form", () => {
       ok({
         data: answer({
           state: "MERGED",
+          isDraft: true,
           mergeCommit: { oid: "m1" },
           reviewDecision: "APPROVED",
           reviews: { nodes: [{ ...node, id: "R", state: "APPROVED" }] },
@@ -583,6 +590,7 @@ describe("GitHub answers in the expected form", () => {
         mergeMethod: "squash",
         base: "main",
         defaultBranch: "main",
+        draft: true,
         approved: true,
         unresolvedThreads: 2,
         checksComplete: true,

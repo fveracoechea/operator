@@ -4,6 +4,7 @@
 
 Accepted - 2026-10-31.
 Decided in #292.
+Amended 2026-11-04: the reviewer brief also gives the person's intent when the plan or the assignment gives one.
 Adds a draft condition to the ADR-0010 merge gate and moves the start of the ADR-0015 assignment reviewer to the ready transition.
 
 ## Context
@@ -34,8 +35,9 @@ The reviewer is a WorkerAgent under the same SuperAgent, and a failed or interru
 ### The reviewer's inputs
 
 The reviewer brief is a variant of the assignment brief.
-It gives the tracker issue, the assignment instructions, the PR, its base, and the commit and push rules of a PR owner.
+It gives the tracker issue, the assignment instructions, the person's intent when the plan or the assignment gives one, the PR, its base, and the commit and push rules of a PR owner.
 The assignment instructions are the SuperAgent's statement of intent and named skills, so they carry no account by the implementer.
+The intent holds the person's own words for the work, and the reviewer judges the Spec axis against it too.
 The reviewer loads those named skills, because it both judges conformance to them and writes code under them.
 It does not receive the implementer's conversation, any implementer summary, or the PR body as evidence.
 Operator keeps coordination files in device state, so the worktree carries no implementer notes.

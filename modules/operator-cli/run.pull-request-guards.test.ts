@@ -164,7 +164,7 @@ test.each([
     file: "pull-requests/wait-machine.ts",
     replacements: [["observed.checks.length > 0 &&", ""]],
     testFile: "pull-requests/wait-machine.test.ts",
-    pattern: "eligibility needs all five merge conditions",
+    pattern: "eligibility needs all six merge conditions",
   },
   {
     name: "own replies never end a wait",
