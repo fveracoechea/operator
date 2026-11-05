@@ -29,7 +29,7 @@ test("publishes one complete migrated database and never replaces an existing wi
     { repository: "owner/one" },
     { repository: "owner/two" },
   ]);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(15);
   expect((await stat(paths.stateRoot)).mode.toString(8)).toEndWith("700");
   expect((await stat(paths.database)).mode.toString(8)).toEndWith("600");
   expect(

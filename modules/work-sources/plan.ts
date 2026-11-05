@@ -23,10 +23,14 @@ function validBranch(value: string) {
     .split("/")
     .every((part) => part !== "" && !part.startsWith(".") && !part.endsWith(".lock"));
 }
+// The person's own words, kept apart from the SuperAgent's instructions. An assignment's value
+// wins over the plan's.
+const intent = z.string().trim().min(1).optional();
 const shared = {
   key,
   trackerKey: key,
   instructions: z.string().trim().min(1),
+  intent,
   profile: z
     .string()
     .regex(/^[a-z][a-z0-9-]*$/)
@@ -36,8 +40,11 @@ const shared = {
 export const planSchema = z
   .strictObject({
     trackerKey: key,
+    intent,
     // Internal review of a draft PR. An assignment's value wins over the plan's. ADR-0020.
     internalReview: z.boolean().optional(),
+    // The running cap. Next holds ready work while this many assignments have a live worker. ADR-0006.
+    maxRunning: z.number().int().min(1).optional(),
     assignments: z.array(
       z.union([
         z.strictObject({
@@ -94,3 +101,15 @@ export const planSchema = z
       }
     }
   });
+
+/**
+ * The PR assignment that the SuperAgent supplies when it promotes an accepted report. Its
+ * completion, worktree, and dependency on the report follow from the promotion. ADR-0023.
+ */
+export const promotionSchema = z.strictObject({
+  key,
+  trackerKey: key,
+  instructions: shared.instructions,
+  branch,
+  internalReview: z.boolean().optional(),
+});

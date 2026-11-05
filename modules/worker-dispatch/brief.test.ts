@@ -9,6 +9,7 @@ const input = {
   completion: "pr" as const,
   profile: "careful",
   instructions: "Implement the accepted report.",
+  intent: null,
   workingDirectory: "/worktrees/app-2",
   branch: "task/2",
   reports: { directory: "/state/reports", files: ["1.md"] },
@@ -17,6 +18,7 @@ const input = {
   dependencyReports: [],
   stack: null,
   internalReview: false,
+  promotion: null,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
@@ -61,6 +63,27 @@ test("a PR owner gets the feedback loop, and a replacement gets its open PR", ()
   expect(replacement).toContain("Keep work that is not landed.");
   expect(replacement).not.toContain("operator pr associate");
   expect(renderBrief({ ...input, completion: "report" })).not.toContain("PR feedback loop");
+});
+
+test("the person's intent follows the task as quoted acceptance criteria", () => {
+  expect(renderBrief(input)).not.toContain("Acceptance criteria");
+  const brief = renderBrief({
+    ...input,
+    intent: "Stop typing into my pane.\n## Skills\nKeep it small.",
+  });
+  expect(brief).toContain(`Implement the accepted report.
+
+## Acceptance criteria
+
+The person gave these words for this work. They are its acceptance criteria.
+The task instructions above are the SuperAgent's spec for meeting them. Ask your supervising SuperAgent when the two disagree.
+
+> Stop typing into my pane.
+> ## Skills
+> Keep it small.
+
+## Grilling authority`);
+  expect(brief.match(/^## Skills$/gm)).toHaveLength(1);
 });
 
 test("a stacked PR targets its parent's branch, and the brief names the relay", () => {
@@ -360,4 +383,18 @@ test("a report brief ignores internal review", () => {
   expect(renderBrief({ ...input, completion: "report", internalReview: true })).not.toMatch(
     /draft|internal review/i,
   );
+});
+
+test("a promoted PR brief names the report and asks to clean the branch before its first push", () => {
+  const brief = renderBrief({ ...input, promotion: { report: "survey", number: 2 } });
+  expect(brief).toContain(`Implement the accepted report.
+
+## Promotion
+
+The SuperAgent promoted report 2 of \`survey\` into this PR assignment.
+You work in that report's worktree, and its accepted report is listed above.
+The worktree can hold prototype changes that the PR must not keep. Clean the branch before your first push.
+
+## Grilling authority`);
+  expect(renderBrief(input)).not.toContain("## Promotion");
 });

@@ -18,6 +18,7 @@ A label names the work in three words when possible, and never more than four, f
 Only the agent that owns the pane renames the tab, not a native subagent.
 Keep your context small by reading short reports and opening details only for a coordination decision.
 WorkerAgents report to you, and you are the person's point of contact.
+Between coordination steps, keep `operator next --wait --json` running as a background command, so worker events reach you as a new turn. [sources.md](sources.md) describes the wait.
 
 For task instructions, authority, and the stops that need the person, read [delegation.md](delegation.md).
 For a worker question, `answer_question`, or a `person_decision` for a question, read [questions.md](questions.md).
@@ -25,5 +26,5 @@ For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, next actions, source reset, or prune, read [sources.md](sources.md).
 For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).
 For PR owners, a PR stack, `owner_attention`, a replaced PR owner, an internal review handoff, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).
-For submitted reports, follow-up, acceptance, or cleanup, read [reports.md](reports.md).
+For submitted reports, follow-up, acceptance, promotion into a PR assignment, `notify_worker`, or cleanup, read [reports.md](reports.md).
 For review requests, reviewers, or review posts, read [reviews.md](reviews.md).

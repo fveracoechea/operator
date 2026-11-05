@@ -44,7 +44,7 @@ test.each([
   {
     name: "no self acceptance",
     file: "work-sources/report-machine.ts",
-    before: '(facts.command === "accept" || facts.command === "return") && selfDecision(facts)',
+    before: '["accept", "promote", "return"].includes(facts.command) && selfDecision(facts)',
     after: "false",
     pattern: accepted,
   },

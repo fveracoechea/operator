@@ -1,14 +1,16 @@
 /**
  * A controlled `gh` executable for public CLI tests. It answers `gh auth status`, the GraphQL
- * reads of the PR feedback loop and the relay, the merge request, the PR base change, remote
- * branch reads and deletions, and the review read and post from one JSON file, and logs each call. Each full PR read first
- * applies the next queued change, so a test can script what later polls observe. A `parentQueue`
- * scripts the parent reads the same way. With a `remote` bare repository, a PR without a scripted
- * `head` reports its branch head there. `mergeLost` applies a merge and then answers 502, and
- * `deleteLost` answers 502 without deleting. `postHold` writes `post-held` after a review post is
- * recorded, then holds the answer until the test writes `post-release` or removes its root.
- * `cleanupHold` holds each remote branch read and deletion the same way, with `cleanup-held` and
- * `cleanup-release`.
+ * reads of the PR feedback loop and the relay, the synchronous and background merge requests,
+ * the PR base change, remote branch reads and deletions, and the review read and post from one
+ * JSON file, and logs each call. Each full PR read first applies the next queued change, so a
+ * test can script what later polls observe. A `parentQueue` scripts the parent reads the same
+ * way. With a `remote` bare repository, a PR without a scripted `head` reports its branch head
+ * there. A PR with `stacked` refuses the synchronous merge with GitHub's 403. A background merge
+ * request stays pending for `mergePending` reads, then merges the PR at its pinned head or fails.
+ * `mergeLost` applies a merge and then answers 502, and `deleteLost` answers 502 without
+ * deleting. `postHold` writes `post-held` after a review post is recorded, then holds the answer
+ * until the test writes `post-release` or removes its root. `cleanupHold` holds each remote
+ * branch read and deletion the same way, with `cleanup-held` and `cleanup-release`.
  * It is not evidence of the live GitHub integration.
  */
 export function fakeGithubScript(root: string) {
@@ -28,9 +30,41 @@ const status = (code, text, body) => { console.log("HTTP/2.0 " + code + " " + te
 const method = args[args.indexOf("-X") + 1];
 const path = args.find((arg) => arg.startsWith("repos/"));
 state.branches ??= {};
+if (path?.includes("/merge-async")) {
+  // A background merge: the submit answers pending, and each read runs the next step.
+  state.mergeRequests ??= [];
+  const merged = (pr) => ({ status: "merged", details: { message: "Pull request was merged.", sha: pr.mergeCommit } });
+  if (method === "PUT") {
+    const pr = state.pulls.find((row) => path.endsWith("/pulls/" + row.number + "/merge-async"));
+    if (pr?.state === "MERGED") status(200, "OK", merged(pr));
+    else if (state.mergeRefuse || pr?.state !== "OPEN") status(422, "Unprocessable Entity", { message: "Pull Request is not mergeable" });
+    else if (state.mergeLost) {
+      pr.state = "MERGED"; pr.mergeCommit = "merge-" + (pr.head ?? "head-1");
+      status(502, "Bad Gateway", { message: "upstream fault" });
+    } else {
+      const uuid = "request-" + (state.mergeRequests.length + 1);
+      state.mergeRequests.push({ uuid, number: pr.number, sha: field("sha"), method: field("merge_method"), action: field("merge_action"), pending: state.mergePending ?? 0 });
+      status(202, "Accepted", { status: "pending", details: { message: "Merge request enqueued.", uuid } });
+    }
+  } else {
+    const request = state.mergeRequests.find((row) => path.endsWith("/merge-async/" + row.uuid));
+    const pr = state.pulls.find((row) => row.number === request.number);
+    if (request.pending > 0) { request.pending -= 1; status(200, "OK", { status: "pending", details: { message: "Merge request enqueued.", uuid: request.uuid } }); }
+    else if (pr.state === "MERGED") status(200, "OK", merged(pr));
+    else if (request.sha !== (pr.head ?? "head-1")) status(200, "OK", { status: "failed", details: { message: "Head branch was modified." } });
+    else {
+      pr.state = "MERGED"; pr.mergeCommit = "merge-" + (pr.head ?? "head-1"); pr.mergeMethod = request.method;
+      status(200, "OK", merged(pr));
+    }
+  }
+  await Bun.write(stateFile, JSON.stringify(state));
+  process.exit(0);
+}
 if (path?.includes("/pulls/") && method === "PUT") {
   const pr = state.pulls.find((row) => path.endsWith("/pulls/" + row.number + "/merge"));
-  if (state.mergeRefuse || pr?.state !== "OPEN") status(405, "Method Not Allowed", { message: "Pull Request is not mergeable" });
+  // GitHub refuses the synchronous merge of a PR that it treats as stacked.
+  if (pr?.stacked) status(403, "Forbidden", { message: "Merging stacked PRs via this endpoint is not supported. Use the asynchronous merge endpoint instead." });
+  else if (state.mergeRefuse || pr?.state !== "OPEN") status(405, "Method Not Allowed", { message: "Pull Request is not mergeable" });
   else if (field("sha") !== (pr.head ?? "head-1")) status(409, "Conflict", { message: "Head branch was modified." });
   else {
     pr.state = "MERGED"; pr.mergeCommit = "merge-" + (pr.head ?? "head-1"); pr.mergeMethod = field("merge_method");
@@ -132,7 +166,7 @@ if (args.includes("PATCH")) {
   await Bun.write(stateFile, JSON.stringify(state));
   const pr = state.pulls[index];
   answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: {
-    state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
+    state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), isDraft: pr.isDraft ?? false, reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
     reviews: nodes((pr.reviews ?? []).map((review) => ({ id: review.id, state: review.state, body: review.body ?? "", url: "https://github.com/r/" + review.id, author: author(review.author ?? "reviewer") }))),
     comments: nodes((pr.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/c/" + comment.id, author: author(comment.author ?? "reviewer") }))),
     reviewThreads: nodes((pr.threads ?? []).map((thread) => ({ isResolved: thread.resolved ?? false, path: thread.path ?? "file.ts", comments: nodes(thread.comments.map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/t/" + comment.id, author: author(comment.author ?? "reviewer") }))) }))),

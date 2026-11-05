@@ -6,9 +6,10 @@ function facts(input: {
   command: Parameters<typeof decideReport>[0]["command"];
   state: string;
   latest?: { number: number; decision: string | null; cleanupState: string | null } | null;
-  launch?: typeof running | null;
+  launch?: (typeof running & { worktreePath?: string | null }) | null;
   caller?: { socket: string | null; paneId: string | null };
   completion?: string;
+  promotion?: { sourceState: string; key: string };
 }) {
   const completion = input.completion ?? "report";
   return {
@@ -21,6 +22,7 @@ function facts(input: {
     launch: input.launch === undefined ? running : input.launch,
     latest: input.latest ?? null,
     caller: input.caller ?? { socket: "/herdr.sock", paneId: "super:p0" },
+    promotion: input.promotion,
   };
 }
 const submitted = { number: 1, decision: null, cleanupState: null };
@@ -59,7 +61,7 @@ test("a submit after a return names the resume, not a pending decision", () => {
 });
 
 test("PR assignments have no report transitions", () => {
-  for (const command of ["submit", "resume", "accept", "return", "cleanup"] as const)
+  for (const command of ["submit", "resume", "accept", "promote", "return", "cleanup"] as const)
     expect(decideReport(facts({ command, state: "running", completion: "pr" }))).toMatchObject({
       error: { reason: "assignment_not_report" },
     });
@@ -97,6 +99,70 @@ test("acceptance completes the report, ends the launch, and finishes a complete 
     });
 });
 
+const worktree = { ...running, worktreePath: "/worktrees/read" };
+const promotion = { sourceState: "open", key: "build" };
+
+test("a promotion accepts the report, keeps the source open, and names the new assignment", () => {
+  expect<unknown>(
+    decideReport(
+      facts({
+        command: "promote",
+        state: "reported",
+        latest: submitted,
+        launch: worktree,
+        promotion,
+      }),
+    ),
+  ).toEqual({
+    tag: "Ok",
+    value: {
+      assignmentState: "completed",
+      sourceFinished: false,
+      finishLaunch: "l1",
+      report: { update: 1, decision: "accepted" },
+      promote: { key: "build" },
+    },
+  });
+  expect(
+    decideReport(
+      facts({
+        command: "promote",
+        state: "reported",
+        latest: submitted,
+        launch: { ...worktree, state: "interrupted" },
+        promotion,
+      }),
+    ),
+  ).toMatchObject({ tag: "Ok", value: { finishLaunch: undefined, promote: { key: "build" } } });
+});
+
+test("a promotion refuses an ended source, a decided report, a pane report, and a taken key", () => {
+  const accepted = { number: 1, decision: "accepted", cleanupState: "done" };
+  for (const [input, reason] of [
+    [{ promotion: { sourceState: "reset", key: "build" } }, "source_ended"],
+    [{ promotion: undefined }, "source_ended"],
+    [{ state: "completed", latest: accepted }, "report_not_submitted"],
+    [{ latest: { ...submitted, decision: "returned" } }, "report_not_submitted"],
+    [{ latest: null }, "report_not_submitted"],
+    [{ launch: running }, "promotion_worktree_missing"],
+    [{ launch: { ...running, worktreePath: null } }, "promotion_worktree_missing"],
+    [{ launch: null }, "promotion_worktree_missing"],
+    [{ promotion: { sourceState: "open", key: "other" } }, "promotion_key_taken"],
+  ] as const)
+    expect(
+      decideReport(
+        facts({
+          command: "promote",
+          state: "reported",
+          latest: submitted,
+          launch: worktree,
+          promotion,
+          ...input,
+        }),
+      ),
+    ).toMatchObject({ tag: "Err", error: { reason } });
+});
+
 test("a repeated acceptance retries only unfinished cleanup", () => {
   for (const cleanupState of ["pending", "failed"])
     expect(
@@ -111,13 +177,15 @@ test("a repeated acceptance retries only unfinished cleanup", () => {
 });
 
 test("the worker's own pane cannot accept or return, but another server's same pane id can", () => {
-  for (const command of ["accept", "return"] as const) {
+  for (const command of ["accept", "promote", "return"] as const) {
     expect(
       decideReport(
         facts({
           command,
           state: "reported",
           latest: submitted,
+          launch: worktree,
+          promotion: { sourceState: "open", key: "build" },
           caller: { socket: "/herdr.sock", paneId: "w1:p1" },
         }),
       ),
@@ -128,6 +196,8 @@ test("the worker's own pane cannot accept or return, but another server's same p
           command,
           state: "reported",
           latest: submitted,
+          launch: worktree,
+          promotion: { sourceState: "open", key: "build" },
           caller: { socket: "/other.sock", paneId: "w1:p1" },
         }),
       ).tag,

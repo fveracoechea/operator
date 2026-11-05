@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
 // Bun has no synchronous file existence API for directories.
 import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
@@ -8,8 +8,10 @@ import { ownerGone } from "./leases.ts";
 import {
   assignments,
   cleanups,
+  coordinationWaits,
   launches,
   projects,
+  promotions,
   pullRequests,
   reports,
   sources,
@@ -20,6 +22,8 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { removeStateDirectory } from "./project-files.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
+/** A source without its supervising pane, which a wait or a dispatch claims later and next actions never read. */
+export type StoredSource = Omit<SourceRow, "supervisingPane">;
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
@@ -28,11 +32,11 @@ export type SourceFailure =
 export function registerSource(
   client: Database,
   checkout: string,
-  source: SourceRow,
+  source: StoredSource,
   rows: AssignmentRow[],
 ) {
   return transaction(client, true, () =>
-    checkHistory(client).flatMap((db): Result<SourceRow, SourceFailure> => {
+    checkHistory(client).flatMap((db): Result<StoredSource, SourceFailure> => {
       const controller = db
         .select()
         .from(projects)
@@ -66,6 +70,15 @@ export function registerSource(
   );
 }
 
+/** The pane that dispatches or waits for a source's work supervises it from now on. */
+export function superviseSource(db: Db, sourceId: string, pane: string | null) {
+  if (pane !== null)
+    db.update(sources).set({ supervisingPane: pane }).where(eq(sources.id, sourceId)).run();
+}
+
+// Next actions read no supervising pane, so a claim never changes their answer.
+const { supervisingPane: _pane, ...sourceColumns } = getTableColumns(sources);
+
 export function readSources(client: Database, repository: string, sourceId?: string) {
   return transaction(client, false, () =>
     checkHistory(client).flatMap(
@@ -73,19 +86,20 @@ export function readSources(client: Database, repository: string, sourceId?: str
         db,
       ): Result<
         {
-          source: SourceRow;
+          source: StoredSource;
           assignments: AssignmentRow[];
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
+          promotions: (typeof promotions.$inferSelect)[];
           questions: (typeof workerQuestions.$inferSelect)[];
         }[],
         SourceFailure
       > => {
         const now = Date.now();
         const rows = db
-          .select()
+          .select(sourceColumns)
           .from(sources)
           .where(
             sourceId === undefined
@@ -144,6 +158,12 @@ export function readSources(client: Database, repository: string, sourceId?: str
                 // A cleanup with no owner is gone, so it is not running.
                 running: !ownerGone(cleanup, now),
               })),
+            promotions: db
+              .select()
+              .from(promotions)
+              .where(eq(promotions.sourceId, source.id))
+              .orderBy(asc(promotions.promotedAt), asc(promotions.assignment))
+              .all(),
             questions: db
               .select()
               .from(workerQuestions)
@@ -349,6 +369,8 @@ export function pruneSource(
  */
 export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(workerQuestions).where(inArray(workerQuestions.sourceId, ids)).run();
+  db.delete(coordinationWaits).where(inArray(coordinationWaits.scope, ids)).run();
+  db.delete(promotions).where(inArray(promotions.sourceId, ids)).run();
   db.delete(reports).where(inArray(reports.sourceId, ids)).run();
   db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
   db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
