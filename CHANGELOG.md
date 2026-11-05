@@ -1,5 +1,74 @@
 # @fveracoechea/operator
 
+## 2.2.0
+
+### Minor Changes
+
+- 5a1fd71: New `operator next --wait [--source id] [--timeout seconds] --json`: a coordination wait that blocks until the next actions other than waits change, or until its timeout (300 seconds by default), and then returns the normal next answer with `next_actions_changed` or `next_wait_timed_out`.
+  Device state records the set that each scope's last wait returned, so a change between two waits returns at once, also after a restart. It also records the running wait with its process and Herdr pane.
+  The pane that last ran a source's wait or dispatched its work becomes the source's supervising pane. A wait without `--source` claims only open sources that no pane supervises yet.
+  The `super-agent` skill runs the wait as a background command between coordination steps, so worker events arrive as a new turn instead of text typed into the SuperAgent's pane.
+  The device database gains the `coordination_waits` table and a `supervising_pane` column on `sources`. Its migration runs once active assignments are idle, as earlier migrations do.
+- 0139777: `operator report accept --promote <file>` accepts a report and promotes it into a new PR assignment of the same source (ADR-0023). The PR assignment depends on the accepted report and takes over the report's worktree, whose branch takes the PR branch. A worker that still runs keeps its pane under a new Herdr name, its brief is rewritten from the PR template, and the promotion records the steering message `promoted` that tells the worker to read that brief. When the worker had stopped, the PR assignment is ready, and dispatch starts it in the same worktree. The device database gains a `promotions` table through a migration.
+- 5f7be31: `operator install --opencode` now writes Operator's OpenCode plugin to `~/.config/opencode/plugins/operator.ts`. The plugin runs the new `operator opencode hook` command for the same two guards as the Claude Code hook. It refuses a shell `git commit` whose message carries a Co-Authored-By trailer, and when a SuperAgent's session goes idle while the sources its Herdr pane supervises have running work and no `operator next --wait` from that pane runs, it continues the session once with the reason to start the wait. Another continuation needs a person prompt or a background wait that ran in between. The plugin finds the session's pane through Herdr, because one OpenCode server runs every session.
+  `install --check` and `operator ready` report `opencode_plugin_missing` or `opencode_plugin_outdated` until the plugin file carries the release's version marker, so run `operator install --opencode` after the update. A linked or unmanaged plugin file stays unchanged and reports `opencode_plugin_external`. The Nix package ships the plugin at `share/opencode/plugins/operator.ts` for consumers to link.
+- 7a4899b: SuperAgents now steer WorkerAgents on the record.
+  `operator message send` records a keyed steering message for a running worker and types a fixed doorbell line that names the key into the worker's pane. The line carries no instruction.
+  The worker reads the message with `operator message read` and acknowledges it with `operator message ack`, with an optional `--file` reply.
+  `operator next` shows a reply as `read_reply` until `operator message close`, and a message whose doorbell failed or that stays pending for 15 minutes as `worker_attention`. `operator message ring` rings a pending message again.
+  An answer to a worker question now reaches the worker as the steering message `answer:<question>`, which rings the worker's doorbell, and `operator question wait` acknowledges it.
+  A pending or replied message is abandoned when its assignment ends.
+  A promoted report's kept worker now gets the steering message `promoted` for its new brief, and `next` no longer shows `notify_worker`.
+  The state migration adds the `worker_messages` table, and the `super-agent` skill replaces its steps that typed requests into a worker's pane with steering messages.
+- 581ea60: `operator claude hook` now also handles Claude Code's `Stop` event as the SuperAgent's turn-end guard. It blocks the end of a turn once while the sources that the agent's Herdr pane supervises have running work and no `operator next --wait` from that pane runs. The block tells the agent to start the wait as a background command. A turn that the block continued may end, and missing or unusable device state lets the turn end.
+  `operator install --claude` adds a `Stop` group beside the commit hook's `PreToolUse` group. Settings that have one of the groups get only the missing one. `install --check` and `operator ready` report `claude_hook_missing` until Claude Code settings run the hook on both events, so run `operator install --claude` after the update. A linked settings file needs the `Stop` group added to its owner.
+- aaccc2d: The internal reviewer ends its review with `operator pr ready --file <summary.json> --json`.
+  It refuses until every recorded finding has one disposition, each declined finding has a reason, a round 1 blocker that was applied has a round 2, and the worktree is clean at the PR head.
+  It then posts one summary comment, which the CLI renders with a line for each finding, marks the PR ready, and records the ready head. A retry after a lost answer finds the earlier comment and posts no second one. When the head or the rounds changed since, the retry updates that comment.
+  On the person's instruction, the SuperAgent skips a running review with `operator internal-review skip --source <id> --assignment <key> --person-instructed --json`, which marks the PR ready with no comment.
+  `operator pr merge` refuses, and `operator pr wait` reports no `merge_eligible`, until the internal review ended ready or skipped. `mergeConditions` gains `reviewEnded`.
+  With `review.assignments` on, the assignment reviewer is queued when the internal review ends instead of at the association.
+  A launch after the review ended gets the PR owner brief, which says how the review ended. A new state migration adds the end of the review.
+- bea5acb: A plan and each of its assignments accept an optional `intent` with the person's own words. An assignment's `intent` wins over the plan's.
+  The brief shows it as quoted acceptance criteria after the task instructions, and the internal reviewer judges the Spec axis against it.
+  The `super-agent` skill tells the SuperAgent to copy the person's words verbatim into `intent`.
+- 43eb605: A plan can set an optional `maxRunning` running cap (ADR-0006).
+  While that many of its assignments have a starting or live worker, `operator next` lists none of its ready assignments and shows each one as a wait with `running_cap_reached` and its `runningCap`.
+  `operator dispatch` refuses a held assignment with `running_cap_reached`, and the launch reservation checks the cap again, so two dispatches cannot both pass it.
+  PR owners in their feedback loop and internal reviewers count toward the cap. A recorded merge or accepted report frees its place. A replacement worker is not held.
+- 7bb7506: WorkerAgents now ask their SuperAgent on the record.
+  `operator question ask` records a keyed question from the worker's pane, and `operator next` shows it as `answer_question` until the SuperAgent answers with `operator question answer --by super-agent|person`.
+  `operator question escalate` moves a question to the person, and `next` shows it as `person_decision` until the person's answer is recorded.
+  The worker reads the answer with `operator question wait` and can withdraw a question with `operator question withdraw`.
+  A question that is unanswered when its assignment ends is abandoned.
+  The state migration adds the `worker_questions` table, and the brief and the `worker-agent` and `super-agent` skills describe the protocol.
+- 9a61591: The CLI now owns the internal review handoff and its rounds.
+  With internal review on, `operator pr associate` refuses a PR that is not a draft and a worktree with uncommitted, untracked, or unpushed work.
+  A successful association records the review, closes the implementer's pane, and starts a fresh reviewer as the next launch in the same worktree. `next` shows the handoff and the running review as waits, a failed or stopped handoff as `retry_handoff`, and `operator handoff` repeats it.
+  The reviewer records each round's findings with `operator pr round --file <findings.json> --json`, which refuses a third round, a second round at the first round's head, and malformed findings.
+  Each launch records its resolved internal review value, and the reviewer brief comes from the recorded review instead of the PR's draft state.
+  A new state migration adds the review and round records. The ready step and the summary comment stay skill text for now.
+- c2f43a8: WorkerAgents no longer send text to their SuperAgent's pane.
+  A worker update can no longer land in the middle of a prompt that the person is typing.
+  The `worker-agent` skill and the assignment and reviewer briefs drop every step that told a worker to message its SuperAgent.
+  `operator next --wait` now returns a submitted report, a draft PR ready for internal review, and a finished merge.
+  `operator review wait` returns a posted review.
+  A worker that meets a refusal it cannot fix records a question with `operator question ask`.
+  A PR brief now puts the conclusion, evidence, and unresolved points in the PR body.
+  `bun run lint:skills` fails when a line of the `worker-agent` skill tells a worker to message its SuperAgent.
+
+### Patch Changes
+
+- 55760e7: `operator pr merge` now merges a PR that GitHub keeps in a stack. GitHub refused these with `http_403: Merging stacked PRs via this endpoint is not supported`.
+  The guarded merge now sends every PR to GitHub's asynchronous merge endpoint as a direct merge, still pinned to the guarded head.
+  It reads the merge request until it ends, and it reports `pr_merged` only after GitHub shows the PR merged at that head.
+- a6c0f12: Cleanup no longer stops at the worktree step when an install lifecycle script wrote ignored files, such as Husky's hook stubs in `.husky/_/`.
+  Preparation now records each ignored file that appeared during the install, with its content hash, and cleanup disposes such a file only while it is unchanged.
+  A changed or unrecorded ignored file still blocks cleanup. A worktree prepared before this release has no record, so its install output still needs `operator cleanup --person-instructed`.
+- 01d9772: `operator pr merge` now refuses a draft PR with `pr_merge_blocked`, and `operator pr wait` no longer reports `merge_eligible` for a draft. It still reports a draft's feedback and failing checks.
+  Both commands read the draft state from GitHub and report it as `notDraft` in `mergeConditions`. A PR that leaves draft at an eligible head reports `merge_eligible` on the next wait.
+  The `worker-agent` and `super-agent` skills drop their prose rule against merging a draft, because the merge gate now owns it.
+
 ## 2.1.1
 
 ### Patch Changes
