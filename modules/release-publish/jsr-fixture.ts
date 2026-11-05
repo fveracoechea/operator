@@ -62,6 +62,9 @@ export async function startJsrFake(
   await Bun.$`chmod +x ${request.binDirectory}/jsr`.quiet();
 
   const server = Bun.serve({
+    // The fake holds the address the plan reads. On the default IPv6 wildcard, another process
+    // can still listen on 127.0.0.1 at the same port and answer the read in its place.
+    hostname: "127.0.0.1",
     port: 0,
     async fetch(incoming) {
       const url = new URL(incoming.url);

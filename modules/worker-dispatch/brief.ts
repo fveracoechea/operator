@@ -1,5 +1,7 @@
 import type { WorkSources } from "../work-sources/main.ts";
 
+type Finding = { axis: string; severity: string; location: string; claim: string };
+
 type BriefInput = {
   sourceId: string;
   sourceTrackerKey: string;
@@ -21,6 +23,11 @@ type BriefInput = {
   stack: { assignment: string; number: number; branch: string } | null;
   /** The launch's resolved internal review value. Only a PR assignment uses it. ADR-0020. */
   internalReview: boolean;
+  /** The recorded internal review of the PR, which makes this start its reviewer while it runs. */
+  review: {
+    state: "reviewing" | "ready" | "skipped";
+    rounds: { number: number; head: string; findings: Finding[] }[];
+  } | null;
   /** The accepted report that this PR assignment was promoted from. ADR-0023. */
   promotion: { report: string; number: number } | null;
 };
@@ -94,6 +101,28 @@ const stackRule = [
   "Run no other `gh stack` command, because the relay and `operator pr merge` own the rebase, push, base change, and merge.",
 ];
 
+function findingLine(finding: Finding) {
+  return `  - ${finding.axis}, ${finding.severity}, \`${finding.location}\`: ${finding.claim.replaceAll("\n", " ")}`;
+}
+
+/** The reviewer role comes from the recorded review, not from the PR's draft state. */
+function reviewer(number: number, review: NonNullable<BriefInput["review"]>) {
+  const rounds = review.rounds.map((round) =>
+    [
+      `- Round ${round.number} at \`${round.head}\`: ${round.findings.length === 0 ? "no findings." : ""}`.trimEnd(),
+      ...round.findings.map(findingLine),
+    ].join("\n"),
+  );
+  return [
+    `You are the internal reviewer of PR #${number}. Operator ended the implementer's session and started you in its worktree.`,
+    "Read the `internal-review.md` topic of the `worker-agent` skill before you start.",
+    "Do not use the PR body, the commit messages, or earlier owner messages as evidence.",
+    "Record each round's findings with `operator pr round --file <findings.json> --json` before you change code.",
+    ...(rounds.length === 0 ? ["No round is recorded yet."] : ["Recorded rounds:", ...rounds]),
+    "If the PR is already ready for review, the review has ended and you own the PR feedback loop below.",
+  ];
+}
+
 function feedbackLoop(input: BriefInput) {
   if (input.completion !== "pr") return "";
   const base =
@@ -110,10 +139,12 @@ ${[
   "Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.",
   base,
   ...(input.stack === null ? [] : stackRule),
-  "Push with `git push -u`, so Git records the remote of your branch.",
+  "Commit all work and push with `git push -u`, so Git records the remote of your branch.",
   "Then run `operator pr associate --json` in your worktree.",
-  "Do not mark the PR ready for review. A fresh reviewer takes over the PR and owns it until its merge.",
-  "Tell your supervising SuperAgent that the draft PR is ready for internal review, then stop.",
+  "It refuses a PR that is not a draft, and a worktree with uncommitted, untracked, or unpushed work. Fix the cause and run it again.",
+  "Do not mark the PR ready for review.",
+  "After the association, Operator ends this session and starts a fresh reviewer in this worktree. The reviewer owns the PR until its merge.",
+  "Stop once the association succeeds. Your SuperAgent sees the handoff in `operator next`, so send it no message.",
 ].join("\n")}
 `;
   const opened =
@@ -126,12 +157,8 @@ ${[
         ]
       : [
           `PR #${input.pullRequest.number} is already open for this assignment: ${input.pullRequest.url}.`,
-          ...(input.internalReview
-            ? [
-                "Internal review is on for this assignment.",
-                "If the PR is a draft, you are its internal reviewer. Read the `internal-review.md` topic of the `worker-agent` skill before you start.",
-                "Do not use the PR body or earlier owner messages as evidence.",
-              ]
+          ...(input.review?.state === "reviewing"
+            ? reviewer(input.pullRequest.number, input.review)
             : []),
           "Read its reviews, comments, unresolved threads, and checks before you wait.",
           "Inspect the worktree first. Keep work that is not landed.",

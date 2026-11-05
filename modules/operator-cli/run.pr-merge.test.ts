@@ -122,6 +122,8 @@ async function setup(
     JSON.stringify({
       superAgent:
         host === "opencode" ? { host, model: "test/reasoner" } : { host, model: "precise-model" },
+      // These tests cover the association without internal review. ADR-0020.
+      review: { internal: false },
     }),
     { createPath: true },
   );

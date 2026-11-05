@@ -98,6 +98,8 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     `${root}/config/operator/config.json`,
     JSON.stringify({
       superAgent: { host: "opencode", model: "test/reasoner" },
+      // Internal review has its own tests, so these devices associate without it. ADR-0020.
+      review: { internal: false },
       profiles: {
         careful: { reasoningEffort: "high" },
         claude: { host: "claude-code", model: "precise-model", reasoningEffort: "medium" },

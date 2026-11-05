@@ -56,6 +56,8 @@ export function storedSource(
     pullRequests: rows.pullRequests ?? [],
     reports: rows.reports ?? [],
     cleanups: rows.cleanups ?? [],
+    internalReviews: rows.internalReviews ?? [],
+    internalReviewRounds: rows.internalReviewRounds ?? [],
     promotions: rows.promotions ?? [],
     questions: rows.questions ?? [],
   };
@@ -93,6 +95,7 @@ export function storedLaunch(
     failureDetail: null,
     activity: null,
     activityAt: null,
+    internalReview: null,
     ownerPid: null,
     leaseAt: null,
     abandoned: false,

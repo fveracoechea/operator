@@ -108,7 +108,7 @@ const associationQuery = `query($owner: String!, $name: String!, $branch: String
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
     pullRequests(headRefName: $branch, states: [OPEN], first: 10) {
-      nodes { number url baseRefName headRefName headRepository { nameWithOwner } }
+      nodes { number url isDraft baseRefName headRefName headRefOid headRepository { nameWithOwner } }
     }
   }
 }`;
@@ -122,8 +122,10 @@ const associationAnswer = z.object({
           z.object({
             number: z.number().int().positive(),
             url: z.string(),
+            isDraft: z.boolean(),
             baseRefName: z.string(),
             headRefName: z.string(),
+            headRefOid: z.string(),
             headRepository: z.object({ nameWithOwner: z.string() }).nullable(),
           }),
         ),
@@ -244,6 +246,8 @@ export function openPullRequests(repository: string, branch: string) {
         url: pr.url,
         base: pr.baseRefName,
         defaultBranch: answer.data.repository.defaultBranchRef?.name ?? null,
+        draft: pr.isDraft,
+        head: pr.headRefOid,
       })),
   );
 }

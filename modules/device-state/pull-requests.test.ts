@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { migrationsFolder } from "./database.ts";
+import { claimHandoff } from "./internal-reviews.ts";
 import { readSources, registerSource } from "./sources.ts";
 import { registerProject, removeProject } from "./projects.ts";
 import { observePane, reserveLaunch, updateLaunch } from "./launches.ts";
@@ -144,6 +145,33 @@ test("association moves a running PR assignment to PR open once and repeats with
     error: { reason: "pr_already_associated" },
   });
   expect(db.query("SELECT number FROM pull_requests").all()).toEqual([{ number: 7 }]);
+});
+
+test("an association holds its handoff, so next never shows it stopped before the handoff starts", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
+  expect(readSources(db, "owner/one")).toMatchObject({
+    tag: "Ok",
+    value: [{ internalReviews: [{ handoffState: "pending", handoffRunning: true }] }],
+  });
+});
+
+test("only the handoff that an association started takes over its hold", async () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
+  // Another live process stands in for the associating process.
+  await using associating = Bun.spawn([process.execPath, "-e", "await Bun.sleep(60000)"]);
+  db.query("UPDATE internal_reviews SET owner_pid = ?").run(associating.pid);
+  expect(claimHandoff(db, "owner/one", "s1", "change", null)).toMatchObject({
+    error: { reason: "handoff_running" },
+  });
+  expect(claimHandoff(db, "owner/one", "s1", "change", associating.pid)).toMatchObject({
+    tag: "Ok",
+    value: { review: { handoffState: "pending", ownerPid: process.pid } },
+  });
+  associating.kill();
 });
 
 test("one PR belongs to one open assignment, and a stale or report owner changes nothing", () => {

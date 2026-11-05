@@ -16,6 +16,7 @@ import {
 } from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import { owned } from "./internal-review.ts";
 
 type Request = { paths: Paths; cwd: string };
 type Failure = { reason: string; detail: string };
@@ -181,17 +182,19 @@ async function requestMerge(
  * PR head. A refusal performs no merge request and writes nothing.
  */
 export function merge(input: Request) {
-  return resolveOwner(input).flatMap((owner): AsyncResult<Outcome, Failure> => {
-    const number = owner.pullRequest;
-    if (number === null)
-      return ErrAsync<Failure>({
-        reason: "pr_not_associated",
-        detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
-      });
-    return observePullRequest(owner.repository, number).flatMap((observed) =>
-      fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
-        guarded(input, owner, number, observed, local),
-      ),
-    );
-  });
+  return resolveOwner(input)
+    .flatMap(owned)
+    .flatMap((owner): AsyncResult<Outcome, Failure> => {
+      const number = owner.pullRequest;
+      if (number === null)
+        return ErrAsync<Failure>({
+          reason: "pr_not_associated",
+          detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
+        });
+      return observePullRequest(owner.repository, number).flatMap((observed) =>
+        fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
+          guarded(input, owner, number, observed, local),
+        ),
+      );
+    });
 }

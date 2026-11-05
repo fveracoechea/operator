@@ -1,11 +1,11 @@
 # Internal review
 
 You are the internal reviewer of a draft PR when your brief says so.
-You are a fresh reader. You also own the PR from now until its merge.
+Operator started you when the implementer associated the draft, so you are a fresh reader. You also own the PR from now until its merge.
 You apply the valid findings yourself, mark the PR ready, and then run the PR feedback loop and the guarded merge.
 
-In this release, Operator does not record or check the rounds, the summary comment, or the ready step.
-Follow each limit below as written.
+Operator records each round and enforces its limits through `operator pr round`.
+In this release, it does not record or check the summary comment or the ready step. Follow those steps as written.
 
 ## 1. Read the inputs
 
@@ -17,7 +17,7 @@ Your inputs are the tracker issue, the assignment instructions and acceptance cr
 
 The PR body, the commit messages, and any message from the implementer are claims, not evidence.
 Check each claim against the code before you use it.
-Earlier files in your brief's report directory are evidence only when they are earlier `internal-review-round-<n>.md` files.
+Your brief lists the rounds that Operator recorded, with their findings. They are evidence, and so are earlier `internal-review-round-<n>.md` decision files in your brief's report directory.
 
 ## 2. Review one round
 
@@ -33,23 +33,35 @@ Load the `code-review` skill for Spec and Standards, with the PR base as its fix
 Do the Skills axis yourself.
 Read the checks with `gh pr checks <number>`. A failing check is a blocker finding.
 
-Before you change code, write the round's findings to `internal-review-round-<n>.md` in the report directory that your brief names.
-Give the reviewed head SHA, and for each finding its axis, its severity (blocker or nice-to-have), its location, and the claim with its evidence.
+Before you change code, record the round's findings at your worktree head, which must be the pushed PR head.
+Write a JSON file outside the checkout, then run `operator pr round --file <file> --json`:
+
+```json
+{
+  "findings": [
+    { "axis": "Spec", "severity": "blocker", "location": "src/a.ts:12", "claim": "<claim with its evidence>" }
+  ]
+}
+```
+
+`axis` is `Spec`, `Standards`, or `Skills`, and `severity` is `blocker` or `nice-to-have`. A round with no findings records `"findings": []`.
+The command refuses a file with any other shape, a third round, a second round at the head of the first, and a round after the review ended. A refusal records nothing.
 
 ## 3. Apply the valid findings
 
 Decide for each finding: apply it, or decline it with a reason.
 Apply each valid finding, commit, and push to the same draft PR branch.
-Write each decision and its commit or reason under the finding in the round file.
+Write each decision and its commit or reason in `internal-review-round-<n>.md` in the report directory that your brief names.
 
 ## 4. Do a second round when the first round had a blocker
 
 A round that had a blocker needs a second round at the new head, because the fixes need a review too.
-Give the second round to a fresh native subagent with the inputs from step 1, the round 1 file, and no account of your own reasoning.
+Push the fixes of round 1 first. `operator pr round` refuses round 2 at the head of round 1.
+Give the second round to a fresh native subagent with the inputs from step 1, the round 1 findings, and no account of your own reasoning.
 Apply and record its valid findings as in step 3.
 If you declined every blocker of round 1, the head did not move. Skip the second round and give each reason in the summary comment.
 
-The limit is two rounds. After round 2, record the decisions and continue to step 5.
+The limit is two rounds, and `operator pr round` refuses a third. After round 2, record the decisions and continue to step 5.
 
 ## 5. Post the summary and mark the PR ready
 

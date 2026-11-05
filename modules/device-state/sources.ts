@@ -9,6 +9,8 @@ import {
   assignments,
   cleanups,
   coordinationWaits,
+  internalReviewRounds,
+  internalReviews,
   launches,
   projects,
   promotions,
@@ -92,6 +94,8 @@ export function readSources(client: Database, repository: string, sourceId?: str
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
+          internalReviews: (typeof internalReviews.$inferSelect & { handoffRunning: boolean })[];
+          internalReviewRounds: (typeof internalReviewRounds.$inferSelect)[];
           promotions: (typeof promotions.$inferSelect)[];
           questions: (typeof workerQuestions.$inferSelect)[];
         }[],
@@ -158,6 +162,22 @@ export function readSources(client: Database, repository: string, sourceId?: str
                 // A cleanup with no owner is gone, so it is not running.
                 running: !ownerGone(cleanup, now),
               })),
+            internalReviews: db
+              .select()
+              .from(internalReviews)
+              .where(eq(internalReviews.sourceId, source.id))
+              .all()
+              .map((review) => ({
+                ...review,
+                // A handoff with no owner is gone, so it is not running.
+                handoffRunning: review.handoffState === "pending" && !ownerGone(review, now),
+              })),
+            internalReviewRounds: db
+              .select()
+              .from(internalReviewRounds)
+              .where(eq(internalReviewRounds.sourceId, source.id))
+              .orderBy(asc(internalReviewRounds.assignment), asc(internalReviewRounds.number))
+              .all(),
             promotions: db
               .select()
               .from(promotions)
@@ -368,6 +388,8 @@ export function pruneSource(
  * keeps its own lifecycle, so it stays.
  */
 export function deleteSourceRecords(db: Db, ids: string[]) {
+  db.delete(internalReviewRounds).where(inArray(internalReviewRounds.sourceId, ids)).run();
+  db.delete(internalReviews).where(inArray(internalReviews.sourceId, ids)).run();
   db.delete(workerQuestions).where(inArray(workerQuestions.sourceId, ids)).run();
   db.delete(coordinationWaits).where(inArray(coordinationWaits.scope, ids)).run();
   db.delete(promotions).where(inArray(promotions.sourceId, ids)).run();
