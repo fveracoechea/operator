@@ -25,7 +25,8 @@ export type LaunchFailure =
         | "source_not_found"
         | "assignment_not_dispatchable"
         | "launch_name_taken"
-        | "launch_not_starting";
+        | "launch_not_starting"
+        | "running_cap_reached";
       detail: string;
     };
 type LaunchResources = Partial<
@@ -76,20 +77,6 @@ function dispatchable(
   );
 }
 
-/** The ordinary dispatch rule, or a reviewer start after the implementer's handoff ended it. */
-function startable(
-  db: Db,
-  assignment: string | undefined,
-  latest: LaunchRow | undefined,
-  abandoned: boolean,
-  now: number,
-) {
-  if (assignment === "pr-open" && handoffDispatchable(db, latest, now)) return true;
-  // Stryker disable next-line ConditionalExpression: equivalent: a ready assignment has no launch, so it has no returned report
-  const returned = latest !== undefined && latestReturned(db, latest.sourceId, latest.assignment);
-  return dispatchable(assignment, latest?.state, abandoned, returned);
-}
-
 /** A report that the SuperAgent returned with follow-up needs a worker again. */
 function latestReturned(db: Db, sourceId: string, assignment: string) {
   const report = db
@@ -101,12 +88,85 @@ function latestReturned(db: Db, sourceId: string, assignment: string) {
   return report?.decision === "returned";
 }
 
-/** Reserve the assignment before any external effect, so a second dispatch cannot start it. */
+/** How many of the source's assignments have a latest launch that runs or starts with a live owner. */
+function runningCount(db: Db, sourceId: string, now: number) {
+  // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
+  // and worktree may still close.
+  const ended = new Set(
+    db
+      .select({ key: assignments.key })
+      .from(assignments)
+      .where(
+        and(
+          eq(assignments.sourceId, sourceId),
+          inArray(assignments.state, ["merged", "completed", "abandoned"]),
+        ),
+      )
+      .all()
+      .map((row) => row.key),
+  );
+  const latest = new Map<string, LaunchRow>();
+  for (const row of db
+    .select()
+    .from(launches)
+    .where(eq(launches.sourceId, sourceId))
+    .orderBy(launches.attempt)
+    .all())
+    if (!ended.has(row.assignment)) latest.set(row.assignment, row);
+  return [...latest.values()].filter(
+    (row) => row.state === "running" || (row.state === "starting" && !ownerGone(row, now)),
+  ).length;
+}
+
+/** Why the assignment cannot start now, or null when it can. */
+function startRefusal(
+  db: Db,
+  facts: {
+    source: { id: string; state: string };
+    key: string;
+    assignmentState: string | undefined;
+    latest: LaunchRow | undefined;
+    latestState: string | undefined;
+    abandoned: boolean;
+    maxRunning: number | undefined;
+    now: number;
+  },
+): LaunchFailure | null {
+  const { source, key, assignmentState, maxRunning } = facts;
+  const returned = latestReturned(db, source.id, key);
+  // A reviewer start after the implementer's handoff ended it is not an ordinary dispatch.
+  const handoff = assignmentState === "pr-open" && handoffDispatchable(db, facts.latest, facts.now);
+  if (
+    source.state !== "open" ||
+    (!handoff && !dispatchable(assignmentState, facts.latestState, facts.abandoned, returned))
+  )
+    return {
+      reason: "assignment_not_dispatchable",
+      detail: `Assignment ${key} changed before dispatch. Read next actions again. Nothing was launched.`,
+    };
+  // Only ready work waits for a place. A replacement continues started work. ADR-0006.
+  if (
+    assignmentState === "ready" &&
+    maxRunning !== undefined &&
+    runningCount(db, source.id, facts.now) >= maxRunning
+  )
+    return {
+      reason: "running_cap_reached",
+      detail: `The plan's running cap of ${maxRunning} is reached. Read next actions again after a worker ends. Nothing was launched.`,
+    };
+  return null;
+}
+
+/**
+ * Reserve the assignment before any external effect, so a second dispatch cannot start it. The
+ * plan's running cap is checked in the same transaction, so two dispatches cannot both pass it.
+ */
 export function reserveLaunch(
   client: Database,
   checkout: string,
   repository: string,
   launch: LaunchReservation,
+  maxRunning?: number,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<LaunchRow, LaunchFailure> => {
@@ -143,11 +203,17 @@ export function reserveLaunch(
         .get();
       const now = Date.now();
       const abandoned = latest?.state === "starting" && ownerGone(latest, now);
-      if (source.state !== "open" || !startable(db, assignment?.state, latest, abandoned, now))
-        return Err({
-          reason: "assignment_not_dispatchable",
-          detail: `Assignment ${launch.assignment} changed before dispatch. Read next actions again. Nothing was launched.`,
-        });
+      const refused = startRefusal(db, {
+        source,
+        key: launch.assignment,
+        assignmentState: assignment?.state,
+        latest,
+        latestState: latest?.state,
+        abandoned,
+        maxRunning,
+        now,
+      });
+      if (refused !== null) return Err(refused);
       if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
         return Err({
           reason: "launch_name_taken",

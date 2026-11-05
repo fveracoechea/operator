@@ -43,6 +43,8 @@ export const planSchema = z
     intent,
     // Internal review of a draft PR. An assignment's value wins over the plan's. ADR-0020.
     internalReview: z.boolean().optional(),
+    // The running cap. Next holds ready work while this many assignments have a live worker. ADR-0006.
+    maxRunning: z.number().int().min(1).optional(),
     assignments: z.array(
       z.union([
         z.strictObject({

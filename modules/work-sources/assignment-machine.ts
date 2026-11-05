@@ -32,6 +32,8 @@ type Facts = {
   handoff?: "running" | "stopped" | "failed";
   /** A recorded internal review that has not ended. */
   reviewing?: boolean;
+  /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
+  capReached?: boolean;
 };
 type Decision = {
   action:
@@ -56,6 +58,7 @@ type Decision = {
     | "pr_not_open"
     | "pr_relay_blocked"
     | "dependencies_pending"
+    | "running_cap_reached"
     | "assignment_active"
     | "assignment_ended"
     | "cleanup_running"
@@ -278,6 +281,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       reason: "dependencies_pending",
       blockers: dependencyBlockers(assignment, dependencies),
     }),
+  },
+  // Only ready work is held. A replacement keeps work that already holds its place going.
+  {
+    when: ({ capReached }) => capReached === true,
+    decide: () => ({ action: "wait", reason: "running_cap_reached", blockers: [] }),
   },
 ];
 

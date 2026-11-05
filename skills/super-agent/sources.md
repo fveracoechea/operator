@@ -10,6 +10,8 @@ Use `pane` for read-only reports.
 Use `worktree` and a Git `branch` name for PRs and reports that change project files.
 An optional `profile` names an existing device start profile.
 Dependencies name unique assignment keys within this plan.
+An optional top-level `maxRunning` caps the plan's assignments with a starting or live worker, including PR owners in their feedback loop and internal reviewers.
+Leave it out unless the person asks to protect CI minutes or the device on a large plan.
 Instructions state your delegated authority and when the WorkerAgent must ask the person.
 An optional `intent` on the plan or on an assignment holds the person's own words for the work. An assignment's `intent` wins over the plan's.
 Copy the person's words verbatim into `intent`. Put your interpretation, scope, and build steps in `instructions`.
@@ -20,6 +22,9 @@ Read `operator next --json`, or select one project source with `--source <source
 Use its ready candidates and waits rather than keep a second schedule.
 A PR dependency permits work at `pr-open` or `merged`.
 A report dependency waits for accepted `completed`, not submitted `reported`.
+While the cap is reached, each ready assignment of the plan is a wait with `running_cap_reached` and its `runningCap`, and dispatch refuses it with the same reason.
+A `replace_worker` action is never held, so a replacement continues started work even above the cap.
+A recorded merge or accepted report frees its place, also while its pane and worktree close.
 Plans are fixed after registration. Independent work needs an assignment in a new plan.
 
 Registration launches no worker, and next actions change no state.

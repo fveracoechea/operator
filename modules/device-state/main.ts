@@ -134,8 +134,16 @@ export const DeviceState = {
       "Register the project explicitly before registering a source.",
     );
   },
-  reserveLaunch(paths: Paths, checkout: string, repository: string, launch: LaunchReservation) {
-    return writing(paths, (client) => reserveLaunch(client, checkout, repository, launch));
+  reserveLaunch(
+    paths: Paths,
+    checkout: string,
+    repository: string,
+    launch: LaunchReservation,
+    maxRunning?: number,
+  ) {
+    return writing(paths, (client) =>
+      reserveLaunch(client, checkout, repository, launch, maxRunning),
+    );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
     return writing(paths, (client) => updateLaunch(client, id, change));

@@ -16,6 +16,7 @@ export function storedSource(
   rows: Partial<Omit<Stored, "source" | "assignments">> & {
     state?: string;
     endedAt?: string | null;
+    maxRunning?: number;
   } = {},
 ): Stored {
   return {
@@ -28,6 +29,7 @@ export function storedSource(
       endedAt: rows.endedAt ?? null,
       plan: JSON.stringify({
         trackerKey: "APP-1",
+        maxRunning: rows.maxRunning,
         assignments: planned.map((row) => {
           const base = {
             key: row.key,
