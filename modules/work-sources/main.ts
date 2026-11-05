@@ -400,7 +400,8 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   };
 }
 
-// An unanswered question or an open message explains an idle worker, so it replaces that attention.
+// An unanswered question, a reply, or a message that needs attention explains an idle worker, so it
+// replaces that attention. A pending message inside its period leaves the idle attention shown.
 const idleReasons = new Set(["worker_idle", "pr_owner_idle"]);
 
 /** The SuperAgent answers an open question. A question that it moved to the person waits on the person. */

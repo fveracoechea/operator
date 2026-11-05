@@ -14,7 +14,8 @@ The worker reads the message and acknowledges it, with a short reply when the me
 - `worker_attention` with `doorbell_failed`: Herdr refused the doorbell. Check the worker's pane, then run `operator message ring --source <id> --assignment <key> --key <message> --json`.
 - `worker_attention` with `message_unacknowledged`: the worker left the message pending for 15 minutes since its last ring. Check whether the worker is in a long turn before you ring again.
 
-A pending or replied message replaces the idle-worker attention of its assignment.
+A replied message, or a pending message that shows as `worker_attention`, replaces the idle-worker attention of its assignment.
+A pending message inside its 15 minutes still leaves `worker_idle` or `pr_owner_idle`. Send no second message for it. Ring it again when the worker stays idle.
 Close a pending message that you no longer need with `operator message close`.
 A message whose assignment ends is abandoned.
 An answer to a worker question is a steering message with the key `answer:<question>`, so it rings the same doorbell, and the worker's `operator question wait` acknowledges it.
