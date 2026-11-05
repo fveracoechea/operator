@@ -10,7 +10,8 @@ import { WorktreePreparation } from "../worktree-preparation/main.ts";
 import { pluginId, pluginManifestFile } from "./plugin.ts";
 import { qualify, type Failure, type Paths } from "./observations.ts";
 
-const eventSchema = z.object({
+/** The plugin event fields that Operator reads. Herdr owns this JSON. */
+export const eventSchema = z.object({
   event: z.string(),
   data: z.looseObject({
     pane_id: z.string().optional(),
