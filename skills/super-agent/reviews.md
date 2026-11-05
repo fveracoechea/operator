@@ -23,7 +23,7 @@ The reviewer writes a draft and posts it with `operator review post <pr-url> --j
 Do not post for it.
 
 An assignment reviewer is off by default.
-`operator config apply --set review.assignments=true` queues a review request when a PR owner runs `pr associate`.
+`operator config apply --set review.assignments=true` queues a review request when a PR owner runs `pr associate`, or, with internal review on, when the internal review ends.
 Its review is always a comment, because the owner's account cannot approve its own PR, so it never supplies the merge approval.
 
 `review wait` watches every open request until something changes or a row needs you, then returns its `events` and the rows of `review next`.
