@@ -352,6 +352,7 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
     [{ ...eligible, checks: [{ name: "lint", conclusion: "FAILURE" }] }, "pr_merge_blocked"],
     [{ ...eligible, threads: [{ comments: [{ id: "T1", body: "Fix." }] }] }, "pr_merge_blocked"],
     [{ ...eligible, baseRefName: "release" }, "pr_merge_blocked"],
+    [{ ...eligible, isDraft: true }, "pr_merge_blocked"],
     [{ ...eligible, head: "pushed-elsewhere" }, "pr_head_mismatch"],
     [{ ...eligible, state: "CLOSED" }, "pr_not_open"],
   ];
