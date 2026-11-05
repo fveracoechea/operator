@@ -19,6 +19,10 @@ function router(frontmatter: string[], body: string[] = []): string {
 
 const validFrontmatter = ["name: sample", "description: Use when the sample fires."];
 
+function descriptionLine(length: number): string {
+  return `description: ${"a".repeat(length)}`;
+}
+
 async function checkSkills(files: Record<string, string>) {
   const skillsRoot = join(workspace, crypto.randomUUID());
   await Promise.all(
@@ -78,6 +82,28 @@ test("refuses a router over 150 lines", async () => {
   expect(await checkSkills({ "sample/SKILL.md": router(validFrontmatter, body) })).toEqual({
     exitCode: 1,
     stderr: "sample/SKILL.md: a router is 150 lines at most, and this is 151\n",
+    stdout: "",
+  });
+});
+
+test("accepts skill descriptions that total 2200 characters", async () => {
+  expect(
+    await checkSkills({
+      "first/SKILL.md": router(["name: first", descriptionLine(1100)]),
+      "second/SKILL.md": router(["name: second", descriptionLine(1100)]),
+    }),
+  ).toEqual({ exitCode: 0, stderr: "", stdout: "" });
+});
+
+test("refuses skill descriptions that total over 2200 characters", async () => {
+  expect(
+    await checkSkills({
+      "first/SKILL.md": router(["name: first", descriptionLine(1100)]),
+      "second/SKILL.md": router(["name: second", descriptionLine(1101)]),
+    }),
+  ).toEqual({
+    exitCode: 1,
+    stderr: ".: skill descriptions total 2200 characters at most, and these total 2201\n",
     stdout: "",
   });
 });

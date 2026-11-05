@@ -13,6 +13,10 @@ const portableFloor = new Set(["name", "description", "license", "compatibility"
 // so there the skill falls back to model invocation.
 const allowedFields = new Set([...portableFloor, "disable-model-invocation"]);
 const routerLineLimit = 150;
+// Every agent pays for each description on every turn. The budget keeps modest headroom over
+// the current total, so growth past a few more skills is a deliberate trim or raise.
+const descriptionBudget = 2200;
+let descriptionTotal = 0;
 
 function normalized(path: string): string {
   return path.split(sep).join("/");
@@ -69,6 +73,11 @@ function checkFrontmatter(routerPath: string, directory: string, text: string): 
     return;
   }
 
+  const description = z.string().safeParse(fields.description);
+  if (description.success) {
+    descriptionTotal += description.data.length;
+  }
+
   if (fields.name !== directory) {
     errors.push(
       `${routerPath}: frontmatter name ${JSON.stringify(fields.name)} must be the directory name "${directory}"`,
@@ -115,6 +124,12 @@ for await (const routerPath of new Bun.Glob("*/SKILL.md").scan({
   }
 
   await checkTopicFiles(directory, text);
+}
+
+if (descriptionTotal > descriptionBudget) {
+  errors.push(
+    `${normalized(relative(process.cwd(), skillsRoot)) || "."}: skill descriptions total ${descriptionBudget} characters at most, and these total ${descriptionTotal}`,
+  );
 }
 
 if (errors.length > 0) {
