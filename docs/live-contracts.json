@@ -1,0 +1,15 @@
+{
+  "verifiedOn": "2026-11-04",
+  "versions": {
+    "bun": "1.4.4",
+    "herdr": "herdr 0.9.5",
+    "opencode": "opencode v2.2.5",
+    "claude": "2.1.311 (Claude Code)",
+    "@anthropic-ai/claude-agent-sdk": "0.3.310"
+  },
+  "files": [
+    "modules/agent-hosts/main.contract.ts",
+    "modules/herdr/main.contract.ts",
+    "modules/worker-dispatch/hooks.contract.ts"
+  ]
+}
