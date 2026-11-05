@@ -49,4 +49,4 @@ The SuperAgent keeps context low, reads short reports, and opens details only fo
 - Detailed work by the SuperAgent was rejected because that consumes the context needed for supervision.
 - Automatic deletion of changed old-name skills was rejected because managed installation does not own user edits.
 
-Related: ADR-0008, safe owned-skill replacement; ADR-0010, guarded PR merge; ADR-0013, report completion and authority; ADR-0014, profiles do not define worker roles; ADR-0002, one skill home and task-specific disclosure.
+Related: ADR-0008, safe owned-skill replacement; ADR-0010, guarded PR merge; ADR-0013, report completion and authority; ADR-0014, profiles do not define worker roles; ADR-0002, one skill home and task-specific disclosure; ADR-0022, workers reach their SuperAgent only through recorded state.

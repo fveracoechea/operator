@@ -36,4 +36,4 @@ The SuperAgent supplies the coordination judgment and obtains the person's decis
 - Independent command reports that agents combine into a schedule were rejected because the combination becomes a second implementation of workflow order.
 - Treating a host completion event as accepted work was rejected because it proves neither a durable report nor a verified merge.
 
-Related: ADR-0003, declarative machines provide the workflow states; ADR-0010, PR owners follow the feedback loop; ADR-0013, report acceptance is distinct from worker activity; ADR-0015, review waits own review operations.
+Related: ADR-0003, declarative machines provide the workflow states; ADR-0010, PR owners follow the feedback loop; ADR-0013, report acceptance is distinct from worker activity; ADR-0015, review waits own review operations; ADR-0006, next actions apply a plan's running cap; ADR-0022, the SuperAgent's coordination wait returns this read.
