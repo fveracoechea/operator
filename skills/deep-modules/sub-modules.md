@@ -35,7 +35,10 @@ import {runTurn} from './turn'
 
 export type {TurnStep} from './turn'
 
-/** One turn of a thread. `run` POSTs the message and reports the answer as it streams. */
+/**
+ * One turn of a thread. `run` POSTs the message and reports the answer as it
+ * streams.
+ */
 export const Turn = {
   run: runTurn,
   /** A failed request phrased for the user, whatever threw. */
@@ -60,7 +63,6 @@ The sub-module follows the module rules:
 
 A route reaches the turn through `Chat`, such as `<Chat.UI.Panel />`, and never learns that `Turn` exists.
 When a caller outside the module needs the sub-module's behaviour, put a finished member on the parent's object.
-The lint pattern in [entry-file-lint.md](entry-file-lint.md) rejects `@/modules/chat/turn/main` from outside the module.
 
 ## Add a sub-module when a group of files hides something
 

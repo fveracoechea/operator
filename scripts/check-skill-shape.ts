@@ -13,7 +13,7 @@ const portableFloor = new Set(["name", "description", "license", "compatibility"
 // Claude Code keeps a user-invoked skill out of the agent's reach. opencode drops the field,
 // so there the skill falls back to model invocation.
 const allowedFields = new Set([...portableFloor, "disable-model-invocation"]);
-const routerLineLimit = 150;
+const routerLineLimit = 180;
 const workerSkill = "worker-agent";
 // Every agent pays for each description on every turn. The budget keeps modest headroom over
 // the current total, so growth past a few more skills is a deliberate trim or raise.

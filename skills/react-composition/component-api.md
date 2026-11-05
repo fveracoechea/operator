@@ -8,6 +8,7 @@ Write a component for each use case, and let each one compose the parts it needs
 ## Make each choice its own part, not a flag
 
 A boolean that selects which parts render is a mode.
+A nullable prop is a mode too when null renders other parts than a value, such as `answered: Answer | null` that swaps a reply box for the answer.
 
 Incorrect.
 Each flag adds a branch, and the branches multiply.
@@ -100,6 +101,13 @@ Such a boolean is not a mode, because the part always renders.
 <TaskPanel.Save disabled={isSaving} />
 ```
 
+A nullable prop that fills one slot is not a mode either, because the parts around the slot always render.
+
+```tsx
+// Correct. The title always renders, and the badge fills one slot in it.
+<TaskPanel.Title badge={overdue ? <Badge>Overdue</Badge> : null} />
+```
+
 ## Name the component after the use case
 
 Give the component the name of the use case, and let it compose the parts.
@@ -184,7 +192,7 @@ function TaskPanelTitleInput({ref}: {ref: React.Ref<HTMLInputElement>}) {
 
 ## Steps
 
-1. List the booleans of the component, and mark each one as a mode or as an attribute.
+1. List the booleans and nullable props of the component, and mark each one as a mode, an attribute or a slot.
 2. Write one component for each use case the modes encode, and name it after the use case.
 3. Cut the body into parts, one for each choice a mode was making.
 4. Replace every `renderX` prop that places static JSX with `children`.

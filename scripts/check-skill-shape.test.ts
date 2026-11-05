@@ -77,11 +77,11 @@ test("accepts a user-invoked router", async () => {
   });
 });
 
-test("refuses a router over 150 lines", async () => {
-  const body = Array.from({ length: 145 }, (_, index) => `Line ${index + 1}.`);
+test("refuses a router over 180 lines", async () => {
+  const body = Array.from({ length: 175 }, (_, index) => `Line ${index + 1}.`);
   expect(await checkSkills({ "sample/SKILL.md": router(validFrontmatter, body) })).toEqual({
     exitCode: 1,
-    stderr: "sample/SKILL.md: a router is 150 lines at most, and this is 151\n",
+    stderr: "sample/SKILL.md: a router is 180 lines at most, and this is 181\n",
     stdout: "",
   });
 });

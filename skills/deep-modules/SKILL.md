@@ -56,7 +56,6 @@ The entry files differ, and [module-shape.md](module-shape.md) lists the set for
 
 - **Creating a module, adding a file to one, placing a helper, or checking import direction**: [module-shape.md](module-shape.md).
 - **Splitting a module into sub-modules, or adding a folder inside one**: [sub-modules.md](sub-modules.md).
-- **Setting up the lint rule that guards the entry files**: [entry-file-lint.md](entry-file-lint.md).
 - **Reading environment variables or keeping per-request state in a module**: [server-state.md](server-state.md).
 - **Designing or reviewing an interface, or deciding whether a module earns its place**: [interface-design.md](interface-design.md).
 - **Writing a test for a module, or for code that uses one**: [module-tests.md](module-tests.md).
