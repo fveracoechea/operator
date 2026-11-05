@@ -18,7 +18,7 @@ import {
   readSources,
   resetSource,
   pruneSource,
-  type NewSource as StoredSource,
+  type StoredSource,
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 

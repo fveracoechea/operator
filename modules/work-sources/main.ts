@@ -1,4 +1,12 @@
-import { fromPromise, fromThrowable, Ok, Err, type AsyncResult, type Result } from "unthrown";
+import {
+  fromPromise,
+  fromThrowable,
+  Ok,
+  Err,
+  type AsyncResult,
+  type ErrOf,
+  type Result,
+} from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -378,8 +386,15 @@ export const WorkSources = {
 };
 
 type Source = ReturnType<typeof decodeSource>;
-type CoordinationScope = { repository: string; scope: string };
-type ReadFailure = { reason: string; detail: string };
+type CoordinationScope = Parameters<typeof DeviceState.startCoordinationWait>[1];
+// The watch recurses, so it names the closed failures of the reads and the record it repeats.
+type WatchFailure =
+  | ErrOf<ReturnType<typeof readSources>>
+  | ErrOf<ReturnType<typeof DeviceState.finishCoordinationWait>>;
+type WatchOutcome = {
+  reason: "next_actions_changed" | "next_wait_timed_out";
+  data: ReturnType<typeof nextAnswer>;
+};
 
 function nextAnswer(input: Input, sources: Source[]) {
   const now = Date.now();
@@ -421,7 +436,7 @@ function watchActions(
   target: CoordinationScope,
   returned: string | null,
   deadline: number,
-): AsyncResult<{ reason: string; data: ReturnType<typeof nextAnswer> }, ReadFailure> {
+): AsyncResult<WatchOutcome, WatchFailure> {
   // The project was resolved once, so each read touches only device state.
   const read = readSources(input, target.repository).map((sources) => nextAnswer(input, sources));
   return read.toAsync().flatMap((answer) => {

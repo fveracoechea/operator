@@ -20,8 +20,8 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { removeStateDirectory } from "./project-files.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
-/** A new source has no supervising pane until a wait or a dispatch claims it. */
-export type NewSource = Omit<SourceRow, "supervisingPane">;
+/** A source without its supervising pane, which a wait or a dispatch claims later and next actions never read. */
+export type StoredSource = Omit<SourceRow, "supervisingPane">;
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
@@ -30,11 +30,11 @@ export type SourceFailure =
 export function registerSource(
   client: Database,
   checkout: string,
-  source: NewSource,
+  source: StoredSource,
   rows: AssignmentRow[],
 ) {
   return transaction(client, true, () =>
-    checkHistory(client).flatMap((db): Result<NewSource, SourceFailure> => {
+    checkHistory(client).flatMap((db): Result<StoredSource, SourceFailure> => {
       const controller = db
         .select()
         .from(projects)
@@ -84,7 +84,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
         db,
       ): Result<
         {
-          source: NewSource;
+          source: StoredSource;
           assignments: AssignmentRow[];
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
