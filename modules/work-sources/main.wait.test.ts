@@ -130,3 +130,49 @@ test("a refused start records nothing and holds no lease", async () => {
   expect(calls.hold).not.toHaveBeenCalled();
   expect(calls.read).not.toHaveBeenCalled();
 });
+
+const pending = storedSource([
+  { key: "a", completion: "report", state: "ready" },
+  { key: "b", completion: "report", state: "ready", dependencies: ["a"] },
+]);
+
+function supervision(...sources: { id: string; waiting: boolean }[]) {
+  return spyOn(DeviceState, "readSupervision").mockReturnValue(
+    Ok(sources.map((source) => ({ ...source, repository: "example/one" }))),
+  );
+}
+
+test("a supervised source with running work and no wait from the pane is unwatched", async () => {
+  const read = supervision({ id: "one", waiting: false });
+  const rows = spyOn(DeviceState, "readSources").mockReturnValue(Ok([running]));
+  expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+    tag: "Ok",
+    value: ["one"],
+  });
+  expect(read).toHaveBeenCalledWith(paths, "pane-1");
+  expect(rows).toHaveBeenCalledWith(paths, "example/one", "one");
+});
+
+test("a covered source, work that waits only for dependencies, or no running work is watched", async () => {
+  supervision({ id: "one", waiting: true }, { id: "two", waiting: false });
+  const rows = spyOn(DeviceState, "readSources");
+  for (const answer of [[ready], [pending], []]) {
+    rows.mockReturnValueOnce(Ok(answer));
+    expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+      tag: "Ok",
+      value: [],
+    });
+  }
+  // A covered source is not read at all.
+  expect(rows).toHaveBeenCalledTimes(3);
+  expect(rows).not.toHaveBeenCalledWith(paths, "example/one", "one");
+});
+
+test("a supervision read failure is the unwatched read's failure", async () => {
+  const failure = { reason: "state_missing" as const, detail: "missing" };
+  spyOn(DeviceState, "readSupervision").mockReturnValue(Err(failure));
+  expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+    tag: "Err",
+    error: failure,
+  });
+});

@@ -1,8 +1,9 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
 import { coordinationWaits, sources } from "./schema.ts";
+import { ownerGone } from "./leases.ts";
 import type { SourceFailure } from "./sources.ts";
 
 export type CoordinationScope = { repository: string; scope: string };
@@ -96,6 +97,37 @@ export function renewCoordinationWait(client: Database, target: CoordinationScop
         .where(and(key(target), eq(coordinationWaits.ownerPid, process.pid)))
         .run();
       return undefined;
+    }),
+  );
+}
+
+/**
+ * The sources that the pane supervises, each with whether a wait from that pane covers it.
+ * A wait covers its own source, and a wait without a source covers every source of its project.
+ */
+export function readSupervision(client: Database, paneId: string) {
+  return transaction(client, false, () =>
+    checkHistory(client).map((db) => {
+      const now = Date.now();
+      const waits = db
+        .select()
+        .from(coordinationWaits)
+        .where(eq(coordinationWaits.paneId, paneId))
+        .all()
+        .filter((row) => !ownerGone(row, now));
+      return db
+        .select({ id: sources.id, repository: sources.repository })
+        .from(sources)
+        .where(eq(sources.supervisingPane, paneId))
+        .orderBy(asc(sources.id))
+        .all()
+        .map((source) => ({
+          ...source,
+          waiting: waits.some(
+            (row) =>
+              row.repository === source.repository && (row.scope === "" || row.scope === source.id),
+          ),
+        }));
     }),
   );
 }

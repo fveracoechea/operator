@@ -1,4 +1,5 @@
 import {
+  all,
   fromPromise,
   fromThrowable,
   Ok,
@@ -382,6 +383,27 @@ export const WorkSources = {
     return fromPromise(
       async () => promotionSchema.parse(await Bun.file(file).json()),
       (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    );
+  },
+  /**
+   * The sources that the pane supervises whose next actions show running work while no wait
+   * from that pane covers them. Work that waits only for its dependencies runs nothing yet.
+   */
+  unwatched(input: Input & { paneId: string }) {
+    return DeviceState.readSupervision(input.paths, input.paneId).flatMap((supervised) =>
+      all(
+        supervised
+          .filter((source) => !source.waiting)
+          .map((source) =>
+            readSources({ ...input, sourceId: source.id }, source.repository).map((sources) =>
+              nextAnswer(input, sources).sources.some((next) =>
+                next.waits.some((row) => row.reason !== "dependencies_pending"),
+              )
+                ? [source.id]
+                : [],
+            ),
+          ),
+      ).map((ids) => ids.flat()),
     );
   },
   /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */

@@ -276,7 +276,8 @@ test("check mode follows complete skill links and leaves host folders and state 
   await cp(source, `${root}/package skills`, { recursive: true });
   await mkdir(`${root}/home/.claude`, { recursive: true });
   await symlink(`${root}/package skills`, `${root}/home/.claude/skills`);
-  const settings = { hooks: { PreToolUse: [{ hooks: [{ command: "operator claude hook" }] }] } };
+  const group = { hooks: [{ command: "operator claude hook" }] };
+  const settings = { hooks: { PreToolUse: [group], Stop: [group] } };
   await Bun.write(`${root}/home/.claude/settings.json`, JSON.stringify(settings));
   const link = await readlink(`${root}/home/.claude/skills`);
   expect(await run(["--claude", "--check"])).toMatchObject({

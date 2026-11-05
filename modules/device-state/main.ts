@@ -46,6 +46,7 @@ import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 import {
   finishCoordinationWait,
+  readSupervision,
   renewCoordinationWait,
   startCoordinationWait,
   type CoordinationScope,
@@ -275,6 +276,10 @@ export const DeviceState = {
   },
   finishCoordinationWait(paths: Paths, target: CoordinationScope, actions: string) {
     return writing(paths, (client) => finishCoordinationWait(client, target, actions));
+  },
+  /** The sources that a Herdr pane supervises, and whether a wait from that pane covers each. */
+  readSupervision(paths: Paths, paneId: string) {
+    return reading(paths, (client) => readSupervision(client, paneId));
   },
   /** Renew this process's lease on a running coordination wait until the returned stop runs. */
   holdCoordinationWait(paths: Paths, target: CoordinationScope) {
