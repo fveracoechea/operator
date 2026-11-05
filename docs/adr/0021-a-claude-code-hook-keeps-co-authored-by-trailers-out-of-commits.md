@@ -3,7 +3,7 @@
 ## Status
 
 Accepted - 2026-10-31.
-Amended 2026-11-04: the same hook also guards a SuperAgent's turn end on the Stop event, and only that branch reads device state (ADR-0022).
+Amended 2026-11-04: the same hook also guards a SuperAgent's turn end on the Stop event, and only that branch reads device state (ADR-0022). The Stop branch is implemented in #325.
 
 ## Context
 

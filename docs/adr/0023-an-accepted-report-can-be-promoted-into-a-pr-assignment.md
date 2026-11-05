@@ -5,6 +5,7 @@
 Accepted - 2026-11-04.
 Decided in #313.
 Amends ADR-0012 and ADR-0013.
+Implemented in #322, and the steering message that hands over the worker in #326.
 
 ## Context
 

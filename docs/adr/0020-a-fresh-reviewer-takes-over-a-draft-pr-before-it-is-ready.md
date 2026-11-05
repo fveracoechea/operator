@@ -7,6 +7,7 @@ Decided in #292.
 Amended 2026-11-04: the reviewer brief also gives the person's intent when the plan or the assignment gives one.
 Adds a draft condition to the ADR-0010 merge gate and moves the start of the ADR-0015 assignment reviewer to the ready transition.
 Amended 2026-11-04 in #305 with the answers to its open questions, below.
+Implemented: the draft merge condition in #316, the handoff and rounds in #324, and the ready step, summary comment, and skip in #328.
 
 ## Context
 
