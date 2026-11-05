@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "29cb8585-342f-4075-a81c-20e03f87f4db",
+  "id": "c4e497ab-5889-456a-aca3-2ea7eceee947",
   "prevId": "4c437c4a-77a1-40ad-a999-4b7b61c065f9",
   "tables": {
     "assignments": {
@@ -1445,117 +1445,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "worker_questions": {
-      "name": "worker_questions",
-      "columns": {
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "assignment": {
-          "name": "assignment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "launch_id": {
-          "name": "launch_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "question": {
-          "name": "question",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "asked_at": {
-          "name": "asked_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "answer": {
-          "name": "answer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "answered_by": {
-          "name": "answered_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "answered_at": {
-          "name": "answered_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "worker_questions_launch_id_launches_id_fk": {
-          "name": "worker_questions_launch_id_launches_id_fk",
-          "tableFrom": "worker_questions",
-          "tableTo": "launches",
-          "columnsFrom": ["launch_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "worker_questions_source_id_assignment_assignments_source_id_key_fk": {
-          "name": "worker_questions_source_id_assignment_assignments_source_id_key_fk",
-          "tableFrom": "worker_questions",
-          "tableTo": "assignments",
-          "columnsFrom": ["source_id", "assignment"],
-          "columnsTo": ["source_id", "key"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "worker_questions_source_id_assignment_key_pk": {
-          "columns": ["source_id", "assignment", "key"],
-          "name": "worker_questions_source_id_assignment_key_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "worktree_preparations": {
       "name": "worktree_preparations",
       "columns": {
@@ -1610,6 +1499,13 @@
         },
         "lease_at": {
           "name": "lease_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "installed": {
+          "name": "installed",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

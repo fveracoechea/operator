@@ -13,6 +13,7 @@ import {
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { ownerGone } from "./leases.ts";
+import { superviseSource } from "./sources.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
@@ -24,7 +25,8 @@ export type LaunchFailure =
         | "source_not_found"
         | "assignment_not_dispatchable"
         | "launch_name_taken"
-        | "launch_not_starting";
+        | "launch_not_starting"
+        | "running_cap_reached";
       detail: string;
     };
 type LaunchResources = Partial<
@@ -79,12 +81,83 @@ function latestReturned(db: Db, sourceId: string, assignment: string) {
   return report?.decision === "returned";
 }
 
-/** Reserve the assignment before any external effect, so a second dispatch cannot start it. */
+/** How many of the source's assignments have a latest launch that runs or starts with a live owner. */
+function runningCount(db: Db, sourceId: string, now: number) {
+  // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
+  // and worktree may still close.
+  const ended = new Set(
+    db
+      .select({ key: assignments.key })
+      .from(assignments)
+      .where(
+        and(
+          eq(assignments.sourceId, sourceId),
+          inArray(assignments.state, ["merged", "completed", "abandoned"]),
+        ),
+      )
+      .all()
+      .map((row) => row.key),
+  );
+  const latest = new Map<string, LaunchRow>();
+  for (const row of db
+    .select()
+    .from(launches)
+    .where(eq(launches.sourceId, sourceId))
+    .orderBy(launches.attempt)
+    .all())
+    if (!ended.has(row.assignment)) latest.set(row.assignment, row);
+  return [...latest.values()].filter(
+    (row) => row.state === "running" || (row.state === "starting" && !ownerGone(row, now)),
+  ).length;
+}
+
+/** Why the assignment cannot start now, or null when it can. */
+function startRefusal(
+  db: Db,
+  facts: {
+    source: { id: string; state: string };
+    key: string;
+    assignmentState: string | undefined;
+    latestState: string | undefined;
+    abandoned: boolean;
+    maxRunning: number | undefined;
+    now: number;
+  },
+): LaunchFailure | null {
+  const { source, key, assignmentState, maxRunning } = facts;
+  const returned = latestReturned(db, source.id, key);
+  if (
+    source.state !== "open" ||
+    !dispatchable(assignmentState, facts.latestState, facts.abandoned, returned)
+  )
+    return {
+      reason: "assignment_not_dispatchable",
+      detail: `Assignment ${key} changed before dispatch. Read next actions again. Nothing was launched.`,
+    };
+  // Only ready work waits for a place. A replacement continues started work. ADR-0006.
+  if (
+    assignmentState === "ready" &&
+    maxRunning !== undefined &&
+    runningCount(db, source.id, facts.now) >= maxRunning
+  )
+    return {
+      reason: "running_cap_reached",
+      detail: `The plan's running cap of ${maxRunning} is reached. Read next actions again after a worker ends. Nothing was launched.`,
+    };
+  return null;
+}
+
+/**
+ * Reserve the assignment before any external effect, so a second dispatch cannot start it. The
+ * plan's running cap is checked in the same transaction, so two dispatches cannot both pass it.
+ */
 export function reserveLaunch(
   client: Database,
   checkout: string,
   repository: string,
   launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+  maxRunning?: number,
+  supervisingPane: string | null = null,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<LaunchRow, LaunchFailure> => {
@@ -121,15 +194,16 @@ export function reserveLaunch(
         .get();
       const now = Date.now();
       const abandoned = latest?.state === "starting" && ownerGone(latest, now);
-      const returned = latestReturned(db, source.id, launch.assignment);
-      if (
-        source.state !== "open" ||
-        !dispatchable(assignment?.state, latest?.state, abandoned, returned)
-      )
-        return Err({
-          reason: "assignment_not_dispatchable",
-          detail: `Assignment ${launch.assignment} changed before dispatch. Read next actions again. Nothing was launched.`,
-        });
+      const refused = startRefusal(db, {
+        source,
+        key: launch.assignment,
+        assignmentState: assignment?.state,
+        latestState: latest?.state,
+        abandoned,
+        maxRunning,
+        now,
+      });
+      if (refused !== null) return Err(refused);
       if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
         return Err({
           reason: "launch_name_taken",
@@ -145,6 +219,7 @@ export function reserveLaunch(
         leaseAt: new Date(now).toISOString(),
       };
       db.insert(launches).values(row).run();
+      superviseSource(db, source.id, supervisingPane);
       // A replaced PR owner keeps its open PR. A returned report resumes as running.
       db.update(assignments)
         .set({ state: "running" })
@@ -341,6 +416,7 @@ export function beginPreparation(client: Database, path: string, repository: str
           finishedAt: null,
           ownerPid: process.pid,
           leaseAt: now,
+          installed: null,
         };
         db.insert(worktreePreparations)
           .values(row)
@@ -355,7 +431,7 @@ export function beginPreparation(client: Database, path: string, repository: str
 export function finishPreparation(
   client: Database,
   path: string,
-  outcome: { state: "prepared" | "failed"; detail: string },
+  outcome: { state: "prepared" | "failed"; detail: string; installed?: string | null },
 ) {
   // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>

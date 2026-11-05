@@ -51,6 +51,11 @@ export function failed(detail: string, httpStatus: number | null = 422): GithubA
   return { status: "failed", code: "github_refused", detail, httpStatus };
 }
 
+/** A background merge request's state, as the submit and each read answer it. */
+export function mergeRequest(status: string, uuid?: string): GithubAnswer {
+  return succeeded({ status, details: { message: `Request ${status}.`, uuid } });
+}
+
 export function uncertain(detail: string): GithubAnswer {
   return { status: "uncertain", detail };
 }
@@ -195,8 +200,9 @@ export async function prDevice(options: { assignments?: string[] } = {}) {
   let answer: Answer = unanswered;
   spyOn(GithubApi, "call").mockImplementation(async (request: GithubCall) => {
     calls.push(request.args);
-    // A unit that loops on GitHub fails fast instead of polling until a test timeout.
-    if (calls.length > 12) return failed("too many GitHub calls");
+    // A unit that loops on GitHub fails fast instead of polling until a test timeout. The bound
+    // leaves room for the reads of one background merge request that never ends.
+    if (calls.length > 130) return failed("too many GitHub calls");
     return answer(request.args);
   });
 
@@ -332,6 +338,7 @@ export function requestKind(args: string[]) {
     return text.includes("pullRequests(headRefName") ? "association" : "pull_request";
   }
   if (args.includes("PUT")) return "merge";
+  if (args[0]?.includes("/merge-async/")) return "merge_read";
   if (args.includes("PATCH")) return "retarget";
   return args.includes("DELETE") ? "delete_branch" : "branch";
 }
@@ -364,6 +371,7 @@ export function pullRequestBody(facts: PullRequestFacts = {}) {
           baseRefName: facts.base ?? "main",
           headRefName: "task/parent",
           headRefOid: facts.head ?? "h1",
+          isDraft: false,
           reviewDecision: facts.approved === false ? null : "APPROVED",
           mergeCommit:
             facts.mergeCommit === undefined || facts.mergeCommit === null

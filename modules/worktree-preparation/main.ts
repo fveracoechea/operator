@@ -7,6 +7,7 @@ import type { OperatorHome } from "../operator-home/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { approvedEnvFile, copyEnvFiles } from "./env-files.ts";
 import { classifyIgnored } from "./generated.ts";
+import { installedUnchanged, recordInstalled } from "./installed.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 type Failure = { reason: string; detail: string };
@@ -76,6 +77,8 @@ async function prepare(input: { controller: string; worktree: string }) {
       state: "prepared" as const,
       detail: `${copied} No Bun lockfile, so no dependencies were installed.`,
     };
+  // An install lifecycle script, such as Husky's, can write ignored files outside dependencies.
+  const before = await ignoredFiles(input.worktree);
   // The Bun that runs Operator installs, so preparation does not depend on PATH order.
   const install = await ToolInvocation.run({
     tool: process.execPath,
@@ -89,10 +92,30 @@ async function prepare(input: { controller: string; worktree: string }) {
       state: "failed" as const,
       detail: `${copied} bun install --frozen-lockfile failed: ${install.status === "completed" ? (install.stderr || install.stdout).trim() : install.detail}`,
     };
+  const after = await ignoredFiles(input.worktree);
   return {
     state: "prepared" as const,
     detail: `${copied} Installed dependencies from the lockfile.`,
+    // Without both listings the install output is unknown, so cleanup keeps it.
+    installed:
+      before === null || after === null
+        ? null
+        : await recordInstalled({ worktree: input.worktree, before: new Set(before), after }),
   };
+}
+
+/** The ignored files of the worktree outside dependency folders, which the install fills. */
+async function ignoredFiles(worktree: string) {
+  const listed = await git(worktree, [
+    "ls-files",
+    "-z",
+    "--others",
+    "--ignored",
+    "--exclude-standard",
+    "--",
+    ":(exclude,glob)**/node_modules/**",
+  ]);
+  return listed === null ? null : listed.split("\0").filter((file) => file !== "");
 }
 
 function qualify<T>(cause: CodedError, defect: (cause: CodedError) => T) {
@@ -175,6 +198,11 @@ function classify(input: {
             // The empty name after the last separator matches no manifest or lockfile.
             tracked: new Set(listed.split("\0")),
             copiedUnchanged,
+            installedUnchanged: await installedUnchanged({
+              worktree: input.worktree,
+              record: preparation.installed,
+              ignored: input.ignored,
+            }),
           });
         },
         (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),

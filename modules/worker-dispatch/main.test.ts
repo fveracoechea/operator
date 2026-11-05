@@ -231,6 +231,79 @@ test("a plan that turns internal review off gives a ready PR, and an assignment 
   );
 });
 
+test("a plan's reached running cap refuses a ready assignment, and the reservation checks it again", async () => {
+  await using device = await dispatchDevice();
+  const read = { completion: "report", resources: "pane", dependencies: [], instructions: "Read." };
+  await Bun.write(
+    `${device.root}/capped.json`,
+    JSON.stringify({
+      trackerKey: "github:example/one#12",
+      maxRunning: 1,
+      assignments: ["first", "second"].map((key) => ({ ...read, key, trackerKey: key })),
+    }),
+  );
+  const registered = await WorkSources.register({
+    paths: device.paths,
+    cwd: device.checkout,
+    file: `${device.root}/capped.json`,
+  });
+  const sourceId = registered.tag === "Ok" ? registered.value.id : "";
+  const reserve = spyOn(DeviceState, "reserveLaunch");
+  expect(await WorkerDispatch.dispatch({ ...device.request("first"), sourceId })).toMatchObject({
+    tag: "Ok",
+  });
+  expect(reserve.mock.calls[0]?.[4]).toBe(1);
+  expect(await WorkerDispatch.dispatch({ ...device.request("second"), sourceId })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "running_cap_reached",
+      detail:
+        "The plan's running cap of 1 is reached, so second waits. Read operator next after a worker ends. Nothing was launched.",
+    },
+  });
+  expect(reserve).toHaveBeenCalledTimes(1);
+  expect(device.herdr.createTab).toHaveBeenCalledTimes(1);
+  // A plan without a cap passes none.
+  expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({ tag: "Ok" });
+  expect(reserve.mock.calls[1]?.[4]).toBeUndefined();
+});
+
+test("an assignment's intent wins over the plan's in the brief", async () => {
+  await using device = await dispatchDevice();
+  const pr = { completion: "pr", resources: "worktree", dependencies: [], instructions: "Fix." };
+  await Bun.write(
+    `${device.root}/intent.json`,
+    JSON.stringify({
+      trackerKey: "github:example/one#9",
+      intent: "Fix every flaky test.",
+      assignments: [
+        { ...pr, key: "plan", trackerKey: "github:example/one#10", branch: "task/plan" },
+        {
+          ...pr,
+          key: "own",
+          trackerKey: "github:example/one#11",
+          branch: "task/own",
+          intent: "Fix only the merge test.",
+        },
+      ],
+    }),
+  );
+  const registered = await WorkSources.register({
+    paths: device.paths,
+    cwd: device.checkout,
+    file: `${device.root}/intent.json`,
+  });
+  const sourceId = registered.tag === "Ok" ? registered.value.id : "";
+  for (const assignment of ["plan", "own"])
+    expect(
+      await WorkerDispatch.dispatch({ ...device.request(assignment), sourceId }),
+    ).toMatchObject({ tag: "Ok" });
+  expect(await briefOf(device, sourceId, "plan")).toContain("> Fix every flaky test.");
+  const own = await briefOf(device, sourceId, "own");
+  expect(own).toContain("> Fix only the merge test.");
+  expect(own).not.toContain("Fix every flaky test.");
+});
+
 test("a device that turns internal review off gives a ready PR", async () => {
   await using device = await dispatchDevice();
   const shown = await DeviceSettings.show(device.paths);

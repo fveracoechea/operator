@@ -26,6 +26,8 @@ export const sources = sqliteTable(
     registeredAt: text("registered_at").notNull(),
     endedAt: text("ended_at"),
     plan: text().notNull(),
+    // The Herdr pane that last ran the source's coordination wait or dispatched its work.
+    supervisingPane: text("supervising_pane"),
   },
   (table) => [
     uniqueIndex("one_open_parent")
@@ -110,7 +112,42 @@ export const worktreePreparations = sqliteTable("worktree_preparations", {
   // The preparing hook process and its lease. A gone process or a stale lease ends a preparation.
   ownerPid: integer("owner_pid"),
   leaseAt: text("lease_at"),
+  // JSON of the ignored files that the install wrote, with a content hash each. Null before it.
+  installed: text(),
 });
+
+// A PR assignment that the SuperAgent added by promoting an accepted report. ADR-0023.
+// The registered plan stays unchanged, so this row holds the promoted assignment's definition.
+export const promotions = sqliteTable(
+  "promotions",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    // The promoted report assignment and its accepted report.
+    report: text().notNull(),
+    reportNumber: integer("report_number").notNull(),
+    trackerKey: text("tracker_key").notNull(),
+    instructions: text().notNull(),
+    branch: text().notNull(),
+    internalReview: integer("internal_review", { mode: "boolean" }),
+    worktreePath: text("worktree_path").notNull(),
+    // The launch that took over the report worker's pane, when that worker still ran.
+    handoverLaunchId: text("handover_launch_id"),
+    promotedAt: text("promoted_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    uniqueIndex("one_promotion_per_report").on(table.sourceId, table.report),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+    foreignKey({
+      columns: [table.sourceId, table.report],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
 
 // One PR for each PR assignment. Its observation progress lets a restarted wait continue.
 export const pullRequests = sqliteTable(
@@ -406,4 +443,24 @@ export const slackEffects = sqliteTable(
     failure: text(),
   },
   (table) => [uniqueIndex("one_effect_per_key").on(table.requestId, table.key)],
+);
+
+// The coordination wait of one scope: one source, or every source of the project when empty.
+// The last returned set of non-wait actions lets a new wait return a change that came between waits.
+export const coordinationWaits = sqliteTable(
+  "coordination_waits",
+  {
+    repository: text()
+      .notNull()
+      .references(() => projects.repository, { onDelete: "cascade" }),
+    scope: text().notNull(),
+    actions: text(),
+    returnedAt: text("returned_at"),
+    // The waiting process, its lease, and its Herdr pane. A gone process or a stale lease is no wait.
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+    paneId: text("pane_id"),
+    startedAt: text("started_at"),
+  },
+  (table) => [primaryKey({ columns: [table.repository, table.scope] })],
 );

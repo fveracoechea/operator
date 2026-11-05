@@ -28,6 +28,10 @@ type Facts = {
     cleanup: "pending" | "done" | "failed" | "kept" | null;
   };
   cleanup?: "running" | "pending" | "failed" | "done" | "unlanded_work" | "resource_mismatch";
+  /** A promoted report's worker took over this assignment and has not been seen since. */
+  handover?: boolean;
+  /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
+  capReached?: boolean;
 };
 type Decision = {
   action:
@@ -37,6 +41,7 @@ type Decision = {
     | "worker_attention"
     | "review_report"
     | "resume_worker"
+    | "notify_worker"
     | "retry_cleanup"
     | "person_decision"
     | "wait"
@@ -51,6 +56,7 @@ type Decision = {
     | "pr_not_open"
     | "pr_relay_blocked"
     | "dependencies_pending"
+    | "running_cap_reached"
     | "assignment_active"
     | "assignment_ended"
     | "cleanup_running"
@@ -64,6 +70,7 @@ type Decision = {
     | "worker_interrupted"
     | "report_submitted"
     | "follow_up_returned"
+    | "assignment_promoted"
     | "cleanup_unfinished";
   blockers: {
     assignment: string;
@@ -223,6 +230,12 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     when: ({ assignment }) => assignment.state === "pr-open",
     decide: () => ({ action: "wait", reason: "pr_feedback_loop", blockers: [] }),
   },
+  // The report worker that a promotion kept reads its PR brief only when the SuperAgent says so.
+  {
+    when: ({ assignment, launch, handover }) =>
+      assignment.state === "running" && launch === "running" && handover === true,
+    decide: () => ({ action: "notify_worker", reason: "assignment_promoted", blockers: [] }),
+  },
   // Before a PR or a report exists, an idle or done host has stopped without a result.
   {
     when: ({ assignment, launch, activity }) =>
@@ -242,6 +255,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       reason: "dependencies_pending",
       blockers: dependencyBlockers(assignment, dependencies),
     }),
+  },
+  // Only ready work is held. A replacement keeps work that already holds its place going.
+  {
+    when: ({ capReached }) => capReached === true,
+    decide: () => ({ action: "wait", reason: "running_cap_reached", blockers: [] }),
   },
 ];
 

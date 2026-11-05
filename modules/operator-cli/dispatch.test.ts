@@ -123,6 +123,7 @@ test.each([
   ["controller_mismatch", 4],
   ["controller_identity_mismatch", 4],
   ["assignment_not_dispatchable", 4],
+  ["running_cap_reached", 4],
   ["launch_failed", 1],
   ["launch_interrupted", 1],
   ["state_busy", 1],
