@@ -98,7 +98,7 @@ test("a rerun reuses verdicts, and a changed test or an incomplete result runs a
 import { appendFileSync } from "node:fs";
 import { count, drain } from "./count.ts";
 test("exact", () => {
-  appendFileSync(${JSON.stringify(runs)}, "run\\n");
+  appendFileSync(${JSON.stringify(runs)}, (process.env.__STRYKER_ACTIVE_MUTANT__ ?? "dry run") + "\\n");
   expect(count(2)).toBe(3);
   expect(drain(2)).toBe(0);
 });\n`;
@@ -107,23 +107,65 @@ test("exact", () => {
       "export function count(n: number) { return n + 1; }\nexport function drain(n: number) {\n  while (n > 0) n--;\n  return n;\n}\nexport const unchecked = (n: number) => n * 2;\n",
     "lib/count.test.ts": besideTest,
   });
+  const stored = z.looseObject({
+    files: z.record(
+      z.string(),
+      z.looseObject({ mutants: z.array(z.looseObject({ id: z.string(), status: z.string() })) }),
+    ),
+  });
+  /**
+   * The mutants that each run started. A busy machine can stop a mutant at its time limit before
+   * its test logs it, so a started mutant either logged its id or has a Timeout status.
+   */
   async function rerun() {
     await Bun.write(runs, "");
     const result = await mutate(cwd, ["lib/count.ts"]);
-    const count = (await Bun.file(runs).text()).split("\n").length - 1;
-    return { code: result.code, summary: result.stdout.trim().split("\n").at(-1), count };
+    // Each run stores its result in the newest file. A changed test starts a new file.
+    const files = await Array.fromAsync(
+      new Bun.Glob(".mutation-incremental/**/*.json").scan({ cwd, dot: true }),
+    );
+    expect(files).not.toEqual([]);
+    const newest = files
+      .map((file) => Bun.file(path.join(cwd, file)))
+      .toSorted((a, b) => b.lastModified - a.lastModified)[0];
+    const mutants = Object.values(stored.parse(await newest?.json()).files).flatMap(
+      (file) => file.mutants,
+    );
+    const logged = (await Bun.file(runs).text()).split("\n").filter((line) => line !== "");
+    const timedOut = mutants.filter(({ status }) => status === "Timeout").map(({ id }) => id);
+    return {
+      code: result.code,
+      summary: result.stdout.trim().split("\n").at(-1),
+      mutants,
+      started: [...new Set([...logged, ...timedOut])].filter((id) => id !== "dry run").toSorted(),
+    };
+  }
+  /** The killed and survived verdicts of a run, by mutant id. Only these are stored for reuse. */
+  function verdicts(run: Awaited<ReturnType<typeof rerun>>) {
+    return Object.fromEntries(
+      run.mutants
+        .filter(({ status }) => status === "Killed" || status === "Survived")
+        .map(({ id, status }) => [id, status]),
+    );
   }
   const first = await rerun();
   expect(first.code).toBe(3);
-  // The dry run and the timeout run each time. The stored killed and survived verdicts are reused.
+  // Only the mutants without a stored killed or survived verdict run again. The loop always times out.
+  const unjudged = first.mutants
+    .map(({ id }) => id)
+    .filter((id) => verdicts(first)[id] === undefined);
+  expect(unjudged).not.toEqual([]);
   const second = await rerun();
-  expect(second).toEqual({ ...first, count: 2 });
+  expect(second.code).toBe(3);
+  expect(second.started).toEqual(unjudged.toSorted());
+  // A reused verdict keeps its status.
+  expect(verdicts(second)).toMatchObject(verdicts(first));
   expect(second.summary).toMatch(
     / [1-9]\d* survivors, 0 untested, [1-9]\d* incomplete, [1-9]\d* killed, /,
   );
   // A changed beside-test reruns every mutant.
   await Bun.write(path.join(cwd, "lib/count.test.ts"), besideTest.replace('"exact"', '"renamed"'));
-  expect((await rerun()).count).toBe(first.count);
+  expect((await rerun()).started).toEqual(first.mutants.map(({ id }) => id).toSorted());
 }, 120_000);
 
 test("a weak beside-test reports actionable survivors in fresh Bun processes", async () => {
