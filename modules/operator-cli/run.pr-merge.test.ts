@@ -385,6 +385,28 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
   expect(await exists(worker.worktreePath)).toBe(true);
 }, 90000);
 
+test("a PR that GitHub treats as stacked merges at its head and is verified", async () => {
+  const source = await setup("opencode", ["implement"]);
+  const worker = await openPullRequest(source, { ...eligible, stacked: true });
+  // GitHub runs the merge in the background, and the request stays pending for two reads.
+  await github({ mergePending: 2 });
+  expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "pr_merged",
+      data: { number: 7, head: worker.head, mergeCommit: `merge-${worker.head}` },
+    },
+  });
+  expect(await readJson(`${root}/github.json`)).toMatchObject({
+    mergeRequests: [
+      { number: 7, sha: worker.head, method: "squash", action: "direct_merge", pending: 0 },
+    ],
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(1);
+  expect(await calls("gh-calls.jsonl", "/pulls/7/merge-async/request-1")).toBe(3);
+  expect(await settled(source)).toMatchObject({ state: "done" });
+}, 90000);
+
 test("a lost merge answer and a concurrent merge are verified and recorded once", async () => {
   const source = await setup("opencode");
   const worker = await openPullRequest(source);

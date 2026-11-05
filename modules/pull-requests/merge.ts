@@ -2,8 +2,14 @@ import { ErrAsync, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
-import { mergePullRequest, observePullRequest, type Observation } from "./github.ts";
-import { decideMerge, verifiedMerge } from "./merge-machine.ts";
+import {
+  mergePullRequest,
+  observePullRequest,
+  readMergeRequest,
+  type MergeRequest,
+  type Observation,
+} from "./github.ts";
+import { decideMerge, followMergeRequest, verifiedMerge } from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 
@@ -126,23 +132,39 @@ function guarded(
   if (decision.result === "verify") return verify(input, owner, number, null, null);
   // A refused or lost answer can follow a merge that landed, so every answer is verified.
   return fromPromise(async () => {
-    const answer = await mergePullRequest(owner.repository, {
-      number,
-      head: decision.head,
-      method: decision.method,
-    });
-    const refused =
-      answer.tag === "Ok"
-        ? null
-        : answer.tag === "Err"
-          ? {
-              reason:
-                answer.error.reason === "github_failed" ? "pr_merge_refused" : answer.error.reason,
-              detail: answer.error.detail,
-            }
-          : { reason: "pr_defect", detail: String(answer.cause) };
+    const refused = await requestMerge(owner.repository, number, decision);
     return await verify(input, owner, number, decision.head, refused);
   }, qualify).flatMap((result) => result);
+}
+
+type Answer = Awaited<ReturnType<typeof mergePullRequest>>;
+
+function refusal(answer: Exclude<Answer, { tag: "Ok" }>) {
+  if (answer.tag === "Defect") return { reason: "pr_defect", detail: String(answer.cause) };
+  return {
+    reason: answer.error.reason === "github_failed" ? "pr_merge_refused" : answer.error.reason,
+    detail: answer.error.detail,
+  };
+}
+
+/**
+ * Submits the merge and reads the background request until it ends. It returns the refusal to
+ * report when GitHub does not show the merge, or null when the request reports it merged.
+ */
+async function requestMerge(
+  repository: string,
+  number: number,
+  merge: { head: string; method: Observation["mergeMethod"] },
+): Promise<Failure | null> {
+  let answer: Answer = await mergePullRequest(repository, { number, ...merge });
+  for (let reads = 0; ; reads += 1) {
+    if (answer.tag !== "Ok") return refusal(answer);
+    const request: MergeRequest = answer.value;
+    const next = followMergeRequest(request, reads);
+    if (next.result === "verify") return next.refusal;
+    await Bun.sleep(1000);
+    answer = await readMergeRequest(repository, number, next.uuid);
+  }
 }
 
 /**

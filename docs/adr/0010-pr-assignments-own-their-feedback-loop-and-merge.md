@@ -32,6 +32,7 @@ A stacked PR is not merge eligible until its parent merged and its relay finishe
 Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation.
 It refuses unless the PR has approval, passing checks, no unresolved threads, and the default branch as its base.
+It merges through GitHub's asynchronous merge endpoint as a direct merge pinned to the guarded head, because the synchronous endpoint refuses a PR that GitHub keeps in a stack, also after its relay. Amended for the stacked PR merge fix.
 GitHub CI and GitHub reviews are the gates, not a separate local gate declaration or a supervisor's claim.
 
 After verified merge, the CLI deletes the remote branch, closes the worker pane, and removes the worktree in that order without a separate approval grant.

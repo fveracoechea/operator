@@ -1,4 +1,4 @@
-import type { Observation } from "./github.ts";
+import type { MergeRequest, Observation } from "./github.ts";
 import { mergeConditions, type MergeConditions } from "./wait-machine.ts";
 
 // A stacked PR merges only after its parent merged and its relay finished.
@@ -85,4 +85,38 @@ export function verifiedMerge(observed: Observation, head: string | null) {
     (head === null || observed.head === head)
     ? { head: observed.head, mergeCommit: observed.mergeCommit }
     : null;
+}
+
+// The background merge gets two minutes of reads, one each second, before the owner repeats it.
+export const mergeRequestReads = 120;
+
+type Followed =
+  | { result: "read"; uuid: string }
+  | { result: "verify"; refusal: { reason: string; detail: string } | null };
+
+/**
+ * The next step after one state of a background merge request. Every final state and every
+ * stopped read is verified against the PR, because only GitHub's merged PR proves the merge.
+ */
+export function followMergeRequest(request: MergeRequest, reads: number): Followed {
+  if (request.status === "merged") return { result: "verify", refusal: null };
+  if (request.status === "failed")
+    return { result: "verify", refusal: { reason: "pr_merge_refused", detail: request.message } };
+  if (request.status === "enqueued")
+    return {
+      result: "verify",
+      refusal: {
+        reason: "pr_merge_unverified",
+        detail: `GitHub put the PR in a merge queue: ${request.message} Nothing was recorded. Repeat operator pr merge after it merges.`,
+      },
+    };
+  if (request.uuid !== null && reads < mergeRequestReads)
+    return { result: "read", uuid: request.uuid };
+  return {
+    result: "verify",
+    refusal: {
+      reason: "pr_merge_unverified",
+      detail: `GitHub still runs the merge request: ${request.message} Nothing was recorded. Repeat operator pr merge.`,
+    },
+  };
 }
