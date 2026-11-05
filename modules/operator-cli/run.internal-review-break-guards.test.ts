@@ -59,8 +59,8 @@ test.each([
   },
   {
     name: "handed-off launch refused",
-    file: "pull-requests/internal-review.ts",
-    replacements: [["return owner.implementerLaunchId === owner.launchId", "return false"]],
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [["return facts.implementer", "return false"]],
     testFile: guards,
     pattern: "cannot close the implementer",
   },
@@ -75,7 +75,7 @@ test.each([
     name: "newer head for round two",
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
-      ["facts.review.rounds.some((round) => round.head === facts.localHead) === true", "false"],
+      ["facts.review.rounds.some((round) => round.head === facts.localHead)", "false"],
     ],
     testFile: flow,
     pattern: "at most two rounds",
@@ -86,6 +86,20 @@ test.each([
     replacements: [['review.handoffState !== "done" &&', 'review.handoffState === "done" &&']],
     testFile: flow,
     pattern: "hands a clean draft",
+  },
+  {
+    name: "association holds its handoff",
+    file: "device-state/pull-requests.ts",
+    replacements: [["ownerPid: process.pid,", "ownerPid: null,"]],
+    testFile: "device-state/pull-requests.test.ts",
+    pattern: "holds its handoff",
+  },
+  {
+    name: "handoff takes over the association's hold",
+    file: "device-state/internal-reviews.ts",
+    replacements: [["review.ownerPid !== afterPid", "true"]],
+    testFile: "device-state/pull-requests.test.ts",
+    pattern: "takes over its hold",
   },
   {
     name: "handoff blocks migration",

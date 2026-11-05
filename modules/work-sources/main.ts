@@ -475,6 +475,7 @@ function decide(input: Input, source: Source) {
           : { decision: report.decision, cleanup: report.cleanupState },
       cleanup: cleanupFact(cleanup),
       handoff: handoffFact(review),
+      reviewing: review?.state === "reviewing",
     });
     return described(
       input,

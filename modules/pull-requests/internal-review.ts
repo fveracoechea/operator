@@ -6,7 +6,7 @@ import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
-import { decideInternalReview } from "./internal-review-machine.ts";
+import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 
 type Failure = { reason: string; detail: string };
@@ -48,17 +48,6 @@ export function worktreeFacts(worktree: string) {
 /** An assignment without an internal review, from before ADR-0020 or with it off, has ended it. */
 export function reviewEnded(owner: Owner) {
   return owner.reviewState === null || ["ready", "skipped"].includes(owner.reviewState);
-}
-
-/** The launch that the handoff ended no longer owns the PR, also while its pane still runs. */
-export function handedOff(owner: Owner): Failure | null {
-  return owner.implementerLaunchId === owner.launchId
-    ? {
-        reason: "pr_handed_off",
-        detail:
-          "This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. Nothing was changed.",
-      }
-    : null;
 }
 
 /**
@@ -186,6 +175,7 @@ export function handoff(request: HandoffRequest) {
       project.repository,
       request.sourceId,
       request.assignment,
+      request.afterPid,
     )
       .toAsync()
       .flatMap((facts): AsyncResult<{ reason: string; data: object }, Failure> => {
@@ -269,6 +259,6 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
 
 /** Refuses a PR command of the launch that the handoff ended. */
 export function owned(owner: Owner): AsyncResult<Owner, Failure> {
-  const refusal = handedOff(owner);
+  const refusal = decideOwnership({ implementer: owner.implementerLaunchId === owner.launchId });
   return refusal === null ? OkAsync(owner) : ErrAsync(refusal);
 }

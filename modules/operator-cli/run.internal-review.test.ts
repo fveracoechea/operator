@@ -287,10 +287,10 @@ test("associate hands a clean draft to a fresh reviewer launch in the same workt
   expect(brief).toContain("You are the internal reviewer of PR #7.");
   expect(brief).toContain("No round is recorded yet.");
   expect(brief).not.toContain("If the PR is a draft");
-  // The reviewer owns the PR feedback loop, and the handoff left no failure in next.
+  // The review runs as a wait, and the handoff left no failure in next.
   expect(await entry(source)).toMatchObject({
     action: "wait",
-    reason: "pr_feedback_loop",
+    reason: "internal_review_running",
     internalReview: { state: "reviewing", rounds: [], handoff: { state: "done" } },
   });
   // A repeated association or handoff starts nothing.

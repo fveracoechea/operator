@@ -193,8 +193,17 @@ export const DeviceState = {
       associatePullRequest(client, launchId, pr, review, internalReview),
     );
   },
-  claimHandoff(paths: Paths, repository: string, sourceId: string, assignment: string) {
-    return writing(paths, (client) => claimHandoff(client, repository, sourceId, assignment));
+  /** `afterPid` is the associating process, whose hold the handoff it started takes over. */
+  claimHandoff(
+    paths: Paths,
+    repository: string,
+    sourceId: string,
+    assignment: string,
+    afterPid: number | null,
+  ) {
+    return writing(paths, (client) =>
+      claimHandoff(client, repository, sourceId, assignment, afterPid),
+    );
   },
   startHandoff(paths: Paths, sourceId: string, assignment: string, pid: number) {
     return writing(paths, (client) => startHandoff(client, sourceId, assignment, pid));

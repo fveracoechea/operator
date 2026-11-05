@@ -94,15 +94,17 @@ const associateRules: Rule<AssociateFacts>[] = [
   },
 ];
 
-const roundRules: Rule<RoundFacts>[] = [
-  {
-    when: (facts) => facts.implementer,
-    refuse: () =>
-      refused(
+/** The launch that the handoff ended no longer owns the PR, also while its pane still runs. */
+export function decideOwnership(facts: { implementer: boolean }): Refusal | null {
+  return facts.implementer
+    ? refused(
         "pr_handed_off",
-        `This launch handed the PR to its internal reviewer. Stop here. ${unchanged}`,
-      ),
-  },
+        `This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. ${unchanged}`,
+      )
+    : null;
+}
+
+const roundRules: Rule<RoundFacts>[] = [
   {
     when: (facts) => facts.review.state !== "reviewing",
     refuse: () =>
@@ -121,7 +123,7 @@ const roundRules: Rule<RoundFacts>[] = [
   },
   // A second round reviews the fixes of the first, so it needs a newer head.
   {
-    when: (facts) => facts.review.rounds.some((round) => round.head === facts.localHead) === true,
+    when: (facts) => facts.review.rounds.some((round) => round.head === facts.localHead),
     refuse: (facts) =>
       refused(
         "internal_review_round_head",
@@ -305,7 +307,8 @@ function handoff(facts: HandoffFacts): Decision {
 }
 
 function round(facts: RoundFacts): Decision {
-  const refusal = roundRules.find((rule) => rule.when(facts))?.refuse(facts);
+  const refusal =
+    decideOwnership(facts) ?? roundRules.find((rule) => rule.when(facts))?.refuse(facts);
   if (refusal !== undefined) return refusal;
   if (facts.localHead === null)
     return refused("internal_review_head_missing", `The worktree has no commit. ${unchanged}`);

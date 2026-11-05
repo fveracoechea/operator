@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decideInternalReview } from "./internal-review-machine.ts";
+import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
 
 const draft = {
   event: "associate" as const,
@@ -144,20 +144,27 @@ const ready = {
   changed: false,
   localHead: "h3" as string | null,
   pr: { state: "OPEN", head: "h3", draft: true },
-  posted: false,
+  posted: "none" as "none" | "current" | "stale",
 };
 
 test("a complete review posts its comment and marks the draft ready at the PR head", () => {
   expect(decideInternalReview(ready)).toEqual({
     result: "ready",
     head: "h3",
-    post: true,
+    comment: "post",
     markReady: true,
   });
   // A retry after a lost answer finds the comment and a PR that already left draft.
   expect(
-    decideInternalReview({ ...ready, posted: true, pr: { ...ready.pr, draft: false } }),
-  ).toEqual({ result: "ready", head: "h3", post: false, markReady: false });
+    decideInternalReview({ ...ready, posted: "current", pr: { ...ready.pr, draft: false } }),
+  ).toEqual({ result: "ready", head: "h3", comment: "keep", markReady: false });
+  // A retry after a later push or round finds an older comment and replaces its text.
+  expect(decideInternalReview({ ...ready, posted: "stale" })).toEqual({
+    result: "ready",
+    head: "h3",
+    comment: "update",
+    markReady: true,
+  });
 });
 
 test("one round without an applied blocker ends the review", () => {
@@ -325,5 +332,15 @@ test("a skip refuses without the person's instruction, a running review, or an o
   }
   expect(decideInternalReview({ ...skip, personInstructed: false, review: null })).toMatchObject({
     reason: "person_instruction_required",
+  });
+});
+
+test("only the launch that the handoff ended loses its PR commands", () => {
+  expect(decideOwnership({ implementer: false })).toBeNull();
+  expect(decideOwnership({ implementer: true })).toEqual({
+    result: "refused",
+    reason: "pr_handed_off",
+    detail:
+      "This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. Nothing was changed.",
   });
 });

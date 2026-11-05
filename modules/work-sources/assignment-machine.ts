@@ -30,6 +30,8 @@ type Facts = {
   cleanup?: "running" | "pending" | "failed" | "done" | "unlanded_work" | "resource_mismatch";
   /** The internal review handoff from the implementer to the reviewer, until a reviewer starts. */
   handoff?: "running" | "stopped" | "failed";
+  /** A recorded internal review that has not ended. */
+  reviewing?: boolean;
 };
 type Decision = {
   action:
@@ -70,7 +72,8 @@ type Decision = {
     | "cleanup_unfinished"
     | "internal_review_handoff"
     | "internal_review_handoff_failed"
-    | "internal_review_handoff_stopped";
+    | "internal_review_handoff_stopped"
+    | "internal_review_running";
   blockers: {
     assignment: string;
     completion: "pr" | "report";
@@ -245,6 +248,12 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       pullRequest !== "waiting" &&
       (activity === "idle" || activity === "done"),
     decide: () => ({ action: "owner_attention", reason: "pr_owner_idle", blockers: [] }),
+  },
+  // The reviewer waits on the PR only after it marks the draft ready.
+  {
+    when: ({ assignment, reviewing, pullRequest }) =>
+      assignment.state === "pr-open" && reviewing === true && pullRequest === "idle",
+    decide: () => ({ action: "wait", reason: "internal_review_running", blockers: [] }),
   },
   {
     when: ({ assignment }) => assignment.state === "pr-open",
