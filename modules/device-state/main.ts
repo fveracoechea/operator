@@ -44,6 +44,7 @@ import {
 } from "./pull-requests.ts";
 import {
   claimHandoff,
+  endInternalReview,
   failHandoff,
   finishImplementer,
   recordInternalReviewRound,
@@ -246,6 +247,15 @@ export const DeviceState = {
   /** Ends the implementer launch whose pane the handoff closed. */
   finishImplementer(paths: Paths, launchId: string) {
     return writing(paths, (client) => finishImplementer(client, launchId));
+  },
+  /** Ends a running internal review ready or skipped, and queues the assignment reviewer with `queueReview`. */
+  endInternalReview(
+    paths: Paths,
+    target: Parameters<typeof endInternalReview>[1],
+    end: Parameters<typeof endInternalReview>[2],
+    queueReview: boolean,
+  ) {
+    return writing(paths, (client) => endInternalReview(client, target, end, queueReview));
   },
   /** Records one internal review round when the caller's rule permits it on the facts read in the write. */
   recordInternalReviewRound<E extends { reason: string; detail: string }>(

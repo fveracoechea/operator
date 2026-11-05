@@ -104,6 +104,8 @@ function cleanupSummary(cleanup: Cleanup) {
 function reviewSummary(source: Source, review: InternalReview) {
   return {
     state: review.state,
+    readyHead: review.readyHead,
+    comment: review.commentUrl,
     rounds: source.internalReviewRounds
       .filter((round) => round.assignment === review.assignment)
       .map((round) => ({

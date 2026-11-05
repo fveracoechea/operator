@@ -155,6 +155,10 @@ function insertInternalReview(
       updatedAt: now,
       ownerPid: process.pid,
       leaseAt: now,
+      readyHead: null,
+      commentId: null,
+      commentUrl: null,
+      endedAt: null,
     })
     .run();
 }

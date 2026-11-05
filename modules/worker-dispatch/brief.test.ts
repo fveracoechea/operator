@@ -381,6 +381,7 @@ test("the launch after a recorded handoff is the internal reviewer, with the rec
         },
         { number: 2, head: "h2", findings: [] },
       ],
+      readyHead: null,
     },
   });
   expect(brief).toContain(`## PR feedback loop
@@ -394,7 +395,8 @@ Recorded rounds:
 - Round 1 at \`h1\`:
   - Spec, blocker, \`a.ts:1\`: The guard is missing.
 - Round 2 at \`h2\`: no findings.
-If the PR is already ready for review, the review has ended and you own the PR feedback loop below.
+End the review with \`operator pr ready --file <summary.json> --json\`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.
+Then you own the PR feedback loop below.
 Read its reviews, comments, unresolved threads, and checks before you wait.
 Inspect the worktree first. Keep work that is not landed.
 Run \`operator pr wait --json\` in your worktree`);
@@ -403,15 +405,44 @@ Run \`operator pr wait --json\` in your worktree`);
       ...input,
       internalReview: true,
       pullRequest,
-      review: { state: "reviewing", rounds: [] },
+      review: { state: "reviewing", rounds: [], readyHead: null },
     }),
   ).toContain("No round is recorded yet.");
   // The role comes from the recorded review, never from a draft state that the brief cannot see.
-  for (const review of [null, { state: "ready" as const, rounds: [] }]) {
+  for (const review of [
+    null,
+    { state: "ready" as const, rounds: [], readyHead: "h3" },
+    { state: "skipped" as const, rounds: [], readyHead: "h3" },
+  ]) {
     const owner = renderBrief({ ...input, internalReview: true, pullRequest, review });
-    expect(owner).not.toMatch(/internal reviewer|draft/);
+    expect(owner).not.toMatch(/internal reviewer|draft|operator pr round|operator pr ready/);
     expect(owner).toContain("After `merge_eligible`, run `operator pr merge --json`.");
   }
+});
+
+test("a launch after the internal review ended is the PR owner, and its brief says how it ended", () => {
+  const pullRequest = { number: 7, url: "https://github.com/example/one/pull/7" };
+  const rounds = [{ number: 1, head: "h1", findings: [] }];
+  expect(
+    renderBrief({
+      ...input,
+      internalReview: true,
+      pullRequest,
+      review: { state: "ready", rounds, readyHead: "h3" },
+    }),
+  ).toContain(`PR #7 is already open for this assignment: https://github.com/example/one/pull/7.
+The internal review of PR #7 ended ready at \`h3\`.
+You own the PR. Record no more review rounds.
+Read its reviews, comments, unresolved threads, and checks before you wait.`);
+  expect(
+    renderBrief({
+      ...input,
+      internalReview: true,
+      pullRequest,
+      review: { state: "skipped", rounds: [], readyHead: "h3" },
+    }),
+  ).toContain(`The internal review of PR #7 was skipped on the person's instruction at \`h3\`.
+You own the PR. Record no more review rounds.`);
 });
 
 test("with internal review off, the brief names no draft and no internal reviewer", () => {

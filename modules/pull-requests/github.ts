@@ -495,3 +495,164 @@ export function deleteRemoteBranch(repository: string, branch: string) {
         : answer.detail,
   );
 }
+
+// The ready step and the skip read the PR's node, draft state, and earlier comments.
+const readyQuery = `query ReadyFacts($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id state isDraft headRefOid
+      comments(last: 100) { nodes { id body url author { login } } }
+    }
+  }
+}`;
+
+const readyAnswer = z.object({
+  data: z.object({
+    viewer: z.object({ login: z.string() }),
+    repository: z.object({
+      pullRequest: z.object({
+        id: z.string(),
+        state: z.enum(["OPEN", "MERGED", "CLOSED"]),
+        isDraft: z.boolean(),
+        headRefOid: z.string(),
+        comments: z.object({ nodes: z.array(comment) }),
+      }),
+    }),
+  }),
+});
+
+/** The PR as the ready step needs it, with the viewer's own comment that holds the marker. */
+export function readyFacts(repository: string, number: number, marker: string) {
+  return query(
+    ["-f", `query=${readyQuery}`, ...repositoryFields(repository), "-F", `number=${number}`],
+    readyAnswer,
+  ).map(({ data }) => {
+    const pr = data.repository.pullRequest;
+    const posted = pr.comments.nodes.find(
+      (node) => node.author?.login === data.viewer.login && node.body.includes(marker),
+    );
+    return {
+      id: pr.id,
+      state: pr.state,
+      draft: pr.isDraft,
+      head: pr.headRefOid,
+      posted: posted === undefined ? null : { id: posted.id, url: posted.url, body: posted.body },
+    };
+  });
+}
+
+const postedAnswer = z.object({ node_id: z.string(), html_url: z.string() });
+
+/** Posts one PR comment. A lost answer is found again by its marker on the next read. */
+export function postComment(repository: string, number: number, body: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: [`repos/${repository}/issues/${number}/comments`, "--method", "POST", "--input", "-"],
+        input: JSON.stringify({ body }),
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<{ id: string; url: string }, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = postedAnswer.safeParse(answer.value.body);
+    return parsed.success
+      ? Ok({ id: parsed.data.node_id, url: parsed.data.html_url })
+      : Err({
+          reason: "github_uncertain",
+          detail: "GitHub answered the comment post in an unknown form.",
+        });
+  });
+}
+
+const updateMutation = `mutation($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) { issueComment { id } }
+}`;
+
+const updateAnswer = z.object({
+  data: z
+    .object({ updateIssueComment: z.object({ issueComment: z.object({ id: z.string() }) }) })
+    .nullable(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+/** Replaces the text of an earlier comment. A lost answer is found again by its text on the next read. */
+export function updateComment(id: string, body: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["graphql", "-f", `query=${updateMutation}`, "-f", `id=${id}`, "-f", `body=${body}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = updateAnswer.safeParse(answer.value.body);
+    if (!parsed.success)
+      return Err({
+        reason: "github_uncertain",
+        detail: "GitHub answered the comment update in an unknown form.",
+      });
+    const errors = parsed.data.errors ?? [];
+    if (errors.length > 0 || parsed.data.data === null)
+      return Err({
+        reason: "github_failed",
+        detail:
+          errors.map((error) => error.message).join(" ") || "GitHub kept the earlier comment.",
+      });
+    return Ok(undefined);
+  });
+}
+
+const readyMutation = `mutation($id: ID!) {
+  markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } }
+}`;
+
+const readyMutationAnswer = z.object({
+  data: z
+    .object({
+      markPullRequestReadyForReview: z.object({
+        pullRequest: z.object({ isDraft: z.boolean() }),
+      }),
+    })
+    .nullable(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+/** Moves a draft PR to ready for review with GitHub's own mutation. */
+export function markReady(id: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["graphql", "-f", `query=${readyMutation}`, "-f", `id=${id}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = readyMutationAnswer.safeParse(answer.value.body);
+    if (!parsed.success)
+      return Err({
+        reason: "github_uncertain",
+        detail: "GitHub answered the ready mutation in an unknown form.",
+      });
+    const errors = parsed.data.errors ?? [];
+    const pr = parsed.data.data?.markPullRequestReadyForReview.pullRequest;
+    if (errors.length > 0 || pr === undefined || pr.isDraft)
+      return Err({
+        reason: "github_failed",
+        detail: errors.map((error) => error.message).join(" ") || "The PR stayed a draft.",
+      });
+    return Ok(undefined);
+  });
+}

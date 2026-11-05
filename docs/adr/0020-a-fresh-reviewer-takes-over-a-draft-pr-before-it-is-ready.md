@@ -84,7 +84,7 @@ A device setting supplies the default, a plan can turn it off or on for all its 
 The most specific value wins: assignment, then plan, then device.
 Each launch resolves and records the value, so a running owner keeps it and a replacement resolves it again.
 When it is off, the implementer opens a ready PR, keeps ownership as before, and no reviewer starts.
-On the person's instruction, the owner can skip a running internal review, which ends it and marks the PR ready with no summary comment.
+On the person's instruction, the SuperAgent can skip a running internal review, which ends it and marks the PR ready with no summary comment.
 
 ### Relation to the assignment reviewer
 
@@ -106,8 +106,8 @@ The evidence is the accepted review of 36 phase 1 PRs in two repositories, from 
 3. A launch records only its resolved internal review value, a launch-time resolution under ADR-0014. The implementer and the reviewer are steps of the review, not worker roles: the review record names the implementer launch, and a later launch of a running review is its reviewer. Only a start before the PR exists resolves the value again, so a settings change cannot drop a review that already started.
 4. A round with an applied blocker requires a second round. 24 of 35 reviewed PRs had a round 1 blocker, round 2 found something new in 21 of them and a new blocker in 8, and the one PR that declined every round 1 blocker still moved its head. Each recorded finding carries its severity, so the ready step can check this rule.
 5. The CLI renders one line for each recorded finding, with its axis, severity, and disposition, and checks that every finding appears once. The reviewer writes only a short overview. 14 of 33 phase 1 comments left out declined findings that their round files recorded, none marked severity, and 2 PRs went ready with no comment.
-6. Who may skip a running review is left to the ready step. Its one phase 1 case was a person's instruction that the SuperAgent relayed through Herdr, which does not choose between an owner command and a SuperAgent command.
-7. The brief reads the reviewer step from the recorded review, never from the draft state. A launch of a running review is its reviewer, and a launch after the review ended is the PR owner. In phase 1, a replacement after ready acted as owner only because it read the draft state.
+6. The SuperAgent skips a running review with a person-instructed command from the controlling checkout, as it resets a source or deletes unlanded work. The one phase 1 skip was a person's instruction that the SuperAgent relayed to the worker through Herdr, and ADR-0022 removes typed text as a channel. A SuperAgent command records the skip without a message to the reviewer, which keeps the PR as its owner and learns of the skip when its next review command refuses.
+7. The brief reads the reviewer step from the recorded review, never from the draft state. A launch of a running review is its reviewer, and a launch after the review ended is the PR owner, whose brief names the end and the ready head. `next` treats that launch as any PR owner. In phase 1, a replacement after ready acted as owner only because it read the draft state.
 8. Phase 2 ships as two slices: the lifecycle, its records, the handoff, and the rounds first, then the ready step, the merge gate, and the summary comment.
 
 ## Consequences
