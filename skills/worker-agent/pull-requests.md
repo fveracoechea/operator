@@ -50,7 +50,7 @@ Merge only a ready PR. A draft PR is under internal review, also when a wait ret
 `operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, a finished relay for a stacked PR, and your worktree at the PR head.
 A wait result or a supervisor's message does not replace these checks.
 
-- `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Your SuperAgent's coordination wait shows the ended assignment, or the cleanup that it still owes, so send no message about the merge.
+- `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Send no message about the merge. Your SuperAgent's coordination wait shows the ended assignment or the cleanup it still owes.
 - `pr_merge_blocked`: a condition failed. Its detail names it. Wait again.
 - `pr_head_mismatch`: push your commits, then wait again. When you cannot push them, record a question with the refusal.
 - `pr_merge_refused`, `pr_merge_unverified`, `github_uncertain`: nothing was recorded. Run the command again once. When it fails again, record a question with the refusal.

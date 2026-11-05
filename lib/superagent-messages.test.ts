@@ -14,9 +14,11 @@ test("finds each line that tells a worker to message its SuperAgent", () => {
         "Inform the SuperAgent.",
         "Ping your SuperAgent over Herdr.",
         "Reach the SuperAgent via Herdr.",
+        "Send the result to your SuperAgent.",
+        "Let your supervising SuperAgent know.",
       ].join("\n"),
-    ),
-  ).toHaveLength(9);
+    ).map(({ line }) => line),
+  ).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 });
 
 test("numbers each found line from 1", () => {
@@ -36,6 +38,8 @@ test("keeps recorded mechanisms and Herdr uses that do not reach the SuperAgent"
         "Herdr activity does not prove that the work is submitted.",
         "The SuperAgent reads it. Herdr shows the pane.",
         "A SuperAgent told you not to merge.",
+        "Ask each question of your supervising SuperAgent, not of the person.",
+        "Request it in a recorded question to your supervising SuperAgent.",
       ].join("\n"),
     ),
   ).toEqual([]);

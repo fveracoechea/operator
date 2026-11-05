@@ -175,7 +175,7 @@ ${dependencyReports(input)}
 
 The task instructions state who answers questions and what the SuperAgent may decide.
 Do the work within this task without asking for approval of each command or step. Decide what the instructions and the repository settle, and record those decisions in your report or PR.
-Send each question to your supervising SuperAgent, not to the person.
+Ask each question of your supervising SuperAgent, not of the person.
 Record it with \`operator question ask\` from this pane, and read the answer with \`operator question wait\`, as the \`worker-agent\` skill describes.
 The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
 A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
@@ -183,7 +183,7 @@ A SuperAgent answer is a SuperAgent decision, not a human answer, also after it 
 ## Native subagents
 
 Native host subagents work inside this assignment, and you remain responsible for their work and evidence.
-Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Ask your supervising SuperAgent for it.
+Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Request it in a recorded question to your supervising SuperAgent.
 
 ## Skills
 
