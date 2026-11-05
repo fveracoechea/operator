@@ -4,6 +4,7 @@ import { Environment } from "../environment/main.ts";
 import { rm } from "node:fs/promises";
 import {
   HERDR_PLUGIN_PATH,
+  OPENCODE_PLUGIN_PATH,
   identifyArtifact,
   REQUIRED_PARTS,
   scanFiles,
@@ -44,6 +45,7 @@ test("artifact identity covers file names and bytes but excludes its own release
 test("a release must carry its manifests, entry point, settings schema, plugin, migrations, and skills", () => {
   expect(SETTINGS_SCHEMA_PATH).toBe("schemas/config.schema.json");
   expect(HERDR_PLUGIN_PATH).toBe("modules/worker-dispatch/herdr-plugin.toml");
+  expect(OPENCODE_PLUGIN_PATH).toBe("modules/opencode-plugin/plugin.ts");
   expect(REQUIRED_PARTS).toEqual([
     "README.md",
     "cli.js",
@@ -53,6 +55,7 @@ test("a release must carry its manifests, entry point, settings schema, plugin, 
     "release.json",
     "schemas/config.schema.json",
     "modules/worker-dispatch/herdr-plugin.toml",
+    "modules/opencode-plugin/plugin.ts",
     "modules/operator-cli/main.js",
     "modules/operator-cli/main.d.ts",
     "modules/device-state/migrations/0000_register_projects.sql",

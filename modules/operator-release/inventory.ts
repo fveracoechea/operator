@@ -1,6 +1,7 @@
 export const RELEASE_MANIFEST_PATH = "release.json";
 export const SETTINGS_SCHEMA_PATH = "schemas/config.schema.json";
 export const HERDR_PLUGIN_PATH = "modules/worker-dispatch/herdr-plugin.toml";
+export const OPENCODE_PLUGIN_PATH = "modules/opencode-plugin/plugin.ts";
 
 /** Lists every file under a directory, treating a missing directory as empty. */
 export async function scanFiles(directory: string): Promise<string[]> {
@@ -47,6 +48,7 @@ export const REQUIRED_PARTS = [
   "release.json",
   SETTINGS_SCHEMA_PATH,
   HERDR_PLUGIN_PATH,
+  OPENCODE_PLUGIN_PATH,
   "modules/operator-cli/main.js",
   "modules/operator-cli/main.d.ts",
   "modules/device-state/migrations/0000_register_projects.sql",

@@ -6,6 +6,7 @@ Accepted - 2026-11-04.
 Decided in #313.
 Amends ADR-0021.
 Implemented: the coordination wait in #321, worker questions in #323, the turn-end guard in #325, steering messages in #326, and the retirement of worker-to-SuperAgent Herdr messages in #329.
+Amended 2026-11-05: OpenCode gets the turn-end guard through Operator's OpenCode plugin.
 
 ## Context
 
@@ -81,9 +82,23 @@ It blocks at most once in a row, so a SuperAgent that the person told to stop ca
 Unlike the commit check, this branch reads device state, and it allows the stop when the state is missing, blocked, or unreadable.
 The install adds the Stop group beside the commit group, and readiness checks both.
 
-OpenCode gets no turn-end guard in this decision.
-Its only equivalent is an experimental idle hook in its plugin API, which bounds no loop and would make Operator maintain an OpenCode plugin.
-The OpenCode SuperAgent starts the wait because its skill says so, which is a rule it can skip.
+On OpenCode, Operator's OpenCode plugin carries the same guard on the session's `experimental.idle` hook, which runs when a session finishes model work with no pending input.
+It asks `operator opencode hook`, and on a reason it admits one synthetic message with that reason, so the session continues instead of going idle.
+The decision and its reason live in one place that both hosts call.
+
+OpenCode 2.2.5 still names the hook experimental, and OpenCode bounds no loop that a plugin starts, so the plugin bounds its own.
+It continues a session at most once in a row, as the Claude Code guard does.
+The allowance resets on the session's `prompt` hook, which person prompts and slash commands run and synthetic messages and background notices do not, and when the idle event shows a background wait of the session running.
+Another continuation therefore needs a person prompt or a wait that ran in between, so a woken turn that ends without a wait gets the guard again and the loop stays bounded.
+The idle event lists the background shells that still run, with their commands, so a session that already runs `operator next --wait` in the background skips the check without starting `operator`.
+OpenCode's own goal feature drives its continuation through the same hook.
+The earlier rejection rested on the missing loop cap and on the cost of a plugin. The prompt hook now gives a cap that needs no Operator state, and the commit check of ADR-0021 shares the plugin.
+
+One OpenCode server runs every session on the device, and its environment names the Herdr pane that started the server, not the pane of each session.
+The command therefore finds the session's pane through Herdr's pane list, which maps an agent session id to its pane, and never reads `HERDR_PANE_ID`.
+A session that Herdr does not map, such as a subagent's, supervises nothing, and so does a session when Herdr does not answer.
+The plugin treats a failed, slow, or missing `operator` command as no opinion, and a hook that throws would fail the session's execution, so the plugin catches its own failures.
+`operator install --opencode` writes the plugin, and readiness checks its version marker.
 
 ### What each mechanism replaces
 
@@ -102,7 +117,11 @@ The OpenCode SuperAgent starts the wait because its skill says so, which is a ru
 - A worker that ends its turn after it asks a question still shows the question, not an idle worker, so the SuperAgent answers rather than replaces it.
 - A worker in a long turn sees its doorbell only when the host reads the typed line, so the attention period must exceed a normal turn.
 - The Stop hook depends on the recorded supervising pane, so a SuperAgent that restarts in a new pane gets no guard until it dispatches or waits.
-- An OpenCode SuperAgent, the device default, depends on its skill to keep a wait running.
+- An OpenCode SuperAgent, the device default, gets the guard only while the plugin file is current and OpenCode keeps the experimental idle hook's name and shape. A change there turns the guard off silently, and the version marker does not detect it.
+- The OpenCode guard depends on Herdr's session mapping, so a session outside Herdr gets no guard.
+- The plugin's allowance lives in the server's memory, so a server restart allows one more continuation.
+- The plugin runs `operator` from the shared server's `PATH`. A server whose `PATH` lacks the command gets no guard, and readiness cannot see the server's `PATH`.
+- The plugin stops `operator` after ten seconds and takes no opinion, so a slow Herdr or device state turns the guard off for that turn end.
 - On Claude Code, whether a background result that arrives while the person types keeps the unsent prompt intact rests on the documented queueing of input, not on a test.
 
 ## Alternatives considered
@@ -114,6 +133,7 @@ The OpenCode SuperAgent starts the wait because its skill says so, which is a ru
 - An inbox file for each SuperAgent was rejected because it would be a second store beside the device database.
 - A wait that returns while any non-wait action exists was rejected because a deferred person decision would end every wait at once.
 - One message lifecycle for questions and steering was rejected because its guards would branch on direction for person escalation, answer authority, and replies.
-- A guard on OpenCode's experimental idle hook was rejected for now because the hook has no loop cap and its API can change.
+- A guard on OpenCode's experimental idle hook was first rejected because the hook had no loop cap and its API can change. The person-prompt cap and the listed background shells answered the first reason, and the second remains a consequence.
+- Reading the pane from the OpenCode server's environment was rejected because the shared server carries the pane that started it.
 
 Related: ADR-0001, the wait reads the one next-actions answer; ADR-0003, both lifecycles are explicit machines; ADR-0011, workers identify their assignment by worktree or pane; ADR-0013, answers keep the authority distinction; ADR-0017, workers report only to their SuperAgent; ADR-0020, the internal-review handoff; ADR-0021, the Claude Code hook gains a Stop branch; ADR-0023, promotion hands over a worker by steering message.

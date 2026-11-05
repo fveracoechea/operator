@@ -25,7 +25,15 @@ const workspaceList = z.object({
   }),
 });
 const paneList = z.object({
-  result: z.object({ panes: z.array(pane.extend({ cwd: z.string().nullish() })) }),
+  result: z.object({
+    panes: z.array(
+      pane.extend({
+        cwd: z.string().nullish(),
+        // Herdr's agent plugins report the session that runs in a pane.
+        agent_session: z.object({ value: z.string() }).nullish(),
+      }),
+    ),
+  }),
 });
 const tabList = z.object({ result: z.object({ tabs: z.array(z.object({ label: z.string() })) }) });
 const agentList = z.object({
@@ -138,7 +146,10 @@ export const Herdr = {
       value.result.tabs.map((tab) => tab.label),
     );
   },
-  /** Every pane in every workspace, with the folder its shell is in when Herdr knows it. */
+  /**
+   * Every pane in every workspace, with the folder its shell is in and the id of the agent session
+   * it runs, when Herdr knows them.
+   */
   panes() {
     return invoke(["pane", "list"], paneList).map((value) =>
       value.result.panes.map((row) => ({
@@ -146,6 +157,7 @@ export const Herdr = {
         tabId: row.tab_id,
         workspaceId: row.workspace_id,
         cwd: row.cwd ?? null,
+        agentSession: row.agent_session?.value ?? null,
       })),
     );
   },

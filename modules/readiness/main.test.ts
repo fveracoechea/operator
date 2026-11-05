@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ErrAsync, fromPromise, Ok, OkAsync } from "unthrown";
 import { ClaudeHook } from "../claude-hook/main.ts";
+import { OpenCodePlugin } from "../opencode-plugin/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { Environment } from "../environment/main.ts";
 import { GlobalLauncher } from "../global-launcher/main.ts";
@@ -120,6 +121,9 @@ describe("static blockers", () => {
       OkAsync(["/one/SKILL.md", "/two/SKILL.md"]),
     );
     const hook = stub(ClaudeHook, "install");
+    const plugin = stub(OpenCodePlugin, "install").mockReturnValue(
+      ErrAsync({ reason: "opencode_plugin_missing" as const, detail: "No plugin." }),
+    );
     expect(await Readiness.check(device)).toEqual(
       Ok({
         blockers: [
@@ -137,12 +141,14 @@ describe("static blockers", () => {
             detail:
               "Run operator install --opencode. Missing required skill files: /one/SKILL.md, /two/SKILL.md",
           },
+          { reason: "opencode_plugin_missing", detail: "No plugin." },
         ],
       }),
     );
     expect(tools).not.toHaveBeenCalled();
     expect(owned).toHaveBeenCalledWith({ paths: device, hosts: ["opencode"], check: true });
     expect(upstream).toHaveBeenCalledWith(device, "opencode");
+    expect(plugin).toHaveBeenCalledWith({ paths: device, check: true });
     expect(hook).not.toHaveBeenCalled();
   });
 

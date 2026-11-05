@@ -167,6 +167,7 @@ in
   home.packages = [ operator ];
   programs.claude-code.skills = ownedSkills;
   programs.opencode.skills = ownedSkills;
+  xdg.configFile."opencode/plugins/operator.ts".source = "${operator}/share/opencode/plugins/operator.ts";
 }
 ```
 
@@ -238,11 +239,15 @@ Then it installs these upstream skills globally with the pinned `skills` install
 The upstream installer can replace your edits to those skills.
 `install --claude` also adds the commit hook to `~/.claude/settings.json`, as a `PreToolUse` group and a `Stop` group that both run `operator claude hook`.
 Before a git command, the hook blocks a commit whose message has a Co-Authored-By trailer.
-At the end of a SuperAgent's turn, the hook is the turn-end guard: while the sources that its Herdr pane supervises have running work and no `next --wait` from that pane runs, it blocks the end once and tells the SuperAgent to start the wait in the background. Missing or unusable device state lets the turn end. OpenCode has no turn-end guard.
+At the end of a SuperAgent's turn, the hook is the turn-end guard: while the sources that its Herdr pane supervises have running work and no `next --wait` from that pane runs, it blocks the end once and tells the SuperAgent to start the wait in the background. Missing or unusable device state lets the turn end.
 When that file is a link, for example into a dotfiles repository, `install` changes nothing and reports `claude_settings_external` with the hook groups to add.
+`install --opencode` also writes Operator's OpenCode plugin to `~/.config/opencode/plugins/operator.ts`, which runs `operator opencode hook` with the same two guards.
+It refuses a shell `git commit` with a Co-Authored-By trailer, and when a SuperAgent's session goes idle under the same condition, it continues the session once with the same reason. Another continuation needs a person prompt or a background wait that ran in between.
+A wait that the session already runs in the background skips the check. The plugin finds the session's pane through Herdr, because one OpenCode server runs every session.
+A linked plugin file or folder, or a file there that Operator did not write, stays unchanged, and `install` reports `opencode_plugin_external` with the file to link. A Nix install ships the plugin at `share/opencode/plugins/operator.ts` for the consumer to link.
 `ready` requires the Operator skills and Matt's `code-review` skill.
-`install --check` checks the Operator skills, and with `--claude` the commit hook. It reports `skills_missing` for skills that are not installed, `skill_copy_conflict` for skills with different contents, and `claude_hook_missing` when Claude Code settings do not run the commit hook on both events.
-`ready` checks `gh` and its login, `herdr`, the `operator` command, the host, the skills, and the commit hook on Claude Code.
+`install --check` checks the Operator skills, with `--claude` the commit hook, and with `--opencode` the plugin. It reports `skills_missing` for skills that are not installed, `skill_copy_conflict` for skills with different contents, `claude_hook_missing` when Claude Code settings do not run the commit hook on both events, and `opencode_plugin_missing` or `opencode_plugin_outdated` when the plugin file is absent or carries an older version marker.
+`ready` checks `gh` and its login, `herdr`, the `operator` command, the host, the skills, and the commit hook on Claude Code or the plugin on OpenCode.
 
 ### Assignments and dispatch
 

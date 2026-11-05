@@ -10,6 +10,7 @@ import {
   scanFiles,
   SETTINGS_SCHEMA_PATH,
   HERDR_PLUGIN_PATH,
+  OPENCODE_PLUGIN_PATH,
 } from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
@@ -188,7 +189,7 @@ function jsrManifest(source: SourceManifest): string {
 /**
  * Writes one release artifact from one checkout.
  * It holds runnable ESM, declarations, complete owned skills, the settings schema, the Herdr
- * plugin manifest, and the fixed database migrations.
+ * plugin manifest, the OpenCode plugin, and the fixed database migrations.
  */
 export async function buildArtifact(request: {
   sourceRoot: string;
@@ -242,6 +243,11 @@ export async function buildArtifact(request: {
   await Bun.write(
     `${artifactRoot}/${HERDR_PLUGIN_PATH}`,
     Bun.file(`${sourceRoot}/${HERDR_PLUGIN_PATH}`),
+  );
+  // OpenCode loads this file as written, so it ships untranspiled beside its module.
+  await Bun.write(
+    `${artifactRoot}/${OPENCODE_PLUGIN_PATH}`,
+    Bun.file(`${sourceRoot}/${OPENCODE_PLUGIN_PATH}`),
   );
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));

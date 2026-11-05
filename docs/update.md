@@ -66,6 +66,7 @@ Change these items yourself:
 3. Rebuild your configuration.
 
 When your skill links come from `operator.skills`, as in the README example, the rebuild links the skills of the new release.
+A link to `share/opencode/plugins/operator.ts` in the package also follows the new release on rebuild.
 When you list skill names yourself, add each new skill and remove each renamed or removed skill.
 Operator does not change or repair these links.
 
@@ -98,6 +99,8 @@ Give `install` the flag of each host that your settings select, as `operator con
    Then, on every install method, it installs the upstream skills globally and reports them in `data.upstream`.
    The upstream installer can replace your edits to those skills.
    With `--claude`, it also adds the `PreToolUse` and `Stop` hook groups that run `operator claude hook` to `~/.claude/settings.json`.
+   With `--opencode`, it writes the release's plugin to `~/.config/opencode/plugins/operator.ts` when that file is missing or has an older version marker.
+   It reports `data.opencodePlugin.reason` as `installed` or `already_installed`. On Nix, it only checks the file.
 3. Run `operator herdr install --json`.
    It returns `herdr_plugin_updated` when the release changed the plugin manifest, and `herdr_plugin_unchanged` otherwise.
    A dispatch or a reviewer start refuses with `herdr_plugin_outdated` until you run this command.
@@ -143,6 +146,8 @@ Read the `detail` first, because it names the path or the command to fix.
 | `claude_settings_external` | `~/.claude/settings.json` or its folder is a link or read-only, for example a dotfiles link, so `install` did not change it. | Add the hook groups in `detail` to that file. |
 | `claude_settings_invalid` | `~/.claude/settings.json` is not valid JSON settings. | Fix the file, then run `operator install --claude` again. |
 | `claude_hook_missing` | `install --check` or `ready` found that Claude Code settings do not run `operator claude hook` on both the `PreToolUse` and `Stop` events. | Run `operator install --claude`, or add the missing groups to a linked settings file. |
+| `opencode_plugin_missing`, `opencode_plugin_outdated` | `install --check` or `ready` found no OpenCode plugin file, or one with an older version marker. | Run `operator install --opencode`. On Nix, link the package's `share/opencode/plugins/operator.ts` and rebuild. |
+| `opencode_plugin_external` | The plugin file or its folder is a link or read-only, or the file has no Operator version marker, so `install` did not change it. | Link or copy the file that `detail` names to `~/.config/opencode/plugins/operator.ts`. |
 | `herdr_plugin_conflict` | Herdr links another directory under the Operator plugin id. | Give the linked directory to the person. Operator does not replace it. |
 | `herdr_plugin_outdated`, `herdr_plugin_missing` | A dispatch found a plugin manifest from another release, or none. | Run `operator herdr install`. |
 

@@ -75,6 +75,11 @@ export const OperatorHome = {
       skillsLock: path.join(stateRoot, "owned-skills-lock.sqlite"),
       herdrPlugin: path.join(stateRoot, "herdr-plugin"),
       claudeSettings: path.join(environment.HOME, ".claude/settings.json"),
+      // OpenCode loads every file in its global plugins folder.
+      opencodePlugin: path.join(
+        environment.XDG_CONFIG_HOME ?? path.join(environment.HOME, ".config"),
+        "opencode/plugins/operator.ts",
+      ),
     };
   },
   registrationDatabase(paths: { stateRoot: string }, nonce: string) {

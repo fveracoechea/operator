@@ -130,6 +130,9 @@ in
       linkClaude $name
       ln -s ${operator}/share/skills/operator/$name $XDG_CONFIG_HOME/opencode/skills/$name
     done
+    # The OpenCode plugin is one link into the global plugins folder.
+    mkdir -p $XDG_CONFIG_HOME/opencode/plugins
+    ln -s ${operator}/share/opencode/plugins/operator.ts $XDG_CONFIG_HOME/opencode/plugins/operator.ts
     test -d $HOME/.claude/skills/worker-agent -a ! -L $HOME/.claude/skills/worker-agent
     test -L $HOME/.claude/skills/worker-agent/SKILL.md
     hosts() { (cd $HOME && find .claude .agents -exec ls -ld {} + ; cd $XDG_CONFIG_HOME && find opencode -exec ls -ld {} +) | sort; }
@@ -140,7 +143,8 @@ in
     ${jq}/bin/jq -e '.reason == "ready" and .blockers == []' ready.json
 
     operator install --claude --opencode --check --json > install.json
-    ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true' install.json
+    ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true
+      and .data.opencodePlugin == "already_installed"' install.json
     test "$before" = "$(hosts)"
 
     # A missing consumer link is a blocker that names the Nix links, and nothing repairs it.

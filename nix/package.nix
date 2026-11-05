@@ -104,6 +104,10 @@ stdenv.mkDerivation {
       ln -s ../../../lib/operator/node_modules/@fveracoechea/operator/skills/$name \
         $out/share/skills/operator/$name
     done
+    # OpenCode loads every file in its global plugins folder, so consumers link this one there.
+    mkdir -p $out/share/opencode/plugins
+    ln -s ../../../lib/operator/node_modules/@fveracoechea/operator/modules/opencode-plugin/plugin.ts \
+      $out/share/opencode/plugins/operator.ts
     bun scripts/release.ts launcher --root $root --bun ${bun}/bin/bun > $out/bin/operator
     chmod 755 $out/bin/operator
     runHook postInstall

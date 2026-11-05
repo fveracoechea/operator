@@ -5,6 +5,7 @@
 Accepted - 2026-10-31.
 Amended 2026-11-04: the same hook also guards a SuperAgent's turn end on the Stop event, and only that branch reads device state (ADR-0022).
 The Stop branch is implemented in #325.
+Amended 2026-11-05: the same commit check runs on OpenCode through Operator's OpenCode plugin and `operator opencode hook`.
 
 ## Context
 
@@ -35,6 +36,18 @@ Check mode, a Nix release, and readiness only read the settings.
 A linked or read-only settings file belongs to its owner, such as a dotfiles repository, as linked skills do in ADR-0008.
 Operator then refuses the write and names the exact groups to add.
 
+### OpenCode
+
+Operator's OpenCode plugin runs the same commit check, on the `shell` tool's `execute.before` hook.
+The plugin is a thin file in OpenCode's global plugins folder that starts `operator opencode hook` and holds no Operator logic.
+It starts the command only for shell input whose text names `git` and `commit`, so other commands cost nothing.
+The command reads the shell input, resolves its working folder against the session's folder, and prints the deny reason.
+OpenCode fails that one tool call with the reason when the hook rejects.
+The check and its reason live in one place that both hosts call, so the hosts answer alike.
+A rejected call fails closed, so the plugin rejects only on a reason and treats a failed, slow, or missing `operator` command as no opinion.
+`operator install --opencode` writes the plugin, and the same ownership rules as the settings file apply: a linked file or folder, or a file there that Operator did not write, stays unchanged and the refusal names the file to link.
+Check mode, a Nix release, and readiness only read the version marker in the file.
+
 The hook is not a permission rule in the sense of ADR-0014.
 It grants nothing and passes no permission mode. It only denies one kind of commit message that the person asked to keep out, and blocks a SuperAgent's turn end once.
 
@@ -45,7 +58,7 @@ It grants nothing and passes no permission mode. It only denies one kind of comm
   The hook is a nudge, and there is no CI check of commit trailers.
 - A hook that cannot read its event exits 1, and Claude Code runs the command. A broken hook fails open.
 - Install rewrites the settings file with two-space JSON formatting.
-- OpenCode reads the same global instructions and now has no rule against the trailer. OpenCode gets no hook in this decision.
+- A device whose OpenCode plugins folder lives in a dotfiles repository is not ready until the person links the plugin there.
 
 ## Alternatives considered
 
@@ -55,6 +68,7 @@ It grants nothing and passes no permission mode. It only denies one kind of comm
 - A `PostToolUse` check of the new commit was rejected because it finds the trailer only after the commit exists.
 - A Git `commit-msg` hook was rejected because it needs per-repository or global Git configuration that Operator does not own, and it would also stop the person's own commits.
 - Writing through a linked settings file was rejected because the link target belongs to the person's dotfiles.
+- An OpenCode permission rule was rejected because it sees parsed command resources, not the heredoc text that holds most messages.
 - A rule in the global agent instructions was rejected because the agent can skip it, and it costs context on every run.
 
-Related: ADR-0022, the turn-end guard shares this hook; ADR-0008, consumer-owned links stay unchanged; ADR-0009, readiness checks static facts; ADR-0014, Operator installs no permission rules.
+Related: ADR-0022, the turn-end guard shares this hook and the OpenCode plugin; ADR-0008, consumer-owned links stay unchanged; ADR-0009, readiness checks static facts; ADR-0014, Operator installs no permission rules.

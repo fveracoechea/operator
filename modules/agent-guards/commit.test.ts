@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { commitHasTrailer } from "./commit.ts";
 
-const root = await mkdtemp(path.join(tmpdir(), "claude-hook-commit-"));
+const root = await mkdtemp(path.join(tmpdir(), "agent-guards-commit-"));
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
