@@ -318,6 +318,8 @@ The SuperAgent reads the tracker and gives the CLI a JSON plan.
 The SuperAgent runs it in the background, so worker events reach it without text typed into its pane.
 `herdr install` links the Herdr plugin that prepares each worktree and records worker activity.
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
+OpenCode workers use the full TUI, with the selected model and effort set on their session before attachment.
+Herdr's OpenCode terminal integration must be enabled to report their activity; Mini does not load it.
 
 ### Reports
 

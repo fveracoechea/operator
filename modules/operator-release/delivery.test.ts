@@ -401,7 +401,7 @@ for await(const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream())
       data: {
         model: "test/reasoner",
         reasoningEffort: "high",
-        command: { tool: "opencode", args: ["mini", "--model", "test/reasoner#high"] },
+        command: { tool: "opencode", args: [] },
       },
     });
     const claude = await run(
