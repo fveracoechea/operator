@@ -1,5 +1,13 @@
 # @fveracoechea/operator
 
+## 2.2.2
+
+### Patch Changes
+
+- bb7ac50: Fix Nix flake installation by updating the locked dependency cache.
+  Check the Nix package on Linux and macOS before release publication.
+- 5628d62: Document the complete Nix flake setup, including Home Manager inputs, host hooks, skill links, and lock updates.
+
 ## 2.2.1
 
 ### Patch Changes
