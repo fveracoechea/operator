@@ -22,6 +22,7 @@ export async function writeUpstreamTools(root: string) {
     ],
     "https://github.com/cursor/plugins.git": ["pstack/skills/unslop"],
     "https://github.com/humanlayer/skills.git": ["plugins/show-me/skills/show-me"],
+    "https://github.com/anthropics/skills.git": ["skills/frontend-design", "skills/pdf"],
   };
   const tools = {
     git: `const a = process.argv.slice(2);
