@@ -70,7 +70,7 @@ A link to `share/opencode/plugins/operator.ts` in the package also follows the n
 When you list skill names yourself, add each new skill and remove each renamed or removed skill.
 Operator does not change or repair these links.
 
-Operator CI does not build the Nix package, so a release tag can fail to build.
+Release smoke builds and checks the Nix package on x86-64 Linux and arm64 macOS before publication.
 If the build of a release tag fails, open an issue in `fveracoechea/operator` with your system and the build log.
 
 ## 3. Confirm the version
