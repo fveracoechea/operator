@@ -1,5 +1,14 @@
 # @fveracoechea/operator
 
+## 2.2.3
+
+### Patch Changes
+
+- 05918ec: Run the Nix flake release check only on Linux.
+  The macOS package remains supported, but CI does not build it.
+- f74b869: Add a browser-development skill for focused browser QA, debugging, accessibility checks, screenshots, and measurements.
+  Guide agents to reuse an approved existing login and keep artifacts in temporary directories outside Git.
+
 ## 2.2.2
 
 ### Patch Changes
