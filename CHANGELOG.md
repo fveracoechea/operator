@@ -1,5 +1,12 @@
 # @fveracoechea/operator
 
+## 2.2.4
+
+### Patch Changes
+
+- b424afe: Launch OpenCode workers in the full TUI so Herdr reports working and idle transitions. Create each session with the selected model and effort before attaching, without changing existing workers.
+- bb20cbb: Install Anthropic's frontend-design skill through the upstream installer when running `operator install` for either supported host.
+
 ## 2.2.3
 
 ### Patch Changes
