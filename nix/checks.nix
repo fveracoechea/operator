@@ -186,6 +186,7 @@ in
     upstream matt skills/productivity/tdd mattpocock/skills
     upstream cursor pstack/skills/unslop cursor/plugins
     upstream humanlayer plugins/show-me/skills/show-me humanlayer/skills
+    upstream anthropics skills/frontend-design anthropics/skills
     status=0
     env GIT_CONFIG_GLOBAL=$TMPDIR/gitconfig BUN_CONFIG_REGISTRY=http://127.0.0.1:9/ \
       PATH=$TMPDIR/profile/bin:$TMPDIR/tools operator install --claude --json > upstream.json \
