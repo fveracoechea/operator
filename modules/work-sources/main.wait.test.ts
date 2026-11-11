@@ -26,8 +26,14 @@ function project() {
   );
 }
 
+const supervisor = { pane: "pane-1", session: "ses-1" };
+
 function device(returned: string | null, ...reads: (typeof ready)[][]) {
-  spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), HERDR_PANE_ID: "pane-1" });
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_PANE_ID: "pane-1",
+    OPENCODE_SESSION_ID: "ses-1",
+  });
   project();
   const read = spyOn(DeviceState, "readSources");
   for (const rows of reads) read.mockReturnValueOnce(Ok(rows));
@@ -60,7 +66,7 @@ test("a scope that never returned a set returns the normal next answer at once a
     value: { reason: "next_actions_changed", data: expected },
   });
   const target = { repository: "example/one", scope: "" };
-  expect(calls.start).toHaveBeenCalledWith(paths, target, "pane-1");
+  expect(calls.start).toHaveBeenCalledWith(paths, target, supervisor);
   expect(calls.hold).toHaveBeenCalledWith(paths, target);
   expect(calls.finish).toHaveBeenCalledWith(paths, target, actionSet(expected));
   expect(calls.released).toHaveBeenCalledTimes(1);
@@ -83,7 +89,7 @@ test("an unchanged set waits until the timeout and returns the unchanged answer"
   expect(calls.start).toHaveBeenCalledWith(
     paths,
     { repository: "example/one", scope: "one" },
-    "pane-1",
+    supervisor,
   );
   expect(calls.read).toHaveBeenCalledWith(paths, "example/one", "one");
   expect(calls.released).toHaveBeenCalledTimes(1);
@@ -142,14 +148,14 @@ function supervision(...sources: { id: string; waiting: boolean }[]) {
   );
 }
 
-test("a supervised source with running work and no wait from the pane is unwatched", async () => {
+test("a supervised source with running work and no wait from the session is unwatched", async () => {
   const read = supervision({ id: "one", waiting: false });
   const rows = spyOn(DeviceState, "readSources").mockReturnValue(Ok([running]));
-  expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+  expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
     tag: "Ok",
     value: ["one"],
   });
-  expect(read).toHaveBeenCalledWith(paths, "pane-1");
+  expect(read).toHaveBeenCalledWith(paths, "ses-1");
   expect(rows).toHaveBeenCalledWith(paths, "example/one", "one");
 });
 
@@ -158,7 +164,7 @@ test("a covered source, work that waits only for dependencies, or no running wor
   const rows = spyOn(DeviceState, "readSources");
   for (const answer of [[ready], [pending], []]) {
     rows.mockReturnValueOnce(Ok(answer));
-    expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+    expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
       tag: "Ok",
       value: [],
     });
@@ -171,7 +177,7 @@ test("a covered source, work that waits only for dependencies, or no running wor
 test("a supervision read failure is the unwatched read's failure", async () => {
   const failure = { reason: "state_missing" as const, detail: "missing" };
   spyOn(DeviceState, "readSupervision").mockReturnValue(Err(failure));
-  expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+  expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
     tag: "Err",
     error: failure,
   });

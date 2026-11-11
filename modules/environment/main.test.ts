@@ -89,3 +89,29 @@ console.log(JSON.stringify({ child: Environment.child().OPERATOR_CHILD_ONLY, ove
   });
   expect(await child.exited).toBe(0);
 });
+
+test("the caller is the Herdr pane and the session that the agent host names", () => {
+  const home = { HOME: "/isolated/home" };
+  expect(Environment.caller(Environment.parse(home))).toEqual({ pane: null, session: null });
+  expect(
+    Environment.caller(
+      Environment.parse({ ...home, HERDR_PANE_ID: "w1:p1", CLAUDE_CODE_SESSION_ID: "claude-1" }),
+    ),
+  ).toEqual({ pane: "w1:p1", session: "claude-1" });
+  // OpenCode names the session of each shell command, so an inherited Claude Code session loses.
+  expect(
+    Environment.caller(
+      Environment.parse({
+        ...home,
+        OPENCODE_SESSION_ID: "ses_1",
+        CLAUDE_CODE_SESSION_ID: "claude-1",
+      }),
+    ),
+  ).toEqual({ pane: null, session: "ses_1" });
+  // Empty text names no session.
+  expect(
+    Environment.caller(
+      Environment.parse({ ...home, OPENCODE_SESSION_ID: "", CLAUDE_CODE_SESSION_ID: "" }),
+    ).session,
+  ).toBeNull();
+});

@@ -3,7 +3,7 @@
 Steer a running worker only through a recorded steering message. Never type instructions into the worker's pane.
 The CLI rings the worker's doorbell: a fixed line that names the message key and carries no instruction.
 
-1. Run `operator message send --source <id> --assignment <key> --key <message> --text "<text>" --json` from your own pane, for example with `--key status-1 --text "Report your status in your reply."`.
+1. Run `operator message send --source <id> --assignment <key> --key <message> --text "<text>" --json` from your own session, for example with `--key status-1 --text "Report your status in your reply."`.
    The key has lowercase letters, digits, and single hyphens. It names one message for the whole assignment, so use a new key for each message.
    For text that is hard to quote in the shell, write `{"key": "status-1", "message": "..."}` to a file outside the checkout and pass `--file <message.json>` in place of `--key` and `--text`.
 2. Read `doorbellFailure` in the result. Null means that Herdr took the doorbell.
