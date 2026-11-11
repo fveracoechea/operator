@@ -342,23 +342,25 @@ operator question ask --file <question.json> --json
 operator question wait --key <key> --timeout 300 --json
 operator question withdraw --key <key> --json
 operator question escalate --source <source-id> --assignment <key> --key <question> --json
-operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json
+operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --text <answer> --json
 ```
 
 The WorkerAgent asks, waits for the answer, and withdraws from its own pane.
 `next` shows an open question as `answer_question`, and a question that the SuperAgent escalates to the person as `person_decision`.
 Only the SuperAgent answers, and `--by person` records an answer that the person gave.
+`--file <answer.md>` in place of `--text` reads the answer from a file.
 
 ### Steering messages
 
 ```sh
-operator message send --source <source-id> --assignment <key> --file <message.json> --json
+operator message send --source <source-id> --assignment <key> --key <message> --text <text> --json
 operator message ring --source <source-id> --assignment <key> --key <message> --json
 operator message close --source <source-id> --assignment <key> --key <message> --json
 operator message read --key <message> --json
 operator message ack --key <message> [--file <reply.md>] --json
 ```
 
+`--file <message.json>`, with `key` and `message` fields, can replace `--key` and `--text`.
 The SuperAgent records a keyed message for a running WorkerAgent, and the CLI types a fixed doorbell line that names the key into the worker's pane.
 The WorkerAgent reads and acknowledges the message from its own pane, with an optional reply.
 `next` shows a reply as `read_reply` until the SuperAgent closes the message, and a message whose doorbell failed or that stays pending for 15 minutes as `worker_attention`.
