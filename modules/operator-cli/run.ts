@@ -5,10 +5,12 @@ import { runLauncher } from "./launcher.ts";
 import { runReadiness } from "./readiness.ts";
 import { runSources } from "./sources.ts";
 import { runDispatch } from "./dispatch.ts";
+import { runAsk } from "./ask.ts";
 import { runPullRequests } from "./pull-requests.ts";
 import { runReports } from "./reports.ts";
 import { runQuestions } from "./questions.ts";
 import { runMessages } from "./messages.ts";
+import { runObligations } from "./obligations.ts";
 import { runReviews } from "./reviews.ts";
 import { runProject } from "./projects.ts";
 import { runSettings } from "./settings.ts";
@@ -39,10 +41,12 @@ async function handle(args: string[], paths: OperatorPaths, json: boolean) {
     runProject,
     runSources,
     runDispatch,
+    runAsk,
     runPullRequests,
     runReports,
     runQuestions,
     runMessages,
+    runObligations,
     runReviews,
   ]) {
     if (await handler(args, paths, json)) return;

@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #199, #231, and #233.
 Implemented in #244, and later slices add their actions and waits to the same read.
+Amended 2026-11-11: the same read lists each source's open obligations beside its actions, without counting them as actions (ADR-0026).
 
 ## Context
 
@@ -36,4 +37,4 @@ The SuperAgent supplies the coordination judgment and obtains the person's decis
 - Independent command reports that agents combine into a schedule were rejected because the combination becomes a second implementation of workflow order.
 - Treating a host completion event as accepted work was rejected because it proves neither a durable report nor a verified merge.
 
-Related: ADR-0003, declarative machines provide the workflow states; ADR-0010, PR owners follow the feedback loop; ADR-0013, report acceptance is distinct from worker activity; ADR-0015, review waits own review operations; ADR-0006, next actions apply a plan's running cap; ADR-0022, the SuperAgent's coordination wait returns this read; ADR-0026, the wait returns only its new actions.
+Related: ADR-0003, declarative machines provide the workflow states; ADR-0010, PR owners follow the feedback loop; ADR-0013, report acceptance is distinct from worker activity; ADR-0015, review waits own review operations; ADR-0006, next actions apply a plan's running cap; ADR-0022, the SuperAgent's coordination wait returns this read; ADR-0028, the wait returns only its new actions.

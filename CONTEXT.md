@@ -123,6 +123,9 @@ A running worker keeps that selection, while a replacement uses the settings res
 A registered plan of assignments, dependencies, and tracker keys supplied by a SuperAgent, not read from a tracker by the CLI, plus any PR assignments that promotion adds.
 Each registration has a new identity, and a source is ended when it is finished or reset.
 
+**Question source**:
+A work source that `operator ask` registers from one research question, with one read-only report assignment that it dispatches at once.
+
 **Assignment**:
 One independently scheduled unit of delegated work with a brief, dependencies, a start profile, resource needs, and an explicit PR or report completion type.
 Native subagents remain within their parent WorkerAgent's assignment unless their work needs independent scheduling or acceptance.
@@ -171,6 +174,7 @@ The worker resumes the assignment with those instructions and the prior reports 
 **Next actions**:
 The CLI's applicable actions and waits derived from recorded workflow state and observed facts.
 They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
+Each source also lists its open obligations beside its actions.
 
 **Coordination wait**:
 The SuperAgent's blocking read of next actions, which returns only the actions that its scope has not returned yet, or nothing when its timeout ends.
@@ -191,6 +195,11 @@ _Avoid_: supervising pane
 A keyed question that a WorkerAgent records for its supervising SuperAgent, which stays open in next actions until it is answered on the record.
 A question that the SuperAgent passes to the person is a person decision until the human answer is recorded.
 _Avoid_: blocker message, grilling message
+
+**Obligation**:
+A keyed record of what the SuperAgent owes the person in one work source: a PR to share for review, a review reply, a merge hold, a standing rule, or a person decision that no question or brief records yet.
+Next actions list each open obligation beside the actions until the SuperAgent closes it, and its addition or close changes no action set.
+_Avoid_: promise, todo, commitment in chat
 
 **Steering message**:
 A recorded instruction from a SuperAgent, or from an operation that it runs, to a running WorkerAgent, which stays pending until the worker acknowledges it.
@@ -289,6 +298,7 @@ A skip applies to one PR, never to all PRs of an author.
 **Slack effect**:
 A CLI-generated reply or reaction that an agent transports through Slack MCP tools and acknowledges to the CLI.
 Its pending or completed record permits a session to resume without an agent-written ledger.
+A person-instructed drop completes it as dropped, unsent.
 
 ## Herdr language
 

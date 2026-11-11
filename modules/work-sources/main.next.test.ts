@@ -411,6 +411,7 @@ test("an ended source keeps its owed cleanup and offers prune only after retenti
       { action: "prune_source", reason: "retention_elapsed" },
     ],
     waits: [],
+    owed: [],
   });
   mock.restore();
   // Without the whole board, the end leaves and the prune stays.

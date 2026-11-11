@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { slug } from "../../lib/slug.ts";
 
 const key = z
   .string()
@@ -125,3 +126,48 @@ export const promotionSchema = z.strictObject({
   branch,
   internalReview: z.boolean().optional(),
 });
+
+/**
+ * A question's assignment key names its first words, so next actions read as the question. The
+ * length cap keeps a long opening token within the plan's key limit.
+ */
+function questionKey(question: string) {
+  const words = slug(question).split("-").slice(0, 6).join("-");
+  return words.slice(0, 60).replace(/-$/, "") || "question";
+}
+
+/**
+ * The plan of one research question: one read-only report assignment in its own source. Each
+ * question gets a new tracker key, so asking the same question again never meets an open
+ * parent. The question stays quoted, so its text cannot open a brief section. ADR-0027.
+ */
+export function questionPlan(question: string, profile: string | undefined) {
+  const trackerKey = `ask:${crypto.randomUUID().slice(0, 8)}`;
+  const quoted = question
+    .trim()
+    .split("\n")
+    .map((line) => `> ${line}`.trimEnd())
+    .join("\n");
+  return {
+    trackerKey,
+    assignments: [
+      {
+        key: questionKey(question),
+        trackerKey,
+        completion: "report",
+        resources: "pane",
+        dependencies: [],
+        profile,
+        instructions: `Answer this question from your supervising SuperAgent.
+
+${quoted}
+
+Research the answer in the project, its history, and the tools you can reach. Change nothing.
+Answer with a short conclusion that answers the question directly.
+Give the evidence for it: file paths with line numbers, commands with their relevant output, and links.
+List the paths of any detailed supporting files in \`files\`, and the points you could not settle in \`unresolved\`.
+Ask your supervising SuperAgent when the question is unclear. Decide nothing outside the question.`,
+      },
+    ],
+  };
+}

@@ -72,6 +72,7 @@ import {
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
 import { changeQuestion, readQuestion } from "./questions.ts";
 import { changeMessage, readMessage } from "./messages.ts";
+import { changeObligation, readObligations } from "./obligations.ts";
 import {
   changeReviewRequest,
   readReviewRequest,
@@ -80,7 +81,13 @@ import {
   type ReviewChange,
   type ReviewSnapshot,
 } from "./review-requests.ts";
-import { acknowledgeSlackEffect, ingestSlack, readSlack, startSlackWatch } from "./slack.ts";
+import {
+  acknowledgeSlackEffect,
+  dropSlackEffect,
+  ingestSlack,
+  readSlack,
+  startSlackWatch,
+} from "./slack.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -202,6 +209,18 @@ export const DeviceState = {
   readMessage(paths: Paths, target: ReportTarget, key: string) {
     return reading(paths, (client) => readMessage(client, target, key));
   },
+  /** Apply one obligation change that the caller's rule decides from facts read in the same transaction. */
+  changeObligation<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: Parameters<typeof readObligations>[1],
+    key: string,
+    decide: Parameters<typeof changeObligation<E>>[3],
+  ) {
+    return writing(paths, (client) => changeObligation(client, target, key, decide));
+  },
+  readObligations(paths: Paths, target: Parameters<typeof readObligations>[1]) {
+    return reading(paths, (client) => readObligations(client, target));
+  },
   launchNames(paths: Paths) {
     return reading(paths, (client) => launchNames(client));
   },
@@ -318,6 +337,10 @@ export const DeviceState = {
     decide: Parameters<typeof acknowledgeSlackEffect>[2],
   ) {
     return writing(paths, (client) => acknowledgeSlackEffect(client, id, decide));
+  },
+  /** Finishes one pending effect without a send. A done or dropped effect refuses. */
+  dropSlackEffect(paths: Paths, id: string) {
+    return writing(paths, (client) => dropSlackEffect(client, id));
   },
   /** Renew this process's lease on a reviewer start, post, move, or cleanup until the stop runs. */
   holdReviewRequest(paths: Paths, id: string) {

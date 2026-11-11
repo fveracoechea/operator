@@ -1,4 +1,4 @@
-# ADR-0026: A coordination wait returns only new actions of the session's sources
+# ADR-0028: A coordination wait returns only new actions of the session's sources
 
 ## Status
 

@@ -12,7 +12,7 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { planSchema, promotionSchema } from "./plan.ts";
+import { planSchema, promotionSchema, questionPlan } from "./plan.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
 import {
@@ -23,6 +23,7 @@ import {
   type Launch,
   type PullRequest,
   type Message,
+  type Obligation,
   type Question,
   type Report,
 } from "./snapshot.ts";
@@ -196,63 +197,75 @@ function retention(
   });
 }
 
+/** Parses a supplied plan, checks its profiles against device settings, and writes the source. */
+function registerPlan(input: Input, supply: () => Promise<object>) {
+  return fromPromise(
+    async () => planSchema.parse(await supply()),
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  )
+    .flatMap((plan) =>
+      DeviceSettings.show(input.paths).flatMap(({ data: settings }) => {
+        const missing = plan.assignments.find(
+          (assignment) =>
+            assignment.profile !== undefined &&
+            !Object.hasOwn(settings.config.profiles ?? {}, assignment.profile),
+        );
+        if (missing)
+          return Err({
+            reason: "source_profile_missing" as const,
+            detail: `The profile ${missing.profile} for ${missing.key} does not exist. No source was written.`,
+          });
+        return Ok(plan);
+      }),
+    )
+    .flatMap((plan) =>
+      Projects.current(input).flatMap(({ data: project }) => {
+        const id = crypto.randomUUID();
+        const registeredAt = new Date().toISOString();
+        const assignments = plan.assignments.map((assignment) => ({
+          sourceId: id,
+          key: assignment.key,
+          completion: assignment.completion,
+          state: "ready" as const,
+        }));
+        const state = decideSource({ state: "open", assignments });
+        return DeviceState.registerSource(
+          input.paths,
+          project.checkout,
+          {
+            id,
+            repository: project.repository,
+            trackerKey: plan.trackerKey,
+            state,
+            registeredAt,
+            endedAt: state === "finished" ? registeredAt : null,
+            plan: JSON.stringify(plan),
+          },
+          assignments,
+        ).map((source) => ({
+          ...source,
+          plan,
+          assignments: assignments.map(({ key, completion, state }) => ({
+            key,
+            completion,
+            state,
+          })),
+        }));
+      }),
+    );
+}
+
 /** Plans are supplied by the SuperAgent. No operation reads or updates a tracker. */
 export const WorkSources = {
   register(input: Input & { file: string }) {
-    return fromPromise(
-      async () => planSchema.parse(await Bun.file(input.file).json()),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-    )
-      .flatMap((plan) =>
-        DeviceSettings.show(input.paths).flatMap(({ data: settings }) => {
-          const missing = plan.assignments.find(
-            (assignment) =>
-              assignment.profile !== undefined &&
-              !Object.hasOwn(settings.config.profiles ?? {}, assignment.profile),
-          );
-          if (missing)
-            return Err({
-              reason: "source_profile_missing" as const,
-              detail: `The profile ${missing.profile} for ${missing.key} does not exist. No source was written.`,
-            });
-          return Ok(plan);
-        }),
-      )
-      .flatMap((plan) =>
-        Projects.current(input).flatMap(({ data: project }) => {
-          const id = crypto.randomUUID();
-          const registeredAt = new Date().toISOString();
-          const assignments = plan.assignments.map((assignment) => ({
-            sourceId: id,
-            key: assignment.key,
-            completion: assignment.completion,
-            state: "ready" as const,
-          }));
-          const state = decideSource({ state: "open", assignments });
-          return DeviceState.registerSource(
-            input.paths,
-            project.checkout,
-            {
-              id,
-              repository: project.repository,
-              trackerKey: plan.trackerKey,
-              state,
-              registeredAt,
-              endedAt: state === "finished" ? registeredAt : null,
-              plan: JSON.stringify(plan),
-            },
-            assignments,
-          ).map((source) => ({
-            ...source,
-            plan,
-            assignments: assignments.map(({ key, completion, state }) => ({
-              key,
-              completion,
-              state,
-            })),
-          }));
-        }),
-      );
+    return registerPlan(input, () => Bun.file(input.file).json());
+  },
+  /**
+   * Registers a SuperAgent's research question as a source with one read-only report
+   * assignment, so the question needs no plan file. ADR-0027.
+   */
+  ask(input: Input & { question: string; profile?: string }) {
+    return registerPlan(input, async () => questionPlan(input.question, input.profile));
   },
   show(input: Input & { sourceId: string }) {
     return read(input).map((sources) => {
@@ -903,6 +916,22 @@ function described<T extends object>(
   return row;
 }
 
+/**
+ * What the SuperAgent still owes the person. It is shown beside the actions, not as one, so the
+ * SuperAgent's own addition or close wakes no coordination wait. ADR-0026.
+ */
+function owed(obligations: Obligation[]) {
+  return obligations
+    .filter((row) => row.state === "open")
+    .map(({ key, kind, summary, reference, openedAt }) => ({
+      key,
+      kind,
+      summary,
+      reference,
+      openedAt,
+    }));
+}
+
 function nextActions(input: Input, source: Source, now: number) {
   const decisions = decide(input, source, now);
   // An ended source keeps the cleanup that its completed work still owes.
@@ -925,6 +954,7 @@ function nextActions(input: Input, source: Source, now: number) {
         ...cleanup,
       ],
       waits: decisions.filter((decision) => decision.reason === "cleanup_running"),
+      owed: owed(source.obligations),
     };
   }
   return {
@@ -934,5 +964,6 @@ function nextActions(input: Input, source: Source, now: number) {
       (decision) => decision.action !== "wait" && decision.action !== "ended",
     ),
     waits: decisions.filter((decision) => decision.action === "wait"),
+    owed: owed(source.obligations),
   };
 }

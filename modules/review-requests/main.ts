@@ -13,7 +13,7 @@ import {
 } from "./request.ts";
 import { claimCleanup, cleanupResult, cleanupReviewer, launch, syncReviewer } from "./reviewer.ts";
 import { rows, wait } from "./watch.ts";
-import { acknowledge, ingest, slackActions } from "./slack.ts";
+import { acknowledge, drop, ingest, slackActions } from "./slack.ts";
 import type { Target } from "./github.ts";
 import { markerPrefix } from "./review-body.ts";
 
@@ -261,6 +261,10 @@ export const ReviewRequests = {
   /** Records the agent's report of one sent Slack effect from the raw send result. */
   acknowledge(input: { paths: Paths; id: string; text: string }) {
     return acknowledge(input);
+  },
+  /** Finishes one pending Slack effect without a send, on the person's instruction. */
+  drop(input: { paths: Paths; id: string; personInstructed: boolean }) {
+    return drop(input);
   },
   /**
    * Watches every open request until a round, a move, an end, or an action needs attention. It

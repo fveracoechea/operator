@@ -21,7 +21,8 @@ When the question needs the person, move it to the person first:
 1. Run `operator question escalate --source <id> --assignment <key> --key <question> --json`.
    `next` then shows `person_decision` with `question_awaiting_person`, and the worker's wait returns `question_awaiting_person`.
 2. Ask the person, as [Asking the person](#asking-the-person) describes.
-3. Record the person's own words with `--by person`.
+3. Record the person's own words with `--by person` as soon as the person answers, also when the answer arrives in chat between other work.
+   An answer that stays only in the conversation keeps the question open on every wake.
 
 Use `--by person` only for an answer that the person gave.
 An answer that you infer, or one that you accept on the person's behalf, is `--by super-agent`.

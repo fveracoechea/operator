@@ -37,7 +37,7 @@ export function dispatchArgs(args: string[]) {
   return { operation: "dispatch" as const, sourceId, assignment };
 }
 
-const dispatchExitCodes = {
+export const dispatchExitCodes = {
   assignment_not_dispatchable: 4,
   running_cap_reached: 4,
   launch_failed: 1,
