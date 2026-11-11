@@ -5,7 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #199, #231, and #233.
 Implemented in #244, and later slices add their actions and waits to the same read.
-Amended 2026-11-11: the same read lists each source's open obligations beside its actions, without counting them as actions (ADR-0024).
+Amended 2026-11-11: the same read lists each source's open obligations beside its actions, without counting them as actions (ADR-0025).
 
 ## Context
 

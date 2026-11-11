@@ -119,7 +119,7 @@ function list(input: Selector) {
 /**
  * The ledger of what the SuperAgent owes the person in each source: a PR to share, a review
  * reply, a merge hold, a standing rule, or a person's decision that waits to be recorded. Next
- * actions show each open obligation until the SuperAgent closes it. ADR-0024.
+ * actions show each open obligation until the SuperAgent closes it. ADR-0025.
  */
 export const Obligations = {
   /** The closed set of kinds, which stored rows are decoded against. */

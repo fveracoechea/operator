@@ -362,7 +362,7 @@ export const workerMessages = sqliteTable(
 );
 
 // What the SuperAgent owes the person in a source, keyed within it. It stays open until the
-// SuperAgent closes it, so the commitment does not depend on the conversation. ADR-0024.
+// SuperAgent closes it, so the commitment does not depend on the conversation. ADR-0025.
 export const obligations = sqliteTable(
   "obligations",
   {
