@@ -308,6 +308,7 @@ operator next --json
 operator next --wait --timeout 300 --json
 operator herdr install --json
 operator dispatch --source <source-id> --assignment <key> --json
+operator ask --question "<question>" [--profile <name>] --json
 operator source take-over --source <source-id> --person-instructed --json
 operator source reset --source <source-id> --person-instructed --json
 operator source prune --json
@@ -319,6 +320,7 @@ The SuperAgent reads the tracker and gives the CLI a JSON plan.
 The SuperAgent runs it in the background, so worker events reach it without text typed into its pane.
 `herdr install` links the Herdr plugin that prepares each worktree and records worker activity.
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
+`ask` registers one research question as its own source with a read-only report assignment, and dispatches its worker in the same command.
 The agent session that dispatches a source's work or waits for that source supervises it, together with its Herdr pane. Operator reads the session from `OPENCODE_SESSION_ID` or `CLAUDE_CODE_SESSION_ID`.
 A coordination command for that source from another session refuses with `source_supervised_elsewhere` and names the supervising session and pane. `source take-over` moves supervision to the calling session on the person's instruction.
 OpenCode workers use the full TUI, with the selected model and effort set on their session before attachment.

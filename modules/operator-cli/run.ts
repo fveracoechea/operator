@@ -5,6 +5,7 @@ import { runLauncher } from "./launcher.ts";
 import { runReadiness } from "./readiness.ts";
 import { runSources } from "./sources.ts";
 import { runDispatch } from "./dispatch.ts";
+import { runAsk } from "./ask.ts";
 import { runPullRequests } from "./pull-requests.ts";
 import { runReports } from "./reports.ts";
 import { runQuestions } from "./questions.ts";
@@ -34,6 +35,7 @@ export async function run(args: string[]): Promise<void> {
     runProject,
     runSources,
     runDispatch,
+    runAsk,
     runPullRequests,
     runReports,
     runQuestions,
