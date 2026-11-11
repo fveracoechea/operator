@@ -260,15 +260,15 @@ function poll(loop: Loop): AsyncResult<Outcome, Failure> {
   return pass(paths)
     .flatMap((passed) => slackActions(paths, loop.slack).map((slack) => ({ ...passed, slack })))
     .flatMap(({ events, listed, slack }): AsyncResult<Outcome, Failure> => {
-      const all = rows(paths, listed);
-      const requests = shown(all, events, loop.all);
+      const listedRows = rows(paths, listed);
+      const requests = shown(listedRows, events, loop.all);
       if (events.length > 0)
         return OkAsync({ reason: "review_events_observed", data: { events, requests, slack } });
       if (slackDue(slack, loop))
         return OkAsync({ reason: "review_slack_ready", data: { events, requests, slack } });
       // Only the first pass returns for an action, so a row that waits for the SuperAgent or the
       // person does not turn repeated waits into a busy loop. A wait finishes moves by itself.
-      if (first && all.some((row) => "action" in row && row.action !== "wait_reviews"))
+      if (first && listedRows.some((row) => "action" in row && row.action !== "wait_reviews"))
         return OkAsync({ reason: "review_actions_ready", data: { events, requests, slack } });
       if (Date.now() >= deadline)
         return OkAsync({ reason: "review_wait_timed_out", data: { events, requests, slack } });

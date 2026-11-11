@@ -440,7 +440,8 @@ export const WorkSources = {
   /**
    * Run a SuperAgent command from the pane, then record the actions that it added to the named
    * source, or to a source that it registered, as returned by the pane's waits. A wait never
-   * returns for a change that its own pane made. A failed read only skips the record.
+   * returns for a change that its own pane made. A failed read or write only skips the record,
+   * because the command's own result stands.
    */
   async acknowledgeOwnChange<T>(
     input: Input & { paneId: string; sourceId?: string; assignment?: string },
@@ -463,7 +464,9 @@ export const WorkSources = {
       );
     });
     if (added.length > 0)
-      DeviceState.acknowledgeCoordinationWaits(input.paths, input.paneId, addKeys(added));
+      DeviceState.acknowledgeCoordinationWaits(input.paths, input.paneId, addKeys(added)).getOr(
+        undefined,
+      );
     return result;
   },
   /** The PR assignment that a promotion adds, read from the SuperAgent's file. ADR-0023. */
@@ -579,15 +582,16 @@ function scopeAnswer(
   input: Input & { sourceId?: string; paneId: string | null },
   repository: string,
 ) {
-  const projects =
+  type Project = { repository: string; ids: Set<string> | null };
+  const projects: Result<Project[], WatchFailure> =
     input.paneId === null
-      ? Ok([{ repository, ids: null as Set<string> | null }])
+      ? Ok([{ repository, ids: null }])
       : DeviceState.readSupervision(input.paths, input.paneId).map((supervised) =>
           [...new Set(supervised.map((row) => row.repository))].map((supervisedIn) => ({
             repository: supervisedIn,
             ids: new Set(
               supervised.filter((row) => row.repository === supervisedIn).map((row) => row.id),
-            ) as Set<string> | null,
+            ),
           })),
         );
   return projects.flatMap((list) =>
@@ -617,17 +621,19 @@ function watchActions(
 ): AsyncResult<WatchOutcome, WatchFailure> {
   // The stored set is read before the actions, so an acknowledged change is already visible.
   const read = DeviceState.readCoordinationWait(input.paths, target).flatMap((stored) =>
-    scopeAnswer(input, target.repository).map((answer) => ({
-      stored: parseSet(stored),
-      answer,
-    })),
+    scopeAnswer(input, target.repository).flatMap((answer) => {
+      const set = parseSet(stored);
+      const current = actionKeys(answer);
+      const removed = [...(set ?? [])].filter((key) => !current.has(key));
+      const dropped =
+        removed.length === 0
+          ? Ok(undefined)
+          : DeviceState.changeCoordinationWait(input.paths, target, dropKeys(removed)).discard();
+      return dropped.map(() => ({ stored: set, answer, current }));
+    }),
   );
-  return read.toAsync().flatMap(({ stored, answer }) => {
-    const current = actionKeys(answer);
+  return read.toAsync().flatMap(({ stored, answer, current }) => {
     const now = Date.now();
-    const removed = [...(stored ?? [])].filter((key) => !current.has(key));
-    if (removed.length > 0)
-      DeviceState.changeCoordinationWait(input.paths, target, dropKeys(removed));
     // A scope that never returned a set returns at once with every action.
     const due = stored === null ? [...current] : dueKeys({ stored, current, watch, now });
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
