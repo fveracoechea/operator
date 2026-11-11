@@ -114,7 +114,17 @@ beforeEach(async () => {
   await tool("gh", `#!${process.execPath}\nprocess.exit(process.argv[2] === "auth" ? 0 : 99);\n`);
   await tool(
     "opencode",
-    `#!${process.execPath}\nconst dir=decodeURIComponent(process.argv[4].split("=")[1]);\nconsole.log(JSON.stringify({location:{directory:dir},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"medium"},{id:"high"}]},{providerID:"test",id:"writer",enabled:true,variants:[{id:"medium"}]}]}));\n`,
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[1] === "post") {
+  const input = JSON.parse(args[args.indexOf("--data") + 1]);
+  await Bun.write(${JSON.stringify(`${root}/session.json`)}, JSON.stringify(input));
+  console.log(JSON.stringify({data:{id:"ses_worker",...input}}));
+} else {
+  const dir=decodeURIComponent(args[2].split("=")[1]);
+  console.log(JSON.stringify({location:{directory:dir},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"medium"},{id:"high"}]},{providerID:"test",id:"writer",enabled:true,variants:[{id:"medium"}]}]}));
+}
+`,
   );
   await Bun.write(
     `${root}/config/operator/config.json`,
@@ -279,9 +289,13 @@ test("read-only report work gets a tab in the project workspace and a device-sta
       name: "report-one-11-investigate",
       paneId: data.paneId,
       kind: "opencode",
-      args: ["mini", "--model", "test/reasoner#medium"],
+      args: ["--session", "ses_worker"],
     },
   ]);
+  expect(await Bun.file(`${root}/session.json`).json()).toEqual({
+    model: { providerID: "test", id: "reasoner", variant: "medium" },
+    location: { directory: checkout },
+  });
   const prompt = (await Bun.file(`${root}/herdr-calls.jsonl`).text())
     .split("\n")
     .find((line) => line.startsWith('["agent","prompt"'));
@@ -367,6 +381,10 @@ test("worktree work prepares the new Herdr worktree before the agent starts", as
     },
   });
   const worktree = data.worktreePath ?? "";
+  expect(await Bun.file(`${root}/session.json`).json()).toEqual({
+    model: { providerID: "test", id: "reasoner", variant: "high" },
+    location: { directory: worktree },
+  });
   expect(await Bun.file(`${worktree}/.env.local`).text()).toBe("TOKEN=local\n");
   expect(await Bun.file(`${worktree}/apps/web/.env.development.local`).text()).toBe("NESTED=1\n");
   expect(await Bun.file(`${worktree}/.env`).exists()).toBe(false);
@@ -540,6 +558,46 @@ test("a failed launch stays visible, and a replacement resolves current settings
         { attempt: 1, state: "failed", model: "test/reasoner", reasoningEffort: "high" },
         { attempt: 2, state: "running", model: "test/writer", reasoningEffort: "medium" },
       ],
+    },
+  });
+});
+
+test("an unconfirmed OpenCode session leaves a failed launch without starting or prompting an agent", async () => {
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const source = await register();
+  await tool(
+    "opencode",
+    `#!${process.execPath}
+const args=process.argv.slice(2);
+if(args[1]==="post") console.log(JSON.stringify({data:{id:"ses_wrong",model:{providerID:"test",id:"reasoner",variant:"high"},location:{directory:"/wrong"}}}));
+else console.log(JSON.stringify({location:{directory:process.cwd()},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"medium"},{id:"high"}]}]}));
+`,
+  );
+  expect(await run(["dispatch", "--source", source, "--assignment", "investigate"])).toMatchObject({
+    code: 1,
+    output: { reason: "launch_failed" },
+  });
+  expect((await herdrState()).agents).toEqual([]);
+  expect(await herdrCalls()).not.toContain("agent start");
+  expect(await herdrCalls()).not.toContain("agent prompt");
+  expect(await run(["next"])).toMatchObject({
+    output: {
+      data: {
+        sources: [
+          {
+            actions: expect.arrayContaining([
+              expect.objectContaining({
+                assignment: "investigate",
+                action: "replace_worker",
+                reason: "launch_failed",
+                launch: expect.objectContaining({
+                  failure: expect.objectContaining({ reason: "host_session_failed" }) as unknown,
+                }) as unknown,
+              }),
+            ]) as unknown,
+          },
+        ],
+      },
     },
   });
 });

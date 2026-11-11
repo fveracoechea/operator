@@ -98,7 +98,7 @@ test("stores advertised custom OpenCode effort in device defaults and named prof
     expect(resolved.output).toMatchObject({
       data: {
         reasoningEffort: "deep",
-        command: { args: ["mini", "--model", "test/reasoner#deep"] },
+        command: { args: [] },
       },
     });
   }
@@ -121,7 +121,7 @@ test("resolves inherited worker and SuperAgent effort from live host metadata wi
       host: "opencode",
       model: "test/reasoner",
       reasoningEffort: "medium",
-      command: { tool: "opencode", args: ["mini", "--model", "test/reasoner#medium"] },
+      command: { tool: "opencode", args: [] },
     },
   });
   expect((await run(["config", "resolve", "--role", "superAgent"])).output).toMatchObject({

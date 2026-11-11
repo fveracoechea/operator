@@ -2,6 +2,7 @@ import { realPathOrNull } from "../../lib/real-path.ts";
 import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise, type AsyncOkOf } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { AgentHosts } from "../agent-hosts/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -376,11 +377,11 @@ function launchEffects(input: {
       })
       .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
       .flatTap(({ placement }) =>
-        Herdr.startAgent({
+        AgentHosts.start({
           name,
-          kind: settings.launch.host === "claude-code" ? "claude" : "opencode",
+          launch: settings.launch,
+          cwd: placement.workingDirectory,
           paneId: placement.paneId,
-          args: settings.launch.command.args,
         }),
       )
       .flatTap(({ brief }) => Herdr.prompt({ name, text: `Read ${brief} and follow it.` }))

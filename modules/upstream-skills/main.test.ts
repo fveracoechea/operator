@@ -89,6 +89,7 @@ const fixtures: Record<string, string[]> = {
     "plugins/show-me/skills/show-me",
     "plugins/rpi/skills/rpi",
   ],
+  "https://github.com/anthropics/skills.git": ["skills/frontend-design", "skills/pdf"],
 };
 
 /** Writes the fixture skill folders into one clone destination. */
@@ -195,6 +196,7 @@ test("installs every source at its resolved commit with a positive roster and re
             { repository: "mattpocock/skills", commit, skills: ["code-review", "tdd"] },
             { repository: "cursor/plugins", commit, skills: ["unslop"] },
             { repository: "humanlayer/skills", commit, skills: ["show-me"] },
+            { repository: "anthropics/skills", commit, skills: ["frontend-design"] },
           ],
           replacementPolicy: policy,
         },
@@ -206,6 +208,7 @@ test("installs every source at its resolved commit with a positive roster and re
       ...resolution(directory, "mattpocock/skills"),
       ...resolution(directory, "cursor/plugins"),
       ...resolution(directory, "humanlayer/skills"),
+      ...resolution(directory, "anthropics/skills"),
       installer(directory, `mattpocock/skills#${commit}`, ["code-review", "tdd"]),
       installer(
         directory,
@@ -216,6 +219,11 @@ test("installs every source at its resolved commit with a positive roster and re
         directory,
         `https://github.com/humanlayer/skills/tree/${commit}/plugins/show-me/skills/show-me`,
         ["show-me"],
+      ),
+      installer(
+        directory,
+        `https://github.com/anthropics/skills/tree/${commit}/skills/frontend-design`,
+        ["frontend-design"],
       ),
     ]);
     expect(
@@ -333,7 +341,7 @@ test("an invalid commit, an empty owned catalog, an owned-only roster, or a repe
     const owned = spyOn(OwnedSkills, "names").mockResolvedValue([]);
     const empty = upstream({});
     expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(invalid);
-    expect(empty.calls).toHaveLength(6);
+    expect(empty.calls).toHaveLength(8);
     owned.mockResolvedValue(["code-review", "bun", "tdd"]);
     expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(invalid);
     owned.mockResolvedValue(["show-me"]);
@@ -384,6 +392,8 @@ test("an interrupted or failed installer is not silently retried or called compl
         error: { reason },
       });
       expect(calls.map((call) => call.tool)).toEqual([
+        "git",
+        "git",
         "git",
         "git",
         "git",

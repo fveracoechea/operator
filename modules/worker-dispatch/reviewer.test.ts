@@ -12,6 +12,7 @@ import {
 import { rm } from "node:fs/promises";
 import { Err, ErrAsync, Ok, OkAsync } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
+import { AgentHosts } from "../agent-hosts/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
@@ -143,23 +144,32 @@ test("a first start creates a worktree at the PR head and starts the reviewer on
 });
 
 test("an OpenCode reviewer starts as an OpenCode agent", async () => {
+  const start = spyOn(AgentHosts, "start").mockReturnValue(OkAsync(null));
   spyOn(DeviceSettings, "resolve").mockReturnValue(
     OkAsync({
       host: "opencode" as const,
       model: "claude-resolved",
       requestedModel: "claude",
       reasoningEffort: "high",
-      command: { tool: "opencode", args: ["mini"] },
+      command: { tool: "opencode", args: [] },
       role: "workerAgent" as const,
       profile: "careful",
     }),
   );
   expect(await launchReviewer(request())).toMatchObject({ tag: "Ok", value: { host: "opencode" } });
-  expect(doubles.startAgent).toHaveBeenCalledWith({
+  expect(start).toHaveBeenCalledWith({
     name: "review-7",
-    kind: "opencode",
+    launch: {
+      host: "opencode",
+      model: "claude-resolved",
+      requestedModel: "claude",
+      reasoningEffort: "high",
+      command: { tool: "opencode", args: [] },
+      role: "workerAgent",
+      profile: "careful",
+    },
+    cwd: `${project.root}/worktrees/review-7`,
     paneId: "p2",
-    args: ["mini"],
   });
   expect(recorded[0]).toMatchObject({ launch: await snapshot("opencode") });
 });

@@ -117,6 +117,18 @@ in
     cp $TMPDIR/config.json $XDG_CONFIG_HOME/operator/config.json
     echo upstream > $HOME/.claude/skills/code-review/SKILL.md
     echo upstream > $HOME/.agents/skills/code-review/SKILL.md
+    # Nix consumers also own the Claude Code settings that readiness checks.
+    cat > $HOME/.claude/settings.json <<'JSON'
+    {
+      "hooks": {
+        "PreToolUse": [{
+          "matcher": "Bash",
+          "hooks": [{ "type": "command", "if": "Bash(git *)", "command": "operator claude hook" }]
+        }],
+        "Stop": [{ "hooks": [{ "type": "command", "command": "operator claude hook" }] }]
+      }
+    }
+    JSON
     # The consumer's Nix configuration owns the links to each owned skill. Claude Code gets the
     # shape that the Home Manager skills options write, a folder of links to each file. OpenCode
     # gets one link to each skill folder.
@@ -174,6 +186,7 @@ in
     upstream matt skills/productivity/tdd mattpocock/skills
     upstream cursor pstack/skills/unslop cursor/plugins
     upstream humanlayer plugins/show-me/skills/show-me humanlayer/skills
+    upstream anthropics skills/frontend-design anthropics/skills
     status=0
     env GIT_CONFIG_GLOBAL=$TMPDIR/gitconfig BUN_CONFIG_REGISTRY=http://127.0.0.1:9/ \
       PATH=$TMPDIR/profile/bin:$TMPDIR/tools operator install --claude --json > upstream.json \
