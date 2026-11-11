@@ -528,7 +528,7 @@ test.each(["finished", "reset"])(
           ? "UPDATE assignments SET state = CASE completion WHEN 'pr' THEN 'merged' ELSE 'completed' END"
           : "UPDATE assignments SET state = 'abandoned'",
       );
-      // A source that ended now stays inside its retention, so next shows no prune action.
+      // A fresh end keeps the source inside its retention, so next shows no prune action.
       db.query("UPDATE sources SET state = ?, ended_at = ?").run(state, new Date().toISOString());
       recordMerges(db);
     }

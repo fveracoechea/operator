@@ -14,6 +14,14 @@ PR assignment completion requires the owner's guarded merge, not a host completi
 A native subagent remains under its parent WorkerAgent's task and responsibility.
 Work that needs independent scheduling, dependency links, or your separate acceptance needs its own assignment.
 
+## Your own budget
+
+To answer something yourself, make at most one status call, for example `gh pr view` or `operator next --json`.
+Every other read is a WorkerAgent's task: code reads, log and CI digging, MCP queries such as Datadog, PostHog, or Slack history, and dev-server work.
+WorkerAgents have the same MCP access as you.
+Send a person's change request to the worker that owns the work, in the person's words, within the same turn.
+The steering message carries it, as [steering.md](steering.md) describes.
+
 ## Human stops
 
 The person approved the plan and the authority in its instructions. That is your authority for every routine action, so do not ask the person to approve each command or step.
@@ -28,4 +36,6 @@ Decide what the instructions and the project context settle, and record the deci
 - `source reset` and `project remove`. They end work or delete history, so they refuse without `--person-instructed`.
 - A closed PR, a missing PR worktree, and a parent PR that closed or merged outside the default branch. [pull-requests.md](pull-requests.md) names each one.
 
+Ask each stop as [questions.md](questions.md) describes, and keep the other work moving meanwhile.
+Remind the person once. When that reminder stays unanswered, offer a fallback that needs no person, for example work that is ready now.
 After the person answers, continue from `operator next --json`. Durable state keeps the progress, so do not repeat earlier steps or ask for earlier approvals again.
