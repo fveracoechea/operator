@@ -70,7 +70,6 @@ WorkerAgents reach you through recorded state, never through text in your pane.
 It returns `next_wait_timed_out` with the unchanged answer after `--timeout <seconds>`, 300 by default.
 Select one source with `--source <source-id>`. Each scope compares against the set that its last wait returned, so a change between two waits returns at once.
 A scope that never returned a set returns at once.
-The pane that last ran the wait or dispatched a source's work supervises that source. A wait without `--source` claims only open sources that no pane supervises yet, so run it from your own pane.
 
 Run the wait as a background command, so its result arrives as a new turn and never mixes with the person's typing:
 
@@ -79,9 +78,21 @@ Run the wait as a background command, so its result arrives as a new turn and ne
 
 Keep the host's command timeout above the wait timeout.
 Handle each result, then start the next wait before you end your turn.
-The turn-end guard keeps your turn going once while your pane's sources have running work and no wait from your pane runs. Its reason tells you to start the wait. A wait you already run in the background skips it on OpenCode.
+The turn-end guard keeps your turn going once while your session's sources have running work and no wait from your session runs. Its reason tells you to start the wait. A wait you already run in the background skips it on OpenCode.
 While a wait runs, the person can still prompt you. Answer, and leave the wait running.
 A host without background commands runs the wait in the foreground when the person asks you to watch.
+
+## Supervision
+
+One agent session supervises a source. The session that last ran the source's wait or dispatched its work supervises it, together with its Herdr pane.
+A wait without `--source` claims only open sources that nobody supervises yet, so it never takes another SuperAgent's sources.
+The session counts, not the pane: a new session in the same pane, for example after `/clear` or a restart, supervises nothing.
+
+Another session's `dispatch`, `next --wait --source`, report decision, question answer or escalation, steering message, `cleanup`, or `handoff` for the source refuses with `source_supervised_elsewhere`. Its detail names the supervising session and pane.
+Reads such as `next` and `source show` still work.
+When you get that refusal, leave the source to the named session. Tell the person, and take it over only when the person tells you to.
+Run `operator source take-over --source <source-id> --person-instructed --json` from your own session. `--person-instructed` attests the person's instruction. It does not grant authority.
+The result names the `previous` supervisor and the new one. The previous session's commands for the source refuse from then on.
 
 ## Reset and prune
 

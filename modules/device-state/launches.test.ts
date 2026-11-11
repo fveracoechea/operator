@@ -89,19 +89,22 @@ test("a reservation starts the assignment once and refuses a second dispatch", (
   expect(launchNames(db)).toMatchObject({ value: ["report-app-1-read"] });
 });
 
-function pane(db: Database) {
-  return db.query("SELECT supervising_pane AS pane FROM sources").get();
+function supervisor(db: Database) {
+  return db
+    .query("SELECT supervising_pane AS pane, supervising_session AS session FROM sources")
+    .get();
 }
 
-test("a dispatch makes its pane the source's supervising pane, and a refused dispatch claims nothing", () => {
+test("a dispatch makes its pane and session the source's supervisor, and a refused dispatch claims nothing", () => {
   using db = fixture();
-  expect(reserveLaunch(db, "/other", "owner/one", launch, undefined, "super-1").tag).toBe("Err");
-  expect(pane(db)).toEqual({ pane: null });
+  const superAgent = { pane: "super-1", session: "ses-1" };
+  expect(reserveLaunch(db, "/other", "owner/one", launch, undefined, superAgent).tag).toBe("Err");
+  expect(supervisor(db)).toEqual({ pane: null, session: null });
   reserveLaunch(db, "/one", "owner/one", launch);
-  expect(pane(db)).toEqual({ pane: null });
+  expect(supervisor(db)).toEqual({ pane: null, session: null });
   db.query("UPDATE launches SET state = 'failed'").run();
-  reserveLaunch(db, "/one", "owner/one", { ...launch, id: "l2", name: "x" }, undefined, "super-1");
-  expect(pane(db)).toEqual({ pane: "super-1" });
+  reserveLaunch(db, "/one", "owner/one", { ...launch, id: "l2", name: "x" }, undefined, superAgent);
+  expect(supervisor(db)).toEqual({ pane: "super-1", session: "ses-1" });
 });
 
 test("only a failed or interrupted launch permits a replacement with a new attempt and name", () => {

@@ -163,19 +163,18 @@ function update(sql: string) {
   db.query(sql).run();
 }
 
-test("an idle session continues while its Herdr pane supervises running work and no wait runs", async () => {
+test("an idle session continues while it supervises running work and no wait runs", async () => {
   const id = await registeredSource();
-  update(`UPDATE sources SET supervising_pane = 'pane-1' WHERE id = '${id}'`);
+  update(
+    `UPDATE sources SET supervising_pane = 'server-pane', supervising_session = 'ses_1' WHERE id = '${id}'`,
+  );
   // Ready work runs nothing.
   expect(await run(["opencode", "hook"], idle())).toEqual(allowed);
   update("UPDATE assignments SET state = 'running'");
   const continued = await run(["opencode", "hook"], idle());
   expect(continued.code, continued.stderr).toBe(0);
   expect(continued.stdout).toContain(`running work in ${id}`);
-  // A session that Herdr does not map, such as a subagent's, supervises nothing. The server's
-  // own pane does not stand in for it.
-  update(`UPDATE sources SET supervising_pane = 'server-pane' WHERE id = '${id}'`);
-  expect(await run(["opencode", "hook"], idle())).toEqual(allowed);
+  // Another session in the same pane, such as a subagent's or a new one, supervises nothing.
   expect(await run(["opencode", "hook"], idle("ses_child"))).toEqual(allowed);
 }, 30000);
 
