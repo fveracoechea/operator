@@ -59,3 +59,7 @@ Run it again after you act on its rows.
 
 `review skip <pr-url>` ends one PR's request on the person's instruction.
 A skip never names an author.
+
+A skip or a close keeps the request's pending Slack effects.
+`operator review slack-drop <effect-id> --person-instructed --json` drops one pending effect unsent, only on the person's instruction.
+The `slack-pr-review-workflow` skill names its refusals.

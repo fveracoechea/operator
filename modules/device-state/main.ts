@@ -75,7 +75,13 @@ import {
   type ReviewChange,
   type ReviewSnapshot,
 } from "./review-requests.ts";
-import { acknowledgeSlackEffect, ingestSlack, readSlack, startSlackWatch } from "./slack.ts";
+import {
+  acknowledgeSlackEffect,
+  dropSlackEffect,
+  ingestSlack,
+  readSlack,
+  startSlackWatch,
+} from "./slack.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -313,6 +319,10 @@ export const DeviceState = {
     decide: Parameters<typeof acknowledgeSlackEffect>[2],
   ) {
     return writing(paths, (client) => acknowledgeSlackEffect(client, id, decide));
+  },
+  /** Finishes one pending effect without a send. A done or dropped effect refuses. */
+  dropSlackEffect(paths: Paths, id: string) {
+    return writing(paths, (client) => dropSlackEffect(client, id));
   },
   /** Renew this process's lease on a reviewer start, post, move, or cleanup until the stop runs. */
   holdReviewRequest(paths: Paths, id: string) {

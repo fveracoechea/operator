@@ -6,7 +6,7 @@ import { Environment } from "../environment/main.ts";
 import { GithubApi } from "../github-api/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { answered, prAnswer, reviewHome, seedRequest, target } from "./home-fixture.ts";
-import { acknowledge, ingest, readIntervalMs, slackActions } from "./slack.ts";
+import { acknowledge, drop, ingest, readIntervalMs, slackActions } from "./slack.ts";
 
 type Home = Awaited<ReturnType<typeof reviewHome>>;
 let home: Home;
@@ -466,4 +466,52 @@ test("an unknown effect id is refused", async () => {
     tag: "Err",
     error: { reason: "slack_effect_missing" },
   });
+});
+
+test("a person-instructed drop finishes one pending effect unsent, so no wait gives it again", async () => {
+  const [reaction, reply] = seedEffects([
+    { key: "reaction:eyes", kind: "reaction", content: "eyes" },
+    { key: "reply:1", kind: "reply", content: "stale text" },
+  ]);
+  const id = reply?.id ?? "";
+  expect(settled(await drop({ paths: home.paths, id, personInstructed: true }))).toEqual({
+    tag: "Ok",
+    value: {
+      reason: "slack_effect_dropped",
+      data: {
+        id,
+        kind: "reply",
+        state: "dropped",
+        url: one(7),
+        channel: "C1",
+        threadTs: "1500.000001",
+        content: "stale text",
+      },
+    },
+  });
+  expect(pending().map((effect) => effect.id)).toEqual([reaction?.id ?? ""]);
+  expect(await drop({ paths: home.paths, id, personInstructed: true })).toMatchObject({
+    tag: "Err",
+    error: { reason: "slack_effect_finished" },
+  });
+  expect(pending().map((effect) => effect.id)).toEqual([reaction?.id ?? ""]);
+});
+
+test("a drop refuses without the person's instruction or for an unknown effect", async () => {
+  const [reply] = seedEffects([{ key: "reply:1", kind: "reply", content: "text" }]);
+  const id = reply?.id ?? "";
+  expect(settled(await drop({ paths: home.paths, id, personInstructed: false }))).toEqual({
+    tag: "Err",
+    error: {
+      reason: "person_instruction_required",
+      detail:
+        "Drop a Slack effect only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
+    },
+  });
+  expect(pending().map((effect) => effect.id)).toEqual([id]);
+  expect(await drop({ paths: home.paths, id: "none", personInstructed: true })).toMatchObject({
+    tag: "Err",
+    error: { reason: "slack_effect_missing" },
+  });
+  expect(pending().map((effect) => effect.id)).toEqual([id]);
 });

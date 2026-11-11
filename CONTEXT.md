@@ -288,6 +288,7 @@ A skip applies to one PR, never to all PRs of an author.
 **Slack effect**:
 A CLI-generated reply or reaction that an agent transports through Slack MCP tools and acknowledges to the CLI.
 Its pending or completed record permits a session to resume without an agent-written ledger.
+A person-instructed drop completes it as dropped, unsent.
 
 ## Herdr language
 

@@ -254,3 +254,34 @@ export function acknowledge(input: {
       });
     });
 }
+
+/**
+ * Finishes one pending effect without a send, on the person's instruction, so a stale reply is
+ * never posted as the person. The flag attests that instruction, it does not grant authority.
+ */
+export function drop(input: {
+  paths: Paths;
+  id: string;
+  personInstructed: boolean;
+}): AsyncResult<Outcome, Failure> {
+  if (!input.personInstructed)
+    return ErrAsync({
+      reason: "person_instruction_required",
+      detail:
+        "Drop a Slack effect only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
+    });
+  return DeviceState.dropSlackEffect(input.paths, input.id)
+    .toAsync()
+    .map((effect) => ({
+      reason: "slack_effect_dropped",
+      data: {
+        id: effect.id,
+        kind: effect.kind,
+        state: effect.state,
+        url: effect.url,
+        channel: effect.channel,
+        threadTs: effect.threadTs,
+        content: effect.content,
+      },
+    }));
+}

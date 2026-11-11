@@ -8,6 +8,7 @@ Implemented in #253, with review rounds in #254 and Slack transport in #255.
 Amended 2026-10-30 in #284: only a defect that breaks the app or a security issue requests changes, and a breach of style or design gives a comment.
 Amended 2026-10-30 in #286: an approval cleans up the reviewer, and a renewed request after approval gets a replacement.
 Amended 2026-11-04 in #305: with internal review on, the end of the internal review queues the assignment-origin request, not the PR association (ADR-0020).
+Amended 2026-11-11 in #344: a person-instructed drop ends a pending Slack effect unsent, and an ended request keeps its pending effects.
 
 ## Context
 
@@ -64,6 +65,8 @@ Slack transport uses the agent's MCP tools, with no Slack token in the CLI.
 The CLI schedules channel reads, filters registered repositories and GitHub authors through device policy, and records the channel cursor from raw ingested results.
 It generates every reply and reaction, then gives the exact effect to the agent for transport and acknowledgement.
 Pending effects survive a restart.
+Only the person's instruction drops a pending effect unsent, so a stale reply never posts as the person.
+A closed or skipped request keeps its pending effects, because a reply generated before the end still reports a posted review.
 A skip applies to one PR, never an author-wide skip list.
 Replies have a compact status, nonzero counts, and a review link, with at most three short blocker bullets and later-round progress.
 Start and outcome reactions are additive, not replacements.
@@ -90,6 +93,8 @@ The skill routes these transport actions and blocked-worker attention without re
 - Slack user or bot tokens in the CLI were rejected because the person chose MCP transport and replies under their account.
 - Agent-composed Slack status and session ledgers were rejected because resumable state and mechanical output belong to the CLI.
 - Per-project gate command settings and rerunning all checks before posting were rejected because CI already supplies required checks and repeating them adds cost.
+- Dropping the pending effects of a request when it ends was rejected because a PR that merges right after an approval would lose the approval reply before the Slack loop sends it.
+  The cost is that effects of ended requests stay pending until they are sent or the person drops them.
 - Author-wide skips were rejected because a one-PR exception must not silently exclude all work by one person.
 
 Related: ADR-0001 and ADR-0003, next actions and state guards; ADR-0010, optional assignment-origin review; ADR-0005, repository workspace identity; ADR-0011, reviewer resources; ADR-0007, stable global-command plugin; ADR-0014, both host integrations.

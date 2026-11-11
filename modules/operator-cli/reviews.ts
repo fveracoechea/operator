@@ -10,6 +10,7 @@ const reviewCommands = [
   "skip",
   "cleanup",
   "slack-done",
+  "slack-drop",
   "next",
   "wait",
   "ingest",
@@ -27,9 +28,11 @@ const valueFlags = new Map([
 ]);
 
 // `--slack` makes a wait the Slack transport loop of the slack-pr-review-workflow skill.
+// `--person-instructed` attests the person's instruction for a drop. It does not grant authority.
 const switchFlags = new Map([
   ["--json", null],
   ["--slack", ["wait"]],
+  ["--person-instructed", ["slack-drop"]],
 ]);
 
 function acceptsSwitch(command: string, flag: string, switches: Set<string>) {
@@ -77,6 +80,7 @@ function reviewFlags(command: string, flags: string[]) {
     timeout: timeout === undefined ? undefined : Number(timeout),
     input: values.get("--input"),
     slack: switches.has("--slack"),
+    personInstructed: switches.has("--person-instructed"),
   };
 }
 
@@ -97,6 +101,7 @@ export function reviewArgs(args: string[]) {
         timeout: flags.timeout ?? 300,
         input: flags.input ?? "",
         slack: flags.slack,
+        personInstructed: flags.personInstructed,
       };
 }
 
@@ -118,6 +123,7 @@ const reviewExitCodes = {
   reviewer_work_kept: 4,
   review_lease_lost: 4,
   slack_cursor_moved: 4,
+  slack_effect_finished: 4,
   slack_effect_failed: 1,
   slack_input_unreadable: 1,
   review_io_failed: 1,
@@ -177,6 +183,8 @@ export async function runReviews(
       (await readInput(parsed.input))
         .toAsync()
         .flatMap((text) => ReviewRequests.acknowledge({ paths, id: parsed.url, text })),
+    "slack-drop": () =>
+      ReviewRequests.drop({ paths, id: parsed.url, personInstructed: parsed.personInstructed }),
   };
   const result = await operations[parsed.command]();
   respond({ operation, result, exitCodes: reviewExitCodes, defect: "review_defect", json });

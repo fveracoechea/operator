@@ -206,7 +206,7 @@ export function ingestSlack(
 
 /**
  * Records the agent's acknowledgement of one effect. A refused send keeps the effect pending
- * with its failure. A repeated acknowledgement changes nothing.
+ * with its failure. A repeated acknowledgement, or one of a dropped effect, changes nothing.
  */
 export function acknowledgeSlackEffect(
   client: Database,
@@ -224,7 +224,7 @@ export function acknowledgeSlackEffect(
           reason: "slack_effect_missing",
           detail: `No Slack effect has the id ${id}. Read operator review wait for the pending effects.`,
         });
-      if (effect.state === "done") return Ok({ effect, changed: false });
+      if (effect.state !== "pending") return Ok({ effect, changed: false });
       const outcome = decide(effect);
       const change =
         outcome.kind === "done"
@@ -237,6 +237,36 @@ export function acknowledgeSlackEffect(
           : { failure: outcome.detail };
       db.update(slackEffects).set(change).where(eq(slackEffects.id, id)).run();
       return Ok({ effect: { ...effect, ...change }, changed: true });
+    }),
+  );
+}
+
+/**
+ * Finishes one pending effect without a send, on the person's instruction. The wait never gives
+ * it again. A done or dropped effect refuses, so a drop never hides a sent reply.
+ */
+export function dropSlackEffect(client: Database, id: string) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) => {
+      const effect = db.select().from(slackEffects).where(eq(slackEffects.id, id)).get();
+      if (effect === undefined)
+        return Err({
+          reason: "slack_effect_missing",
+          detail: `No Slack effect has the id ${id}. Read operator review wait for the pending effects.`,
+        });
+      if (effect.state !== "pending")
+        return Err({
+          reason: "slack_effect_finished",
+          detail: `The Slack effect ${id} is already ${effect.state}. Only a pending effect is dropped. Nothing changed.`,
+        });
+      db.update(slackEffects).set({ state: "dropped" }).where(eq(slackEffects.id, id)).run();
+      // The foreign key keeps the request of every effect.
+      const request = db
+        .select({ url: reviewRequests.url })
+        .from(reviewRequests)
+        .where(eq(reviewRequests.id, effect.requestId))
+        .get();
+      return Ok({ ...effect, state: "dropped", url: request?.url ?? null });
     }),
   );
 }

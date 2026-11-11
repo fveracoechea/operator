@@ -482,7 +482,8 @@ export const slackWatches = sqliteTable("slack_watches", {
 });
 
 // A reply or a reaction that the CLI generated and an agent transports through Slack MCP tools.
-// An acknowledgement marks it done. A pending effect survives a restart.
+// An acknowledgement marks it done, and a person-instructed drop marks it dropped unsent.
+// A pending effect survives a restart.
 export const slackEffects = sqliteTable(
   "slack_effects",
   {
