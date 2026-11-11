@@ -47,7 +47,7 @@ A draft keeps the resolved setting, so with internal review on, its owner works 
 
 ## Alternatives considered
 
-- A separate `operator pr adopt` command was rejected because it would be a second way to start a PR assignment outside the registered plan, and next actions, the running cap, and replacements already follow the plan.
+- A separate adopt command was rejected because it would be a second way to start a PR assignment outside the registered plan, and next actions, the running cap, and replacements already follow the plan.
 - Opening an existing worktree of the branch was rejected because it may be the controlling checkout or hold the person's work, and cleanup would later remove it.
 - Recording the association at dispatch was rejected because associate already checks the PR base and the internal review gate, and the owner should read the PR before Operator reports it open.
 - Internal review of every adopted PR, by converting it to a draft, was rejected because it hides a PR that people already review.
