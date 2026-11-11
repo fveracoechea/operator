@@ -217,6 +217,8 @@ async function recordedWait(session = "ses-1") {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     {
       using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+      // The background wait writes as it starts, so a read can meet its lock.
+      db.exec("PRAGMA busy_timeout = 5000");
       const row = db
         .query<{ running: number }, [string]>(
           "SELECT count(*) AS running FROM coordination_waits WHERE owner_pid IS NOT NULL AND session = ?",

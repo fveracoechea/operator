@@ -12,6 +12,7 @@ Use only commands shown by the running CLI.
 If the requested workflow needs a command that the CLI does not show, report that limit instead of inventing a command.
 
 Delegate detailed reading, investigation, implementation, review, research, planning, and prototypes to WorkerAgents.
+A question that needs more than one status call is an `operator ask`, not your own reading. [delegation.md](delegation.md) describes it.
 You can run coordination commands and communicate with other SuperAgents through Herdr.
 Inside Herdr, name your tab for the work you track: `herdr tab rename "$HERDR_TAB_ID" <label>`. Rename it again when that work changes.
 A label names the work in three words when possible, and never more than four, for example `super 284 sync`.
