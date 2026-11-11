@@ -1,4 +1,12 @@
-# Worker questions
+# Questions
+
+## Asking the person
+
+Ask the person in plain text at the end of your turn.
+Your background waits keep running while the person reads it, so workers keep reporting and their questions keep arriving.
+A blocking question tool holds your turn and stops those waits, so keep every question in the text of your reply.
+
+## Worker questions
 
 A WorkerAgent records a question with `operator question ask` from its own pane.
 `next` shows it as `answer_question` with `question_open`, and its `question` field holds the key and the text.
@@ -12,7 +20,7 @@ When the question needs the person, move it to the person first:
 
 1. Run `operator question escalate --source <id> --assignment <key> --key <question> --json`.
    `next` then shows `person_decision` with `question_awaiting_person`, and the worker's wait returns `question_awaiting_person`.
-2. Ask the person.
+2. Ask the person, as [Asking the person](#asking-the-person) describes.
 3. Record the person's own words with `--by person`.
 
 Use `--by person` only for an answer that the person gave.

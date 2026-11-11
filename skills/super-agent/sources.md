@@ -17,6 +17,36 @@ An optional `intent` on the plan or on an assignment holds the person's own word
 Copy the person's words verbatim into `intent`. Put your interpretation, scope, and build steps in `instructions`.
 The brief shows `intent` as the acceptance criteria, and the internal reviewer judges the Spec axis against it.
 
+A plan with one report and one PR that waits on it:
+
+```json
+{
+  "trackerKey": "github:acme/app#41",
+  "intent": "Checkout fails for guest users, find out why and fix it.",
+  "internalReview": true,
+  "maxRunning": 2,
+  "assignments": [
+    {
+      "key": "diagnose",
+      "trackerKey": "github:acme/app#41/diagnose",
+      "instructions": "Reproduce the guest checkout failure and report its cause with evidence. Change no files.",
+      "completion": "report",
+      "resources": "pane",
+      "dependencies": []
+    },
+    {
+      "key": "fix",
+      "trackerKey": "github:acme/app#41/fix",
+      "instructions": "Fix the cause from the diagnose report, with a test that fails before the fix. Ask the person before you change the checkout API.",
+      "completion": "pr",
+      "resources": "worktree",
+      "branch": "fix/guest-checkout",
+      "dependencies": ["diagnose"]
+    }
+  ]
+}
+```
+
 Inspect the saved source with `operator source show --source <source-id> --json`.
 Read `operator next --json`, or select one project source with `--source <source-id>`.
 Use its ready candidates and waits rather than keep a second schedule.
