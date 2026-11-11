@@ -29,7 +29,17 @@ import {
 } from "./snapshot.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Environment } from "../environment/main.ts";
-import { actionSet } from "./coordination.ts";
+import {
+  actionKeys,
+  addKeys,
+  changedAnswer,
+  dropKeys,
+  dueKeys,
+  parseKey,
+  parseSet,
+  startWatch,
+  type Watch,
+} from "./coordination.ts";
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 
@@ -423,16 +433,54 @@ export const WorkSources = {
       return Ok({ pruned, kept });
     });
   },
-  next(input: Input & { sourceId?: string }) {
-    return read(input).map((sources) => nextAnswer(input, sources));
+  /** The next answer. Without `all`, an ended source shows only what it still needs. */
+  next(input: Input & { sourceId?: string; all?: boolean }) {
+    return read(input).map((sources) => {
+      const answer = nextAnswer(input, sources);
+      return input.all === true ? answer : withoutEnded(answer);
+    });
   },
   /**
-   * Block until the set of non-wait actions differs from the set that the scope's last wait
-   * returned, or until the timeout ends, and return the normal next answer. The returned set is
-   * recorded, so a change between two waits returns at once, also after a restart.
+   * Block until an action appears that the scope's waits have not returned, or until the timeout
+   * ends. The answer holds only the new actions, or with `all` the whole next answer of the
+   * scope. The returned actions are recorded, so a change between two waits returns at once,
+   * also after a restart. A wait without a source from an agent session covers every source that
+   * the session supervises, in every project.
    */
-  wait(input: Input & { sourceId?: string; timeoutSeconds: number }) {
+  wait(input: Input & { sourceId?: string; timeoutSeconds: number; all?: boolean }) {
     return coordinationWait(input);
+  },
+  /**
+   * Run a SuperAgent command from an agent session, then record the actions that it added to the
+   * named source, or to a source that it registered, as returned by the session's waits. A wait
+   * never returns for a change that its own session made. A failed read or write only skips the record,
+   * because the command's own result stands.
+   */
+  async acknowledgeOwnChange<T>(
+    input: Input & { session: string; sourceId?: string; assignment?: string },
+    change: () => Promise<T>,
+  ) {
+    const scope = { paths: input.paths, cwd: input.cwd };
+    const before = await read(scope);
+    const result = await change();
+    const after = await read(scope);
+    if (before.tag !== "Ok" || after.tag !== "Ok") return result;
+    const known = new Set(before.value.map((source) => source.id));
+    const prior = actionKeys(nextAnswer(input, before.value));
+    const added = [...actionKeys(nextAnswer(input, after.value))].filter((key) => {
+      if (prior.has(key)) return false;
+      const [sourceId, assignment] = parseKey(key);
+      if (input.sourceId === undefined) return !known.has(sourceId);
+      return (
+        sourceId === input.sourceId &&
+        (input.assignment === undefined || assignment === input.assignment)
+      );
+    });
+    if (added.length > 0)
+      DeviceState.acknowledgeCoordinationWaits(input.paths, input.session, addKeys(added)).getOr(
+        undefined,
+      );
+    return result;
   },
   /** The PR assignment that a promotion adds, read from the SuperAgent's file. ADR-0023. */
   readPromotion(file: string) {
@@ -522,13 +570,14 @@ export const WorkSources = {
 
 type Source = ReturnType<typeof decodeSource>;
 type CoordinationScope = Parameters<typeof DeviceState.startCoordinationWait>[1];
-// The watch recurses, so it names the closed failures of the reads and the record it repeats.
+// The watch recurses, so it names the closed failures of the reads and the records it repeats.
 type WatchFailure =
   | ErrOf<ReturnType<typeof readSources>>
   | ErrOf<ReturnType<typeof DeviceState.finishCoordinationWait>>;
+type Answer = { sources: (ReturnType<typeof nextActions> & { repository: string })[] };
 type WatchOutcome = {
   reason: "next_actions_changed" | "next_wait_timed_out";
-  data: ReturnType<typeof nextAnswer>;
+  data: Answer | ReturnType<typeof changedAnswer>;
 };
 
 function nextAnswer(input: Input, sources: Source[]) {
@@ -537,22 +586,45 @@ function nextAnswer(input: Input, sources: Source[]) {
   return { sources: sources.map((source) => nextActions(input, source, now)) };
 }
 
+/**
+ * An ended source shows its prune and its owed cleanup, not its end, and leaves the answer
+ * when nothing remains.
+ */
+function withoutEnded<T extends { sources: { actions: { action: string }[]; waits: unknown[] }[] }>(
+  answer: T,
+) {
+  return {
+    ...answer,
+    sources: answer.sources.flatMap((source) => {
+      const actions = source.actions.filter((row) => row.action !== "source_ended");
+      return actions.length === 0 && source.waits.length === 0 ? [] : [{ ...source, actions }];
+    }),
+  };
+}
+
 // A wait reads only local device state, so it can read often.
 const coordinationPollMs = 2000;
 
-function coordinationWait(input: Input & { sourceId?: string; timeoutSeconds: number }) {
+type WaitInput = Input & { sourceId?: string; timeoutSeconds: number; all?: boolean };
+
+function coordinationWait(input: WaitInput) {
   const deadline = Date.now() + input.timeoutSeconds * 1000;
   return Projects.current(input).flatMap(({ data: project }) => {
-    const target = { repository: project.repository, scope: input.sourceId ?? "" };
-    return DeviceState.startCoordinationWait(input.paths, target, Environment.caller())
+    const caller = Environment.caller();
+    const { session } = caller;
+    const scope =
+      input.sourceId ?? (session === null ? "" : DeviceState.coordinationSessionScope(session));
+    const target = { repository: project.repository, scope };
+    return DeviceState.startCoordinationWait(input.paths, target, caller)
       .toAsync()
-      .flatMap((returned) => {
+      .flatMap(() => {
         // The lease shows that this wait still runs, so other operations can tell.
         const release = DeviceState.holdCoordinationWait(input.paths, target);
+        const watched = { ...input, session: input.sourceId === undefined ? session : null };
         return fromPromise(
           async () => {
             try {
-              return await watchActions(input, target, returned, deadline);
+              return await watchActions(watched, target, startWatch(), deadline);
             } finally {
               release();
             }
@@ -564,30 +636,81 @@ function coordinationWait(input: Input & { sourceId?: string; timeoutSeconds: nu
   });
 }
 
-/** Reads next actions until their set differs from the returned set or the deadline passes. */
+/** The scope's next answer, each source with its project. A session wait reads its sources. */
+function scopeAnswer(
+  input: Input & { sourceId?: string; session: string | null },
+  repository: string,
+) {
+  type Project = { repository: string; ids: Set<string> | null };
+  const projects: Result<Project[], WatchFailure> =
+    input.session === null
+      ? Ok([{ repository, ids: null }])
+      : DeviceState.readSupervision(input.paths, input.session).map((supervised) =>
+          [...new Set(supervised.map((row) => row.repository))].map((supervisedIn) => ({
+            repository: supervisedIn,
+            ids: new Set(
+              supervised.filter((row) => row.repository === supervisedIn).map((row) => row.id),
+            ),
+          })),
+        );
+  return projects.flatMap((list) =>
+    all(
+      list.map((project) =>
+        readSources(input, project.repository).map((sources) =>
+          nextAnswer(
+            input,
+            sources.filter((source) => project.ids?.has(source.id) ?? true),
+          ).sources.map((source) => ({ ...source, repository: project.repository })),
+        ),
+      ),
+    ).map((lists) => ({ sources: lists.flat() })),
+  );
+}
+
+/**
+ * Reads next actions until an action is due or the deadline passes. The stored set is read again
+ * each time, so an acknowledgement that a session's command records during the wait counts, and a
+ * removed action leaves the stored set, so its return is new again.
+ */
 function watchActions(
-  input: Input & { sourceId?: string },
+  input: WaitInput & { session: string | null },
   target: CoordinationScope,
-  returned: string | null,
+  watch: Watch,
   deadline: number,
 ): AsyncResult<WatchOutcome, WatchFailure> {
-  // The project was resolved once, so each read touches only device state.
-  const read = readSources(input, target.repository).map((sources) => nextAnswer(input, sources));
-  return read.toAsync().flatMap((answer) => {
-    const current = actionSet(answer);
-    const changed = current !== returned;
+  // The stored set is read before the actions, so an acknowledged change is already visible.
+  const read = DeviceState.readCoordinationWait(input.paths, target).flatMap((stored) =>
+    scopeAnswer(input, target.repository).flatMap((answer) => {
+      const set = parseSet(stored);
+      const current = actionKeys(answer);
+      const removed = [...(set ?? [])].filter((key) => !current.has(key));
+      const dropped =
+        removed.length === 0
+          ? Ok(undefined)
+          : DeviceState.changeCoordinationWait(input.paths, target, dropKeys(removed)).discard();
+      return dropped.map(() => ({ stored: set, answer, current }));
+    }),
+  );
+  return read.toAsync().flatMap(({ stored, answer, current }) => {
+    const now = Date.now();
+    // A scope that never returned a set returns at once with every action. It records the end of
+    // each ended source without returning it, so a first session wait carries no old ends.
+    const due = stored === null ? [...current] : dueKeys({ stored, current, watch, now });
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
-    if (changed || Date.now() >= deadline)
-      return DeviceState.finishCoordinationWait(input.paths, target, current)
+    if (stored === null || due.length > 0 || now >= deadline) {
+      const changed = stored === null || due.length > 0;
+      const shown = stored === null ? actionKeys(withoutEnded(answer)) : new Set(due);
+      return DeviceState.finishCoordinationWait(input.paths, target, addKeys(due))
         .toAsync()
         .map(() => ({
-          reason: changed ? "next_actions_changed" : "next_wait_timed_out",
-          data: answer,
+          reason: changed ? ("next_actions_changed" as const) : ("next_wait_timed_out" as const),
+          data: input.all === true ? answer : changedAnswer(answer, shown),
         }));
+    }
     return fromPromise(
       () => Bun.sleep(Math.min(coordinationPollMs, deadline - Date.now())),
       (cause, defect) => defect(cause),
-    ).flatMap(() => watchActions(input, target, returned, deadline));
+    ).flatMap(() => watchActions(input, target, watch, deadline));
   });
 }
 

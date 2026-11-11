@@ -95,7 +95,7 @@ async function shown(source: string, cwd = device.main) {
 }
 
 async function sourceNext(source: string, cwd = device.main) {
-  const read = await device.run(["next", "--source", source], { cwd });
+  const read = await device.run(["next", "--source", source, "--all"], { cwd });
   return z
     .object({
       data: z.object({

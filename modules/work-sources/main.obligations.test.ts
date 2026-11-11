@@ -9,7 +9,7 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "./main.ts";
-import { actionSet } from "./coordination.ts";
+import { actionKeys } from "./coordination.ts";
 import { storedObligation, storedSource } from "./source-fixture.ts";
 
 const root = await mkdtemp(path.join(tmpdir(), "operator-source-obligations-"));
@@ -89,7 +89,7 @@ test("an obligation is not an action, so opening or closing one wakes no coordin
   const owed = await read(storedSource(planned, { obligations: [rule] }));
   expect(without.tag === "Ok" && owed.tag === "Ok").toBe(true);
   if (without.tag === "Ok" && owed.tag === "Ok")
-    expect(actionSet(owed.value)).toBe(actionSet(without.value));
+    expect(actionKeys(owed.value)).toEqual(actionKeys(without.value));
 });
 
 test("a stored obligation with an unknown kind or a closed one without its end is corruption", async () => {

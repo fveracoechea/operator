@@ -27,7 +27,7 @@ async function run(cwd: string, args: string[], env: Record<string, string> = {}
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       PATH: `${root}/tools:${Environment.read().PATH ?? ""}`,
-      // The agent session that runs the tests is not the caller of these commands.
+      // The agent session that runs the tests is not the caller, so these waits have the project scope.
       HERDR_PANE_ID: undefined,
       OPENCODE_SESSION_ID: undefined,
       CLAUDE_CODE_SESSION_ID: undefined,
@@ -200,7 +200,7 @@ test("empty sources end at registration and later registrations get new project-
       .parse(result.output).data;
     expect(source.endedAt).toBe(source.registeredAt);
     ids.push(source.id);
-    expect(await run(cwd, ["next", "--source", source.id])).toMatchObject({
+    expect(await run(cwd, ["next", "--source", source.id, "--all"])).toMatchObject({
       code: 0,
       output: {
         data: {
@@ -225,7 +225,7 @@ test("empty sources end at registration and later registrations get new project-
   expect(
     z
       .object({ data: z.object({ sources: z.array(z.unknown()) }) })
-      .parse((await run(one, ["next"])).output).data.sources,
+      .parse((await run(one, ["next", "--all"])).output).data.sources,
   ).toHaveLength(2);
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
 });
@@ -322,7 +322,7 @@ test("a held writer refuses source registration without partial records", async 
   expect((await run(cwd, ["source", "register", "--file", `${root}/plan.json`])).code).toBe(0);
 }, 15000);
 
-test("next --wait returns a change in non-wait actions, also one that came between waits, and times out on none", async () => {
+test("next --wait returns a new action, also one that came between waits, and times out on none", async () => {
   const cwd = await repository();
   await prohibitExternalTools();
   await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
@@ -343,7 +343,7 @@ test("next --wait returns a change in non-wait actions, also one that came betwe
   });
   expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
     code: 0,
-    output: { reason: "next_wait_timed_out", data: actions.parse(first.output).data },
+    output: { reason: "next_wait_timed_out", data: { sources: [] } },
   });
   const database = `${root}/state/operator/operator.sqlite`;
   {
@@ -359,21 +359,32 @@ test("next --wait returns a change in non-wait actions, also one that came betwe
       },
     ]);
   }
-  // A change while no wait runs returns at once from the next wait.
-  {
+  function setState(state: string) {
     using db = new Database(database);
-    db.query("UPDATE assignments SET state = 'abandoned' WHERE key = 'investigate'").run();
+    db.query("UPDATE assignments SET state = ? WHERE key = 'investigate'").run(state);
   }
+  // A removed action wakes nobody, and leaves the returned set.
+  setState("abandoned");
+  expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
+    code: 0,
+    output: { reason: "next_wait_timed_out", data: { sources: [] } },
+  });
+  // A new action while no wait runs returns at once from the next wait.
+  setState("ready");
   const between = await run(cwd, ["next", "--wait", "--timeout", "60"]);
-  expect(between).toMatchObject({ code: 0, output: { reason: "next_actions_changed" } });
-  expect(actions.parse(between.output).data).not.toEqual(actions.parse(first.output).data);
-  // A change during a running wait ends it before its timeout.
+  expect(between).toMatchObject({
+    code: 0,
+    output: {
+      reason: "next_actions_changed",
+      data: { sources: [{ actions: [{ action: "ready_assignment", assignment: "investigate" }] }] },
+    },
+  });
+  expect(actions.parse(between.output).data).toEqual(actions.parse(first.output).data);
+  // A new action during a running wait ends it before its timeout.
+  setState("abandoned");
   const waiting = run(cwd, ["next", "--wait", "--timeout", "120"]);
-  await Bun.sleep(1500);
-  {
-    using db = new Database(database);
-    db.query("UPDATE assignments SET state = 'ready' WHERE key = 'investigate'").run();
-  }
+  await Bun.sleep(3000);
+  setState("ready");
   expect(await waiting).toMatchObject({
     code: 0,
     output: {
@@ -614,7 +625,7 @@ test.each(["finished", "reset"])(
       db.query("UPDATE sources SET state = ?, ended_at = ?").run(state, new Date().toISOString());
       recordMerges(db);
     }
-    expect(await run(cwd, ["next", "--source", id])).toMatchObject({
+    expect(await run(cwd, ["next", "--source", id, "--all"])).toMatchObject({
       code: 0,
       output: {
         data: {

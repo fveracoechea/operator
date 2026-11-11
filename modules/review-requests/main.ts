@@ -266,8 +266,11 @@ export const ReviewRequests = {
   drop(input: { paths: Paths; id: string; personInstructed: boolean }) {
     return drop(input);
   },
-  /** Watches every open request until a round, a move, an end, or an action needs attention. */
-  wait(input: { paths: Paths; timeoutSeconds: number; slack: boolean }) {
+  /**
+   * Watches every open request until a round, a move, an end, or an action needs attention. It
+   * returns the requests that its events name and those with an action, or with `all` every one.
+   */
+  wait(input: { paths: Paths; timeoutSeconds: number; slack: boolean; all?: boolean }) {
     return wait(input);
   },
 };

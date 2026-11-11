@@ -15,6 +15,7 @@ import { runReviews } from "./reviews.ts";
 import { runProject } from "./projects.ts";
 import { runSettings } from "./settings.ts";
 import { startup } from "./startup.ts";
+import { withOwnChanges } from "./own-changes.ts";
 import { refuseUnsupervised } from "./supervision.ts";
 import { invalidArguments, runUsage } from "./usage.ts";
 
@@ -27,6 +28,10 @@ export async function run(args: string[]): Promise<void> {
   if (runUsage(args, started.release, json)) return;
   // One agent session coordinates a source, so another session's command changes nothing.
   if (await refuseUnsupervised(args, started.paths, json)) return;
+  await withOwnChanges(args, started.paths, () => handle(args, started.paths, json));
+}
+
+async function handle(args: string[], paths: OperatorPaths, json: boolean) {
   for (const handler of [
     async (input: string[], _paths: OperatorPaths, flag: boolean) => runLauncher(input, flag),
     runSkills,
@@ -44,7 +49,7 @@ export async function run(args: string[]): Promise<void> {
     runObligations,
     runReviews,
   ]) {
-    if (await handler(args, started.paths, json)) return;
+    if (await handler(args, paths, json)) return;
   }
   invalidArguments(json);
 }

@@ -22,6 +22,7 @@ When the person signals urgency, steer the owner to push once lint, typecheck, a
 - `owner_attention` with `pr_not_open`: the PR was merged or closed outside the CLI. A merged PR completes when the owner runs `operator pr merge --json`, which verifies the merge without another merge request. For a closed PR, the assignment stays `pr-open`, and a new PR for it refuses with `pr_already_associated`. Ask the person what to do.
 - `replace_worker`: the owner's pane ended or its launch failed. Inspect the recorded worktree first. A new dispatch keeps the PR, its wait progress, and the worktree, and the brief tells the replacement to read the PR before it waits.
 
+Your coordination wait returns `pr_wait_timed_out`, `pr_wait_stopped`, and `pr_owner_idle` only after they last a minute, so an owner that restarts its PR wait wakes nobody.
 Dispatch refuses a replacement with `pr_worktree_missing` when the PR's worktree is gone. Ask the person how to recover it.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.

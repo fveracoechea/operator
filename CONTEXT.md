@@ -177,7 +177,8 @@ They include ready work, PR actions, reports awaiting acceptance, open worker qu
 Each source also lists its open obligations beside its actions.
 
 **Coordination wait**:
-The SuperAgent's blocking read of next actions, which returns when the set of actions other than waits changes or its timeout ends.
+The SuperAgent's blocking read of next actions, which returns only the actions that its scope has not returned yet, or nothing when its timeout ends.
+A wait without a source from an agent session covers every source that the session supervises, and a change that the session made itself does not end it.
 The SuperAgent runs it in the background, so its host delivers the result as a notification rather than as typed input.
 _Avoid_: poll, watcher, worker ping
 

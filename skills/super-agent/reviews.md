@@ -9,7 +9,7 @@ The CLI never reviews from your checkout instead.
 ```sh
 operator review add <pr-url> --json
 operator review start <pr-url> [--profile name] --json
-operator review wait [--timeout seconds] --json
+operator review wait [--timeout seconds] [--all] --json
 operator review next --json
 operator review skip <pr-url> --json
 operator review cleanup <pr-url> --json
@@ -26,7 +26,8 @@ An assignment reviewer is off by default.
 `operator config apply --set review.assignments=true` queues a review request when a PR owner runs `pr associate`, or, with internal review on, when the internal review ends.
 Its review is always a comment, because the owner's account cannot approve its own PR, so it never supplies the merge approval.
 
-`review wait` watches every open request until something changes or a row needs you, then returns its `events` and the rows of `review next`.
+`review wait` watches every open request until something changes or a row needs you, then returns its `events` and only the rows of `review next` that its events name or that have an action.
+Add `--all` for every row. `review next` always shows every row.
 It starts rounds, moves reviewers to new heads, sets the stale flag, and ends closed PRs by itself.
 Do not repeat that work.
 Run it again after you act on its rows.

@@ -246,21 +246,29 @@ function slackDue(slack: SlackView | null, loop: Loop) {
   );
 }
 
-type Loop = { paths: Paths; deadline: number; first: boolean; slack: boolean };
+type Loop = { paths: Paths; deadline: number; first: boolean; slack: boolean; all: boolean };
+
+/** The requests that the wait returns: those its events name and those with an action. */
+function shown(requests: ReturnType<typeof rows>, events: Event[], all: boolean) {
+  if (all) return requests;
+  const named = new Set(events.map((event) => event.url));
+  return requests.filter((row) => (row.url !== undefined && named.has(row.url)) || "action" in row);
+}
 
 function poll(loop: Loop): AsyncResult<Outcome, Failure> {
   const { paths, deadline, first } = loop;
   return pass(paths)
     .flatMap((passed) => slackActions(paths, loop.slack).map((slack) => ({ ...passed, slack })))
     .flatMap(({ events, listed, slack }): AsyncResult<Outcome, Failure> => {
-      const requests = rows(paths, listed);
+      const listedRows = rows(paths, listed);
+      const requests = shown(listedRows, events, loop.all);
       if (events.length > 0)
         return OkAsync({ reason: "review_events_observed", data: { events, requests, slack } });
       if (slackDue(slack, loop))
         return OkAsync({ reason: "review_slack_ready", data: { events, requests, slack } });
       // Only the first pass returns for an action, so a row that waits for the SuperAgent or the
       // person does not turn repeated waits into a busy loop. A wait finishes moves by itself.
-      if (first && requests.some((row) => "action" in row && row.action !== "wait_reviews"))
+      if (first && listedRows.some((row) => "action" in row && row.action !== "wait_reviews"))
         return OkAsync({ reason: "review_actions_ready", data: { events, requests, slack } });
       if (Date.now() >= deadline)
         return OkAsync({ reason: "review_wait_timed_out", data: { events, requests, slack } });
@@ -275,13 +283,20 @@ function poll(loop: Loop): AsyncResult<Outcome, Failure> {
  * or the timeout passes. It moves reviewers to new heads, starts rounds, marks stale requests,
  * and ends closed PRs inside the loop. Each change is a guarded transition, so two waits never
  * apply the same observation twice. With `slack`, it is the Slack transport loop: it records the
- * channel's start cursor and also ends for a due read or a pending effect.
+ * channel's start cursor and also ends for a due read or a pending effect. Without `all`, it
+ * returns only the requests that its events name and those with an action.
  */
-export function wait(input: { paths: Paths; timeoutSeconds: number; slack: boolean }) {
+export function wait(input: {
+  paths: Paths;
+  timeoutSeconds: number;
+  slack: boolean;
+  all?: boolean;
+}) {
   return poll({
     paths: input.paths,
     deadline: Date.now() + input.timeoutSeconds * 1000,
     first: true,
     slack: input.slack,
+    all: input.all === true,
   });
 }

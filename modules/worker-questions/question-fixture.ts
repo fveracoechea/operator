@@ -139,7 +139,7 @@ export async function questionDevice() {
 
   /** The actions of the one source, as the SuperAgent reads them. */
   async function actions() {
-    const next = okValue(await WorkSources.next({ paths, cwd: checkout }));
+    const next = okValue(await WorkSources.next({ paths, cwd: checkout, all: true }));
     return next.sources[0]?.actions ?? expect.unreachable("The source is missing.");
   }
 

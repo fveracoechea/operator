@@ -55,13 +55,18 @@ import {
 import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 import {
+  acknowledgeCoordinationWaits,
+  changeCoordinationWait,
+  coordinationSessionScope,
   finishCoordinationWait,
+  readCoordinationWait,
   readSupervision,
   readSupervisor,
   renewCoordinationWait,
   startCoordinationWait,
   takeOverSource,
   type CoordinationScope,
+  type SetChange,
 } from "./coordination-waits.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
@@ -384,8 +389,25 @@ export const DeviceState = {
   startCoordinationWait(paths: Paths, target: CoordinationScope, supervisor: Supervisor) {
     return writing(paths, (client) => startCoordinationWait(client, target, supervisor));
   },
-  finishCoordinationWait(paths: Paths, target: CoordinationScope, actions: string) {
-    return writing(paths, (client) => finishCoordinationWait(client, target, actions));
+  /** Merge the returned set into the scope's stored set and end this process's wait. */
+  finishCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
+    return writing(paths, (client) => finishCoordinationWait(client, target, change));
+  },
+  /** The scope's stored set, which an acknowledgement can change while its wait runs. */
+  readCoordinationWait(paths: Paths, target: CoordinationScope) {
+    return reading(paths, (client) => readCoordinationWait(client, target));
+  },
+  /** Rewrite the scope's stored set, if it has one, under the writer reservation. */
+  changeCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
+    return writing(paths, (client) => changeCoordinationWait(client, target, change));
+  },
+  /** Rewrite the stored set of every wait that the session ran, after a change it made. */
+  acknowledgeCoordinationWaits(paths: Paths, session: string, change: SetChange) {
+    return writing(paths, (client) => acknowledgeCoordinationWaits(client, session, change));
+  },
+  /** The scope of a session's wait without a source, which covers every source it supervises. */
+  coordinationSessionScope(session: string) {
+    return coordinationSessionScope(session);
   },
   /** The sources that an agent session supervises, and whether a wait from it covers each. */
   readSupervision(paths: Paths, session: string) {

@@ -94,7 +94,7 @@ test("the module reads one snapshot and reports ended reset sources without disp
     ]),
   );
   try {
-    expect(await WorkSources.next({ paths, cwd: root })).toMatchObject({
+    expect(await WorkSources.next({ paths, cwd: root, all: true })).toMatchObject({
       tag: "Ok",
       value: { sources: [{ id: "one", state: "reset", actions: [{ action: "source_ended" }] }] },
     });

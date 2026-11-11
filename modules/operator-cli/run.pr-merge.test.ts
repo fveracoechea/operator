@@ -476,7 +476,7 @@ test("a PR that the person merged on GitHub is verified without another merge re
   expect(await settled(second)).toMatchObject({ state: "done" });
   // The last merge finished the source, and its finished cleanup leaves only the ended source.
   expect((await shown(second)).state).toBe("finished");
-  const next = await run(["next", "--source", second]);
+  const next = await run(["next", "--source", second, "--all"]);
   expect(next.output).toMatchObject({
     data: { sources: [{ state: "finished", actions: [{ action: "source_ended" }], waits: [] }] },
   });
@@ -496,6 +496,7 @@ test("failed steps stop the declared order, stay visible, and continue after a r
   expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(0);
   expect(await exists(worker.worktreePath)).toBe(true);
   expect((await shown(source)).state).toBe("finished");
+  // An ended source shows only the cleanup that it still owes.
   const next = await run(["next", "--source", source]);
   expect(next.output).toMatchObject({
     data: {
@@ -503,7 +504,6 @@ test("failed steps stop the declared order, stay visible, and continue after a r
         {
           state: "finished",
           actions: [
-            { action: "source_ended" },
             {
               assignment: "implement",
               action: "retry_cleanup",
@@ -548,7 +548,7 @@ test("failed steps stop the declared order, stay visible, and continue after a r
   });
   expect(await calls("gh-calls.jsonl", '"DELETE"')).toBe(deletions);
   expect(await exists(worker.worktreePath)).toBe(false);
-  expect((await run(["next", "--source", source])).output).toMatchObject({
+  expect((await run(["next", "--source", source, "--all"])).output).toMatchObject({
     data: { sources: [{ actions: [{ action: "source_ended" }] }] },
   });
 }, 120000);

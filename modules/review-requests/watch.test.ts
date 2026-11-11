@@ -108,8 +108,8 @@ function sleeps(after: () => void = () => {}) {
   return slept;
 }
 
-async function waited(timeoutSeconds = 0, slack = false) {
-  const result = await wait({ paths: home.paths, timeoutSeconds, slack });
+async function waited(timeoutSeconds = 0, slack = false, all = false) {
+  const result = await wait({ paths: home.paths, timeoutSeconds, slack, all });
   return result.tag === "Ok" ? result.value : expect.unreachable(`The wait failed: ${result.tag}`);
 }
 
@@ -385,6 +385,20 @@ test("new commits start a round and give it to the running reviewer", async () =
     state: "reviewing",
     head: h2,
     sync: null,
+  });
+});
+
+test("a wait returns only the requests that its events name, unless asked for all", async () => {
+  seedRequest(home.paths, { state: "watching", head: h1, ...running });
+  seedRequest(home.paths, { state: "closed", cleanupState: "kept" }, "r2", otherPr(8));
+  spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h2 })));
+  expect((await waited()).data).toMatchObject({
+    events: [{ url, kind: "round_started" }],
+    requests: [{ id: "r1" }],
+  });
+  expect((await waited()).data).toMatchObject({ events: [], requests: [] });
+  expect((await waited(0, false, true)).data).toMatchObject({
+    requests: [{ id: "r1" }, { id: "r2", attention: "reviewer_work_kept" }],
   });
 });
 

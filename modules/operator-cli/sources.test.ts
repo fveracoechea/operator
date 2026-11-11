@@ -54,27 +54,29 @@ test("parses only the delivered source and next commands", () => {
   });
   expect(sourceArgs(["next", "--source", "id", "--json"])).toEqual({
     operation: "next",
-    file: undefined,
     sourceId: "id",
     personInstructed: false,
+    all: false,
   });
-  expect(sourceArgs(["next"])).toEqual({
+  expect(sourceArgs(["next", "--all"])).toEqual({
     operation: "next",
-    file: undefined,
     sourceId: undefined,
     personInstructed: false,
+    all: true,
   });
   expect(sourceArgs(["next", "--wait", "--json"])).toEqual({
     operation: "next_wait",
     sourceId: undefined,
     personInstructed: false,
     timeoutSeconds: 300,
+    all: false,
   });
-  expect(sourceArgs(["next", "--timeout", "0", "--source", "id", "--wait"])).toEqual({
+  expect(sourceArgs(["next", "--timeout", "0", "--all", "--source", "id", "--wait"])).toEqual({
     operation: "next_wait",
     sourceId: "id",
     personInstructed: false,
     timeoutSeconds: 0,
+    all: true,
   });
   expect(sourceArgs(["next", "--wait", "--timeout", "99999"])).toMatchObject({
     timeoutSeconds: 99999,
@@ -111,6 +113,9 @@ test.each(
     ["next", "--unknown"],
     ["next", "--person-instructed"],
     ["next", "--wait", "--wait"],
+    ["next", "--all", "--all"],
+    ["source", "show", "--source", "id", "--all"],
+    ["source", "prune", "--all"],
     ["next", "--timeout", "10"],
     ["next", "--wait", "--timeout"],
     ["next", "--wait", "--timeout", "--json"],
@@ -197,13 +202,13 @@ test("passes each command to the matching source operation and names its result"
     reason: "sources_pruned",
   });
   await runSources(["next", "--source", "s3"], paths, true);
-  expect(called.next).toHaveBeenLastCalledWith({ paths, cwd, sourceId: "s3" });
+  expect(called.next).toHaveBeenLastCalledWith({ paths, cwd, sourceId: "s3", all: false });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "next",
     reason: "next_actions_read",
   });
-  await runSources(["next"], paths, true);
-  expect(called.next).toHaveBeenLastCalledWith({ paths, cwd, sourceId: undefined });
+  await runSources(["next", "--all"], paths, true);
+  expect(called.next).toHaveBeenLastCalledWith({ paths, cwd, sourceId: undefined, all: true });
   for (const name of ["register", "show", "reset", "prune"] as const)
     expect(called[name]).toHaveBeenCalledTimes(1);
   expect(called.takeOver).toHaveBeenCalledTimes(2);
@@ -216,7 +221,13 @@ test("passes a wait to the coordination wait, which names its own result", async
   const { log, error } = quiet();
   const cwd = process.cwd();
   await runSources(["next", "--wait", "--source", "s4", "--timeout", "12"], paths, true);
-  expect(called.wait).toHaveBeenCalledWith({ paths, cwd, sourceId: "s4", timeoutSeconds: 12 });
+  expect(called.wait).toHaveBeenCalledWith({
+    paths,
+    cwd,
+    sourceId: "s4",
+    timeoutSeconds: 12,
+    all: false,
+  });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toEqual({
     schemaVersion: 1,
     operation: "next_wait",
@@ -226,12 +237,13 @@ test("passes a wait to the coordination wait, which names its own result", async
     data: { sources: [] },
   });
   called.wait.mockReturnValue(ErrAsync({ reason: "state_busy", detail: "busy" }) as never);
-  await runSources(["next", "--wait"], paths, true);
+  await runSources(["next", "--wait", "--all"], paths, true);
   expect(called.wait).toHaveBeenLastCalledWith({
     paths,
     cwd,
     sourceId: undefined,
     timeoutSeconds: 300,
+    all: true,
   });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "next_wait",

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { workerDevice } from "./worker-fixture.ts";
 
-test("working clears idle attention and a later stop wakes next --wait again", async () => {
+test("activity reaches next at once, and an idle flip does not wake next --wait in its grace", async () => {
   const device = await workerDevice();
   try {
     const source = await device.register({
@@ -33,6 +33,8 @@ test("working clears idle attention and a later stop wakes next --wait again", a
     function wait() {
       return device.run(["next", "--source", source, "--wait", "--timeout", "0"]);
     }
+    // The first wait of the scope returns every action, and the next one has nothing new.
+    expect(await wait()).toMatchObject({ code: 0, output: { reason: "next_actions_changed" } });
     for (const state of ["idle", "working", "done", "working"]) {
       await activity(state);
       const idle = state !== "working";
@@ -45,28 +47,15 @@ test("working clears idle attention and a later stop wakes next --wait again", a
       ]);
       expect(await wait()).toMatchObject({
         code: 0,
-        output: { reason: "next_actions_changed" },
-      });
-      expect(await wait()).toMatchObject({
-        code: 0,
-        output: { reason: "next_wait_timed_out" },
+        output: { reason: "next_wait_timed_out", data: { sources: [] } },
       });
     }
-    const waiting = device.run(["next", "--source", source, "--wait", "--timeout", "30"]);
+    const waiting = device.run(["next", "--source", source, "--wait", "--timeout", "5"]);
     await Bun.sleep(500);
     await activity("idle");
     expect(await waiting).toMatchObject({
       code: 0,
-      output: {
-        reason: "next_actions_changed",
-        data: {
-          sources: [
-            {
-              actions: [{ assignment: "smoke", action: "worker_attention", reason: "worker_idle" }],
-            },
-          ],
-        },
-      },
+      output: { reason: "next_wait_timed_out", data: { sources: [] } },
     });
   } finally {
     await rm(device.root, { recursive: true, force: true });
