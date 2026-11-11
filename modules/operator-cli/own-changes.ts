@@ -2,7 +2,7 @@ import { Environment } from "../environment/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 
-// The SuperAgent commands that change a source's next actions. A wait from the same pane never
+// The SuperAgent commands that change a source's next actions. A wait from the same session never
 // returns for their changes. A worker's commands and the waits themselves are not here.
 const supervisorCommands = new Set([
   "dispatch",
@@ -37,8 +37,8 @@ export function ownChangeSelector(args: string[]) {
 }
 
 /**
- * Runs the command, and when it is a SuperAgent command from a Herdr pane, records the actions
- * that it added as returned by that pane's coordination waits.
+ * Runs the command, and when it is a SuperAgent command from an agent session, records the actions
+ * that it added as returned by that session's coordination waits.
  */
 export async function withOwnChanges(
   args: string[],
@@ -46,7 +46,7 @@ export async function withOwnChanges(
   run: () => Promise<void>,
 ) {
   const selector = ownChangeSelector(args);
-  const paneId = Environment.read().HERDR_PANE_ID;
-  if (selector === null || paneId === undefined || paneId === "") return run();
-  return WorkSources.acknowledgeOwnChange({ paths, cwd: process.cwd(), paneId, ...selector }, run);
+  const { session } = Environment.caller();
+  if (selector === null || session === null) return run();
+  return WorkSources.acknowledgeOwnChange({ paths, cwd: process.cwd(), session, ...selector }, run);
 }

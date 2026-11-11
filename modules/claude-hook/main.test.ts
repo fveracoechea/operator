@@ -82,17 +82,14 @@ function stop(active: boolean) {
   });
 }
 
-test("a Stop event in a pane with unwatched running work blocks the turn's end", async () => {
-  spyOn(Environment, "read").mockReturnValue({
-    ...Environment.read(),
-    HERDR_PANE_ID: "pane-1",
-  });
+test("a Stop event of a session with unwatched running work blocks the turn's end", async () => {
   const unwatched = spyOn(WorkSources, "unwatched").mockReturnValue(Ok(["one"]));
   expect(await ClaudeHook.answer({ event: stop(false), paths })).toMatchObject({
     tag: "Ok",
     value: expect.stringContaining('"decision":"block"') as string,
   });
-  expect(unwatched).toHaveBeenCalledWith({ paths, cwd: root, paneId: "pane-1" });
+  // The guard asks for the hook's session, not for the Herdr pane that runs it.
+  expect(unwatched).toHaveBeenCalledWith({ paths, cwd: root, session: "s" });
   // The turn that the block continued may end.
   expect(await ClaudeHook.answer({ event: stop(true), paths })).toMatchObject({
     tag: "Ok",
@@ -100,21 +97,15 @@ test("a Stop event in a pane with unwatched running work blocks the turn's end",
   });
 });
 
-test("a Stop event outside a Herdr pane supervises nothing", async () => {
-  spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), HERDR_PANE_ID: undefined });
-  const unwatched = spyOn(WorkSources, "unwatched");
+test("a Stop event of a session that supervises nothing lets the turn end", async () => {
+  spyOn(WorkSources, "unwatched").mockReturnValue(Ok([]));
   expect(await ClaudeHook.answer({ event: stop(false), paths })).toMatchObject({
     tag: "Ok",
     value: "",
   });
-  expect(unwatched).not.toHaveBeenCalled();
 });
 
 test("a Stop event on a device with no state lets the turn end", async () => {
-  spyOn(Environment, "read").mockReturnValue({
-    ...Environment.read(),
-    HERDR_PANE_ID: "pane-1",
-  });
   expect(await ClaudeHook.answer({ event: stop(false), paths })).toMatchObject({
     tag: "Ok",
     value: "",
@@ -128,6 +119,7 @@ test("an event that is not Claude Code hook JSON is refused", async () => {
     "[]",
     JSON.stringify({ tool_name: "Bash" }),
     JSON.stringify({ hook_event_name: "Stop", cwd: root }),
+    JSON.stringify({ hook_event_name: "Stop", stop_hook_active: false, cwd: root }),
   ])
     expect(await ClaudeHook.answer({ event: input, paths })).toMatchObject({
       tag: "Err",

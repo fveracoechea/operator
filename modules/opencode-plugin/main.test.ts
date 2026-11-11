@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeEach, expect, expectTypeOf, mock, spyOn, tes
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ErrAsync, Ok, OkAsync } from "unthrown";
+import { Ok } from "unthrown";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -34,12 +34,6 @@ function commit(command: string | string[], workdir?: string) {
 
 function idle(sessionID = "ses_1") {
   return JSON.stringify({ event: "session.idle", directory: "/checkout", sessionID });
-}
-
-function panes(...rows: Array<{ paneId: string; agentSession: string | null }>) {
-  return spyOn(Herdr, "panes").mockReturnValue(
-    OkAsync(rows.map((row) => ({ ...row, tabId: "t", workspaceId: "w", cwd: null }))),
-  );
 }
 
 test("the public failure reasons form a closed union", () => {
@@ -82,39 +76,27 @@ test("a commit without the trailer, or shell input with no command, has no opini
     expect(await OpenCodePlugin.answer({ event, paths })).toMatchObject({ tag: "Ok", value: "" });
 });
 
-test("an idle session in a pane with unwatched running work gets the reason to continue", async () => {
-  const listed = panes(
-    { paneId: "pane-0", agentSession: null },
-    { paneId: "pane-1", agentSession: "ses_1" },
-  );
+test("an idle session with unwatched running work gets the reason to continue", async () => {
+  const listed = spyOn(Herdr, "panes");
   const unwatched = spyOn(WorkSources, "unwatched").mockReturnValue(Ok(["one"]));
   expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
     tag: "Ok",
     value: expect.stringContaining("running work in one") as string,
   });
-  expect(listed).toHaveBeenCalledTimes(1);
-  expect(unwatched).toHaveBeenCalledWith({ paths, cwd: "/checkout", paneId: "pane-1" });
+  // The guard asks for the idle session itself. Herdr's pane plays no part.
+  expect(unwatched).toHaveBeenCalledWith({ paths, cwd: "/checkout", session: "ses_1" });
+  expect(listed).not.toHaveBeenCalled();
 });
 
-test("a session that Herdr does not map, or a Herdr that fails, supervises nothing", async () => {
-  const unwatched = spyOn(WorkSources, "unwatched").mockReturnValue(Ok(["one"]));
-  panes({ paneId: "pane-1", agentSession: "ses_other" });
-  expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
+test("an idle session that supervises nothing has no opinion", async () => {
+  spyOn(WorkSources, "unwatched").mockReturnValue(Ok([]));
+  expect(await OpenCodePlugin.answer({ event: idle("ses_other"), paths })).toMatchObject({
     tag: "Ok",
     value: "",
   });
-  spyOn(Herdr, "panes").mockReturnValue(
-    ErrAsync({ reason: "herdr_unavailable" as const, detail: "no herdr" }),
-  );
-  expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
-    tag: "Ok",
-    value: "",
-  });
-  expect(unwatched).not.toHaveBeenCalled();
 });
 
 test("an idle session on a device with no state has no opinion", async () => {
-  panes({ paneId: "pane-1", agentSession: "ses_1" });
   expect(await OpenCodePlugin.answer({ event: idle(), paths })).toMatchObject({
     tag: "Ok",
     value: "",

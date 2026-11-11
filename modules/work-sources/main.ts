@@ -431,20 +431,20 @@ export const WorkSources = {
    * Block until an action appears that the scope's waits have not returned, or until the timeout
    * ends. The answer holds only the new actions, or with `all` the whole next answer of the
    * scope. The returned actions are recorded, so a change between two waits returns at once,
-   * also after a restart. A wait without a source from a Herdr pane covers every source that the
-   * pane supervises, in every project.
+   * also after a restart. A wait without a source from an agent session covers every source that
+   * the session supervises, in every project.
    */
   wait(input: Input & { sourceId?: string; timeoutSeconds: number; all?: boolean }) {
     return coordinationWait(input);
   },
   /**
-   * Run a SuperAgent command from the pane, then record the actions that it added to the named
-   * source, or to a source that it registered, as returned by the pane's waits. A wait never
-   * returns for a change that its own pane made. A failed read or write only skips the record,
+   * Run a SuperAgent command from an agent session, then record the actions that it added to the
+   * named source, or to a source that it registered, as returned by the session's waits. A wait
+   * never returns for a change that its own session made. A failed read or write only skips the record,
    * because the command's own result stands.
    */
   async acknowledgeOwnChange<T>(
-    input: Input & { paneId: string; sourceId?: string; assignment?: string },
+    input: Input & { session: string; sourceId?: string; assignment?: string },
     change: () => Promise<T>,
   ) {
     const scope = { paths: input.paths, cwd: input.cwd };
@@ -464,7 +464,7 @@ export const WorkSources = {
       );
     });
     if (added.length > 0)
-      DeviceState.acknowledgeCoordinationWaits(input.paths, input.paneId, addKeys(added)).getOr(
+      DeviceState.acknowledgeCoordinationWaits(input.paths, input.session, addKeys(added)).getOr(
         undefined,
       );
     return result;
@@ -477,11 +477,11 @@ export const WorkSources = {
     );
   },
   /**
-   * The sources that the pane supervises whose next actions show running work while no wait
-   * from that pane covers them. Work that waits only for its dependencies runs nothing yet.
+   * The sources that the agent session supervises whose next actions show running work while no
+   * wait from that session covers them. Work that waits only for its dependencies runs nothing yet.
    */
-  unwatched(input: Input & { paneId: string }) {
-    return DeviceState.readSupervision(input.paths, input.paneId).flatMap((supervised) =>
+  unwatched(input: Input & { session: string }) {
+    return DeviceState.readSupervision(input.paths, input.session).flatMap((supervised) =>
       all(
         supervised
           .filter((source) => !source.waiting)
@@ -496,6 +496,51 @@ export const WorkSources = {
           ),
       ).map((ids) => ids.flat()),
     );
+  },
+  /**
+   * Refuse a coordination command for a source that another agent session supervises. One session
+   * coordinates a source at a time, so two SuperAgents never steer the same work. A source that no
+   * session claimed yet passes, also when a pane holds it from before sessions were recorded.
+   */
+  checkSupervisor(input: Input & { sourceId: string }) {
+    return Projects.current(input).flatMap(({ data: project }) =>
+      DeviceState.readSupervisor(input.paths, project.repository, input.sourceId).flatMap(
+        (
+          supervisor,
+        ): Result<undefined, { reason: "source_supervised_elsewhere"; detail: string }> => {
+          const caller = Environment.caller();
+          if (supervisor.session === null || supervisor.session === caller.session)
+            return Ok(undefined);
+          const where =
+            supervisor.pane === null ? "outside Herdr" : `in Herdr pane ${supervisor.pane}`;
+          return Err({
+            reason: "source_supervised_elsewhere",
+            detail: `Source ${input.sourceId} is supervised by agent session ${supervisor.session} ${where}, so this session does not coordinate it. Nothing changed. Leave it to that session. Only when the person tells you to supervise it here, run operator source take-over --source ${input.sourceId} --person-instructed --json.`,
+          });
+        },
+      ),
+    );
+  },
+  /**
+   * Make the calling pane and session the supervisor of a source, on the person's instruction.
+   * A caller without a session leaves the source to the next wait or dispatch.
+   */
+  takeOver(input: Input & { sourceId: string; personInstructed: boolean }) {
+    if (!input.personInstructed)
+      return Err({
+        reason: "person_instruction_required" as const,
+        detail:
+          "Take over a source only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
+      });
+    return Projects.current(input).flatMap(({ data: project }) => {
+      const supervisor = Environment.caller();
+      return DeviceState.takeOverSource(
+        input.paths,
+        project.repository,
+        input.sourceId,
+        supervisor,
+      ).map((previous) => ({ sourceId: input.sourceId, previous, supervisor }));
+    });
   },
   /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */
   decideReport(
@@ -552,16 +597,17 @@ type WaitInput = Input & { sourceId?: string; timeoutSeconds: number; all?: bool
 function coordinationWait(input: WaitInput) {
   const deadline = Date.now() + input.timeoutSeconds * 1000;
   return Projects.current(input).flatMap(({ data: project }) => {
-    const paneId = Environment.read().HERDR_PANE_ID ?? null;
+    const caller = Environment.caller();
+    const { session } = caller;
     const scope =
-      input.sourceId ?? (paneId === null ? "" : DeviceState.coordinationPaneScope(paneId));
+      input.sourceId ?? (session === null ? "" : DeviceState.coordinationSessionScope(session));
     const target = { repository: project.repository, scope };
-    return DeviceState.startCoordinationWait(input.paths, target, paneId)
+    return DeviceState.startCoordinationWait(input.paths, target, caller)
       .toAsync()
       .flatMap(() => {
         // The lease shows that this wait still runs, so other operations can tell.
         const release = DeviceState.holdCoordinationWait(input.paths, target);
-        const watched = { ...input, paneId: input.sourceId === undefined ? paneId : null };
+        const watched = { ...input, session: input.sourceId === undefined ? session : null };
         return fromPromise(
           async () => {
             try {
@@ -577,16 +623,16 @@ function coordinationWait(input: WaitInput) {
   });
 }
 
-/** The scope's next answer, each source with its project. A pane wait reads the pane's sources. */
+/** The scope's next answer, each source with its project. A session wait reads its sources. */
 function scopeAnswer(
-  input: Input & { sourceId?: string; paneId: string | null },
+  input: Input & { sourceId?: string; session: string | null },
   repository: string,
 ) {
   type Project = { repository: string; ids: Set<string> | null };
   const projects: Result<Project[], WatchFailure> =
-    input.paneId === null
+    input.session === null
       ? Ok([{ repository, ids: null }])
-      : DeviceState.readSupervision(input.paths, input.paneId).map((supervised) =>
+      : DeviceState.readSupervision(input.paths, input.session).map((supervised) =>
           [...new Set(supervised.map((row) => row.repository))].map((supervisedIn) => ({
             repository: supervisedIn,
             ids: new Set(
@@ -610,11 +656,11 @@ function scopeAnswer(
 
 /**
  * Reads next actions until an action is due or the deadline passes. The stored set is read again
- * each time, so an acknowledgement that a pane command records during the wait counts, and a
+ * each time, so an acknowledgement that a session's command records during the wait counts, and a
  * removed action leaves the stored set, so its return is new again.
  */
 function watchActions(
-  input: WaitInput & { paneId: string | null },
+  input: WaitInput & { session: string | null },
   target: CoordinationScope,
   watch: Watch,
   deadline: number,
@@ -635,7 +681,7 @@ function watchActions(
   return read.toAsync().flatMap(({ stored, answer, current }) => {
     const now = Date.now();
     // A scope that never returned a set returns at once with every action. It records the end of
-    // each ended source without returning it, so a first pane wait carries no old ends.
+    // each ended source without returning it, so a first session wait carries no old ends.
     const due = stored === null ? [...current] : dueKeys({ stored, current, watch, now });
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
     if (stored === null || due.length > 0 || now >= deadline) {

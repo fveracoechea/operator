@@ -44,12 +44,12 @@ test("waits, reads, and worker commands are not SuperAgent changes", () => {
     expect(ownChangeSelector(args)).toBeNull();
 });
 
-function pane(id: string | undefined) {
-  spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), HERDR_PANE_ID: id });
-}
-
-test("a SuperAgent command from a pane runs inside the acknowledgement", async () => {
-  pane("pane-1");
+test("a SuperAgent command from an agent session runs inside the acknowledgement", async () => {
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    OPENCODE_SESSION_ID: "ses-1",
+    CLAUDE_CODE_SESSION_ID: undefined,
+  });
   const acknowledge = spyOn(WorkSources, "acknowledgeOwnChange").mockImplementation(
     async (_input, change) => change(),
   );
@@ -57,24 +57,24 @@ test("a SuperAgent command from a pane runs inside the acknowledgement", async (
   await withOwnChanges(["message", "send", "--source", "s1", "--assignment", "a"], paths, run);
   expect(run).toHaveBeenCalledTimes(1);
   expect(acknowledge).toHaveBeenCalledWith(
-    { paths, cwd: process.cwd(), paneId: "pane-1", sourceId: "s1", assignment: "a" },
+    { paths, cwd: process.cwd(), session: "ses-1", sourceId: "s1", assignment: "a" },
     run,
   );
 });
 
-test("another command, or a command outside a pane, runs without an acknowledgement", async () => {
+test("another command, or a command outside an agent session, runs without an acknowledgement", async () => {
   const acknowledge = spyOn(WorkSources, "acknowledgeOwnChange");
   const read = spyOn(Environment, "read");
   const run = mock(async () => undefined);
   for (const [id, args] of [
-    ["pane-1", ["next", "--wait"]],
+    ["ses-1", ["next", "--wait"]],
     [undefined, ["dispatch", "--source", "s1"]],
+    // An empty variable names no session.
     ["", ["dispatch", "--source", "s1"]],
   ] as const) {
-    read.mockReturnValueOnce({
-      ...Environment.parse({ HOME: "/isolated/own", NODE_ENV: "test" }),
-      HERDR_PANE_ID: id,
-    });
+    read.mockReturnValueOnce(
+      Environment.parse({ HOME: "/isolated/own", NODE_ENV: "test", OPENCODE_SESSION_ID: id }),
+    );
     await withOwnChanges([...args], paths, run);
   }
   expect(run).toHaveBeenCalledTimes(3);

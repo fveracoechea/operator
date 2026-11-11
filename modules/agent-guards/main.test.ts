@@ -11,7 +11,7 @@ import { AgentGuards } from "./main.ts";
 
 const root = await mkdtemp(path.join(tmpdir(), "agent-guards-"));
 const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
-const pane = { paths, cwd: "/checkout", paneId: "pane-1" };
+const session = { paths, cwd: "/checkout", session: "ses-1" };
 afterEach(() => {
   mock.restore();
 });
@@ -41,19 +41,19 @@ test("a commit without the trailer, or another command, has no opinion", async (
 
 test("unwatched running work keeps the turn going and names the background wait", async () => {
   const unwatched = spyOn(WorkSources, "unwatched").mockReturnValue(Ok(["one", "two"]));
-  const result = await AgentGuards.turnEnd(pane);
-  expect(unwatched).toHaveBeenCalledWith(pane);
+  const result = await AgentGuards.turnEnd(session);
+  expect(unwatched).toHaveBeenCalledWith(session);
   expect(result).toMatchObject({
     tag: "Ok",
     value: expect.stringMatching(
-      /running work in one, two.*operator next --wait --json as a background command/s,
+      /This session supervises running work in one, two.*operator next --wait --json as a background command/s,
     ) as string,
   });
 });
 
 test("watched or no running work lets the turn end", async () => {
   spyOn(WorkSources, "unwatched").mockReturnValue(Ok([]));
-  expect(await AgentGuards.turnEnd(pane)).toMatchObject({ tag: "Ok", value: null });
+  expect(await AgentGuards.turnEnd(session)).toMatchObject({ tag: "Ok", value: null });
 });
 
 test("missing, blocked, or unreadable state lets the turn end", async () => {
@@ -65,7 +65,7 @@ test("missing, blocked, or unreadable state lets the turn end", async () => {
     "state_corrupt",
   ] as const) {
     unwatched.mockReturnValueOnce(Err({ reason, detail: "unusable" }));
-    expect(await AgentGuards.turnEnd(pane)).toMatchObject({ tag: "Ok", value: null });
+    expect(await AgentGuards.turnEnd(session)).toMatchObject({ tag: "Ok", value: null });
   }
 });
 
@@ -76,5 +76,5 @@ test("a defect stays a defect, so the host hook fails and lets the turn end", as
       throw new Error("broken");
     }),
   );
-  expect(await AgentGuards.turnEnd(pane)).toMatchObject({ tag: "Defect" });
+  expect(await AgentGuards.turnEnd(session)).toMatchObject({ tag: "Defect" });
 });

@@ -30,6 +30,7 @@ function spies() {
     register: spyOn(WorkSources, "register").mockReturnValue(OkAsync({ id: "r" }) as never),
     show: spyOn(WorkSources, "show").mockReturnValue(OkAsync({ id: "s" }) as never),
     reset: spyOn(WorkSources, "reset").mockReturnValue(OkAsync({ id: "x" }) as never),
+    takeOver: spyOn(WorkSources, "takeOver").mockReturnValue(OkAsync({ id: "t" }) as never),
     prune: spyOn(WorkSources, "prune").mockReturnValue(OkAsync({ id: "p" }) as never),
     next: spyOn(WorkSources, "next").mockReturnValue(OkAsync({ id: "n" }) as never),
     wait: spyOn(WorkSources, "wait").mockReturnValue(
@@ -129,6 +130,9 @@ test.each(
     ["source", "reset", "--source", "id", "--person-instructed", "--person-instructed"],
     ["source", "prune", "--source", "id"],
     ["source", "prune", "--person-instructed"],
+    ["source", "take-over"],
+    ["source", "take-over", "--person-instructed"],
+    ["source", "take-over", "--file", "a"],
     ["source", "archive"],
     ["dispatch"],
     ["other", "show", "--source", "id"],
@@ -173,6 +177,24 @@ test("passes each command to the matching source operation and names its result"
     operation: "source_reset",
     reason: "source_reset",
   });
+  await runSources(["source", "take-over", "--source", "s5", "--person-instructed"], paths, true);
+  expect(called.takeOver).toHaveBeenCalledWith({
+    paths,
+    cwd,
+    sourceId: "s5",
+    personInstructed: true,
+  });
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "source_take_over",
+    reason: "source_taken_over",
+  });
+  await runSources(["source", "take-over", "--source", "s5"], paths, true);
+  expect(called.takeOver).toHaveBeenLastCalledWith({
+    paths,
+    cwd,
+    sourceId: "s5",
+    personInstructed: false,
+  });
   await runSources(["source", "prune"], paths, true);
   expect(called.prune).toHaveBeenCalledWith({ paths, cwd });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
@@ -189,6 +211,7 @@ test("passes each command to the matching source operation and names its result"
   expect(called.next).toHaveBeenLastCalledWith({ paths, cwd, sourceId: undefined, all: true });
   for (const name of ["register", "show", "reset", "prune"] as const)
     expect(called[name]).toHaveBeenCalledTimes(1);
+  expect(called.takeOver).toHaveBeenCalledTimes(2);
   expect(called.next).toHaveBeenCalledTimes(2);
   expect(called.wait).not.toHaveBeenCalled();
 });

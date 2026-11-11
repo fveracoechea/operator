@@ -66,8 +66,8 @@ A repeated parent requires the prior source to have ended and gets a new source 
 ## Coordination wait
 
 WorkerAgents reach you through recorded state, never through text in your pane.
-Run one wait without `--source` from your own pane: `operator next --wait --json`.
-It covers every source that your pane supervises, in every project, and claims the open sources of the current project that no pane supervises yet.
+Run one wait without `--source` from your own session: `operator next --wait --json`.
+It covers every source that your session supervises, in every project, and claims the open sources of the current project that nobody supervises yet.
 Run no wait per source, and no filter or sleep loop of your own.
 
 The wait blocks until an action appears that it has not returned yet, then returns `next_actions_changed` with only those actions.
@@ -81,11 +81,10 @@ Plain `operator next --json` shows the whole board, and an ended source only wit
 The wait does not return for:
 
 - an action that went away or turned back into a wait,
-- an action that your pane added with its own command, such as `message send`, `message close`, `question escalate`, `dispatch`, or `source register`,
+- an action that your session added with its own command, such as `message send`, `message close`, `question escalate`, `dispatch`, or `source register`,
 - `pr_wait_timed_out`, `pr_wait_stopped`, `pr_owner_idle`, or `worker_idle` that clears within a minute, for example an owner that starts its next PR wait.
 
-`--source <source-id>` waits on one source and makes your pane its supervisor.
-The pane that last ran the wait or dispatched a source's work supervises that source.
+`--source <source-id>` waits on one source and makes your session its supervisor.
 
 Run the wait as a background command, so its result arrives as a new turn and never mixes with the person's typing:
 
@@ -95,9 +94,21 @@ Run the wait as a background command, so its result arrives as a new turn and ne
 Keep the host's command timeout above the wait timeout.
 Handle each result, then start the next wait before you end your turn.
 When a result needs no action from you, start the next wait and send the person no message about it.
-The turn-end guard keeps your turn going once while your pane's sources have running work and no wait from your pane runs. Its reason tells you to start the wait. A wait you already run in the background skips it on OpenCode.
+The turn-end guard keeps your turn going once while your session's sources have running work and no wait from your session runs. Its reason tells you to start the wait. A wait you already run in the background skips it on OpenCode.
 While a wait runs, the person can still prompt you. Answer, and leave the wait running.
 A host without background commands runs the wait in the foreground when the person asks you to watch.
+
+## Supervision
+
+One agent session supervises a source. The session that last ran the source's wait or dispatched its work supervises it, together with its Herdr pane.
+A wait without `--source` claims only open sources that nobody supervises yet, so it never takes another SuperAgent's sources.
+The session counts, not the pane: a new session in the same pane, for example after `/clear` or a restart, supervises nothing.
+
+Another session's `dispatch`, `next --wait --source`, report decision, question answer or escalation, steering message, `cleanup`, or `handoff` for the source refuses with `source_supervised_elsewhere`. Its detail names the supervising session and pane.
+Reads such as `next` and `source show` still work.
+When you get that refusal, leave the source to the named session. Tell the person, and take it over only when the person tells you to.
+Run `operator source take-over --source <source-id> --person-instructed --json` from your own session. `--person-instructed` attests the person's instruction. It does not grant authority.
+The result names the `previous` supervisor and the new one. The previous session's commands for the source refuse from then on.
 
 ## Reset and prune
 

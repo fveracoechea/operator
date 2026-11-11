@@ -10,6 +10,7 @@ import { installHook } from "./settings.ts";
 // Claude Code sets stop_hook_active while a turn continues because a Stop hook blocked its end.
 const stopSchema = z.object({
   hook_event_name: z.literal("Stop"),
+  session_id: z.string(),
   stop_hook_active: z.boolean(),
   cwd: z.string(),
 });
@@ -36,18 +37,18 @@ function deny(reason: string) {
 }
 
 /**
- * The turn-end guard of a SuperAgent's pane. A turn that a block continued may end, so the guard
- * blocks at most once in a row. An agent outside a Herdr pane supervises nothing.
+ * The turn-end guard of a SuperAgent session. A turn that a block continued may end, so the guard
+ * blocks at most once in a row. Only the session that supervises a source gets the guard.
  */
 function stop(input: {
   paths: ReturnType<typeof OperatorHome.resolve>;
   cwd: string;
+  session_id: string;
   stop_hook_active: boolean;
 }) {
-  const paneId = Environment.read().HERDR_PANE_ID;
-  if (input.stop_hook_active || paneId === undefined) return OkAsync("");
-  return AgentGuards.turnEnd({ paths: input.paths, cwd: input.cwd, paneId }).map((reason) =>
-    reason === null ? "" : JSON.stringify({ decision: "block", reason }),
+  if (input.stop_hook_active) return OkAsync("");
+  return AgentGuards.turnEnd({ paths: input.paths, cwd: input.cwd, session: input.session_id }).map(
+    (reason) => (reason === null ? "" : JSON.stringify({ decision: "block", reason })),
   );
 }
 

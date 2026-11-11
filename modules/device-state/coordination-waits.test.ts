@@ -8,17 +8,25 @@ import { deleteSourceRecords, registerSource } from "./sources.ts";
 import {
   acknowledgeCoordinationWaits,
   changeCoordinationWait,
-  coordinationPaneScope,
+  coordinationSessionScope,
   finishCoordinationWait,
   readCoordinationWait,
   readSupervision,
+  readSupervisor,
   renewCoordinationWait,
   startCoordinationWait,
+  takeOverSource,
 } from "./coordination-waits.ts";
 import { busy, reservedCopy } from "./state-fixture.ts";
 
 const all = { repository: "owner/one", scope: "" };
 const one = { repository: "owner/one", scope: "s1" };
+const nobody = { pane: null, session: null };
+
+/** A pane's agent session is named after the pane. */
+function by(pane: string) {
+  return { pane, session: `ses-${pane}` };
+}
 
 function fixture() {
   const db = new Database(":memory:");
@@ -37,18 +45,19 @@ function rows(db: Database) {
         owner_pid: number | null;
         lease_at: string | null;
         pane_id: string | null;
+        session: string | null;
         returned_at: string | null;
       },
       []
     >(
-      "SELECT scope, actions, owner_pid, lease_at, pane_id, returned_at FROM coordination_waits ORDER BY scope",
+      "SELECT scope, actions, owner_pid, lease_at, pane_id, session, returned_at FROM coordination_waits ORDER BY scope",
     )
     .all();
 }
 
-test("a first wait records its process and pane and has no returned set", () => {
+test("a first wait records its process, pane, and session, and has no returned set", () => {
   using db = fixture();
-  expect(startCoordinationWait(db, all, "pane-1")).toMatchObject({ tag: "Ok", value: null });
+  expect(startCoordinationWait(db, all, by("pane-1"))).toMatchObject({ tag: "Ok", value: null });
   expect(rows(db)).toEqual([
     {
       scope: "",
@@ -56,6 +65,7 @@ test("a first wait records its process and pane and has no returned set", () => 
       owner_pid: process.pid,
       lease_at: expect.any(String) as string,
       pane_id: "pane-1",
+      session: "ses-pane-1",
       returned_at: null,
     },
   ]);
@@ -63,7 +73,7 @@ test("a first wait records its process and pane and has no returned set", () => 
 
 test("a finished wait records its set and ends, and the next wait of the scope reads that set", () => {
   using db = fixture();
-  startCoordinationWait(db, all, "pane-1");
+  startCoordinationWait(db, all, by("pane-1"));
   expect(finishCoordinationWait(db, all, () => '["a"]')).toMatchObject({
     tag: "Ok",
     value: undefined,
@@ -75,13 +85,14 @@ test("a finished wait records its set and ends, and the next wait of the scope r
       owner_pid: null,
       lease_at: null,
       pane_id: "pane-1",
+      session: "ses-pane-1",
       returned_at: expect.any(String) as string,
     },
   ]);
   // Each scope keeps its own set.
   source(db, "s1");
-  expect(startCoordinationWait(db, one, null)).toMatchObject({ tag: "Ok", value: null });
-  expect(startCoordinationWait(db, all, "pane-2")).toMatchObject({ tag: "Ok", value: '["a"]' });
+  expect(startCoordinationWait(db, one, nobody)).toMatchObject({ tag: "Ok", value: null });
+  expect(startCoordinationWait(db, all, by("pane-2"))).toMatchObject({ tag: "Ok", value: '["a"]' });
   expect(rows(db).map((row) => [row.scope, row.owner_pid, row.pane_id])).toEqual([
     ["", process.pid, "pane-2"],
     ["s1", process.pid, null],
@@ -90,7 +101,7 @@ test("a finished wait records its set and ends, and the next wait of the scope r
 
 test("a wait that a later process replaced records its set but leaves the later wait running", () => {
   using db = fixture();
-  startCoordinationWait(db, all, "pane-1");
+  startCoordinationWait(db, all, by("pane-1"));
   db.query("UPDATE coordination_waits SET owner_pid = ?, lease_at = 'later'").run(process.pid + 1);
   finishCoordinationWait(db, all, () => "[]");
   renewCoordinationWait(db, all);
@@ -101,7 +112,7 @@ test("a wait that a later process replaced records its set but leaves the later 
 
 test("a renewal moves only this process's lease", () => {
   using db = fixture();
-  startCoordinationWait(db, all, null);
+  startCoordinationWait(db, all, nobody);
   db.query("UPDATE coordination_waits SET lease_at = 'old'").run();
   expect(renewCoordinationWait(db, all)).toMatchObject({ tag: "Ok", value: undefined });
   expect(rows(db)[0]?.lease_at).not.toBe("old");
@@ -124,51 +135,89 @@ function source(db: Database, id: string, state = "open", repository = "owner/on
   );
 }
 
-function panes(db: Database) {
+function supervisors(db: Database) {
   return db
-    .query<{ id: string; supervising_pane: string | null }, []>(
-      "SELECT id, supervising_pane FROM sources ORDER BY id",
+    .query<{ id: string; supervising_pane: string | null; supervising_session: string | null }, []>(
+      "SELECT id, supervising_pane, supervising_session FROM sources ORDER BY id",
     )
     .all()
-    .map((row) => [row.id, row.supervising_pane]);
+    .map((row) => [row.id, row.supervising_pane, row.supervising_session]);
 }
 
-test("a wait without a source claims only the open sources of its project that no pane supervises", () => {
+test("a wait without a source claims only the open sources of its project that nobody supervises", () => {
   using db = fixture();
   registerProject(db, { repository: "owner/two", checkout: "/two", registeredAt: "now" });
   source(db, "s1");
   source(db, "s2");
   source(db, "s3", "finished");
   source(db, "s4", "open", "owner/two");
+  source(db, "s5");
   db.query("UPDATE sources SET supervising_pane = 'other' WHERE id = 's2'").run();
-  startCoordinationWait(db, all, "pane-1");
-  expect(panes(db)).toEqual([
-    ["s1", "pane-1"],
-    ["s2", "other"],
-    ["s3", null],
-    ["s4", null],
+  db.query("UPDATE sources SET supervising_session = 'ses-other' WHERE id = 's5'").run();
+  startCoordinationWait(db, all, by("pane-1"));
+  expect(supervisors(db)).toEqual([
+    ["s1", "pane-1", "ses-pane-1"],
+    ["s2", "other", null],
+    ["s3", null, null],
+    ["s4", null, null],
+    ["s5", null, "ses-other"],
   ]);
-  // A wait without a pane claims nothing.
-  startCoordinationWait(db, all, null);
-  expect(panes(db)[0]).toEqual(["s1", "pane-1"]);
+  // A wait with neither a pane nor a session claims nothing.
+  startCoordinationWait(db, all, nobody);
+  expect(supervisors(db)[0]).toEqual(["s1", "pane-1", "ses-pane-1"]);
+  // A session outside Herdr claims with its session alone.
+  source(db, "s6");
+  startCoordinationWait(db, all, { pane: null, session: "ses-cli" });
+  expect(supervisors(db)[5]).toEqual(["s6", null, "ses-cli"]);
 });
 
-test("a wait for one source makes its pane that source's supervising pane", () => {
+test("a wait for one source records its pane and session as that source's supervisor", () => {
   using db = fixture();
   source(db, "s1");
   source(db, "s2");
   db.query("UPDATE sources SET supervising_pane = 'other'").run();
-  startCoordinationWait(db, one, "pane-1");
-  expect(panes(db)).toEqual([
-    ["s1", "pane-1"],
-    ["s2", "other"],
+  startCoordinationWait(db, one, by("pane-1"));
+  expect(supervisors(db)).toEqual([
+    ["s1", "pane-1", "ses-pane-1"],
+    ["s2", "other", null],
   ]);
-  startCoordinationWait(db, one, null);
-  expect(panes(db)[0]).toEqual(["s1", "pane-1"]);
+  startCoordinationWait(db, one, nobody);
+  expect(supervisors(db)[0]).toEqual(["s1", "pane-1", "ses-pane-1"]);
   // Another project's wait cannot claim the source.
   registerProject(db, { repository: "owner/two", checkout: "/two", registeredAt: "now" });
-  startCoordinationWait(db, { repository: "owner/two", scope: "s1" }, "pane-2");
-  expect(panes(db)[0]).toEqual(["s1", "pane-1"]);
+  startCoordinationWait(db, { repository: "owner/two", scope: "s1" }, by("pane-2"));
+  expect(supervisors(db)[0]).toEqual(["s1", "pane-1", "ses-pane-1"]);
+});
+
+test("the supervisor of a source names its pane and session, and a take-over replaces both", () => {
+  using db = fixture();
+  source(db, "s1");
+  expect(readSupervisor(db, "owner/one", "s1")).toMatchObject({
+    tag: "Ok",
+    value: { pane: null, session: null },
+  });
+  startCoordinationWait(db, one, by("pane-1"));
+  expect(readSupervisor(db, "owner/one", "s1")).toMatchObject({
+    tag: "Ok",
+    value: { pane: "pane-1", session: "ses-pane-1" },
+  });
+  expect(takeOverSource(db, "owner/one", "s1", by("pane-2"))).toMatchObject({
+    tag: "Ok",
+    value: { pane: "pane-1", session: "ses-pane-1" },
+  });
+  expect(supervisors(db)).toEqual([["s1", "pane-2", "ses-pane-2"]]);
+  // A take-over without a session leaves the source to the next wait or dispatch.
+  takeOverSource(db, "owner/one", "s1", nobody);
+  expect(supervisors(db)).toEqual([["s1", null, null]]);
+  startCoordinationWait(db, all, by("pane-3"));
+  expect(supervisors(db)).toEqual([["s1", "pane-3", "ses-pane-3"]]);
+  registerProject(db, { repository: "owner/two", checkout: "/two", registeredAt: "now" });
+  for (const result of [
+    readSupervisor(db, "owner/two", "s1"),
+    takeOverSource(db, "owner/two", "s1", by("pane-2")),
+  ])
+    expect(result).toMatchObject({ tag: "Err", error: { reason: "source_not_found" } });
+  expect(supervisors(db)).toEqual([["s1", "pane-3", "ses-pane-3"]]);
 });
 
 test("a wait for a source that the project does not have refuses and records nothing", () => {
@@ -176,19 +225,19 @@ test("a wait for a source that the project does not have refuses and records not
   registerProject(db, { repository: "owner/two", checkout: "/two", registeredAt: "now" });
   source(db, "s1", "open", "owner/two");
   for (const target of [one, { repository: "owner/one", scope: "missing" }])
-    expect(startCoordinationWait(db, target, "pane-1")).toMatchObject({
+    expect(startCoordinationWait(db, target, by("pane-1"))).toMatchObject({
       tag: "Err",
       error: { reason: "source_not_found" },
     });
   expect(rows(db)).toEqual([]);
-  expect(panes(db)).toEqual([["s1", null]]);
+  expect(supervisors(db)).toEqual([["s1", null, null]]);
 });
 
 test("deleted sources and a removed project delete their coordination waits", () => {
   using db = fixture();
   source(db, "s1");
-  startCoordinationWait(db, all, null);
-  startCoordinationWait(db, one, null);
+  startCoordinationWait(db, all, nobody);
+  startCoordinationWait(db, one, nobody);
   deleteSourceRecords(drizzle(db), ["s1"]);
   expect(rows(db).map((row) => row.scope)).toEqual([""]);
   expect(removeProject(db, "owner/one").tag).toBe("Ok");
@@ -198,14 +247,15 @@ test("deleted sources and a removed project delete their coordination waits", ()
 test("each write waits for the writer reservation", () => {
   using db = fixture();
   using reserved = reservedCopy(db);
-  expect(startCoordinationWait(reserved.subject, all, null)).toMatchObject(busy);
+  expect(startCoordinationWait(reserved.subject, all, nobody)).toMatchObject(busy);
   expect(finishCoordinationWait(reserved.subject, all, () => "[]")).toMatchObject(busy);
   expect(renewCoordinationWait(reserved.subject, all)).toMatchObject(busy);
   expect(changeCoordinationWait(reserved.subject, all, merged)).toMatchObject(busy);
-  expect(acknowledgeCoordinationWaits(reserved.subject, "pane-1", merged)).toMatchObject(busy);
+  expect(acknowledgeCoordinationWaits(reserved.subject, "ses-pane-1", merged)).toMatchObject(busy);
+  expect(takeOverSource(reserved.subject, "owner/one", "s1", nobody)).toMatchObject(busy);
 });
 
-test("supervision lists the pane's sources and whether a running wait from that pane covers each", () => {
+test("supervision lists the session's sources and whether a running wait from that session covers each", () => {
   using db = fixture();
   registerProject(db, {
     repository: "owner/two",
@@ -216,9 +266,12 @@ test("supervision lists the pane's sources and whether a running wait from that 
   source(db, "s2");
   source(db, "s3", "finished");
   source(db, "s4", "open", "owner/two");
-  db.query("UPDATE sources SET supervising_pane = 'pane-1' WHERE id != 's2'").run();
-  db.query("UPDATE sources SET supervising_pane = 'other' WHERE id = 's2'").run();
-  expect(readSupervision(db, "pane-1")).toMatchObject({
+  db.query("UPDATE sources SET supervising_session = 'ses-pane-1' WHERE id != 's2'").run();
+  // The pane alone supervises nothing: a new session in the same pane is not the supervisor.
+  db.query(
+    "UPDATE sources SET supervising_pane = 'pane-1', supervising_session = 'ses-other' WHERE id = 's2'",
+  ).run();
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({
     tag: "Ok",
     value: [
       { id: "s1", repository: "owner/one", waiting: false },
@@ -227,31 +280,33 @@ test("supervision lists the pane's sources and whether a running wait from that 
     ],
   });
   // A wait for one source covers only that source, and a project wait covers its project.
-  startCoordinationWait(db, one, "pane-1");
-  expect(readSupervision(db, "pane-1")).toMatchObject({
+  startCoordinationWait(db, one, by("pane-1"));
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({
     value: [{ waiting: true }, { waiting: false }, { waiting: false }],
   });
-  startCoordinationWait(db, { repository: "owner/two", scope: "" }, "pane-1");
-  expect(readSupervision(db, "pane-1")).toMatchObject({
+  startCoordinationWait(db, { repository: "owner/two", scope: "" }, by("pane-1"));
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({
     value: [{ waiting: true }, { waiting: false }, { waiting: true }],
   });
 });
 
-test("a finished wait, a gone process, or a wait from another pane covers nothing", () => {
+test("a finished wait, a gone process, or a wait from another session covers nothing", () => {
   using db = fixture();
   source(db, "s1");
-  db.query("UPDATE sources SET supervising_pane = 'pane-1'").run();
-  startCoordinationWait(db, all, "pane-2");
-  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ id: "s1", waiting: false }] });
-  startCoordinationWait(db, all, "pane-1");
-  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ waiting: true }] });
+  db.query("UPDATE sources SET supervising_session = 'ses-pane-1'").run();
+  startCoordinationWait(db, all, { pane: "pane-1", session: "ses-new" });
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({
+    value: [{ id: "s1", waiting: false }],
+  });
+  startCoordinationWait(db, all, by("pane-1"));
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({ value: [{ waiting: true }] });
   finishCoordinationWait(db, all, () => "[]");
-  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ waiting: false }] });
-  startCoordinationWait(db, all, "pane-1");
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({ value: [{ waiting: false }] });
+  startCoordinationWait(db, all, by("pane-1"));
   db.query("UPDATE coordination_waits SET lease_at = '2000-01-01T00:00:00.000Z'").run();
-  expect(readSupervision(db, "pane-1")).toMatchObject({ value: [{ waiting: false }] });
-  // A pane that supervises nothing has no sources.
-  expect(readSupervision(db, "pane-3")).toMatchObject({ tag: "Ok", value: [] });
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({ value: [{ waiting: false }] });
+  // A session that supervises nothing has no sources.
+  expect(readSupervision(db, "ses-new")).toMatchObject({ tag: "Ok", value: [] });
 });
 
 function merged(stored: string | null) {
@@ -260,10 +315,10 @@ function merged(stored: string | null) {
 
 test("a finish merges the returned set into the stored set, so an acknowledgement in between stays", () => {
   using db = fixture();
-  startCoordinationWait(db, all, "pane-1");
+  startCoordinationWait(db, all, by("pane-1"));
   expect(finishCoordinationWait(db, all, merged)).toMatchObject({ tag: "Ok" });
   expect(rows(db)[0]?.actions).toBe("+b");
-  startCoordinationWait(db, all, "pane-1");
+  startCoordinationWait(db, all, by("pane-1"));
   expect(finishCoordinationWait(db, all, merged)).toMatchObject({ tag: "Ok" });
   expect(rows(db)[0]?.actions).toBe("+b+b");
 });
@@ -273,59 +328,59 @@ test("a read returns the stored set, and a change rewrites only a recorded scope
   expect(readCoordinationWait(db, all)).toMatchObject({ tag: "Ok", value: null });
   expect(changeCoordinationWait(db, all, merged)).toMatchObject({ tag: "Ok", value: null });
   expect(rows(db)).toEqual([]);
-  startCoordinationWait(db, all, "pane-1");
+  startCoordinationWait(db, all, by("pane-1"));
   finishCoordinationWait(db, all, () => "a");
   expect(changeCoordinationWait(db, all, merged)).toMatchObject({ tag: "Ok", value: "a+b" });
   expect(readCoordinationWait(db, all)).toMatchObject({ tag: "Ok", value: "a+b" });
 });
 
-test("an acknowledgement changes every returned set of the pane's waits and no other", () => {
+test("an acknowledgement changes every returned set of the session's waits and no other", () => {
   using db = fixture();
   source(db, "s1");
-  const pane = { repository: "owner/one", scope: coordinationPaneScope("pane-1") };
+  const pane = { repository: "owner/one", scope: coordinationSessionScope("ses-pane-1") };
   for (const target of [all, one, pane]) {
-    startCoordinationWait(db, target, target === one ? "pane-2" : "pane-1");
+    startCoordinationWait(db, target, by(target === one ? "pane-2" : "pane-1"));
     finishCoordinationWait(db, target, () => "a");
   }
-  startCoordinationWait(db, { repository: "owner/one", scope: "" }, "pane-1");
+  startCoordinationWait(db, { repository: "owner/one", scope: "" }, by("pane-1"));
   db.query("UPDATE coordination_waits SET actions = NULL WHERE scope = ''").run();
-  expect(acknowledgeCoordinationWaits(db, "pane-1", merged)).toMatchObject({ tag: "Ok" });
+  expect(acknowledgeCoordinationWaits(db, "ses-pane-1", merged)).toMatchObject({ tag: "Ok" });
   expect(rows(db).map((row) => [row.scope, row.actions])).toEqual([
     ["", null],
-    ["pane:pane-1", "a+b"],
     ["s1", "a"],
+    ["session:ses-pane-1", "a+b"],
   ]);
 });
 
-test("a pane wait claims like a project wait and covers every source that its pane supervises", () => {
+test("a session wait claims like a project wait and covers every source that its session supervises", () => {
   using db = fixture();
   registerProject(db, { repository: "owner/two", checkout: "/two", registeredAt: "now" });
   source(db, "s1");
   source(db, "s2");
   source(db, "s4", "open", "owner/two");
-  db.query("UPDATE sources SET supervising_pane = 'other' WHERE id = 's2'").run();
-  db.query("UPDATE sources SET supervising_pane = 'pane-1' WHERE id = 's4'").run();
-  const pane = { repository: "owner/one", scope: coordinationPaneScope("pane-1") };
-  expect(startCoordinationWait(db, pane, "pane-1")).toMatchObject({ tag: "Ok", value: null });
-  expect(panes(db)).toEqual([
-    ["s1", "pane-1"],
-    ["s2", "other"],
-    ["s4", "pane-1"],
+  db.query("UPDATE sources SET supervising_session = 'other' WHERE id = 's2'").run();
+  db.query("UPDATE sources SET supervising_session = 'ses-pane-1' WHERE id = 's4'").run();
+  const own = { repository: "owner/one", scope: coordinationSessionScope("ses-pane-1") };
+  expect(startCoordinationWait(db, own, by("pane-1"))).toMatchObject({ tag: "Ok", value: null });
+  expect(supervisors(db)).toEqual([
+    ["s1", "pane-1", "ses-pane-1"],
+    ["s2", null, "other"],
+    ["s4", null, "ses-pane-1"],
   ]);
-  expect(readSupervision(db, "pane-1")).toMatchObject({
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({
     value: [
       { id: "s1", waiting: true },
       { id: "s4", waiting: true },
     ],
   });
-  // Another pane's pane wait covers nothing of this pane.
-  finishCoordinationWait(db, pane, () => "[]");
+  // Another session's wait covers nothing of this session.
+  finishCoordinationWait(db, own, () => "[]");
   startCoordinationWait(
     db,
-    { repository: "owner/one", scope: coordinationPaneScope("pane-2") },
-    "pane-1",
+    { repository: "owner/one", scope: coordinationSessionScope("ses-pane-2") },
+    by("pane-1"),
   );
-  expect(readSupervision(db, "pane-1")).toMatchObject({
+  expect(readSupervision(db, "ses-pane-1")).toMatchObject({
     value: [{ waiting: false }, { waiting: false }],
   });
 });

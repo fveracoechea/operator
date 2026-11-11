@@ -19,6 +19,7 @@ import {
   resetSource,
   pruneSource,
   type StoredSource,
+  type Supervisor,
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 
@@ -56,12 +57,14 @@ import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./clea
 import {
   acknowledgeCoordinationWaits,
   changeCoordinationWait,
-  coordinationPaneScope,
+  coordinationSessionScope,
   finishCoordinationWait,
   readCoordinationWait,
   readSupervision,
+  readSupervisor,
   renewCoordinationWait,
   startCoordinationWait,
+  takeOverSource,
   type CoordinationScope,
   type SetChange,
 } from "./coordination-waits.ts";
@@ -155,10 +158,10 @@ export const DeviceState = {
     repository: string,
     launch: LaunchReservation,
     maxRunning?: number,
-    supervisingPane: string | null = null,
+    supervisor?: Supervisor,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisingPane),
+      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
@@ -360,8 +363,8 @@ export const DeviceState = {
     return hold(() => writing(paths, (client) => renewCleanup(client, sourceId, assignment)));
   },
   /** Record this process as the scope's running coordination wait and read its last returned set. */
-  startCoordinationWait(paths: Paths, target: CoordinationScope, paneId: string | null) {
-    return writing(paths, (client) => startCoordinationWait(client, target, paneId));
+  startCoordinationWait(paths: Paths, target: CoordinationScope, supervisor: Supervisor) {
+    return writing(paths, (client) => startCoordinationWait(client, target, supervisor));
   },
   /** Merge the returned set into the scope's stored set and end this process's wait. */
   finishCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
@@ -375,17 +378,25 @@ export const DeviceState = {
   changeCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
     return writing(paths, (client) => changeCoordinationWait(client, target, change));
   },
-  /** Rewrite the stored set of every wait that the pane ran, after a change the pane made. */
-  acknowledgeCoordinationWaits(paths: Paths, paneId: string, change: SetChange) {
-    return writing(paths, (client) => acknowledgeCoordinationWaits(client, paneId, change));
+  /** Rewrite the stored set of every wait that the session ran, after a change it made. */
+  acknowledgeCoordinationWaits(paths: Paths, session: string, change: SetChange) {
+    return writing(paths, (client) => acknowledgeCoordinationWaits(client, session, change));
   },
-  /** The scope of a pane's wait without a source, which covers every source the pane supervises. */
-  coordinationPaneScope(paneId: string) {
-    return coordinationPaneScope(paneId);
+  /** The scope of a session's wait without a source, which covers every source it supervises. */
+  coordinationSessionScope(session: string) {
+    return coordinationSessionScope(session);
   },
-  /** The sources that a Herdr pane supervises, and whether a wait from that pane covers each. */
-  readSupervision(paths: Paths, paneId: string) {
-    return reading(paths, (client) => readSupervision(client, paneId));
+  /** The sources that an agent session supervises, and whether a wait from it covers each. */
+  readSupervision(paths: Paths, session: string) {
+    return reading(paths, (client) => readSupervision(client, session));
+  },
+  /** The pane and session that supervise a source of the project. */
+  readSupervisor(paths: Paths, repository: string, sourceId: string) {
+    return reading(paths, (client) => readSupervisor(client, repository, sourceId));
+  },
+  /** Make the caller a source's supervisor and return the earlier one. Only a person orders it. */
+  takeOverSource(paths: Paths, repository: string, sourceId: string, supervisor: Supervisor) {
+    return writing(paths, (client) => takeOverSource(client, repository, sourceId, supervisor));
   },
   /** Renew this process's lease on a running coordination wait until the returned stop runs. */
   holdCoordinationWait(paths: Paths, target: CoordinationScope) {

@@ -42,8 +42,16 @@ function project() {
   );
 }
 
-function device(stored: string | null, pane: string | undefined, ...reads: (typeof ready)[][]) {
-  spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), HERDR_PANE_ID: pane });
+const supervisor = { pane: "pane-1", session: "ses-1" };
+
+/** The device for a wait from the session, or from no session. */
+function device(stored: string | null, session: string | undefined, ...reads: (typeof ready)[][]) {
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_PANE_ID: session === undefined ? undefined : "pane-1",
+    OPENCODE_SESSION_ID: session,
+    CLAUDE_CODE_SESSION_ID: undefined,
+  });
   project();
   const read = spyOn(DeviceState, "readSources");
   for (const rows of reads) read.mockReturnValueOnce(Ok(rows));
@@ -98,7 +106,7 @@ test("a scope that never returned a set returns every action at once and records
     },
   });
   const target = { repository: "example/one", scope: "" };
-  expect(calls.start).toHaveBeenCalledWith(paths, target, null);
+  expect(calls.start).toHaveBeenCalledWith(paths, target, { pane: null, session: null });
   expect(calls.hold).toHaveBeenCalledWith(paths, target);
   expect(finished(calls, null)).toBe(addKeys([readyKey])(null));
   expect(calls.released).toHaveBeenCalledTimes(1);
@@ -107,7 +115,7 @@ test("a scope that never returned a set returns every action at once and records
 });
 
 test("a scope's first wait records a source's end without returning it", async () => {
-  const calls = device(null, "pane-1", [ended]);
+  const calls = device(null, "ses-1", [ended]);
   const result = await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 });
   expect(result).toMatchObject({ tag: "Ok", value: { data: { sources: [] } } });
   const endedKey = actionKey("one", { action: "source_ended", reason: "finished" });
@@ -116,7 +124,7 @@ test("a scope's first wait records a source's end without returning it", async (
 
 test("an unchanged set times out with no actions, or with the whole answer when asked", async () => {
   const stored = addKeys([readyKey])(null);
-  const calls = device(stored, "pane-1", [ready]);
+  const calls = device(stored, "ses-1", [ready]);
   const quiet = await WorkSources.wait({ paths, cwd: root, sourceId: "one", timeoutSeconds: 0 });
   expect(quiet).toMatchObject({
     tag: "Ok",
@@ -125,13 +133,13 @@ test("an unchanged set times out with no actions, or with the whole answer when 
   expect(calls.start).toHaveBeenCalledWith(
     paths,
     { repository: "example/one", scope: "one" },
-    "pane-1",
+    supervisor,
   );
   expect(calls.read).toHaveBeenCalledWith(paths, "example/one", "one");
   expect(finished(calls, stored)).toBe(stored);
   expect(calls.supervision).not.toHaveBeenCalled();
   const full = await answerOf([ready]);
-  device(stored, "pane-1", [ready]);
+  device(stored, "ses-1", [ready]);
   const board = await WorkSources.wait({
     paths,
     cwd: root,
@@ -148,8 +156,8 @@ test("an unchanged set times out with no actions, or with the whole answer when 
   });
 });
 
-test("a pane wait without a source covers the pane's sources in every project", async () => {
-  const calls = device(null, "pane-1");
+test("a session wait without a source covers the session's sources in every project", async () => {
+  const calls = device(null, "ses-1");
   calls.supervision.mockReturnValue(
     Ok([
       { id: "one", repository: "example/one", waiting: true },
@@ -158,9 +166,9 @@ test("a pane wait without a source covers the pane's sources in every project", 
   );
   calls.read.mockReturnValueOnce(Ok([ready])).mockReturnValueOnce(Ok([pending]));
   const result = await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 });
-  const target = { repository: "example/one", scope: "pane:pane-1" };
-  expect(calls.start).toHaveBeenCalledWith(paths, target, "pane-1");
-  expect(calls.supervision).toHaveBeenCalledWith(paths, "pane-1");
+  const target = { repository: "example/one", scope: "session:ses-1" };
+  expect(calls.start).toHaveBeenCalledWith(paths, target, supervisor);
+  expect(calls.supervision).toHaveBeenCalledWith(paths, "ses-1");
   expect(calls.read).toHaveBeenCalledWith(paths, "example/one", undefined);
   expect(calls.read).toHaveBeenCalledWith(paths, "example/two", undefined);
   expect(result).toMatchObject({
@@ -267,21 +275,21 @@ function acknowledged(before: (typeof ready)[], after: (typeof ready)[]) {
   return spyOn(DeviceState, "acknowledgeCoordinationWaits").mockReturnValue(Ok(undefined));
 }
 
-test("a pane command acknowledges the actions that it added to its source", async () => {
+test("a session command acknowledges the actions that it added to its source", async () => {
   const acknowledge = acknowledged([running], [ready]);
   const change = mock(async () => "done");
   expect(
     await WorkSources.acknowledgeOwnChange(
-      { paths, cwd: root, paneId: "pane-1", sourceId: "one", assignment: "a" },
+      { paths, cwd: root, session: "ses-1", sourceId: "one", assignment: "a" },
       change,
     ),
   ).toBe("done");
   expect(change).toHaveBeenCalledTimes(1);
-  expect(acknowledge).toHaveBeenCalledWith(paths, "pane-1", expect.any(Function));
+  expect(acknowledge).toHaveBeenCalledWith(paths, "ses-1", expect.any(Function));
   expect(acknowledge.mock.calls[0]?.[2](null)).toBe(addKeys([readyKey])(null));
 });
 
-test("a pane command acknowledges nothing for another assignment, another source, or no change", async () => {
+test("a session command acknowledges nothing for another assignment, another source, or no change", async () => {
   for (const selector of [
     { sourceId: "one", assignment: "b" },
     { sourceId: "two" },
@@ -289,7 +297,7 @@ test("a pane command acknowledges nothing for another assignment, another source
   ]) {
     const acknowledge = acknowledged([running], [ready]);
     await WorkSources.acknowledgeOwnChange(
-      { paths, cwd: root, paneId: "pane-1", ...selector },
+      { paths, cwd: root, session: "ses-1", ...selector },
       async () => undefined,
     );
     expect(acknowledge).not.toHaveBeenCalled();
@@ -297,7 +305,7 @@ test("a pane command acknowledges nothing for another assignment, another source
   }
   const acknowledge = acknowledged([ready], [ready]);
   await WorkSources.acknowledgeOwnChange(
-    { paths, cwd: root, paneId: "pane-1", sourceId: "one" },
+    { paths, cwd: root, session: "ses-1", sourceId: "one" },
     async () => undefined,
   );
   expect(acknowledge).not.toHaveBeenCalled();
@@ -306,7 +314,7 @@ test("a pane command acknowledges nothing for another assignment, another source
 test("a registration acknowledges the actions of its new source", async () => {
   const acknowledge = acknowledged([], [ready]);
   await WorkSources.acknowledgeOwnChange(
-    { paths, cwd: root, paneId: "pane-1" },
+    { paths, cwd: root, session: "ses-1" },
     async () => undefined,
   );
   expect(acknowledge.mock.calls[0]?.[2](null)).toBe(addKeys([readyKey])(null));
@@ -318,7 +326,7 @@ test("a failed acknowledgement keeps the command's result", async () => {
   );
   expect(
     await WorkSources.acknowledgeOwnChange(
-      { paths, cwd: root, paneId: "pane-1", sourceId: "one" },
+      { paths, cwd: root, session: "ses-1", sourceId: "one" },
       async () => "done",
     ),
   ).toBe("done");
@@ -332,7 +340,7 @@ test("a failed read runs the command and acknowledges nothing", async () => {
   const acknowledge = spyOn(DeviceState, "acknowledgeCoordinationWaits");
   expect(
     await WorkSources.acknowledgeOwnChange(
-      { paths, cwd: root, paneId: "pane-1" },
+      { paths, cwd: root, session: "ses-1" },
       async () => "done",
     ),
   ).toBe("done");
@@ -345,14 +353,14 @@ function supervised(...sources: { id: string; waiting: boolean }[]) {
   );
 }
 
-test("a supervised source with running work and no wait from the pane is unwatched", async () => {
+test("a supervised source with running work and no wait from the session is unwatched", async () => {
   const read = supervised({ id: "one", waiting: false });
   const rows = spyOn(DeviceState, "readSources").mockReturnValue(Ok([running]));
-  expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+  expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
     tag: "Ok",
     value: ["one"],
   });
-  expect(read).toHaveBeenCalledWith(paths, "pane-1");
+  expect(read).toHaveBeenCalledWith(paths, "ses-1");
   expect(rows).toHaveBeenCalledWith(paths, "example/one", "one");
 });
 
@@ -361,7 +369,7 @@ test("a covered source, work that waits only for dependencies, or no running wor
   const rows = spyOn(DeviceState, "readSources");
   for (const answer of [[ready], [pending], []]) {
     rows.mockReturnValueOnce(Ok(answer));
-    expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+    expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
       tag: "Ok",
       value: [],
     });
@@ -374,7 +382,7 @@ test("a covered source, work that waits only for dependencies, or no running wor
 test("a supervision read failure is the unwatched read's failure", async () => {
   const failure = { reason: "state_missing" as const, detail: "missing" };
   spyOn(DeviceState, "readSupervision").mockReturnValue(Err(failure));
-  expect(await WorkSources.unwatched({ paths, cwd: root, paneId: "pane-1" })).toMatchObject({
+  expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
     tag: "Err",
     error: failure,
   });
