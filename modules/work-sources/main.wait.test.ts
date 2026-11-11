@@ -106,6 +106,14 @@ test("a scope that never returned a set returns every action at once and records
   expect(calls.supervision).not.toHaveBeenCalled();
 });
 
+test("a scope's first wait records a source's end without returning it", async () => {
+  const calls = device(null, "pane-1", [ended]);
+  const result = await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 });
+  expect(result).toMatchObject({ tag: "Ok", value: { data: { sources: [] } } });
+  const endedKey = actionKey("one", { action: "source_ended", reason: "finished" });
+  expect(finished(calls, null)).toBe(addKeys([endedKey])(null));
+});
+
 test("an unchanged set times out with no actions, or with the whole answer when asked", async () => {
   const stored = addKeys([readyKey])(null);
   const calls = device(stored, "pane-1", [ready]);
@@ -210,6 +218,17 @@ test("a removed action leaves the stored set and wakes nobody", async () => {
   expect(change?.(stored)).toBe(dropKeys([readyKey])(stored));
 });
 
+test("a failed write of the stored set ends the wait with its failure", async () => {
+  const calls = device(addKeys([readyKey])(null), undefined, [running]);
+  calls.change.mockReturnValue(Err({ reason: "state_busy" as const, detail: "busy" }));
+  expect(await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 })).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_busy" },
+  });
+  expect(calls.finish).not.toHaveBeenCalled();
+  expect(calls.released).toHaveBeenCalledTimes(1);
+});
+
 test("a refused read ends the wait with its refusal and releases the lease", async () => {
   const calls = device(null, undefined);
   calls.read.mockReturnValueOnce(Err({ reason: "state_busy" as const, detail: "busy" }));
@@ -291,6 +310,18 @@ test("a registration acknowledges the actions of its new source", async () => {
     async () => undefined,
   );
   expect(acknowledge.mock.calls[0]?.[2](null)).toBe(addKeys([readyKey])(null));
+});
+
+test("a failed acknowledgement keeps the command's result", async () => {
+  acknowledged([running], [ready]).mockReturnValue(
+    Err({ reason: "state_busy" as const, detail: "busy" }),
+  );
+  expect(
+    await WorkSources.acknowledgeOwnChange(
+      { paths, cwd: root, paneId: "pane-1", sourceId: "one" },
+      async () => "done",
+    ),
+  ).toBe("done");
 });
 
 test("a failed read runs the command and acknowledges nothing", async () => {

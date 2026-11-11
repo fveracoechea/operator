@@ -634,16 +634,18 @@ function watchActions(
   );
   return read.toAsync().flatMap(({ stored, answer, current }) => {
     const now = Date.now();
-    // A scope that never returned a set returns at once with every action.
+    // A scope that never returned a set returns at once with every action. It records the end of
+    // each ended source without returning it, so a first pane wait carries no old ends.
     const due = stored === null ? [...current] : dueKeys({ stored, current, watch, now });
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
     if (stored === null || due.length > 0 || now >= deadline) {
       const changed = stored === null || due.length > 0;
+      const shown = stored === null ? actionKeys(withoutEnded(answer)) : new Set(due);
       return DeviceState.finishCoordinationWait(input.paths, target, addKeys(due))
         .toAsync()
         .map(() => ({
           reason: changed ? ("next_actions_changed" as const) : ("next_wait_timed_out" as const),
-          data: input.all === true ? answer : changedAnswer(answer, new Set(due)),
+          data: input.all === true ? answer : changedAnswer(answer, shown),
         }));
     }
     return fromPromise(

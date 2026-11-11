@@ -29,7 +29,7 @@ A wait reads the stored set on each read, so a change that its own pane made nev
 
 A wait without a source from a Herdr pane has its own scope for that pane. It covers every source that the pane supervises in every project, and it claims the current project's open sources that no pane supervises yet. Without a pane, it covers the current project as before.
 
-`next` leaves an ended source's `source_ended` row out and shows the source only with its prune or owed cleanup. A wait returns a newly ended source's `source_ended` once, so the SuperAgent can tell the person.
+`next` leaves an ended source's `source_ended` row out and shows the source only with its prune or owed cleanup. A wait returns a newly ended source's `source_ended` once, so the SuperAgent can tell the person. A scope's first wait records the ends it finds without returning them.
 `--all` returns the whole board on `next` and on both waits.
 `operator review wait` returns its events with only the requests that the events name and those with an action.
 
@@ -39,7 +39,7 @@ A wait without a source from a Herdr pane has its own scope for that pane. It co
 - One wait serves a SuperAgent that supervises sources in several projects.
 - A new action can arrive up to two seconds later, and a settling one a minute later.
 - An action that disappears and reappears between two waits, with no wait running, is not new to the next wait.
-- A stored set from an earlier release holds tuples, which read as the same keys, so an upgrade returns only rows that name a question or message once.
+- A stored set from an earlier release holds tuples, which read as the same keys, so a project or source wait returns only rows that name a question or message once after an upgrade. The first pane wait has no stored set, so it returns every open action once.
 
 ## Alternatives considered
 

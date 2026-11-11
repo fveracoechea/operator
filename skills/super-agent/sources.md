@@ -73,7 +73,7 @@ Run no wait per source, and no filter or sleep loop of your own.
 The wait blocks until an action appears that it has not returned yet, then returns `next_actions_changed` with only those actions.
 Each source in the answer has its `id` and `repository`, and each action has its full ids, such as `assignment`, `question.key`, or `message.key`.
 It returns `next_wait_timed_out` with no actions after `--timeout <seconds>`, 300 by default.
-A change between two waits returns at once. A scope that never returned an action set returns every action at once.
+A change between two waits returns at once. A scope that never returned an action set returns every action at once, without the ends of sources that already ended.
 A source that ends returns its `source_ended` action once.
 Add `--all` for the whole board of the scope, with its waits and ended sources.
 Plain `operator next --json` shows the whole board, and an ended source only with its prune or owed cleanup.
