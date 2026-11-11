@@ -128,3 +128,36 @@ test("accepts an optional positive whole running cap", () => {
       false,
     );
 });
+
+test("a PR assignment can adopt one open PR by number, once per plan", () => {
+  const adopted = {
+    ...report,
+    key: "adopt",
+    completion: "pr",
+    resources: "worktree",
+    branch: "feature/existing",
+    adopt: 41,
+  };
+  expect(
+    planSchema.parse({ trackerKey: "APP-1", assignments: [adopted] }).assignments[0],
+  ).toMatchObject({ adopt: 41 });
+  for (const adopt of [0, -1, 1.5, "41"])
+    expect(
+      planSchema.safeParse({ trackerKey: "APP-1", assignments: [{ ...adopted, adopt }] }).success,
+    ).toBe(false);
+  // A report never owns a PR.
+  expect(
+    planSchema.safeParse({
+      trackerKey: "APP-1",
+      assignments: [{ ...report, resources: "worktree", branch: "feature/existing", adopt: 41 }],
+    }).success,
+  ).toBe(false);
+  expect(
+    planSchema
+      .safeParse({
+        trackerKey: "APP-1",
+        assignments: [adopted, { ...adopted, key: "again", branch: "feature/again" }],
+      })
+      .error?.issues.map((issue) => issue.message),
+  ).toEqual(["PR #41 is adopted by more than one assignment."]);
+});

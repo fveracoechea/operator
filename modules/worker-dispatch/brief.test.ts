@@ -21,6 +21,7 @@ const input = {
   internalReview: false,
   review: null,
   promotion: null,
+  adoption: null,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
@@ -500,4 +501,30 @@ The worktree can hold prototype changes that the PR must not keep. Clean the bra
 
 ## Grilling authority`);
   expect(renderBrief(input)).not.toContain("## Promotion");
+});
+
+test("an adopted PR's brief follows its draft state and names the base", () => {
+  const adoption = {
+    number: 41,
+    url: "https://github.com/example/one/pull/41",
+    draft: false,
+    branch: "feature/existing",
+  };
+  const ready = renderBrief({ ...input, adoption });
+  expect(ready).toContain(`## PR feedback loop
+
+You adopt PR #41, which Operator did not open: https://github.com/example/one/pull/41.
+Your worktree is on its branch. Do not open another PR, and do not rewrite commits that the PR already has.
+Read the PR, its reviews, comments, unresolved review threads, and checks before you change code or wait.
+The PR is ready for review, so it gets no internal review.
+Target the default branch.
+Push your fixes with \`git push -u\`, so Git records the remote of your branch.
+Run \`operator pr associate --json\` in your worktree before your first wait.`);
+  const draft = renderBrief({ ...input, adoption: { ...adoption, draft: true } });
+  expect(draft).toContain("You adopt draft PR #41");
+  expect(draft).toContain(
+    "Internal review is off for this assignment.\nMark the draft ready for review with `gh pr ready` before your first wait, because the merge needs a ready PR.\nTarget the default branch.",
+  );
+  expect(draft).not.toContain("The PR is ready for review");
+  for (const brief of [ready, draft]) expect(superAgentMessages(brief)).toEqual([]);
 });
