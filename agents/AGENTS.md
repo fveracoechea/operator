@@ -1,7 +1,7 @@
 # Francisco's agent instructions
 
 - You run inside Herdr, a terminal multiplexer, when HERDR_ENV is 1. There, name your tab for your work with `herdr tab rename "$HERDR_TAB_ID" <label>`. Use 3 words, 4 at most. Only the agent that owns the pane renames it, not a sub-agent. The rename alone needs no skill.
-- Inside Herdr, load the `herdr` skill before you use Herdr to:
+- Inside Herdr, run the Herdr commands that a loaded skill names, such as `super-agent`, as that skill writes them. For other Herdr work, load the `herdr` skill before you use Herdr to:
   - read a neighboring pane, its output, or its agent
   - run a command or a helper agent in a sibling pane without stealing focus
   - wait for a server, a test run, or another agent to finish

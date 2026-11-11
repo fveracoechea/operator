@@ -24,7 +24,6 @@ A plan with one report and one PR that waits on it:
   "trackerKey": "github:acme/app#41",
   "intent": "Checkout fails for guest users, find out why and fix it.",
   "internalReview": true,
-  "maxRunning": 2,
   "assignments": [
     {
       "key": "diagnose",

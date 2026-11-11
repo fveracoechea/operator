@@ -37,5 +37,5 @@ Decide what the instructions and the project context settle, and record the deci
 - A closed PR, a missing PR worktree, and a parent PR that closed or merged outside the default branch. [pull-requests.md](pull-requests.md) names each one.
 
 Ask each stop as [questions.md](questions.md) describes, and keep the other work moving meanwhile.
-Remind the person once. When that reminder stays unanswered, offer a fallback that needs no person, for example a SuperAgent decision within your authority or work that is ready now.
+Remind the person once. When that reminder stays unanswered, offer a fallback that needs no person, for example work that is ready now.
 After the person answers, continue from `operator next --json`. Durable state keeps the progress, so do not repeat earlier steps or ask for earlier approvals again.

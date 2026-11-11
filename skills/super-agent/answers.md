@@ -6,8 +6,8 @@ The steps carry every Herdr command they need, so they need no `herdr` skill.
 
 1. Run `command -v glow`. When it finds nothing, answer in chat and stop here.
 2. Write the answer as Markdown to a new file outside the checkout, for example `${TMPDIR:-/tmp}/operator-answers/<topic>.md`.
-3. Reuse your answer pane while it stays open. `herdr pane get <pane>` returns `pane_not_found` once the person closes it.
-   Quit the pager of the earlier answer with `herdr pane send-keys <pane> q`.
+3. Reuse your answer pane while it stays open: the pane in your tab that `herdr pane list` shows with the label `answers`.
+   When `herdr pane process-info --pane <pane>` lists `glow` in `.result.process_info.foreground_processes`, quit its pager with `herdr pane send-keys <pane> q`.
 4. Without an open answer pane, split your own pane with `herdr pane split --current --direction right --cwd "$PWD" --no-focus`.
    Split `down` instead when `herdr pane layout --current` shows a narrow pane.
    Read the pane from `.result.pane.pane_id`, and name it with `herdr pane rename <pane> answers`.
