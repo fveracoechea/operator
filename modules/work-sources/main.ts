@@ -251,7 +251,7 @@ export const WorkSources = {
   },
   /**
    * Registers a SuperAgent's research question as a source with one read-only report
-   * assignment, so the question needs no plan file. ADR-0024.
+   * assignment, so the question needs no plan file. ADR-0025.
    */
   ask(input: Input & { question: string; profile?: string }) {
     return registerPlan(input, async () => questionPlan(input.question, input.profile));
