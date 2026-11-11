@@ -1,7 +1,8 @@
 import { Err, Ok, type Result } from "unthrown";
+import type { states } from "./content.ts";
 
 export type ObligationCommand = "add" | "close";
-export type ObligationState = "open" | "closed";
+export type ObligationState = (typeof states)[number];
 type Facts = {
   command: ObligationCommand;
   source: { id: string; state: string };

@@ -4,7 +4,7 @@ import { DeviceState } from "../device-state/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { isCodedError } from "../../lib/coded-error.ts";
-import { kinds, obligationSchema } from "./content.ts";
+import { kinds, obligationSchema, states } from "./content.ts";
 import { decideObligation, type ObligationCommand } from "./obligation-machine.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
@@ -13,7 +13,7 @@ type Facts = Parameters<Parameters<typeof DeviceState.changeObligation>[3]>[0];
 type Row = NonNullable<Facts["obligation"]>;
 type Target = Parameters<typeof DeviceState.readObligations>[1];
 
-const stateSchema = z.enum(["open", "closed"]);
+const stateSchema = z.enum(states);
 const ioCodes = ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "EISDIR", "ELOOP"];
 
 /** Invalid input and file system failures are refusals. Any other error stays a defect. */
@@ -125,6 +125,10 @@ export const Obligations = {
   /** The closed set of kinds, which stored rows are decoded against. */
   kinds() {
     return kinds;
+  },
+  /** The states an obligation moves through, which stored rows are decoded against. */
+  states() {
+    return states;
   },
   add(input: Selector & { file: string }) {
     return add(input);

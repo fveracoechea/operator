@@ -264,7 +264,7 @@ const obligationSchema = z
     summary: z.string(),
     reference: z.string().nullable(),
     openedAt: z.string(),
-    state: z.enum(["open", "closed"]),
+    state: z.enum(Obligations.states()),
     closedAt: z.string().nullable(),
   })
   // Only a closed obligation has an end.

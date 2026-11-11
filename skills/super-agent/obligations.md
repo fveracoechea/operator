@@ -20,7 +20,9 @@ An obligation is not an action, so adding or closing one wakes no coordination w
 `operator obligation list --source <id> --json` shows the whole ledger, closed obligations included.
 An ended source keeps showing its open obligations, and it takes no new ones.
 
-## A person's answer
+## Holds and answers
 
-When the person answers a worker question in chat, record it at once with `operator question answer --by person`, as [questions.md](questions.md) says. The recorded answer is the obligation's end, so it needs no ledger entry.
+A `merge-hold` does not stop `operator pr merge`. When the PR has an owner, also send it a steering message not to merge until you release the hold, as [steering.md](steering.md) says.
+
+A person's answer to a worker question needs no ledger entry. Record it with `--by person` as [questions.md](questions.md) says.
 Use `person-decision` only for a decision that has no question to answer yet, for example a choice for an assignment that you have not dispatched. Close it once the brief, a follow-up, or an answer carries the decision.
