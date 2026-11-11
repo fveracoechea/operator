@@ -8,7 +8,7 @@ Implemented in #253, with review rounds in #254 and Slack transport in #255.
 Amended 2026-10-30 in #284: only a defect that breaks the app or a security issue requests changes, and a breach of style or design gives a comment.
 Amended 2026-10-30 in #286: an approval cleans up the reviewer, and a renewed request after approval gets a replacement.
 Amended 2026-11-04 in #305: with internal review on, the end of the internal review queues the assignment-origin request, not the PR association (ADR-0020).
-Amended 2026-11-11: a person-instructed drop ends a pending Slack effect unsent, and an ended request keeps its pending effects.
+Amended 2026-11-11 in #344: a person-instructed drop ends a pending Slack effect unsent, and an ended request keeps its pending effects.
 
 ## Context
 

@@ -279,6 +279,9 @@ test("a drop finishes one pending effect without a send, and refuses a finished 
       detail: `The Slack effect ${sent} is already done. Only a pending effect is dropped. Nothing changed.`,
     },
   });
+  expect(
+    acknowledgeSlackEffect(db, sent ?? "", () => ({ kind: "done", slackTs: null })),
+  ).toMatchObject({ value: { changed: false, effect: { state: "done" } } });
   expect(dropSlackEffect(db, "missing")).toMatchObject({
     tag: "Err",
     error: { reason: "slack_effect_missing" },

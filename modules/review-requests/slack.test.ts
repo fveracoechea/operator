@@ -494,6 +494,7 @@ test("a person-instructed drop finishes one pending effect unsent, so no wait gi
     tag: "Err",
     error: { reason: "slack_effect_finished" },
   });
+  expect(pending().map((effect) => effect.id)).toEqual([reaction?.id ?? ""]);
 });
 
 test("a drop refuses without the person's instruction or for an unknown effect", async () => {
@@ -512,4 +513,5 @@ test("a drop refuses without the person's instruction or for an unknown effect",
     tag: "Err",
     error: { reason: "slack_effect_missing" },
   });
+  expect(pending().map((effect) => effect.id)).toEqual([id]);
 });

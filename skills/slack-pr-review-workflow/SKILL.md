@@ -43,6 +43,14 @@ All the state is in the device database, so a new session starts here too.
 - `slack_input_unrecognized`: the input was not the raw result of `slack_read_channel`. Nothing was recorded. Pipe the unchanged result.
 - `slack_cursor_moved`: another session ingested the channel first. Run `wait` again.
 - `slack_not_configured`: no channel is set. Ask the person for the channel and the policy.
+- `person_instruction_required`: `slack-drop` ran without `--person-instructed`. Nothing changed.
+- `slack_effect_missing`: no effect has the id. Nothing changed.
+- `slack_effect_finished`: the effect is already done or dropped. Nothing changed.
+
+An acknowledgement is your claim that Slack took the effect. The CLI does not claim exactly-once delivery.
+Replies post as the person, and Slack adds a `Sent using Claude` footer.
+`slack_ingested_page` means Slack returned one page. The cursor stays, and the next wait gives a read with `latest` for the older messages.
+The channel read holds only top-level messages, so a PR link that is only in a thread reply is not seen.
 
 ## Dropping a stale effect
 
@@ -53,11 +61,6 @@ operator review slack-drop <id> --person-instructed --json
 ```
 
 The effect is recorded `dropped`, and no wait gives it again.
-`--person-instructed` attests the instruction, it grants no authority.
-`person_instruction_required` means the flag is missing. `slack_effect_missing` means no effect has the id. `slack_effect_finished` means the effect is already done or dropped. Nothing changed for any of these.
+`--person-instructed` attests the person's instruction. It does not grant authority.
 An ended review request keeps its pending effects, so ask the person before you drop one.
-
-An acknowledgement is your claim that Slack took the effect. The CLI does not claim exactly-once delivery.
-Replies post as the person, and Slack adds a `Sent using Claude` footer.
-`slack_ingested_page` means Slack returned one page. The cursor stays, and the next wait gives a read with `latest` for the older messages.
-The channel read holds only top-level messages, so a PR link that is only in a thread reply is not seen.
+The refusals are listed under Refusals.

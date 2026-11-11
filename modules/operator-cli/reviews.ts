@@ -28,7 +28,7 @@ const valueFlags = new Map([
 ]);
 
 // `--slack` makes a wait the Slack transport loop of the slack-pr-review-workflow skill.
-// `--person-instructed` attests the person's instruction for a drop, and grants no authority.
+// `--person-instructed` attests the person's instruction for a drop. It does not grant authority.
 const switchFlags = new Map([
   ["--json", null],
   ["--slack", ["wait"]],
