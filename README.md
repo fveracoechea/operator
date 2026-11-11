@@ -364,6 +364,18 @@ The WorkerAgent reads and acknowledges the message from its own pane, with an op
 `next` shows a reply as `read_reply` until the SuperAgent closes the message, and a message whose doorbell failed or that stays pending for 15 minutes as `worker_attention`.
 An answer to a worker question reaches the worker as the message `answer:<question>`, and `question wait` acknowledges it.
 
+### Obligations
+
+```sh
+operator obligation add --source <source-id> --file <obligation.json> --json
+operator obligation close --source <source-id> --key <key> --json
+operator obligation list --source <source-id> --json
+```
+
+The SuperAgent records what it owes the person in a source: a PR to share, a review reply, a merge hold, a standing rule, or a person's decision that waits to be recorded.
+`next` lists each open obligation in the source's `owed` field until the SuperAgent closes it.
+An obligation is not an action, so adding or closing one wakes no coordination wait.
+
 ### Pull requests
 
 ```sh

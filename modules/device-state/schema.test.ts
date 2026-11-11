@@ -53,6 +53,6 @@ test("the Drizzle schema needs no migration beyond the shipped history", async (
     await Bun.file(`${migrationsFolder}/meta/${latest}_snapshot.json`).json(),
   );
   const current = snapshot.parse(await generateSQLiteDrizzleJson(schema));
-  expect(Object.keys(current.tables)).toHaveLength(20);
+  expect(Object.keys(current.tables)).toHaveLength(21);
   expect(current.tables).toEqual(shipped.tables);
 });

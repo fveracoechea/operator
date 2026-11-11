@@ -22,6 +22,7 @@ Between coordination steps, keep `operator next --wait --json` running as a back
 
 For task instructions, authority, and the stops that need the person, read [delegation.md](delegation.md).
 For a worker question, `answer_question`, or a `person_decision` for a question, read [questions.md](questions.md).
+When you take on a PR share, a review reply, a merge hold, a standing rule, or a person's decision, or when `next` shows `owed`, read [obligations.md](obligations.md).
 For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, next actions, source reset, or prune, read [sources.md](sources.md).
 For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).

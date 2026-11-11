@@ -12,6 +12,7 @@ import {
   internalReviewRounds,
   internalReviews,
   launches,
+  obligations,
   projects,
   promotions,
   pullRequests,
@@ -100,6 +101,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
           promotions: (typeof promotions.$inferSelect)[];
           questions: (typeof workerQuestions.$inferSelect)[];
           messages: (typeof workerMessages.$inferSelect)[];
+          obligations: (typeof obligations.$inferSelect)[];
         }[],
         SourceFailure
       > => {
@@ -197,6 +199,12 @@ export function readSources(client: Database, repository: string, sourceId?: str
               .from(workerMessages)
               .where(eq(workerMessages.sourceId, source.id))
               .orderBy(asc(workerMessages.sentAt), asc(workerMessages.key))
+              .all(),
+            obligations: db
+              .select()
+              .from(obligations)
+              .where(eq(obligations.sourceId, source.id))
+              .orderBy(asc(obligations.openedAt), asc(obligations.key))
               .all(),
           })),
         );
@@ -396,6 +404,7 @@ export function pruneSource(
  * keeps its own lifecycle, so it stays.
  */
 export function deleteSourceRecords(db: Db, ids: string[]) {
+  db.delete(obligations).where(inArray(obligations.sourceId, ids)).run();
   db.delete(workerMessages).where(inArray(workerMessages.sourceId, ids)).run();
   db.delete(internalReviewRounds).where(inArray(internalReviewRounds.sourceId, ids)).run();
   db.delete(internalReviews).where(inArray(internalReviews.sourceId, ids)).run();
