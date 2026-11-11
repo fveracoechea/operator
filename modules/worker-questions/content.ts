@@ -9,7 +9,7 @@ export const questionSchema = z.strictObject({
   question: z.string().trim().min(1).max(4000),
 });
 
-/** The SuperAgent's answer text, read from a file so that it keeps its own quoting. */
+/** The SuperAgent's answer text, from a file that keeps its own quoting or from a flag. */
 export const answerSchema = z.string().trim().min(1).max(4000);
 
 /** The SuperAgent's steering message. The key names it within the assignment, like a question key. */
