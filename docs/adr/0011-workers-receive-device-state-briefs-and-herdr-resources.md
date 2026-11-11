@@ -5,7 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #210, #228, and #233.
 Implemented in #247.
-Amended 2026-11-11 by ADR-0024: a PR assignment can adopt an open PR, whose branch dispatch then uses although Operator did not create it.
+Amended 2026-11-11: a PR assignment can adopt an open PR and use its branch, although Operator did not create it (ADR-0024).
 
 ## Context
 
@@ -31,7 +31,7 @@ Read-only report work normally uses a separate pane in the project's workspace a
 Reviewer worktrees stay at the PR head and write drafts outside the checkout on branches that Operator never pushes.
 Reviewer cleanup removes the local reviewer branch and worktree.
 Names show the task type, tracker key, and a short task description instead of generated issue-title text.
-A collision gets a distinct recorded name, never adoption or deletion of an unrecorded branch or worktree.
+A collision gets a distinct recorded name, never adoption or deletion of an unrecorded branch or worktree, except the branch of an open PR that the plan adopts.
 
 One stable Herdr worktree-creation hook prepares every new worktree of a registered project, including those not dispatched by Operator.
 It copies ignored local environment files from the controlling checkout without overwriting existing files, then installs project dependencies from the lockfile.

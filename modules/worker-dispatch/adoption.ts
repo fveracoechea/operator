@@ -69,6 +69,41 @@ async function checkedOut(checkout: string, branch: string) {
 }
 
 /**
+ * Moves an existing local branch forward to the PR head. A branch with commits that the PR lacks
+ * refuses, and so does a failed count, because it could hide such commits.
+ */
+async function moveForward(input: {
+  checkout: string;
+  number: number;
+  branch: string;
+  tracking: string;
+  head: string;
+  local: string;
+}) {
+  const { checkout, number, branch, tracking, head, local } = input;
+  const counted = await git(checkout, ["rev-list", "--count", `${head}..${local}`]);
+  if (counted === null)
+    return Err<Failure>({
+      reason: "adopt_branch_unavailable",
+      detail: `Git could not compare ${branch} with PR #${number}. Nothing was launched.`,
+    });
+  const ahead = Number(counted);
+  if (ahead > 0)
+    return Err<Failure>({
+      reason: "adopt_branch_diverged",
+      detail: `The local branch ${branch} has ${ahead} ${ahead === 1 ? "commit" : "commits"} that PR #${number} lacks. Push them to the PR or move them to another branch. Nothing was launched.`,
+    });
+  if (local === head) return Ok(undefined);
+  const moved = await git(checkout, ["branch", "--quiet", "--force", branch, tracking]);
+  return moved === null
+    ? Err<Failure>({
+        reason: "adopt_branch_unavailable",
+        detail: `Git could not move ${branch} forward to ${head}. Nothing was launched.`,
+      })
+    : Ok(undefined);
+}
+
+/**
  * Puts the local branch at the PR head, so Herdr checks it out as it is. A missing branch is
  * created to track the remote branch, and a branch behind it moves forward. Work that only the
  * local branch or a worktree holds is never overwritten: the start refuses and names it.
@@ -122,20 +157,7 @@ export function prepareBranch(input: {
               })
             : Ok(undefined);
         }
-        const ahead = Number(await git(checkout, ["rev-list", "--count", `${head}..${local}`]));
-        if (ahead > 0)
-          return Err<Failure>({
-            reason: "adopt_branch_diverged",
-            detail: `The local branch ${branch} has ${ahead} ${ahead === 1 ? "commit" : "commits"} that PR #${number} lacks. Push them to the PR or move them to another branch. Nothing was launched.`,
-          });
-        if (local === head) return Ok(undefined);
-        const moved = await git(checkout, ["branch", "--quiet", "--force", branch, tracking]);
-        return moved === null
-          ? Err<Failure>({
-              reason: "adopt_branch_unavailable",
-              detail: `Git could not move ${branch} forward to ${head}. Nothing was launched.`,
-            })
-          : Ok(undefined);
+        return moveForward({ checkout, number, branch, tracking, head, local });
       },
       // Stryker disable next-line ConditionalExpression: equivalent: qualify passes any cause without an I/O code to defect, as the other branch does
       (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),

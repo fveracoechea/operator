@@ -5,6 +5,7 @@
 Accepted - 2026-11-11.
 Decided for finding 2 of the SuperAgent retro of 2026-11-11.
 Amends ADR-0011, under which dispatch never adopts an unrecorded branch: the branch of an adopted PR is the one exception, and work that only its local branch or a worktree holds still blocks the start.
+Amends ADR-0020: a ready adopted PR gets no internal review, also when the assignment, the plan, or the device turns it on.
 
 ## Context
 
