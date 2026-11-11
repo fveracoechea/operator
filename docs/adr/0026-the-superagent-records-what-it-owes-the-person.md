@@ -1,4 +1,4 @@
-# ADR-0025: The SuperAgent records what it owes the person
+# ADR-0026: The SuperAgent records what it owes the person
 
 ## Status
 

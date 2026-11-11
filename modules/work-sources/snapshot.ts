@@ -256,7 +256,7 @@ function validMessages(source: {
   );
 }
 
-// What the SuperAgent owes the person. Next actions show the open ones. ADR-0025.
+// What the SuperAgent owes the person. Next actions show the open ones. ADR-0026.
 const obligationSchema = z
   .object({
     key: z.string(),

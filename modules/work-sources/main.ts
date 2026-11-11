@@ -739,7 +739,7 @@ function described<T extends object>(
 
 /**
  * What the SuperAgent still owes the person. It is shown beside the actions, not as one, so the
- * SuperAgent's own addition or close wakes no coordination wait. ADR-0025.
+ * SuperAgent's own addition or close wakes no coordination wait. ADR-0026.
  */
 function owed(obligations: Obligation[]) {
   return obligations
