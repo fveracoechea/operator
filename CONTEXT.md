@@ -173,7 +173,8 @@ The CLI's applicable actions and waits derived from recorded workflow state and 
 They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
 
 **Coordination wait**:
-The SuperAgent's blocking read of next actions, which returns when the set of actions other than waits changes or its timeout ends.
+The SuperAgent's blocking read of next actions, which returns only the actions that its scope has not returned yet, or nothing when its timeout ends.
+A wait without a source from a Herdr pane covers every source that the pane supervises, and a change that the pane made itself does not end it.
 The SuperAgent runs it in the background, so its host delivers the result as a notification rather than as typed input.
 _Avoid_: poll, watcher, worker ping
 

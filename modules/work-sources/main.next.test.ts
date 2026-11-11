@@ -40,8 +40,8 @@ function stored(rows: ReturnType<typeof storedSource>[]) {
   return spyOn(DeviceState, "readSources").mockReturnValue(Ok(rows));
 }
 
-function next() {
-  return WorkSources.next({ paths, cwd: root });
+function next(all?: boolean) {
+  return WorkSources.next({ paths, cwd: root, all });
 }
 
 const merged = {
@@ -377,7 +377,7 @@ test("an ended source keeps its owed cleanup and offers prune only after retenti
   );
   const prunableAt = new Date(Date.parse(ended) + 14 * day).toISOString();
   stored([owing]);
-  const result = await next();
+  const result = await next(true);
   const [source] = result.tag === "Ok" ? result.value.sources : [];
   expect(source?.state).toBe("finished");
   expect(source?.actions.map((row) => [row.action, row.reason])).toEqual([
@@ -402,7 +402,7 @@ test("an ended source keeps its owed cleanup and offers prune only after retenti
     cleanups: [storedCleanup("m5")],
   });
   stored([done]);
-  const pruned = await next();
+  const pruned = await next(true);
   expect(pruned.tag === "Ok" ? pruned.value.sources[0] : null).toEqual({
     id: "one",
     state: "reset",
@@ -413,10 +413,20 @@ test("an ended source keeps its owed cleanup and offers prune only after retenti
     waits: [],
   });
   mock.restore();
+  // Without the whole board, the end leaves and the prune stays.
+  stored([done]);
+  const prunable = await next();
+  expect(prunable.tag === "Ok" ? prunable.value.sources[0]?.actions : null).toEqual([
+    { action: "prune_source", reason: "retention_elapsed" },
+  ]);
+  mock.restore();
 
   const recent = new Date(Date.now() - day).toISOString();
   stored([{ ...done, source: { ...done.source, endedAt: recent } }]);
-  const kept = await next();
+  expect(await next()).toMatchObject({ tag: "Ok", value: { sources: [] } });
+  mock.restore();
+  stored([{ ...done, source: { ...done.source, endedAt: recent } }]);
+  const kept = await next(true);
   expect(kept.tag === "Ok" ? kept.value.sources[0]?.actions : null).toEqual([
     {
       action: "source_ended",

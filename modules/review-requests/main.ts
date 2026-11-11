@@ -262,8 +262,11 @@ export const ReviewRequests = {
   acknowledge(input: { paths: Paths; id: string; text: string }) {
     return acknowledge(input);
   },
-  /** Watches every open request until a round, a move, an end, or an action needs attention. */
-  wait(input: { paths: Paths; timeoutSeconds: number; slack: boolean }) {
+  /**
+   * Watches every open request until a round, a move, an end, or an action needs attention. It
+   * returns the requests that its events name and those with an action, or with `all` every one.
+   */
+  wait(input: { paths: Paths; timeoutSeconds: number; slack: boolean; all?: boolean }) {
     return wait(input);
   },
 };

@@ -8,6 +8,21 @@ import type { SourceFailure } from "./sources.ts";
 
 export type CoordinationScope = { repository: string; scope: string };
 
+const panePrefix = "pane:";
+
+/** The scope of a wait without a source from a pane, which covers every source the pane supervises. */
+export function coordinationPaneScope(paneId: string) {
+  return `${panePrefix}${paneId}`;
+}
+
+// A project wait and a pane wait claim the same sources, and only a source scope names a source.
+function unscoped(scope: string) {
+  return scope === "" || scope.startsWith(panePrefix);
+}
+
+/** A change of a stored set: it reads the set or null, and returns the set to store. */
+export type SetChange = (stored: string | null) => string;
+
 function key(target: CoordinationScope) {
   return and(
     eq(coordinationWaits.repository, target.repository),
@@ -30,7 +45,7 @@ export function startCoordinationWait(
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<string | null, SourceFailure> => {
       const known =
-        target.scope === "" ||
+        unscoped(target.scope) ||
         db
           .select({ id: sources.id })
           .from(sources)
@@ -55,7 +70,7 @@ export function startCoordinationWait(
           .where(
             and(
               eq(sources.repository, target.repository),
-              target.scope === ""
+              unscoped(target.scope)
                 ? and(eq(sources.state, "open"), isNull(sources.supervisingPane))
                 : eq(sources.id, target.scope),
             ),
@@ -66,22 +81,78 @@ export function startCoordinationWait(
   );
 }
 
-/** Record the set that this wait returns, and end the wait unless a later wait replaced it. */
+/**
+ * Merge the set that this wait returns into the stored set, and end the wait unless a later wait
+ * replaced it. The change reads the stored set under the writer reservation, so an
+ * acknowledgement that a command recorded during the wait stays.
+ */
 export function finishCoordinationWait(
   client: Database,
   target: CoordinationScope,
-  actions: string,
+  change: SetChange,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
+      const row = db.select().from(coordinationWaits).where(key(target)).get();
       db.update(coordinationWaits)
-        .set({ actions, returnedAt: new Date().toISOString() })
+        .set({ actions: change(row?.actions ?? null), returnedAt: new Date().toISOString() })
         .where(key(target))
         .run();
       db.update(coordinationWaits)
         .set({ ownerPid: null, leaseAt: null })
         .where(and(key(target), eq(coordinationWaits.ownerPid, process.pid)))
         .run();
+      return undefined;
+    }),
+  );
+}
+
+/** The set that the scope's waits returned and acknowledged, or null before its first return. */
+export function readCoordinationWait(client: Database, target: CoordinationScope) {
+  return transaction(client, false, () =>
+    checkHistory(client).map(
+      (db) => db.select().from(coordinationWaits).where(key(target)).get()?.actions ?? null,
+    ),
+  );
+}
+
+/** Rewrite the stored set of a scope that returned one. A scope without a set stays without. */
+export function changeCoordinationWait(
+  client: Database,
+  target: CoordinationScope,
+  change: SetChange,
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).map((db) => {
+      const stored = db.select().from(coordinationWaits).where(key(target)).get()?.actions ?? null;
+      if (stored === null) return null;
+      const changed = change(stored);
+      if (changed !== stored)
+        db.update(coordinationWaits).set({ actions: changed }).where(key(target)).run();
+      return changed;
+    }),
+  );
+}
+
+/**
+ * Rewrite the stored set of every wait that the pane ran and that returned a set, in every
+ * project, so a change that the pane made itself does not end the pane's next wait.
+ */
+export function acknowledgeCoordinationWaits(client: Database, paneId: string, change: SetChange) {
+  return transaction(client, true, () =>
+    checkHistory(client).map((db) => {
+      const waits = db
+        .select()
+        .from(coordinationWaits)
+        .where(eq(coordinationWaits.paneId, paneId))
+        .all();
+      for (const row of waits) {
+        if (row.actions === null) continue;
+        db.update(coordinationWaits)
+          .set({ actions: change(row.actions) })
+          .where(key(row))
+          .run();
+      }
       return undefined;
     }),
   );
@@ -103,7 +174,8 @@ export function renewCoordinationWait(client: Database, target: CoordinationScop
 
 /**
  * The sources that the pane supervises, each with whether a wait from that pane covers it.
- * A wait covers its own source, and a wait without a source covers every source of its project.
+ * A wait covers its own source, a project wait covers every source of its project, and the
+ * pane's own pane wait covers every source that the pane supervises.
  */
 export function readSupervision(client: Database, paneId: string) {
   return transaction(client, false, () =>
@@ -125,7 +197,9 @@ export function readSupervision(client: Database, paneId: string) {
           ...source,
           waiting: waits.some(
             (row) =>
-              row.repository === source.repository && (row.scope === "" || row.scope === source.id),
+              row.scope === coordinationPaneScope(paneId) ||
+              (row.repository === source.repository &&
+                (row.scope === "" || row.scope === source.id)),
           ),
         }));
     }),

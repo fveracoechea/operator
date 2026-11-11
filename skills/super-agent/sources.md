@@ -36,11 +36,26 @@ A repeated parent requires the prior source to have ended and gets a new source 
 ## Coordination wait
 
 WorkerAgents reach you through recorded state, never through text in your pane.
-`operator next --wait --json` blocks until the set of next actions other than waits changes, then returns the normal next answer with `next_actions_changed`.
-It returns `next_wait_timed_out` with the unchanged answer after `--timeout <seconds>`, 300 by default.
-Select one source with `--source <source-id>`. Each scope compares against the set that its last wait returned, so a change between two waits returns at once.
-A scope that never returned a set returns at once.
-The pane that last ran the wait or dispatched a source's work supervises that source. A wait without `--source` claims only open sources that no pane supervises yet, so run it from your own pane.
+Run one wait without `--source` from your own pane: `operator next --wait --json`.
+It covers every source that your pane supervises, in every project, and claims the open sources of the current project that no pane supervises yet.
+Run no wait per source, and no filter or sleep loop of your own.
+
+The wait blocks until an action appears that it has not returned yet, then returns `next_actions_changed` with only those actions.
+Each source in the answer has its `id` and `repository`, and each action has its full ids, such as `assignment`, `question.key`, or `message.key`.
+It returns `next_wait_timed_out` with no actions after `--timeout <seconds>`, 300 by default.
+A change between two waits returns at once. A scope that never returned an action set returns every action at once.
+A source that ends returns its `source_ended` action once.
+Add `--all` for the whole board of the scope, with its waits and ended sources.
+Plain `operator next --json` shows the whole board, and an ended source only with its prune or owed cleanup.
+
+The wait does not return for:
+
+- an action that went away or turned back into a wait,
+- an action that your pane added with its own command, such as `message send`, `message close`, `question escalate`, `dispatch`, or `source register`,
+- `pr_wait_timed_out`, `pr_wait_stopped`, `pr_owner_idle`, or `worker_idle` that clears within a minute, for example an owner that starts its next PR wait.
+
+`--source <source-id>` waits on one source and makes your pane its supervisor.
+The pane that last ran the wait or dispatched a source's work supervises that source.
 
 Run the wait as a background command, so its result arrives as a new turn and never mixes with the person's typing:
 
@@ -49,6 +64,7 @@ Run the wait as a background command, so its result arrives as a new turn and ne
 
 Keep the host's command timeout above the wait timeout.
 Handle each result, then start the next wait before you end your turn.
+When a result needs no action from you, start the next wait and send the person no message about it.
 The turn-end guard keeps your turn going once while your pane's sources have running work and no wait from your pane runs. Its reason tells you to start the wait. A wait you already run in the background skips it on OpenCode.
 While a wait runs, the person can still prompt you. Answer, and leave the wait running.
 A host without background commands runs the wait in the foreground when the person asks you to watch.
@@ -65,7 +81,7 @@ It removes no worktree, branch, or pane, closes no PR, and changes no tracker co
 The result lists `retained` work of the abandoned assignments: each worktree that still exists, its branch, and each PR without a verified merge. Tell the person about each one.
 After a reset, register the same parent again with a new plan when the person wants new work. The new source has a new identity and adopts nothing from the old one.
 
-`next` shows `source_ended` with `endedAt` and `prunableAt` for an ended source, and `prune_source` once 14 days have passed.
+`next --all` shows `source_ended` with `endedAt` and `prunableAt` for an ended source. `next` shows `prune_source` once 14 days have passed.
 Run `operator source prune --json` to delete every eligible ended source of the project, with its briefs, reports, and supporting files.
 There is no archive. Copy report content that another project needs into that project's plan before the producer is pruned.
 A source with an open cleanup or a running worker stays, and its `retry_cleanup` or `person_decision` row stays in `next`.

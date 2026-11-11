@@ -24,48 +24,55 @@ export function sourceArgs(args: string[]) {
   const operation = sourceOperation(group, command);
   // Stryker disable next-line ConditionalExpression: equivalent: an unknown operation has no value flag and is not next or prune, so the later checks refuse every input
   if (operation === undefined) return null;
-  // Only next waits, so every other operation keeps a timeout or a wait flag as unknown.
+  // Only next waits or shows the whole board, so every other operation keeps those flags as unknown.
   const waiting =
     operation === "next"
       ? waitFlags(args.slice(1))
-      : { flags: args.slice(2), wait: false, timeoutSeconds: undefined };
+      : { flags: args.slice(2), wait: false, timeoutSeconds: undefined, all: false };
   if (waiting === null) return null;
   const flags = sourceFlags(waiting.flags, valueFlags[operation], operation === "reset");
   if (flags === null) return null;
   const { value, personInstructed } = flags;
+  const { all } = waiting;
   if (waiting.wait)
     return {
       operation: "next_wait" as const,
       sourceId: value,
       personInstructed,
       timeoutSeconds: waiting.timeoutSeconds ?? defaultTimeoutSeconds,
+      all,
     };
-  if (operation === "next" || operation === "prune")
-    return { operation, sourceId: value, personInstructed };
+  if (operation === "next") return { operation, sourceId: value, personInstructed, all };
+  if (operation === "prune") return { operation, sourceId: value, personInstructed };
   if (value === undefined) return null;
   return operation === "register"
     ? { operation, file: value, personInstructed }
     : { operation, sourceId: value, personInstructed };
 }
 
-/** Takes the wait flags of next and leaves its other flags. A timeout belongs only to a wait. */
+/**
+ * Takes the wait and board flags of next and leaves its other flags. A timeout belongs only to a
+ * wait, and `--all` asks for the whole board rather than only what changed or still needs work.
+ */
 function waitFlags(flags: string[]) {
   const others: string[] = [];
   let wait = false;
+  let all = false;
   let timeoutSeconds: number | undefined;
   const rest = flags.values();
   for (const flag of rest) {
     if (flag === "--wait" && !wait) wait = true;
+    else if (flag === "--all" && !all) all = true;
     else if (flag === "--timeout" && timeoutSeconds === undefined) {
       // An absent value reads as "undefined", which the pattern refuses.
       const seconds = String(rest.next().value);
       if (!/^\d{1,5}$/.test(seconds)) return null;
       timeoutSeconds = Number(seconds);
-    } else if (flag === "--wait" || flag === "--timeout") return null;
+    } else if (flag === "--wait" || flag === "--all" || flag === "--timeout") return null;
     else others.push(flag);
   }
   if (timeoutSeconds !== undefined && !wait) return null;
-  return { flags: others, wait, timeoutSeconds };
+  return { flags: others, wait, timeoutSeconds, all };
 }
 
 function sourceFlags(flags: string[], valueFlag: string | null, instructed: boolean) {
@@ -119,7 +126,7 @@ function execute(
       personInstructed: parsed.personInstructed,
     });
   if (parsed.operation === "prune") return WorkSources.prune(input);
-  return WorkSources.next({ ...input, sourceId: parsed.sourceId });
+  return WorkSources.next({ ...input, sourceId: parsed.sourceId, all: parsed.all });
 }
 
 export async function runSources(
@@ -137,6 +144,7 @@ export async function runSources(
           ...input,
           sourceId: parsed.sourceId,
           timeoutSeconds: parsed.timeoutSeconds,
+          all: parsed.all,
         })
       : (await execute(parsed, input)).map((data) => ({
           reason: completed[parsed.operation],

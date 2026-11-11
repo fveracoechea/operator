@@ -27,9 +27,11 @@ const valueFlags = new Map([
 ]);
 
 // `--slack` makes a wait the Slack transport loop of the slack-pr-review-workflow skill.
+// `--all` makes a wait return every request rather than only the changed ones and the actions.
 const switchFlags = new Map([
   ["--json", null],
   ["--slack", ["wait"]],
+  ["--all", ["wait"]],
 ]);
 
 function acceptsSwitch(command: string, flag: string, switches: Set<string>) {
@@ -77,6 +79,7 @@ function reviewFlags(command: string, flags: string[]) {
     timeout: timeout === undefined ? undefined : Number(timeout),
     input: values.get("--input"),
     slack: switches.has("--slack"),
+    all: switches.has("--all"),
   };
 }
 
@@ -97,6 +100,7 @@ export function reviewArgs(args: string[]) {
         timeout: flags.timeout ?? 300,
         input: flags.input ?? "",
         slack: flags.slack,
+        all: flags.all,
       };
 }
 
@@ -167,7 +171,13 @@ export async function runReviews(
     post: () => ReviewRequests.post(input),
     skip: () => ReviewRequests.skip(input),
     cleanup: () => ReviewRequests.cleanup(input),
-    wait: () => ReviewRequests.wait({ paths, timeoutSeconds: parsed.timeout, slack: parsed.slack }),
+    wait: () =>
+      ReviewRequests.wait({
+        paths,
+        timeoutSeconds: parsed.timeout,
+        slack: parsed.slack,
+        all: parsed.all,
+      }),
     next: () => ReviewRequests.next(paths),
     ingest: async () =>
       (await readInput(parsed.input))

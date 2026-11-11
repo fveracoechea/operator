@@ -54,11 +54,16 @@ import {
 import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 import {
+  acknowledgeCoordinationWaits,
+  changeCoordinationWait,
+  coordinationPaneScope,
   finishCoordinationWait,
+  readCoordinationWait,
   readSupervision,
   renewCoordinationWait,
   startCoordinationWait,
   type CoordinationScope,
+  type SetChange,
 } from "./coordination-waits.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
@@ -358,8 +363,25 @@ export const DeviceState = {
   startCoordinationWait(paths: Paths, target: CoordinationScope, paneId: string | null) {
     return writing(paths, (client) => startCoordinationWait(client, target, paneId));
   },
-  finishCoordinationWait(paths: Paths, target: CoordinationScope, actions: string) {
-    return writing(paths, (client) => finishCoordinationWait(client, target, actions));
+  /** Merge the returned set into the scope's stored set and end this process's wait. */
+  finishCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
+    return writing(paths, (client) => finishCoordinationWait(client, target, change));
+  },
+  /** The scope's stored set, which an acknowledgement can change while its wait runs. */
+  readCoordinationWait(paths: Paths, target: CoordinationScope) {
+    return reading(paths, (client) => readCoordinationWait(client, target));
+  },
+  /** Rewrite the scope's stored set, if it has one, under the writer reservation. */
+  changeCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
+    return writing(paths, (client) => changeCoordinationWait(client, target, change));
+  },
+  /** Rewrite the stored set of every wait that the pane ran, after a change the pane made. */
+  acknowledgeCoordinationWaits(paths: Paths, paneId: string, change: SetChange) {
+    return writing(paths, (client) => acknowledgeCoordinationWaits(client, paneId, change));
+  },
+  /** The scope of a pane's wait without a source, which covers every source the pane supervises. */
+  coordinationPaneScope(paneId: string) {
+    return coordinationPaneScope(paneId);
   },
   /** The sources that a Herdr pane supervises, and whether a wait from that pane covers each. */
   readSupervision(paths: Paths, paneId: string) {

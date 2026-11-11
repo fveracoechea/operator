@@ -58,7 +58,7 @@ const rowSchema = z.looseObject({
 });
 
 async function rows(source: string) {
-  const read = await (device as Device).run(["next", "--source", source]);
+  const read = await (device as Device).run(["next", "--source", source, "--all"]);
   expect(read.code, read.stderr).toBe(0);
   return z
     .object({

@@ -50,7 +50,7 @@ function spies() {
 }
 
 test("parses each review command with its own flags and defaults", () => {
-  const defaults = { profile: undefined, timeout: 300, input: "", slack: false };
+  const defaults = { profile: undefined, timeout: 300, input: "", slack: false, all: false };
   expect(reviewArgs(["review", "add", url])).toEqual({ ...defaults, command: "add", url });
   expect(reviewArgs(["review", "start", url, "--profile", "fast", "--json"])).toEqual({
     ...defaults,
@@ -58,12 +58,13 @@ test("parses each review command with its own flags and defaults", () => {
     url,
     profile: "fast",
   });
-  expect(reviewArgs(["review", "wait", "--timeout", "45", "--slack"])).toEqual({
+  expect(reviewArgs(["review", "wait", "--timeout", "45", "--slack", "--all"])).toEqual({
     ...defaults,
     command: "wait",
     url: "",
     timeout: 45,
     slack: true,
+    all: true,
   });
   expect(reviewArgs(["review", "next", "--json"])).toEqual({
     ...defaults,
@@ -104,6 +105,8 @@ test.each([
   [["review", "wait", "--slack", "--slack"]],
   [["review", "wait", "--input", "f"]],
   [["review", "next", "--slack"]],
+  [["review", "next", "--all"]],
+  [["review", "wait", "--all", "--all"]],
   [["review", "ingest"]],
   [["review", "ingest", "--input", ""]],
   [["review", "ingest", "--input"]],
@@ -137,7 +140,12 @@ test("passes each command to the matching review operation", async () => {
   await runReviews(["review", "cleanup", url], paths, true);
   expect(called.cleanup).toHaveBeenCalledWith({ paths, url });
   await runReviews(["review", "wait", "--timeout", "9", "--slack"], paths, true);
-  expect(called.wait).toHaveBeenCalledWith({ paths, timeoutSeconds: 9, slack: true });
+  expect(called.wait).toHaveBeenCalledWith({
+    paths,
+    timeoutSeconds: 9,
+    slack: true,
+    all: false,
+  });
   await runReviews(["review", "next"], paths, true);
   expect(called.next).toHaveBeenCalledWith(paths);
   for (const spy of [called.ingest, called.acknowledge]) expect(spy).not.toHaveBeenCalled();
