@@ -18,6 +18,7 @@ Every agent pays for each description on every turn, so all descriptions here to
 Each `SKILL.md` description is the one source for when to load it.
 
 - [adr](./adr/SKILL.md)
+- [browser-development](./browser-development/SKILL.md)
 - [bun](./bun/SKILL.md)
 - [collections-and-iteration](./collections-and-iteration/SKILL.md)
 - [deep-modules](./deep-modules/SKILL.md)

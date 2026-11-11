@@ -71,9 +71,12 @@ export async function installFixture(name: string) {
   const tools = `${root}/tools`;
   await mkdir(tools, { recursive: true });
   await symlink(process.execPath, `${tools}/bun`);
-  const gitPath = Bun.which("git", { PATH: Environment.read().PATH });
-  expect(gitPath).not.toBeNull();
-  await symlink(gitPath ?? "", `${tools}/git`);
+  // The documented installation block uses head and sed, not just Bun and Git.
+  for (const tool of ["git", "head", "sed"]) {
+    const executable = Bun.which(tool, { PATH: Environment.read().PATH });
+    expect(executable).not.toBeNull();
+    await symlink(executable ?? "", `${tools}/${tool}`);
+  }
 
   /** Every Bun folder, settings root, and state root of one simulated device. */
   function device(deviceName: string) {

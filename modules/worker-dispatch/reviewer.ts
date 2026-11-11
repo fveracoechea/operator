@@ -1,6 +1,7 @@
 import { realPathOrNull } from "../../lib/real-path.ts";
 import { DoAsync, Err, Ok, fromPromise, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
+import { AgentHosts } from "../agent-hosts/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
@@ -242,11 +243,11 @@ export function launchReviewer(input: ReviewerLaunch) {
         ),
       )
       .flatTap(({ chosen, placement }) =>
-        Herdr.startAgent({
+        AgentHosts.start({
           name: chosen.name,
-          kind: settings.launch.host === "claude-code" ? "claude" : "opencode",
+          launch: settings.launch,
+          cwd: placement.path,
           paneId: placement.paneId,
-          args: settings.launch.command.args,
         }),
       )
       .flatTap(({ chosen, brief }) =>

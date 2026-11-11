@@ -10,7 +10,11 @@ const commands = {
   wait: { required: ["--key"], optional: ["--timeout"] },
   withdraw: { required: ["--key"], optional: [] },
   escalate: { required: ["--source", "--assignment", "--key"], optional: [] },
-  answer: { required: ["--source", "--assignment", "--key", "--by", "--file"], optional: [] },
+  // An answer takes a text file or the text itself.
+  answer: {
+    required: ["--source", "--assignment", "--key", "--by"],
+    optional: ["--file", "--text"],
+  },
 } as const;
 type Command = keyof typeof commands;
 
@@ -55,19 +59,27 @@ function authority(value: string | undefined) {
   return authorities.find((known) => known === value) ?? null;
 }
 
+/** A timeout is whole seconds. An answer names its authority, and takes its file or its text. */
+function shaped(command: Command, values: Record<string, string>) {
+  const timeout = values["--timeout"];
+  if (timeout !== undefined && !/^\d{1,5}$/.test(timeout)) return false;
+  if (command !== "answer") return true;
+  const authorized = authority(values["--by"]) !== null;
+  return authorized && Object.hasOwn(values, "--file") !== Object.hasOwn(values, "--text");
+}
+
 export function questionArgs(args: string[]) {
   const [group, name, ...flags] = args;
   const command = group === "question" ? commandOf(name) : null;
   if (command === null) return null;
   const values = recordFlags(flags, commands[command]);
-  if (values === null) return null;
+  if (values === null || !shaped(command, values)) return null;
   const timeout = values["--timeout"];
-  if (timeout !== undefined && !/^\d{1,5}$/.test(timeout)) return null;
   const by = authority(values["--by"]);
-  if (command === "answer" && by === null) return null;
   return {
     command,
     file: values["--file"] ?? "",
+    text: values["--text"] ?? null,
     key: values["--key"] ?? "",
     sourceId: values["--source"] ?? "",
     assignment: values["--assignment"] ?? "",

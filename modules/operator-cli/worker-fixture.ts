@@ -28,7 +28,16 @@ for await (const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream()
  }
 }
 `;
-const fakeOpencode = `#!${process.execPath}\nconst dir=decodeURIComponent(process.argv[4].split("=")[1]);\nconsole.log(JSON.stringify({location:{directory:dir},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"medium"},{id:"high"}]},{providerID:"test",id:"writer",enabled:true,variants:[{id:"medium"}]}]}));\n`;
+const fakeOpencode = `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[1] === "post") {
+  const input = JSON.parse(args[args.indexOf("--data") + 1]);
+  console.log(JSON.stringify({data:{id:"ses_worker",...input}}));
+} else {
+  const dir=decodeURIComponent(args[2].split("=")[1]);
+  console.log(JSON.stringify({location:{directory:dir},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"medium"},{id:"high"}]},{providerID:"test",id:"writer",enabled:true,variants:[{id:"medium"}]}]}));
+}
+`;
 
 /**
  * An isolated device with real Git and SQLite, the controlled Herdr, and both controlled hosts.

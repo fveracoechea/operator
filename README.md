@@ -149,34 +149,84 @@ Use the full 40-character commit, so that a Bun update cannot move the installat
 
 ### Nix flake
 
-Pin the release tag:
+The flake supports `x86_64-linux` and `aarch64-darwin` and includes the pinned Bun runtime.
+Operator exports a package, not a Home Manager module.
+Pin a published release tag in your `flake.nix`:
 
 ```nix
 inputs.operator.url = "github:fveracoechea/operator/v<version>";
 ```
 
-Add the package and link its skills.
-This example uses Home Manager:
+Replace `<version>` with a version from [GitHub Releases](https://github.com/fveracoechea/operator/releases).
+The `v2.2.1` flake has an incomplete dependency cache and does not build, so use a later release.
+
+Add the package, skill links, and host hooks to your Home Manager configuration.
+For standalone Home Manager, set `extraSpecialArgs = { inherit inputs; };` in `homeManagerConfiguration`.
+For NixOS or nix-darwin, set `home-manager.extraSpecialArgs = { inherit inputs; };`.
+This makes `inputs` available to the module.
+Keep only the host configuration that you use:
 
 ```nix
+{ config, inputs, lib, pkgs, ... }:
+
 let
   operator = inputs.operator.packages.${pkgs.stdenv.hostPlatform.system}.default;
   ownedSkills = lib.genAttrs operator.skills (name: "${operator}/share/skills/operator/${name}");
 in
 {
   home.packages = [ operator ];
-  programs.claude-code.skills = ownedSkills;
-  programs.opencode.skills = ownedSkills;
+
+  programs.claude-code = {
+    enable = true;
+    configDir = "${config.home.homeDirectory}/.claude";
+    skills = ownedSkills;
+    settings.hooks = {
+      PreToolUse = [{
+        matcher = "Bash";
+        hooks = [{
+          type = "command";
+          "if" = "Bash(git *)";
+          command = "operator claude hook";
+        }];
+      }];
+      Stop = [{
+        hooks = [{
+          type = "command";
+          command = "operator claude hook";
+        }];
+      }];
+    };
+  };
+
+  programs.opencode = {
+    enable = true;
+    skills = ownedSkills;
+  };
   xdg.configFile."opencode/plugins/operator.ts".source = "${operator}/share/opencode/plugins/operator.ts";
 }
 ```
 
-Then register the project:
+Update the lock file from your configuration's directory:
+
+```sh
+nix flake update operator
+```
+
+Rebuild and activate your Home Manager, NixOS, or nix-darwin configuration.
+Then register the project from its main checkout and check the installed package.
+Use only the flags for the hosts that you configured:
 
 ```sh
 operator project register --json
 operator --version --json
+operator install --opencode --claude --check --json
 ```
+
+Nix owns the Operator skill links, Claude Code hooks, and OpenCode plugin.
+Operator checks them but does not write or repair them.
+Run `operator install --opencode --claude --json` without `--check` to install the upstream skills.
+Those upstream skills are not part of the Nix package.
+Use [Update Operator](docs/update.md#nix-flake) for later releases.
 
 ### PATH
 
@@ -268,6 +318,8 @@ The SuperAgent reads the tracker and gives the CLI a JSON plan.
 The SuperAgent runs it in the background, so worker events reach it without text typed into its pane.
 `herdr install` links the Herdr plugin that prepares each worktree and records worker activity.
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
+OpenCode workers use the full TUI, with the selected model and effort set on their session before attachment.
+Herdr's OpenCode terminal integration must be enabled to report their activity; Mini does not load it.
 
 ### Reports
 
@@ -290,23 +342,25 @@ operator question ask --file <question.json> --json
 operator question wait --key <key> --timeout 300 --json
 operator question withdraw --key <key> --json
 operator question escalate --source <source-id> --assignment <key> --key <question> --json
-operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json
+operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --text <answer> --json
 ```
 
 The WorkerAgent asks, waits for the answer, and withdraws from its own pane.
 `next` shows an open question as `answer_question`, and a question that the SuperAgent escalates to the person as `person_decision`.
 Only the SuperAgent answers, and `--by person` records an answer that the person gave.
+`--file <answer.md>` in place of `--text` reads the answer from a file.
 
 ### Steering messages
 
 ```sh
-operator message send --source <source-id> --assignment <key> --file <message.json> --json
+operator message send --source <source-id> --assignment <key> --key <message> --text <text> --json
 operator message ring --source <source-id> --assignment <key> --key <message> --json
 operator message close --source <source-id> --assignment <key> --key <message> --json
 operator message read --key <message> --json
 operator message ack --key <message> [--file <reply.md>] --json
 ```
 
+`--file <message.json>`, with `key` and `message` fields, can replace `--key` and `--text`.
 The SuperAgent records a keyed message for a running WorkerAgent, and the CLI types a fixed doorbell line that names the key into the worker's pane.
 The WorkerAgent reads and acknowledges the message from its own pane, with an optional reply.
 `next` shows a reply as `read_reply` until the SuperAgent closes the message, and a message whose doorbell failed or that stays pending for 15 minutes as `worker_attention`.
