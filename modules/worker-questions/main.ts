@@ -23,6 +23,9 @@ import {
   type QuestionState,
 } from "./question-machine.ts";
 
+/** An answer is its text, or the text of its file when the text is null. */
+type AnswerText = { file: string; text: string | null };
+
 type Facts = Extract<ReturnType<typeof DeviceState.readQuestion>, { tag: "Ok" }>["value"];
 type Row = NonNullable<Facts["question"]>;
 
@@ -130,12 +133,12 @@ function escalate(input: Selector) {
   );
 }
 
-function answer(input: Selector & { by: AnswerAuthority; file: string }) {
+function answer(input: Selector & { by: AnswerAuthority } & AnswerText) {
   return fromPromise(
     async () => {
       const target = await superAgentTarget(input);
       if (target.tag !== "Ok") return stop(target);
-      const text = answerSchema.parse(await Bun.file(input.file).text());
+      const text = answerSchema.parse(input.text ?? (await Bun.file(input.file).text()));
       const key = answerKey(input.key);
       // The answer reaches the worker as a steering message, recorded with the answer itself.
       const changed = DeviceState.changeQuestion(input.paths, target.value, input.key, (facts) =>
@@ -240,7 +243,7 @@ export const WorkerQuestions = {
   escalate(input: Selector) {
     return escalate(input);
   },
-  answer(input: Selector & { by: AnswerAuthority; file: string }) {
+  answer(input: Selector & { by: AnswerAuthority } & AnswerText) {
     return answer(input);
   },
   /** Record a steering message for the running worker and ring its doorbell. */
@@ -248,8 +251,8 @@ export const WorkerQuestions = {
     return steering.send(input);
   },
   /**
-   * Record a steering message that another operation composes, such as the handover of a
-   * promoted report's worker, and ring its doorbell. ADR-0023.
+   * Record a steering message from its key and text, such as one that the SuperAgent passes as
+   * flags or the handover of a promoted report's worker, and ring its doorbell. ADR-0023.
    */
   steer(input: Omit<Selector, "key"> & { key: string; message: string }) {
     return steering.steer(input);
