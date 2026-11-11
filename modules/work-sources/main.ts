@@ -430,11 +430,11 @@ export const WorkSources = {
     );
   },
   /**
-   * The sources that the pane supervises whose next actions show running work while no wait
-   * from that pane covers them. Work that waits only for its dependencies runs nothing yet.
+   * The sources that the agent session supervises whose next actions show running work while no
+   * wait from that session covers them. Work that waits only for its dependencies runs nothing yet.
    */
-  unwatched(input: Input & { paneId: string }) {
-    return DeviceState.readSupervision(input.paths, input.paneId).flatMap((supervised) =>
+  unwatched(input: Input & { session: string }) {
+    return DeviceState.readSupervision(input.paths, input.session).flatMap((supervised) =>
       all(
         supervised
           .filter((source) => !source.waiting)
@@ -449,6 +449,51 @@ export const WorkSources = {
           ),
       ).map((ids) => ids.flat()),
     );
+  },
+  /**
+   * Refuse a coordination command for a source that another agent session supervises. One session
+   * coordinates a source at a time, so two SuperAgents never steer the same work. A source that no
+   * session claimed yet passes, also when a pane holds it from before sessions were recorded.
+   */
+  checkSupervisor(input: Input & { sourceId: string }) {
+    return Projects.current(input).flatMap(({ data: project }) =>
+      DeviceState.readSupervisor(input.paths, project.repository, input.sourceId).flatMap(
+        (
+          supervisor,
+        ): Result<undefined, { reason: "source_supervised_elsewhere"; detail: string }> => {
+          const caller = Environment.caller();
+          if (supervisor.session === null || supervisor.session === caller.session)
+            return Ok(undefined);
+          const where =
+            supervisor.pane === null ? "outside Herdr" : `in Herdr pane ${supervisor.pane}`;
+          return Err({
+            reason: "source_supervised_elsewhere",
+            detail: `Source ${input.sourceId} is supervised by agent session ${supervisor.session} ${where}, so this session does not coordinate it. Nothing changed. Leave it to that session. Only when the person tells you to supervise it here, run operator source take-over --source ${input.sourceId} --person-instructed --json.`,
+          });
+        },
+      ),
+    );
+  },
+  /**
+   * Make the calling pane and session the supervisor of a source, on the person's instruction.
+   * A caller without a session leaves the source to the next wait or dispatch.
+   */
+  takeOver(input: Input & { sourceId: string; personInstructed: boolean }) {
+    if (!input.personInstructed)
+      return Err({
+        reason: "person_instruction_required" as const,
+        detail:
+          "Take over a source only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
+      });
+    return Projects.current(input).flatMap(({ data: project }) => {
+      const supervisor = Environment.caller();
+      return DeviceState.takeOverSource(
+        input.paths,
+        project.repository,
+        input.sourceId,
+        supervisor,
+      ).map((previous) => ({ sourceId: input.sourceId, previous, supervisor }));
+    });
   },
   /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */
   decideReport(
@@ -487,8 +532,7 @@ function coordinationWait(input: Input & { sourceId?: string; timeoutSeconds: nu
   const deadline = Date.now() + input.timeoutSeconds * 1000;
   return Projects.current(input).flatMap(({ data: project }) => {
     const target = { repository: project.repository, scope: input.sourceId ?? "" };
-    const paneId = Environment.read().HERDR_PANE_ID ?? null;
-    return DeviceState.startCoordinationWait(input.paths, target, paneId)
+    return DeviceState.startCoordinationWait(input.paths, target, Environment.caller())
       .toAsync()
       .flatMap((returned) => {
         // The lease shows that this wait still runs, so other operations can tell.

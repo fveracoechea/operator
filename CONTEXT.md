@@ -178,8 +178,14 @@ The SuperAgent's blocking read of next actions, which returns when the set of ac
 The SuperAgent runs it in the background, so its host delivers the result as a notification rather than as typed input.
 _Avoid_: poll, watcher, worker ping
 
-**Supervising pane**:
-The Herdr pane that Operator records as the SuperAgent of a source: the pane that last dispatched its work or ran its coordination wait.
+**Supervising session**:
+The one agent session that Operator records as the SuperAgent of a source, with its Herdr pane: the session that last dispatched its work or ran its coordination wait.
+Coordination commands for the source from another session refuse, and only a take-over on the person's instruction moves it.
+A new session in the same pane is not the supervising session.
+_Avoid_: supervising pane
+
+**Take-over**:
+`operator source take-over --person-instructed`, which makes the calling session the supervising session of a source on the person's explicit instruction.
 
 **Worker question**:
 A keyed question that a WorkerAgent records for its supervising SuperAgent, which stays open in next actions until it is answered on the record.
@@ -197,7 +203,7 @@ An answer to a worker question reaches the worker as a steering message.
 _Avoid_: nudge, pane message
 
 **Turn-end guard**:
-The Stop branch of Operator's Claude Code hook, and the idle hook of Operator's OpenCode plugin, which keep a SuperAgent from ending its turn while it supervises running work and no coordination wait runs.
+The Stop branch of Operator's Claude Code hook, and the idle hook of Operator's OpenCode plugin, which keep a supervising session from ending its turn while its sources have running work and no coordination wait from that session runs.
 It blocks at most once in a row.
 
 **Doorbell**:

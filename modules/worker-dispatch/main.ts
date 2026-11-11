@@ -434,8 +434,8 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
       internalReview: settings.planned.completion === "pr" ? settings.internalReview : null,
     },
     settings.planned.maxRunning,
-    // The dispatching pane supervises the source.
-    Environment.read().HERDR_PANE_ID ?? null,
+    // The dispatching pane and session supervise the source.
+    Environment.caller(),
   );
 }
 

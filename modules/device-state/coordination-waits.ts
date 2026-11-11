@@ -1,12 +1,17 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import { coordinationWaits, sources } from "./schema.ts";
 import { ownerGone } from "./leases.ts";
-import type { SourceFailure } from "./sources.ts";
+import type { SourceFailure, Supervisor } from "./sources.ts";
 
 export type CoordinationScope = { repository: string; scope: string };
+
+const missing = {
+  reason: "source_not_found",
+  detail: "The source does not exist in this project.",
+} as const;
 
 function key(target: CoordinationScope) {
   return and(
@@ -16,16 +21,16 @@ function key(target: CoordinationScope) {
 }
 
 /**
- * Record this process as the running wait of the scope, with its pane, and return the set that
- * the scope's last wait returned. A scope that never returned a set has none.
- * The pane becomes the supervising pane of the scope's source. A wait without a source claims
- * only the open sources that no pane supervises yet, so it never takes over another's sources.
+ * Record this process as the running wait of the scope, with its pane and session, and return the
+ * set that the scope's last wait returned. A scope that never returned a set has none.
+ * The pane and session become the supervisor of the scope's source. A wait without a source claims
+ * only the open sources that nobody supervises yet, so it never takes over another's sources.
  * A wait for a source that the project does not have records nothing.
  */
 export function startCoordinationWait(
   client: Database,
   target: CoordinationScope,
-  paneId: string | null,
+  supervisor: Supervisor,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<string | null, SourceFailure> => {
@@ -36,27 +41,33 @@ export function startCoordinationWait(
           .from(sources)
           .where(and(eq(sources.repository, target.repository), eq(sources.id, target.scope)))
           .get() !== undefined;
-      if (!known)
-        return Err({
-          reason: "source_not_found",
-          detail: "The source does not exist in this project.",
-        });
+      if (!known) return Err(missing);
       const now = new Date().toISOString();
-      const running = { ownerPid: process.pid, leaseAt: now, paneId, startedAt: now };
+      const running = {
+        ownerPid: process.pid,
+        leaseAt: now,
+        paneId: supervisor.pane,
+        session: supervisor.session,
+        startedAt: now,
+      };
       const row = db.select().from(coordinationWaits).where(key(target)).get();
       if (row === undefined)
         db.insert(coordinationWaits)
           .values({ ...target, ...running })
           .run();
       else db.update(coordinationWaits).set(running).where(key(target)).run();
-      if (paneId !== null)
+      if (supervisor.pane !== null || supervisor.session !== null)
         db.update(sources)
-          .set({ supervisingPane: paneId })
+          .set({ supervisingPane: supervisor.pane, supervisingSession: supervisor.session })
           .where(
             and(
               eq(sources.repository, target.repository),
               target.scope === ""
-                ? and(eq(sources.state, "open"), isNull(sources.supervisingPane))
+                ? and(
+                    eq(sources.state, "open"),
+                    isNull(sources.supervisingPane),
+                    isNull(sources.supervisingSession),
+                  )
                 : eq(sources.id, target.scope),
             ),
           )
@@ -102,23 +113,24 @@ export function renewCoordinationWait(client: Database, target: CoordinationScop
 }
 
 /**
- * The sources that the pane supervises, each with whether a wait from that pane covers it.
- * A wait covers its own source, and a wait without a source covers every source of its project.
+ * The sources that the agent session supervises, each with whether a wait from that session
+ * covers it. A wait covers its own source, and a wait without a source covers every source of its
+ * project. The pane does not count, so a new session in a supervising pane supervises nothing.
  */
-export function readSupervision(client: Database, paneId: string) {
+export function readSupervision(client: Database, session: string) {
   return transaction(client, false, () =>
     checkHistory(client).map((db) => {
       const now = Date.now();
       const waits = db
         .select()
         .from(coordinationWaits)
-        .where(eq(coordinationWaits.paneId, paneId))
+        .where(eq(coordinationWaits.session, session))
         .all()
         .filter((row) => !ownerGone(row, now));
       return db
         .select({ id: sources.id, repository: sources.repository })
         .from(sources)
-        .where(eq(sources.supervisingPane, paneId))
+        .where(eq(sources.supervisingSession, session))
         .orderBy(asc(sources.id))
         .all()
         .map((source) => ({
@@ -128,6 +140,47 @@ export function readSupervision(client: Database, paneId: string) {
               row.repository === source.repository && (row.scope === "" || row.scope === source.id),
           ),
         }));
+    }),
+  );
+}
+
+function sourceOf(db: Db, repository: string, sourceId: string) {
+  return db
+    .select({ pane: sources.supervisingPane, session: sources.supervisingSession })
+    .from(sources)
+    .where(and(eq(sources.repository, repository), eq(sources.id, sourceId)))
+    .get();
+}
+
+/** The pane and session that supervise a source. Both are null before a wait or dispatch claims it. */
+export function readSupervisor(client: Database, repository: string, sourceId: string) {
+  return transaction(client, false, () =>
+    checkHistory(client).flatMap((db): Result<Supervisor, SourceFailure> => {
+      const row = sourceOf(db, repository, sourceId);
+      return row === undefined ? Err(missing) : Ok(row);
+    }),
+  );
+}
+
+/**
+ * Make the caller the supervisor of a source, whoever supervised it before, and return the earlier
+ * supervisor. A caller without a session leaves the source to the next wait or dispatch.
+ */
+export function takeOverSource(
+  client: Database,
+  repository: string,
+  sourceId: string,
+  supervisor: Supervisor,
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db): Result<Supervisor, SourceFailure> => {
+      const row = sourceOf(db, repository, sourceId);
+      if (row === undefined) return Err(missing);
+      db.update(sources)
+        .set({ supervisingPane: supervisor.pane, supervisingSession: supervisor.session })
+        .where(eq(sources.id, sourceId))
+        .run();
+      return Ok(row);
     }),
   );
 }

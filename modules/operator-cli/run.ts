@@ -14,6 +14,7 @@ import { runReviews } from "./reviews.ts";
 import { runProject } from "./projects.ts";
 import { runSettings } from "./settings.ts";
 import { startup } from "./startup.ts";
+import { refuseUnsupervised } from "./supervision.ts";
 import { invalidArguments, runUsage } from "./usage.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
@@ -23,6 +24,8 @@ export async function run(args: string[]): Promise<void> {
   const started = await startup(args, json);
   if (started === null) return;
   if (runUsage(args, started.release, json)) return;
+  // One agent session coordinates a source, so another session's command changes nothing.
+  if (await refuseUnsupervised(args, started.paths, json)) return;
   for (const handler of [
     async (input: string[], _paths: OperatorPaths, flag: boolean) => runLauncher(input, flag),
     runSkills,
