@@ -548,7 +548,7 @@ test("failed steps stop the declared order, stay visible, and continue after a r
   });
   expect(await calls("gh-calls.jsonl", '"DELETE"')).toBe(deletions);
   expect(await exists(worker.worktreePath)).toBe(false);
-  expect((await run(["next", "--source", source])).output).toMatchObject({
+  expect((await run(["next", "--source", source, "--all"])).output).toMatchObject({
     data: { sources: [{ actions: [{ action: "source_ended" }] }] },
   });
 }, 120000);
