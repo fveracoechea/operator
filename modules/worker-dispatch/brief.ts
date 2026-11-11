@@ -1,4 +1,5 @@
 import type { WorkSources } from "../work-sources/main.ts";
+import type { Adoption } from "./adoption.ts";
 
 type Finding = { axis: string; severity: string; location: string; claim: string };
 
@@ -32,6 +33,8 @@ type BriefInput = {
   } | null;
   /** The accepted report that this PR assignment was promoted from. ADR-0023. */
   promotion: { report: string; number: number } | null;
+  /** The open PR that this assignment adopts, until its owner associates it. ADR-0024. */
+  adoption: Adoption | null;
 };
 
 function list(files: string[], directory: string) {
@@ -135,6 +138,15 @@ function reviewEnded(number: number, review: NonNullable<BriefInput["review"]>) 
   return [end, "You own the PR. Record no more review rounds."];
 }
 
+/** The adopted PR holds work and review threads that the owner must read first. ADR-0024. */
+function adopted(adoption: Adoption) {
+  return [
+    `You adopt ${adoption.draft ? "draft " : ""}PR #${adoption.number}, which Operator did not open: ${adoption.url}.`,
+    "Your worktree is on its branch. Do not open another PR, and do not rewrite commits that the PR already has.",
+    "Read the PR, its reviews, comments, unresolved review threads, and checks before you change code or wait.",
+  ];
+}
+
 function feedbackLoop(input: BriefInput) {
   if (input.completion !== "pr") return "";
   const base =
@@ -148,7 +160,11 @@ function feedbackLoop(input: BriefInput) {
 
 ${[
   "Internal review is on for this assignment.",
-  "Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.",
+  ...(input.adoption === null
+    ? [
+        "Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.",
+      ]
+    : [...adopted(input.adoption), "Keep the PR a draft."]),
   base,
   ...(input.stack === null ? [] : stackRule),
   "Commit all work and push with `git push -u`, so Git records the remote of your branch.",
@@ -160,23 +176,30 @@ ${[
 ].join("\n")}
 `;
   const opened =
-    input.pullRequest === null
+    input.pullRequest === null && input.adoption !== null
       ? [
-          "Open one PR from your branch with your own tools. Use closing keywords for tracker issues.",
-          base,
-          "Push with `git push -u`, so Git records the remote of your branch.",
-          "Then run `operator pr associate --json` in your worktree.",
+          ...adopted(input.adoption),
+          "The PR is ready for review, so it gets no internal review.",
+          "Push your fixes with `git push -u`, so Git records the remote of your branch.",
+          "Run `operator pr associate --json` in your worktree before your first wait. It records the PR for this assignment.",
         ]
-      : [
-          `PR #${input.pullRequest.number} is already open for this assignment: ${input.pullRequest.url}.`,
-          ...(input.review === null
-            ? []
-            : input.review.state === "reviewing"
-              ? reviewer(input.pullRequest.number, input.review)
-              : reviewEnded(input.pullRequest.number, input.review)),
-          "Read its reviews, comments, unresolved threads, and checks before you wait.",
-          "Inspect the worktree first. Keep work that is not landed.",
-        ];
+      : input.pullRequest === null
+        ? [
+            "Open one PR from your branch with your own tools. Use closing keywords for tracker issues.",
+            base,
+            "Push with `git push -u`, so Git records the remote of your branch.",
+            "Then run `operator pr associate --json` in your worktree.",
+          ]
+        : [
+            `PR #${input.pullRequest.number} is already open for this assignment: ${input.pullRequest.url}.`,
+            ...(input.review === null
+              ? []
+              : input.review.state === "reviewing"
+                ? reviewer(input.pullRequest.number, input.review)
+                : reviewEnded(input.pullRequest.number, input.review)),
+            "Read its reviews, comments, unresolved threads, and checks before you wait.",
+            "Inspect the worktree first. Keep work that is not landed.",
+          ];
   return `
 ## PR feedback loop
 

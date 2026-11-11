@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #210, #228, and #233.
 Implemented in #247.
+Amended 2026-11-11 by ADR-0024: a PR assignment can adopt an open PR, whose branch dispatch then uses although Operator did not create it.
 
 ## Context
 

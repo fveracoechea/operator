@@ -9,6 +9,7 @@ Each assignment supplies `key`, `trackerKey`, `instructions`, `completion`, `res
 Use `pane` for read-only reports.
 Use `worktree` and a Git `branch` name for PRs and reports that change project files.
 An optional `profile` names an existing device start profile.
+A PR assignment can adopt an open PR that Operator did not create: set `adopt` to its number and `branch` to its head branch, as [pull-requests.md](pull-requests.md) describes.
 Dependencies name unique assignment keys within this plan.
 An optional top-level `maxRunning` caps the plan's assignments with a starting or live worker, including PR owners in their feedback loop and internal reviewers.
 Leave it out unless the person asks to protect CI minutes or the device on a large plan.

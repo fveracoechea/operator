@@ -21,6 +21,7 @@ const input = {
   internalReview: false,
   review: null,
   promotion: null,
+  adoption: null,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
