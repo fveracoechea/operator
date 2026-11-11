@@ -7,7 +7,7 @@ Decided in #313.
 Amends ADR-0021.
 Implemented: the coordination wait in #321, worker questions in #323, the turn-end guard in #325, steering messages in #326, and the retirement of worker-to-SuperAgent Herdr messages in #329.
 Amended 2026-11-05: OpenCode gets the turn-end guard through Operator's OpenCode plugin.
-Amended 2026-11-11 by ADR-0024: an agent session, not a pane, supervises a source, and the turn-end guard asks for that session.
+Amended 2026-11-11 by ADR-0025: an agent session, not a pane, supervises a source, and the turn-end guard asks for that session.
 
 ## Context
 

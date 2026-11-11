@@ -1,4 +1,4 @@
-# ADR-0024: One agent session supervises a source
+# ADR-0025: One agent session supervises a source
 
 ## Status
 

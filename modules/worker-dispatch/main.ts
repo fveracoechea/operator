@@ -8,6 +8,7 @@ import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
 import { internalReview } from "./internal-review.ts";
 import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts";
@@ -117,10 +118,21 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               readyHead: review.readyHead,
             };
       })
+      // An adopted PR is read at each start until its owner associates it. ADR-0024.
+      .bind("adoption", ({ source, planned, pullRequest }) =>
+        !("adopt" in planned) || planned.adopt === undefined || pullRequest !== null
+          ? OkAsync(null)
+          : readAdoption({
+              repository: source.repository,
+              number: planned.adopt,
+              branch: planned.branch,
+            }),
+      )
       // Only a start before the PR exists resolves internal review. After that, the recorded
       // review decides, so a settings change cannot drop a review that already started.
-      .bind("internalReview", ({ source, planned, pullRequest, review }) =>
-        pullRequest !== null
+      // An adopted PR that is ready for review is already in front of people. ADR-0024.
+      .bind("internalReview", ({ source, planned, pullRequest, review, adoption }) =>
+        pullRequest !== null || adoption?.draft === false
           ? OkAsync(review !== null)
           : DeviceSettings.show(input.paths).map(({ data }) =>
               internalReview({
@@ -159,7 +171,10 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
   );
 }
 
-/** Every taken Herdr name, Git branch, or recorded launch name is skipped, never adopted. */
+/**
+ * Every taken Herdr name, Git branch, or recorded launch name is skipped, never adopted. The
+ * branch of a PR that the plan adopts is the one exception. ADR-0024.
+ */
 function chooseResources(input: Request, facts: Facts) {
   const checkout = facts.project.checkout;
   return DoAsync()
@@ -212,8 +227,23 @@ function chooseResources(input: Request, facts: Facts) {
             reason: "launch_name_exhausted",
             detail: "No free launch name or branch remains. Nothing was launched.",
           })
-        : Ok({ name: names.name, branch: reuse?.branch ?? names.branch });
-    });
+        : Ok({
+            name: names.name,
+            // An adopted PR keeps its own branch, which is taken by definition.
+            branch: reuse?.branch ?? facts.adoption?.branch ?? names.branch,
+          });
+    })
+    .flatTap(({ reuse }) =>
+      // The last check, so a refusal before it leaves the local branch as it was.
+      facts.adoption === null || reuse !== null
+        ? OkAsync(undefined)
+        : prepareBranch({
+            checkout,
+            repository: facts.project.repository,
+            number: facts.adoption.number,
+            branch: facts.adoption.branch,
+          }),
+    );
 }
 
 function place(input: {
@@ -284,6 +314,7 @@ function writeBrief(
         review: settings.review,
         promotion:
           promotion === null ? null : { report: promotion.report, number: promotion.reportNumber },
+        adoption: settings.adoption,
       });
       await Bun.write(files.brief, text);
       return files.brief;

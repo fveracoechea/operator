@@ -161,16 +161,20 @@ export async function dispatchDevice(options: { deferPreparation?: boolean } = {
       fromPromise(
         async () => {
           const worktree = `${root}/worktrees/${input.label}`;
-          git(
-            checkout,
-            "worktree",
-            "add",
-            "-q",
-            "-b",
-            input.branch,
-            worktree,
-            input.base ?? "HEAD",
-          );
+          // Herdr checks out an existing local branch as it is and ignores the base.
+          const exists = git(checkout, "branch", "--list", input.branch) !== "";
+          if (exists) git(checkout, "worktree", "add", "-q", worktree, input.branch);
+          else
+            git(
+              checkout,
+              "worktree",
+              "add",
+              "-q",
+              "-b",
+              input.branch,
+              worktree,
+              input.base ?? "HEAD",
+            );
           expect(DeviceState.beginPreparation(paths, worktree, "example/one").tag).toBe("Ok");
           function finish() {
             DeviceState.finishPreparation(paths, worktree, {
