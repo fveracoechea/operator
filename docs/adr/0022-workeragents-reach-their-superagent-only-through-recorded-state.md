@@ -7,7 +7,7 @@ Decided in #313.
 Amends ADR-0021.
 Implemented: the coordination wait in #321, worker questions in #323, the turn-end guard in #325, steering messages in #326, and the retirement of worker-to-SuperAgent Herdr messages in #329.
 Amended 2026-11-05: OpenCode gets the turn-end guard through Operator's OpenCode plugin.
-Amended 2026-11-11 by ADR-0025: a wait returns only its new actions, and a pane's wait without a source covers every source the pane supervises.
+Amended 2026-11-11 by ADR-0028: a wait returns only its new actions, and a pane's wait without a source covers every source the pane supervises.
 
 ## Context
 

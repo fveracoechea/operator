@@ -1,4 +1,4 @@
-# ADR-0025: A coordination wait returns only new actions of the pane's sources
+# ADR-0028: A coordination wait returns only new actions of the pane's sources
 
 ## Status
 
