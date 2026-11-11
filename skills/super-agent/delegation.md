@@ -26,6 +26,7 @@ Decide what the instructions and the project context settle, and record the deci
 - `person_decision` with `cleanup_unlanded_work`, and its deletion with `cleanup --person-instructed`. Only the person can delete work that did not land.
 - `person_decision` with `cleanup_resource_mismatch`. Operator never removes an unrecorded path, so the person moves it away.
 - `source reset` and `project remove`. They end work or delete history, so they refuse without `--person-instructed`.
+- `source_supervised_elsewhere`, and `source take-over`. Another SuperAgent session supervises the source, so only the person moves it to you.
 - A closed PR, a missing PR worktree, and a parent PR that closed or merged outside the default branch. [pull-requests.md](pull-requests.md) names each one.
 
 After the person answers, continue from `operator next --json`. Durable state keeps the progress, so do not repeat earlier steps or ask for earlier approvals again.

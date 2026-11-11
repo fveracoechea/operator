@@ -33,6 +33,8 @@ function spawn(args: string[], stdin = "", env: Record<string, string | undefine
       PATH: `${tools}/tools`,
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       HERDR_PANE_ID: undefined,
+      OPENCODE_SESSION_ID: undefined,
+      CLAUDE_CODE_SESSION_ID: undefined,
       ...env,
     }),
     stdin: new TextEncoder().encode(stdin),
@@ -158,9 +160,9 @@ test("a dotfiles link refuses the write and names the entry to add", async () =>
   expect(await Bun.file(`${root}/dotfiles/settings.json`).text()).toBe("{}\n");
 });
 
-function stop(active = false) {
+function stop(active = false, session = "ses-1") {
   return JSON.stringify({
-    session_id: "s",
+    session_id: session,
     transcript_path: `${root}/t.jsonl`,
     cwd: root,
     permission_mode: "default",
@@ -210,16 +212,16 @@ async function registeredSource() {
     .id;
 }
 
-/** Polls until the background wait records itself, because its process starts slowly under load. */
-async function recordedWait() {
+/** Polls until the session's background wait records itself, as its process starts slowly under load. */
+async function recordedWait(session = "ses-1") {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     {
       using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
       const row = db
-        .query<{ running: number }, []>(
-          "SELECT count(*) AS running FROM coordination_waits WHERE owner_pid IS NOT NULL",
+        .query<{ running: number }, [string]>(
+          "SELECT count(*) AS running FROM coordination_waits WHERE owner_pid IS NOT NULL AND session = ?",
         )
-        .get();
+        .get(session);
       if (row?.running === 1) return true;
     }
     await Bun.sleep(100);
@@ -232,36 +234,51 @@ function update(sql: string) {
   db.query(sql).run();
 }
 
-test("the turn-end guard blocks once while the pane supervises running work and no wait runs", async () => {
+test("the turn-end guard blocks once while the session supervises running work and no wait runs", async () => {
   const id = await registeredSource();
-  const pane = { HERDR_PANE_ID: "pane-1" };
-  const waitEnv = { ...git, ...pane };
+  // The SuperAgent's wait runs in its Claude Code session, which names itself to its commands.
+  const waitEnv = { ...git, HERDR_PANE_ID: "pane-1", CLAUDE_CODE_SESSION_ID: "ses-1" };
   const allowed = { code: 0, stdout: "", stderr: "" };
-  // Ready work runs nothing, and a pane that supervises no source has nothing to guard.
-  update(`UPDATE sources SET supervising_pane = 'pane-1' WHERE id = '${id}'`);
-  expect(await run(["claude", "hook"], stop(), pane)).toEqual(allowed);
-  update("UPDATE assignments SET state = 'running'");
-  expect(await run(["claude", "hook"], stop(), { HERDR_PANE_ID: "pane-2" })).toEqual(allowed);
+  expect((await run(["next", "--wait", "--timeout", "0", "--json"], "", waitEnv)).code).toBe(0);
+  // Ready work runs nothing, so there is nothing to guard.
   expect(await run(["claude", "hook"], stop())).toEqual(allowed);
-  const blocked = await run(["claude", "hook"], stop(), pane);
+  update("UPDATE assignments SET state = 'running'");
+  // A new session in the supervising pane, such as one after /clear, supervises nothing.
+  expect(await run(["claude", "hook"], stop(false, "ses-2"), { HERDR_PANE_ID: "pane-1" })).toEqual(
+    allowed,
+  );
+  const blocked = await run(["claude", "hook"], stop());
   expect(blocked.code, blocked.stderr).toBe(0);
   expect(JSON.parse(blocked.stdout)).toEqual({
     decision: "block",
-    reason: expect.stringContaining(`running work in ${id}`) as string,
+    reason: expect.stringContaining(`This session supervises running work in ${id}`) as string,
   });
   // The turn that the block continued may end.
-  expect(await run(["claude", "hook"], stop(true), pane)).toEqual(allowed);
-  // A wait from the pane covers the source while it runs.
+  expect(await run(["claude", "hook"], stop(true))).toEqual(allowed);
   expect((await run(["next", "--wait", "--timeout", "0", "--json"], "", waitEnv)).code).toBe(0);
+  // A wait from the session covers the source while it runs, and another session's wait does not.
+  const other = spawn(["next", "--wait", "--timeout", "60", "--json"], "", {
+    ...waitEnv,
+    CLAUDE_CODE_SESSION_ID: "ses-2",
+  });
+  try {
+    expect(await recordedWait("ses-2")).toBe(true);
+    expect(JSON.parse((await run(["claude", "hook"], stop())).stdout)).toMatchObject({
+      decision: "block",
+    });
+  } finally {
+    other.kill();
+    await other.exited;
+  }
   const waiting = spawn(["next", "--wait", "--timeout", "60", "--json"], "", waitEnv);
   try {
     expect(await recordedWait()).toBe(true);
-    expect(await run(["claude", "hook"], stop(), pane)).toEqual(allowed);
+    expect(await run(["claude", "hook"], stop())).toEqual(allowed);
   } finally {
     waiting.kill();
     await waiting.exited;
   }
-  expect(JSON.parse((await run(["claude", "hook"], stop(), pane)).stdout)).toMatchObject({
+  expect(JSON.parse((await run(["claude", "hook"], stop())).stdout)).toMatchObject({
     decision: "block",
   });
 }, 60000);

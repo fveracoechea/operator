@@ -25,8 +25,10 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { removeStateDirectory } from "./project-files.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
-/** A source without its supervising pane, which a wait or a dispatch claims later and next actions never read. */
-export type StoredSource = Omit<SourceRow, "supervisingPane">;
+/** A source without its supervisor, which a wait or a dispatch claims later and next actions never read. */
+export type StoredSource = Omit<SourceRow, "supervisingPane" | "supervisingSession">;
+/** The Herdr pane and the agent session of a coordination command. Either can be unknown. */
+export type Supervisor = { pane: string | null; session: string | null };
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
@@ -73,14 +75,21 @@ export function registerSource(
   );
 }
 
-/** The pane that dispatches or waits for a source's work supervises it from now on. */
-export function superviseSource(db: Db, sourceId: string, pane: string | null) {
-  if (pane !== null)
-    db.update(sources).set({ supervisingPane: pane }).where(eq(sources.id, sourceId)).run();
+/** The pane and session that dispatch or wait for a source's work supervise it from now on. */
+export function superviseSource(db: Db, sourceId: string, supervisor: Supervisor) {
+  if (supervisor.pane !== null || supervisor.session !== null)
+    db.update(sources)
+      .set({ supervisingPane: supervisor.pane, supervisingSession: supervisor.session })
+      .where(eq(sources.id, sourceId))
+      .run();
 }
 
-// Next actions read no supervising pane, so a claim never changes their answer.
-const { supervisingPane: _pane, ...sourceColumns } = getTableColumns(sources);
+// Next actions read no supervisor, so a claim never changes their answer.
+const {
+  supervisingPane: _pane,
+  supervisingSession: _session,
+  ...sourceColumns
+} = getTableColumns(sources);
 
 export function readSources(client: Database, repository: string, sourceId?: string) {
   return transaction(client, false, () =>

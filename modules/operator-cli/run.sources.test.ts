@@ -16,7 +16,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function run(cwd: string, args: string[]) {
+async function run(cwd: string, args: string[], env: Record<string, string> = {}) {
   const child = Bun.spawn([process.execPath, cli, ...args, "--json"], {
     cwd,
     env: Environment.child({
@@ -27,6 +27,11 @@ async function run(cwd: string, args: string[]) {
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       PATH: `${root}/tools:${Environment.read().PATH ?? ""}`,
+      // The agent session that runs the tests is not the caller of these commands.
+      HERDR_PANE_ID: undefined,
+      OPENCODE_SESSION_ID: undefined,
+      CLAUDE_CODE_SESSION_ID: undefined,
+      ...env,
     }),
     stdout: "pipe",
     stderr: "pipe",
@@ -375,6 +380,83 @@ test("next --wait returns a change in non-wait actions, also one that came betwe
       reason: "next_actions_changed",
       data: { sources: [{ actions: [{ action: "ready_assignment", assignment: "investigate" }] }] },
     },
+  });
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+}, 60000);
+
+test("one agent session coordinates a source, and only the person's take-over moves it", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  const registered = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+  const id = z.object({ data: z.object({ id: z.uuid() }) }).parse(registered.output).data.id;
+  const first = { HERDR_PANE_ID: "w1:p1", OPENCODE_SESSION_ID: "ses_first" };
+  // A new session in the same pane is another session.
+  const second = { HERDR_PANE_ID: "w1:p1", CLAUDE_CODE_SESSION_ID: "claude-second" };
+  const message = `${root}/message.md`;
+  await Bun.write(message, "Steer.");
+  const wait = ["next", "--wait", "--source", id, "--timeout", "0"];
+  expect((await run(cwd, wait, first)).code).toBe(0);
+  function supervisor() {
+    using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+    return db.query("SELECT supervising_pane, supervising_session FROM sources").get();
+  }
+  expect(supervisor()).toEqual({ supervising_pane: "w1:p1", supervising_session: "ses_first" });
+  for (const [args, operation] of [
+    [wait, "next_wait"],
+    [["dispatch", "--source", id, "--assignment", "investigate"], "dispatch"],
+    [
+      ["message", "send", "--source", id, "--assignment", "investigate", "--file", message],
+      "message_send",
+    ],
+    [["report", "accept", "--source", id, "--assignment", "investigate"], "report_accept"],
+    [["cleanup", "--source", id, "--assignment", "investigate"], "cleanup"],
+  ] as const) {
+    const refused = await run(cwd, [...args], second);
+    expect(refused, refused.stderr).toMatchObject({
+      code: 4,
+      output: {
+        operation,
+        outcome: "refused",
+        reason: "source_supervised_elsewhere",
+        blockers: [
+          {
+            detail: expect.stringContaining(
+              `agent session ses_first in Herdr pane w1:p1, so this session does not coordinate it. Nothing changed.`,
+            ) as string,
+          },
+        ],
+      },
+    });
+  }
+  expect(supervisor()).toEqual({ supervising_pane: "w1:p1", supervising_session: "ses_first" });
+  // Reads and the unscoped wait still run, and the unscoped wait claims nothing that is held.
+  expect((await run(cwd, ["next", "--source", id], second)).code).toBe(0);
+  expect((await run(cwd, ["source", "show", "--source", id], second)).code).toBe(0);
+  expect((await run(cwd, ["next", "--wait", "--timeout", "0"], second)).code).toBe(0);
+  expect(supervisor()).toEqual({ supervising_pane: "w1:p1", supervising_session: "ses_first" });
+  // The take-over needs the person's instruction, and then the new session supervises.
+  expect(await run(cwd, ["source", "take-over", "--source", id], second)).toMatchObject({
+    output: { operation: "source_take_over", reason: "person_instruction_required" },
+  });
+  expect(
+    await run(cwd, ["source", "take-over", "--source", id, "--person-instructed"], second),
+  ).toMatchObject({
+    code: 0,
+    output: {
+      operation: "source_take_over",
+      reason: "source_taken_over",
+      data: {
+        sourceId: id,
+        previous: { pane: "w1:p1", session: "ses_first" },
+        supervisor: { pane: "w1:p1", session: "claude-second" },
+      },
+    },
+  });
+  expect((await run(cwd, wait, second)).code).toBe(0);
+  expect(await run(cwd, wait, first)).toMatchObject({
+    code: 4,
+    output: { reason: "source_supervised_elsewhere" },
   });
   expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
 }, 60000);

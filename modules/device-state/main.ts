@@ -19,6 +19,7 @@ import {
   resetSource,
   pruneSource,
   type StoredSource,
+  type Supervisor,
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 
@@ -56,8 +57,10 @@ import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./clea
 import {
   finishCoordinationWait,
   readSupervision,
+  readSupervisor,
   renewCoordinationWait,
   startCoordinationWait,
+  takeOverSource,
   type CoordinationScope,
 } from "./coordination-waits.ts";
 
@@ -150,10 +153,10 @@ export const DeviceState = {
     repository: string,
     launch: LaunchReservation,
     maxRunning?: number,
-    supervisingPane: string | null = null,
+    supervisor?: Supervisor,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisingPane),
+      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
@@ -355,15 +358,23 @@ export const DeviceState = {
     return hold(() => writing(paths, (client) => renewCleanup(client, sourceId, assignment)));
   },
   /** Record this process as the scope's running coordination wait and read its last returned set. */
-  startCoordinationWait(paths: Paths, target: CoordinationScope, paneId: string | null) {
-    return writing(paths, (client) => startCoordinationWait(client, target, paneId));
+  startCoordinationWait(paths: Paths, target: CoordinationScope, supervisor: Supervisor) {
+    return writing(paths, (client) => startCoordinationWait(client, target, supervisor));
   },
   finishCoordinationWait(paths: Paths, target: CoordinationScope, actions: string) {
     return writing(paths, (client) => finishCoordinationWait(client, target, actions));
   },
-  /** The sources that a Herdr pane supervises, and whether a wait from that pane covers each. */
-  readSupervision(paths: Paths, paneId: string) {
-    return reading(paths, (client) => readSupervision(client, paneId));
+  /** The sources that an agent session supervises, and whether a wait from it covers each. */
+  readSupervision(paths: Paths, session: string) {
+    return reading(paths, (client) => readSupervision(client, session));
+  },
+  /** The pane and session that supervise a source of the project. */
+  readSupervisor(paths: Paths, repository: string, sourceId: string) {
+    return reading(paths, (client) => readSupervisor(client, repository, sourceId));
+  },
+  /** Make the caller a source's supervisor and return the earlier one. Only a person orders it. */
+  takeOverSource(paths: Paths, repository: string, sourceId: string, supervisor: Supervisor) {
+    return writing(paths, (client) => takeOverSource(client, repository, sourceId, supervisor));
   },
   /** Renew this process's lease on a running coordination wait until the returned stop runs. */
   holdCoordinationWait(paths: Paths, target: CoordinationScope) {
