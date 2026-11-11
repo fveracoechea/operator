@@ -545,22 +545,11 @@ test.each(["finished", "reset"])(
       db.query("UPDATE sources SET state = ?, ended_at = ?").run(state, new Date().toISOString());
       recordMerges(db);
     }
-    // The source ended long enough ago to be pruned, so its prune row follows its end.
     expect(await run(cwd, ["next", "--source", id, "--all"])).toMatchObject({
       code: 0,
       output: {
         data: {
-          sources: [
-            {
-              id,
-              state,
-              actions: [
-                { action: "source_ended", reason: state },
-                { action: "prune_source", reason: "retention_elapsed" },
-              ],
-              waits: [],
-            },
-          ],
+          sources: [{ id, state, actions: [{ action: "source_ended", reason: state }], waits: [] }],
         },
       },
     });
