@@ -1,5 +1,27 @@
 # @fveracoechea/operator
 
+## 2.3.0
+
+### Minor Changes
+
+- 7e0a682: Add `operator review slack-drop <effect-id> --person-instructed`, which drops one pending Slack effect without sending it, so a stale reply no longer has to post as the person.
+  The effect is recorded `dropped` and never returns from `review wait --slack`.
+  It refuses without `--person-instructed`, for an unknown effect, and for an effect that is already done or dropped.
+- da8ceda: `operator message send` takes `--key <message> --text <text>` in place of a JSON file, and `operator question answer` takes `--text <answer>` in place of `--file`, so a SuperAgent steers and answers without writing a file first.
+  `--file` keeps working for both, and the `super-agent` skill shows the short form.
+- 493707d: Add an obligation ledger per source. `operator obligation add`, `close`, and `list` record what the SuperAgent owes the person, and `operator next` shows each open obligation in the source's `owed` field until it is closed.
+- b9e99f1: Add `operator ask --question <text> [--profile name]`. It registers one research question as its own source with a read-only report assignment and dispatches its worker in the same command, so a SuperAgent delegates a question without a plan file. The `super-agent` skill now sends every question that needs more than one status call through `operator ask`.
+- 05c298a: Make `operator next --wait` return only the actions that its scope has not returned yet, and wait without a source from an agent session on every source that the session supervises. A wait no longer returns for an action that turned back into a wait, for a change that its own session made, or for an owner's PR wait timeout or idle worker that clears within a minute. `next` leaves ended sources out except their prune and owed cleanup, and `operator review wait` returns only the requests its events name and those with an action. `--all` on either wait, and on `next`, returns the whole board.
+- a22e1ef: One agent session supervises a source. A wait or a dispatch records the caller's session beside its Herdr pane, another session's coordination commands for that source refuse with `source_supervised_elsewhere`, and `operator source take-over --person-instructed` moves supervision on the person's instruction. The turn-end guard now speaks only to the supervising session, so a new session in the same pane gets no reminder.
+- bf9520e: A PR assignment can adopt an open PR that Operator did not create. Set `adopt` to the PR number and `branch` to its head branch in the plan.
+  Dispatch reads the PR, puts its branch at the PR head in a new worktree, and starts an owner whose brief says to read the PR and its review threads, associate it, and run the feedback loop and guarded merge.
+  It refuses, and names the work, when the local branch has commits that the PR lacks or a worktree has the branch checked out.
+  A ready adopted PR gets no internal review. An adopted draft keeps the resolved setting, and with internal review off its owner marks it ready.
+
+### Patch Changes
+
+- dc960f6: Guide the SuperAgent to show long answers in a `glow` pane, delegate reads, ask in plain text, and offer fallbacks.
+
 ## 2.2.4
 
 ### Patch Changes
