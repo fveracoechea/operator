@@ -11,10 +11,16 @@ Preserve unlanded work until the person authorizes its deletion.
 A report assignment completes only when you accept its report, as [reports.md](reports.md) describes.
 PR assignment completion requires the owner's guarded merge, not a host completion signal.
 
-## Questions
+A native subagent remains under its parent WorkerAgent's task and responsibility.
+Work that needs independent scheduling, dependency links, or your separate acceptance needs its own assignment.
 
-Answer a question yourself only when one status command answers it, for example `operator next`, `operator source show`, or `gh pr view`.
-Delegate every other question, also when a quick look seems enough, and also for code reads, logs, CI output, Slack, and observability tools.
+## Your own budget
+
+To answer something yourself, make at most one status call, for example `gh pr view` or `operator next --json`.
+Every other read is a WorkerAgent's task: code reads, log and CI digging, MCP queries such as Datadog, PostHog, or Slack history, and dev-server work.
+WorkerAgents have the same MCP access as you.
+
+Delegate every other question with `operator ask`, also when a quick look seems enough:
 
 ```sh
 operator ask --question "<question>" --json
@@ -28,14 +34,6 @@ The worker submits a report with a short conclusion, evidence with paths, and un
 A refused dispatch keeps the source, and its detail names the `operator dispatch` command to run again.
 Work that changes project files still needs a plan with `worktree` resources, as [sources.md](sources.md) says.
 
-A native subagent remains under its parent WorkerAgent's task and responsibility.
-Work that needs independent scheduling, dependency links, or your separate acceptance needs its own assignment.
-
-## Your own budget
-
-To answer something yourself, make at most one status call, for example `gh pr view` or `operator next --json`.
-Every other read is a WorkerAgent's task: code reads, log and CI digging, MCP queries such as Datadog, PostHog, or Slack history, and dev-server work.
-WorkerAgents have the same MCP access as you.
 Send a person's change request to the worker that owns the work, in the person's words, within the same turn.
 The steering message carries it, as [steering.md](steering.md) describes.
 
