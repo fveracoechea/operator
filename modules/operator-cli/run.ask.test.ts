@@ -115,6 +115,12 @@ test("a question with no letters or digits gets a fixed assignment key", async (
   expect(result.output).toMatchObject({ data: { assignment: "question" } });
 }, 60000);
 
+test("a question that opens with a long token gets a key within the plan's limit", async () => {
+  const result = await device.run(["ask", "--question", `${"a".repeat(250)} is what?`]);
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.output).toMatchObject({ data: { assignment: "a".repeat(60) } });
+}, 60000);
+
 test("ask refuses an unknown profile and writes no source", async () => {
   const result = await device.run(["ask", "--question", "What changed?", "--profile", "missing"]);
   expect(result).toMatchObject({ code: 3, output: { reason: "source_profile_missing" } });

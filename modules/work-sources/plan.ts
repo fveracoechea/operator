@@ -55,7 +55,7 @@ export const planSchema = z
           branch,
           internalReview: z.boolean().optional(),
           // An open PR whose branch Operator did not create. Dispatch checks the PR at each
-          // start until its owner associates it. ADR-0025.
+          // start until its owner associates it. ADR-0024.
           adopt: z.number().int().min(1).optional(),
         }),
         z.strictObject({
@@ -127,9 +127,13 @@ export const promotionSchema = z.strictObject({
   internalReview: z.boolean().optional(),
 });
 
-/** A question's assignment key names its first words, so next actions read as the question. */
+/**
+ * A question's assignment key names its first words, so next actions read as the question. The
+ * length cap keeps a long opening token within the plan's key limit.
+ */
 function questionKey(question: string) {
-  return slug(question).split("-").slice(0, 6).join("-") || "question";
+  const words = slug(question).split("-").slice(0, 6).join("-");
+  return words.slice(0, 60).replace(/-$/, "") || "question";
 }
 
 /**

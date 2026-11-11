@@ -2,6 +2,7 @@ import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
+import { dispatchExitCodes } from "./dispatch.ts";
 
 export function askArgs(args: string[]) {
   if (args[0] !== "ask") return null;
@@ -30,20 +31,10 @@ export function askArgs(args: string[]) {
 }
 
 const askExitCodes = {
+  ...dispatchExitCodes,
   invalid_source_plan: 2,
   source_parent_open: 4,
   source_io_failed: 1,
-  assignment_not_dispatchable: 4,
-  running_cap_reached: 4,
-  launch_failed: 1,
-  launch_interrupted: 1,
-  dispatch_io_failed: 1,
-  preparation_failed: 1,
-  preparation_io_failed: 1,
-  herdr_failed: 1,
-  herdr_no_answer: 1,
-  herdr_invalid_response: 1,
-  host_metadata_failed: 1,
 };
 
 async function dispatchQuestion(
