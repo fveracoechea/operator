@@ -46,11 +46,18 @@ function spies() {
     acknowledge: spyOn(ReviewRequests, "acknowledge").mockReturnValue(
       completed("slack_acknowledged"),
     ),
+    drop: spyOn(ReviewRequests, "drop").mockReturnValue(completed("slack_effect_dropped")),
   };
 }
 
 test("parses each review command with its own flags and defaults", () => {
-  const defaults = { profile: undefined, timeout: 300, input: "", slack: false };
+  const defaults = {
+    profile: undefined,
+    timeout: 300,
+    input: "",
+    slack: false,
+    personInstructed: false,
+  };
   expect(reviewArgs(["review", "add", url])).toEqual({ ...defaults, command: "add", url });
   expect(reviewArgs(["review", "start", url, "--profile", "fast", "--json"])).toEqual({
     ...defaults,
@@ -82,6 +89,18 @@ test("parses each review command with its own flags and defaults", () => {
     url: "e1",
     input: "raw.json",
   });
+  expect(reviewArgs(["review", "slack-drop", "e1", "--person-instructed", "--json"])).toEqual({
+    ...defaults,
+    command: "slack-drop",
+    url: "e1",
+    personInstructed: true,
+  });
+  // The module refuses a drop without the flag, so the refusal names the missing instruction.
+  expect(reviewArgs(["review", "slack-drop", "e1"])).toEqual({
+    ...defaults,
+    command: "slack-drop",
+    url: "e1",
+  });
   for (const command of ["post", "skip", "cleanup"] as const)
     expect(reviewArgs(["review", command, url])).toEqual({ ...defaults, command, url });
 });
@@ -110,6 +129,12 @@ test.each([
   [["review", "ingest", "--input", "--json"]],
   [["review", "ingest", "--json"]],
   [["review", "slack-done", "e1"]],
+  [["review", "slack-done", "e1", "--input", "f", "--person-instructed"]],
+  [["review", "skip", url, "--person-instructed"]],
+  [["review", "slack-drop"]],
+  [["review", "slack-drop", "--person-instructed"]],
+  [["review", "slack-drop", "e1", "--person-instructed", "--person-instructed"]],
+  [["review", "slack-drop", "e1", "--input", "f"]],
   [["review", "next", "--other", "x"]],
 ])("refuses %j before any review operation", async (args) => {
   const called = spies();
@@ -140,8 +165,14 @@ test("passes each command to the matching review operation", async () => {
   expect(called.wait).toHaveBeenCalledWith({ paths, timeoutSeconds: 9, slack: true });
   await runReviews(["review", "next"], paths, true);
   expect(called.next).toHaveBeenCalledWith(paths);
+  await runReviews(["review", "slack-drop", "e1", "--person-instructed"], paths, true);
+  expect(called.drop).toHaveBeenCalledWith({ paths, id: "e1", personInstructed: true });
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "review_slack_drop",
+    reason: "slack_effect_dropped",
+  });
   for (const spy of [called.ingest, called.acknowledge]) expect(spy).not.toHaveBeenCalled();
-  for (const name of ["add", "start", "post", "skip", "cleanup", "wait", "next"] as const)
+  for (const name of ["add", "start", "post", "skip", "cleanup", "wait", "next", "drop"] as const)
     expect(called[name]).toHaveBeenCalledTimes(1);
 });
 
@@ -258,6 +289,9 @@ test.each([
   ["github_uncertain", 1],
   ["github_invalid_response", 1],
   ["review_not_found", 3],
+  ["person_instruction_required", 3],
+  ["slack_effect_missing", 3],
+  ["slack_effect_finished", 4],
 ])("refuses %s with exit code %d", async (reason, code) => {
   spyOn(ReviewRequests, "skip").mockReturnValue(
     ErrAsync({ reason, detail: "not skipped" }) as never,

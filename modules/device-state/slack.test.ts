@@ -6,7 +6,13 @@ import { Ok } from "unthrown";
 import { migrationsFolder } from "./database.ts";
 import { registerProject } from "./projects.ts";
 import { changeReviewRequest } from "./review-requests.ts";
-import { acknowledgeSlackEffect, ingestSlack, readSlack, startSlackWatch } from "./slack.ts";
+import {
+  acknowledgeSlackEffect,
+  dropSlackEffect,
+  ingestSlack,
+  readSlack,
+  startSlackWatch,
+} from "./slack.ts";
 import { busy, reservedCopy } from "./state-fixture.ts";
 
 function fixture() {
@@ -237,6 +243,46 @@ test("an acknowledgement marks an effect done once, and a refused send keeps it 
   expect(
     acknowledgeSlackEffect(db, "missing", () => ({ kind: "done", slackTs: null })),
   ).toMatchObject({
+    tag: "Err",
+    error: { reason: "slack_effect_missing" },
+  });
+});
+
+test("a drop finishes one pending effect without a send, and refuses a finished one", () => {
+  using db = fixture();
+  startSlackWatch(db, "C1", "10.000000");
+  ingest(db, "10.000000", "20.000000", [7, 8]);
+  const read = readSlack(db, "C1");
+  const [dropped, sent] = read.tag === "Ok" ? read.value.effects.map((effect) => effect.id) : [];
+  const id = dropped ?? "";
+  expect(dropSlackEffect(db, id)).toMatchObject({
+    tag: "Ok",
+    value: { id, state: "dropped", doneAt: null, slackTs: null },
+  });
+  expect(readSlack(db, "C1")).toMatchObject({ value: { effects: [{ id: sent }] } });
+  expect(dropSlackEffect(db, id)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "slack_effect_finished",
+      detail: `The Slack effect ${id} is already dropped. Only a pending effect is dropped. Nothing changed.`,
+    },
+  });
+  // A late acknowledgement of a dropped effect changes nothing.
+  expect(
+    acknowledgeSlackEffect(db, id, () => ({ kind: "done", slackTs: "5.000001" })),
+  ).toMatchObject({ value: { changed: false, effect: { state: "dropped", slackTs: null } } });
+  acknowledgeSlackEffect(db, sent ?? "", () => ({ kind: "done", slackTs: null }));
+  expect(dropSlackEffect(db, sent ?? "")).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "slack_effect_finished",
+      detail: `The Slack effect ${sent} is already done. Only a pending effect is dropped. Nothing changed.`,
+    },
+  });
+  expect(
+    acknowledgeSlackEffect(db, sent ?? "", () => ({ kind: "done", slackTs: null })),
+  ).toMatchObject({ value: { changed: false, effect: { state: "done" } } });
+  expect(dropSlackEffect(db, "missing")).toMatchObject({
     tag: "Err",
     error: { reason: "slack_effect_missing" },
   });
