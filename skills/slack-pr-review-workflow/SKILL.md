@@ -44,6 +44,19 @@ All the state is in the device database, so a new session starts here too.
 - `slack_cursor_moved`: another session ingested the channel first. Run `wait` again.
 - `slack_not_configured`: no channel is set. Ask the person for the channel and the policy.
 
+## Dropping a stale effect
+
+Only on the person's explicit instruction, drop a pending effect without sending it, for example a stale reply that should not post as the person:
+
+```sh
+operator review slack-drop <id> --person-instructed --json
+```
+
+The effect is recorded `dropped`, and no wait gives it again.
+`--person-instructed` attests the instruction, it grants no authority.
+`person_instruction_required` means the flag is missing. `slack_effect_missing` means no effect has the id. `slack_effect_finished` means the effect is already done or dropped. Nothing changed for any of these.
+An ended review request keeps its pending effects, so ask the person before you drop one.
+
 An acknowledgement is your claim that Slack took the effect. The CLI does not claim exactly-once delivery.
 Replies post as the person, and Slack adds a `Sent using Claude` footer.
 `slack_ingested_page` means Slack returned one page. The cursor stays, and the next wait gives a read with `latest` for the older messages.
