@@ -4,7 +4,7 @@ A longer answer gets lost in chat among the turns of parallel work.
 Show an answer to the person's question in an answer pane when it holds a table or runs past about 15 lines.
 The steps carry every Herdr command they need, so they need no `herdr` skill.
 
-1. Run `command -v glow`. When it finds nothing, answer in chat and stop here.
+1. Run `command -v glow`. When it finds nothing, or when HERDR_ENV is not 1, answer in chat and stop here.
 2. Write the answer as Markdown to a new file outside the checkout, for example `${TMPDIR:-/tmp}/operator-answers/<topic>.md`.
 3. Reuse your answer pane while it stays open: the pane in your tab that `herdr pane list` shows with the label `answers`.
    When `herdr pane process-info --pane <pane>` lists `glow` in `.result.process_info.foreground_processes`, quit its pager with `herdr pane send-keys <pane> q`.
