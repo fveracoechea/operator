@@ -12,6 +12,7 @@ Use `gh stack view --json` only to read a stack. Run no other `gh stack` command
 
 `next` shows each PR with its number, URL, and last wait state.
 Send each request to an owner as a steering message, as [steering.md](steering.md) says.
+When the person signals urgency, steer the owner to push once lint, typecheck, and tests pass, and to run mutation testing after the push.
 
 - `wait` with `pr_feedback_loop`: the owner is in its loop. Do nothing.
 - `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner for its status in a steering message.
@@ -26,6 +27,27 @@ Dispatch refuses a replacement with `pr_worktree_missing` when the PR's worktree
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
 A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
+
+## Adopt an open PR
+
+Hand an open PR that Operator did not create to a PR owner. Never carry it yourself or with native subagents.
+Add a PR assignment with `adopt` set to the PR number and `branch` set to its head branch, in a new plan:
+
+```json
+{ "key": "pr-2164", "trackerKey": "github:org/repo#2164", "instructions": "Carry PR #2164 through its review to the merge.", "completion": "pr", "resources": "worktree", "branch": "feat/chat-link-widgets", "adopt": 2164, "dependencies": [] }
+```
+
+Dispatch reads the PR, puts the branch at the PR head in a new worktree, and starts the owner.
+The owner's brief tells it to read the PR, its reviews, comments, unresolved threads, and checks, to associate the PR, and then to run its feedback loop.
+A ready PR gets no internal review. A draft keeps the resolved setting: with internal review on, its owner associates the draft and a fresh reviewer takes over, and with it off, its owner marks the draft ready.
+Dispatch refuses and changes nothing on these reasons. The detail names the PR, branch, or worktree.
+
+- `adopt_pr_not_open`, `adopt_pr_branch_mismatch`: the PR is closed or merged, or its head is another branch or a fork. Fix the plan in a new source.
+- `adopt_branch_diverged`: the local branch has commits that the PR lacks.
+- `adopt_branch_checked_out`, `adopt_branch_dirty`: a worktree has the branch checked out, with uncommitted changes for `adopt_branch_dirty`.
+- `adopt_pr_unreadable`, `adopt_branch_unavailable`: GitHub or Git did not answer. Dispatch again.
+
+Unlanded work belongs to whoever made it. Ask the person to push or move it, or to remove the worktree, then dispatch again.
 
 ## Internal review
 

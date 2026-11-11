@@ -9,6 +9,7 @@ Each assignment supplies `key`, `trackerKey`, `instructions`, `completion`, `res
 Use `pane` for read-only reports.
 Use `worktree` and a Git `branch` name for PRs and reports that change project files.
 An optional `profile` names an existing device start profile.
+A PR assignment can adopt an open PR that Operator did not create: set `adopt` to its number and `branch` to its head branch, as [pull-requests.md](pull-requests.md) describes.
 Dependencies name unique assignment keys within this plan.
 An optional top-level `maxRunning` caps the plan's assignments with a starting or live worker, including PR owners in their feedback loop and internal reviewers.
 Leave it out unless the person asks to protect CI minutes or the device on a large plan.
@@ -16,6 +17,35 @@ Instructions state your delegated authority and when the WorkerAgent must ask th
 An optional `intent` on the plan or on an assignment holds the person's own words for the work. An assignment's `intent` wins over the plan's.
 Copy the person's words verbatim into `intent`. Put your interpretation, scope, and build steps in `instructions`.
 The brief shows `intent` as the acceptance criteria, and the internal reviewer judges the Spec axis against it.
+
+A plan with one report and one PR that waits on it:
+
+```json
+{
+  "trackerKey": "github:acme/app#41",
+  "intent": "Checkout fails for guest users, find out why and fix it.",
+  "internalReview": true,
+  "assignments": [
+    {
+      "key": "diagnose",
+      "trackerKey": "github:acme/app#41/diagnose",
+      "instructions": "Reproduce the guest checkout failure and report its cause with evidence. Change no files.",
+      "completion": "report",
+      "resources": "pane",
+      "dependencies": []
+    },
+    {
+      "key": "fix",
+      "trackerKey": "github:acme/app#41/fix",
+      "instructions": "Fix the cause from the diagnose report, with a test that fails before the fix. Ask the person before you change the checkout API.",
+      "completion": "pr",
+      "resources": "worktree",
+      "branch": "fix/guest-checkout",
+      "dependencies": ["diagnose"]
+    }
+  ]
+}
+```
 
 Inspect the saved source with `operator source show --source <source-id> --json`.
 Read `operator next --json`, or select one project source with `--source <source-id>`.

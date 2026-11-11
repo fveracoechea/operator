@@ -7,6 +7,7 @@ Decided in #292.
 Amended 2026-11-04: the reviewer brief also gives the person's intent when the plan or the assignment gives one.
 Adds a draft condition to the ADR-0010 merge gate and moves the start of the ADR-0015 assignment reviewer to the ready transition.
 Amended 2026-11-04 in #305 with the answers to its open questions, below.
+Amended 2026-11-11: an adopted PR that is ready for review gets no internal review, whatever the setting (ADR-0024).
 Implemented: the draft merge condition in #316, the handoff and rounds in #324, and the ready step, summary comment, and skip in #328.
 
 ## Context
@@ -83,6 +84,7 @@ The PR wait reports a draft's feedback and checks to the reviewer, and it never 
 Internal review is on by default.
 A device setting supplies the default, a plan can turn it off or on for all its assignments, and an assignment can turn it off or on for itself.
 The most specific value wins: assignment, then plan, then device.
+An adopted PR that is already ready for review gets no internal review, whatever the setting.
 Each launch resolves and records the value, so a running owner keeps it and a replacement resolves it again.
 When it is off, the implementer opens a ready PR, keeps ownership as before, and no reviewer starts.
 On the person's instruction, the SuperAgent can skip a running internal review, which ends it and marks the PR ready with no summary comment.
