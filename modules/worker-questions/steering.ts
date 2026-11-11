@@ -134,7 +134,7 @@ function send(input: Omit<Selector, "key"> & { file: string }) {
   ).flatMap((result) => result);
 }
 
-/** Another module's operation steers the worker that it hands work to. ADR-0023. */
+/** Steer from a key and text, sent as flags or composed by another module. ADR-0023. */
 function steer(input: Omit<Selector, "key"> & { key: string; message: string }) {
   return fromPromise(
     async () => deliver(input, messageSchema.parse({ key: input.key, message: input.message })),
