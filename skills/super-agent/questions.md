@@ -13,8 +13,8 @@ A WorkerAgent records a question with `operator question ask` from its own pane.
 An unanswered question replaces the idle-worker attention of its assignment. Answer the question instead of replacing the worker.
 
 1. Read the assignment's instructions. They state what you may decide.
-2. When the question is within your authority, write the answer to a file outside the checkout.
-3. Record it with `operator question answer --source <id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json`.
+2. When the question is within your authority, record the answer with `operator question answer --source <id> --assignment <key> --key <question> --by super-agent --text "<answer>" --json`.
+   For text that is hard to quote in the shell, write it to a file outside the checkout and pass `--file <answer.md>` in place of `--text`.
 
 When the question needs the person, move it to the person first:
 
