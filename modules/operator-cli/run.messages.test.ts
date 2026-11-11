@@ -116,3 +116,41 @@ test("an answer rings the worker's doorbell, and the worker's wait reads it", as
     output: { data: { state: "acknowledged", message: "No." } },
   });
 }, 120000);
+
+test("a steering message and an answer can be sent as text, with no file", async () => {
+  const source = await device.register(plan);
+  const worker = await device.dispatch(source, "investigate");
+  const selector = ["--source", source, "--assignment", "investigate"];
+  const pane = { pane: worker.paneId };
+  // Plain text that is not JSON is the message itself.
+  const text = 'Say "done" when a.ts passes.';
+
+  const sent = await device.run(["message", "send", ...selector, "--key", "focus", "--text", text]);
+  expect(sent.code, sent.stderr).toBe(0);
+  expect(sent.output).toMatchObject({ reason: "message_sent", data: { key: "focus" } });
+  expect(await device.run(["message", "read", "--key", "focus"], pane)).toMatchObject({
+    output: { data: { message: text } },
+  });
+  const file = await device.writeJson("other.json", { key: "other", message: "Stop." });
+  for (const flags of [
+    ["--text", text],
+    ["--key", "other", "--file", file],
+    ["--key", "other", "--file", file, "--text", text],
+  ])
+    expect(await device.run(["message", "send", ...selector, ...flags])).toMatchObject({ code: 2 });
+
+  const question = await device.writeJson("q.json", { key: "scope", question: "b.ts too?" });
+  expect(await device.run(["question", "ask", "--file", question], pane)).toMatchObject({
+    code: 0,
+  });
+  const answer = [...selector, "--key", "scope", "--by", "super-agent"];
+  expect(
+    await device.run(["question", "answer", ...answer, "--file", file, "--text", "No."]),
+  ).toMatchObject({ code: 2 });
+  const answered = await device.run(["question", "answer", ...answer, "--text", "No."]);
+  expect(answered.code, answered.stderr).toBe(0);
+  expect(answered.output).toMatchObject({
+    reason: "question_answered",
+    data: { answer: "No.", message: "answer:scope" },
+  });
+}, 120000);

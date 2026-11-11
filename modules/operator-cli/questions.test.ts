@@ -41,6 +41,7 @@ function spies() {
 
 const none = {
   file: "",
+  text: null,
   key: "",
   sourceId: "",
   assignment: "",
@@ -85,6 +86,9 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
     by: "person",
     file: "a.md",
   });
+  expect(
+    questionArgs(["question", "answer", ...selector, "--by", "person", "--text", "No."]),
+  ).toMatchObject({ file: "", text: "No." });
   for (const args of [
     ["question"],
     ["question", "ask"],
@@ -98,6 +102,9 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
     ["question", "wait", "--key", "k", "--timeout"],
     ["question", "withdraw", "--key", "k", "--timeout", "5"],
     ["question", "escalate", "--source", "s", "--assignment", "a"],
+    ["question", "answer", ...selector, "--by", "person"],
+    ["question", "answer", ...selector, "--by", "person", "--file", "a.md", "--text", "No."],
+    ["question", "ask", "--text", "Why?"],
     ["question", "escalate", ...selector, "--key", "j"],
     ["question", "answer", ...selector, "--file", "a.md"],
     ["question", "answer", ...selector, "--by", "worker", "--file", "a.md"],

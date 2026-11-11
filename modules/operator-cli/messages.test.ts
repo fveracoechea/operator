@@ -25,6 +25,7 @@ function completed(reason: string) {
 function spies() {
   return {
     send: spyOn(WorkerQuestions, "send").mockReturnValue(completed("message_sent")),
+    steer: spyOn(WorkerQuestions, "steer").mockReturnValue(completed("message_sent")),
     ring: spyOn(WorkerQuestions, "ring").mockReturnValue(completed("message_rung")),
     close: spyOn(WorkerQuestions, "close").mockReturnValue(completed("message_closed")),
     read: spyOn(WorkerQuestions, "read").mockReturnValue(completed("message_read")),
@@ -34,7 +35,7 @@ function spies() {
   };
 }
 
-const none = { file: null, key: "", sourceId: "", assignment: "" };
+const none = { file: null, text: null, key: "", sourceId: "", assignment: "" };
 const assignment = ["--source", "s", "--assignment", "a"];
 
 test("worker commands take no assignment selector, and SuperAgent commands name one", () => {
@@ -44,6 +45,14 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
     sourceId: "s",
     assignment: "a",
     file: "m.json",
+  });
+  expect(messageArgs(["message", "send", ...assignment, "--text", "Stop.", "--key", "k"])).toEqual({
+    ...none,
+    command: "send",
+    sourceId: "s",
+    assignment: "a",
+    key: "k",
+    text: "Stop.",
   });
   for (const command of ["ring", "close"] as const)
     expect(messageArgs(["message", command, ...assignment, "--key", "k"])).toEqual({
@@ -72,6 +81,11 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
     ["question", "read", "--key", "k"],
     ["message", "send", ...assignment],
     ["message", "send", "--file", "m.json"],
+    ["message", "send", ...assignment, "--key", "k"],
+    ["message", "send", ...assignment, "--text", "Stop."],
+    ["message", "send", ...assignment, "--file", "m.json", "--key", "k"],
+    ["message", "send", ...assignment, "--file", "m.json", "--text", "Stop."],
+    ["message", "ack", "--key", "k", "--text", "Done."],
     ["message", "ring", ...assignment],
     ["message", "close", "--key", "k"],
     ["message", "read"],
@@ -88,6 +102,7 @@ test("passes each command to the matching message operation", async () => {
   const cwd = process.cwd();
   for (const command of [
     ["send", ...assignment, "--file", "m.json"],
+    ["send", ...assignment, "--key", "k", "--text", "Stop."],
     ["ring", ...assignment, "--key", "k"],
     ["close", ...assignment, "--key", "k"],
     ["read", "--key", "k"],
@@ -107,6 +122,17 @@ test("passes each command to the matching message operation", async () => {
     sourceId: "s",
     assignment: "a",
     file: "m.json",
+  });
+  expect(called.steer).toHaveBeenCalledWith({
+    paths,
+    cwd,
+    ...none,
+    command: "send",
+    sourceId: "s",
+    assignment: "a",
+    key: "k",
+    text: "Stop.",
+    message: "Stop.",
   });
   expect(called.acknowledge).toHaveBeenCalledWith({
     paths,
