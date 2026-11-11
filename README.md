@@ -308,6 +308,7 @@ operator next --json
 operator next --wait --timeout 300 --json
 operator herdr install --json
 operator dispatch --source <source-id> --assignment <key> --json
+operator ask --question "<question>" [--profile <name>] --json
 operator source reset --source <source-id> --person-instructed --json
 operator source prune --json
 ```
@@ -318,6 +319,7 @@ The SuperAgent reads the tracker and gives the CLI a JSON plan.
 The SuperAgent runs it in the background, so worker events reach it without text typed into its pane.
 `herdr install` links the Herdr plugin that prepares each worktree and records worker activity.
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
+`ask` registers one research question as its own source with a read-only report assignment, and dispatches its worker in the same command.
 OpenCode workers use the full TUI, with the selected model and effort set on their session before attachment.
 Herdr's OpenCode terminal integration must be enabled to report their activity; Mini does not load it.
 

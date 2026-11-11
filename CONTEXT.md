@@ -123,6 +123,9 @@ A running worker keeps that selection, while a replacement uses the settings res
 A registered plan of assignments, dependencies, and tracker keys supplied by a SuperAgent, not read from a tracker by the CLI, plus any PR assignments that promotion adds.
 Each registration has a new identity, and a source is ended when it is finished or reset.
 
+**Question source**:
+A work source that `operator ask` registers from one research question, with one read-only report assignment that it dispatches at once.
+
 **Assignment**:
 One independently scheduled unit of delegated work with a brief, dependencies, a start profile, resource needs, and an explicit PR or report completion type.
 Native subagents remain within their parent WorkerAgent's assignment unless their work needs independent scheduling or acceptance.
