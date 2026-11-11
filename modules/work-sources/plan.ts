@@ -53,6 +53,9 @@ export const planSchema = z
           resources: z.literal("worktree"),
           branch,
           internalReview: z.boolean().optional(),
+          // An open PR whose branch Operator did not create. Dispatch checks the PR at each
+          // start until its owner associates it. ADR-0024.
+          adopt: z.number().int().min(1).optional(),
         }),
         z.strictObject({
           ...shared,
@@ -86,6 +89,15 @@ export const planSchema = z
           });
       }
     }
+    const adopted = plan.assignments.flatMap((assignment) =>
+      "adopt" in assignment && assignment.adopt !== undefined ? [assignment.adopt] : [],
+    );
+    for (const number of new Set(adopted))
+      if (adopted.filter((row) => row === number).length > 1)
+        context.addIssue({
+          code: "custom",
+          message: `PR #${number} is adopted by more than one assignment.`,
+        });
     // Each round settles the assignments whose dependencies are settled. An acyclic plan settles
     // within one round per assignment, so an assignment left after the last round is on a cycle.
     let pending = plan.assignments;

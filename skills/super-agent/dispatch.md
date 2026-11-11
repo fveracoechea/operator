@@ -22,6 +22,7 @@ The WorkerAgent receives one prompt with the absolute device-state brief.
 
 A taken name or branch gets a numbered suffix.
 Operator never adopts, overwrites, or deletes an unrecorded pane, branch, or worktree.
+The one exception is the branch of an assignment's `adopt` PR, as [pull-requests.md](pull-requests.md) describes.
 
 `next` shows the latest launch of each started assignment.
 A `replace_worker` action with `launch_failed`, `launch_abandoned`, or `worker_interrupted` permits one new dispatch of that assignment.
