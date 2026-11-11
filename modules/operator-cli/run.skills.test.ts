@@ -111,6 +111,7 @@ test("installs every upstream source after the owned skills with explicit global
           },
           { repository: "cursor/plugins", commit: upstreamCommit, skills: ["unslop"] },
           { repository: "humanlayer/skills", commit: upstreamCommit, skills: ["show-me"] },
+          { repository: "anthropics/skills", commit: upstreamCommit, skills: ["frontend-design"] },
         ],
       },
     },
@@ -123,6 +124,10 @@ test("installs every upstream source after the owned skills with explicit global
     installer(
       `https://github.com/humanlayer/skills/tree/${upstreamCommit}/plugins/show-me/skills/show-me`,
       ["show-me"],
+    ),
+    installer(
+      `https://github.com/anthropics/skills/tree/${upstreamCommit}/skills/frontend-design`,
+      ["frontend-design"],
     ),
   ]);
   expect(await Bun.file(`${root}/skills-lock.json`).exists()).toBe(false);

@@ -21,7 +21,7 @@ beforeEach(async () => {
   // Herdr maps each OpenCode session to the pane that runs it.
   await Bun.write(
     `${tools}/tools/herdr`,
-    `#!/bin/sh\n[ "$1 $2" = "pane list" ] && /bin/cat "${root}/panes.json"\n`,
+    `#!${process.execPath}\nif(process.argv.slice(2).join(" ") === "pane list") console.log(await Bun.file(${JSON.stringify(`${root}/panes.json`)}).text());\n`,
   );
   await chmod(`${tools}/tools/herdr`, 0o755);
   await Bun.write(

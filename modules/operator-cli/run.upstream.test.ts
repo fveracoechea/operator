@@ -55,6 +55,7 @@ function git(matt: string, revision: string) {
   const pinned = {
     "https://github.com/cursor/plugins.git": "pstack/skills/unslop",
     "https://github.com/humanlayer/skills.git": "plugins/show-me/skills/show-me",
+    "https://github.com/anthropics/skills.git": "skills/frontend-design",
   };
   return `const a=process.argv.slice(2); const pinned=${JSON.stringify(pinned)}; if(a[0]==="clone") { const folder=pinned[a.at(-2)]; if(folder) await Bun.write(a.at(-1)+"/"+folder+"/SKILL.md","---\\nname: "+folder.split("/").at(-1)+"\\n---\\n",{createPath:true}); else { ${matt} } } else console.log(${JSON.stringify(revision)});`;
 }

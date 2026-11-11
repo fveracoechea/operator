@@ -110,7 +110,11 @@ async function controlledTools() {
   await Bun.write(`${root}/tools/bun`, "#!/bin/sh\nexit 0\n", { createPath: true });
   await Bun.write(
     `${root}/tools/jsr`,
-    `#!/bin/sh\necho "$*" > ${JSON.stringify(`${root}/args`)}\n/bin/ls > ${JSON.stringify(`${root}/staged`)}\necho "client output"\n`,
+    `#!${process.execPath}
+await Bun.write(${JSON.stringify(`${root}/args`)}, process.argv.slice(2).join(" "));
+await Bun.write(${JSON.stringify(`${root}/staged`)}, (await Array.fromAsync(new Bun.Glob("*").scan())).join("\\n"));
+console.log("client output");
+`,
   );
   await chmod(`${root}/tools/bun`, 0o755);
   await chmod(`${root}/tools/jsr`, 0o755);

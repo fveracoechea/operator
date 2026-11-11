@@ -34,6 +34,7 @@ const sources: Array<{ repository: string; folder?: string; sections?: string[] 
   { repository: "mattpocock/skills", sections: ["skills/productivity", "skills/engineering"] },
   { repository: "cursor/plugins", folder: "pstack/skills/unslop" },
   { repository: "humanlayer/skills", folder: "plugins/show-me/skills/show-me" },
+  { repository: "anthropics/skills", folder: "skills/frontend-design" },
 ];
 
 async function resolve(directory: string, source: (typeof sources)[number], owned: string[]) {

@@ -1,5 +1,37 @@
 # @fveracoechea/operator
 
+## 2.2.4
+
+### Patch Changes
+
+- b424afe: Launch OpenCode workers in the full TUI so Herdr reports working and idle transitions. Create each session with the selected model and effort before attaching, without changing existing workers.
+- bb20cbb: Install Anthropic's frontend-design skill through the upstream installer when running `operator install` for either supported host.
+
+## 2.2.3
+
+### Patch Changes
+
+- 05918ec: Run the Nix flake release check only on Linux.
+  The macOS package remains supported, but CI does not build it.
+- f74b869: Add a browser-development skill for focused browser QA, debugging, accessibility checks, screenshots, and measurements.
+  Guide agents to reuse an approved existing login and keep artifacts in temporary directories outside Git.
+
+## 2.2.2
+
+### Patch Changes
+
+- bb7ac50: Fix Nix flake installation by updating the locked dependency cache.
+  Check the Nix package on Linux and macOS before release publication.
+- 5628d62: Document the complete Nix flake setup, including Home Manager inputs, host hooks, skill links, and lock updates.
+
+## 2.2.1
+
+### Patch Changes
+
+- 0dd6a8e: Sync the `collections-and-iteration`, `deep-modules` and `react-composition` skills with Jarvis, so every skill from Jarvis matches it file for file, except one Jarvis command line that `bun` leaves out.
+  `react-composition` treats a nullable prop as a mode when null renders other parts than a value, and as a slot when it fills one place.
+  `deep-modules` no longer has the `entry-file-lint.md` topic, and `collections-and-iteration` is one `SKILL.md` again.
+
 ## 2.2.0
 
 ### Minor Changes

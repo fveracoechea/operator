@@ -1,13 +1,72 @@
 import { isCodedError } from "../../lib/coded-error.ts";
-import { Err, Ok, fromPromise, type Result } from "unthrown";
+import { Err, Ok, OkAsync, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
 import { discoverClaude, discoverOpenCode, type Host, type HostFailure } from "./catalog.ts";
+import { Herdr } from "../herdr/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 type LaunchSelection = { host: Host; model: string; reasoningEffort: string };
 type ResolvedLaunch = LaunchSelection & {
   requestedModel: string;
   command: { tool: string; args: string[] };
 };
+
+const createdSession = z.object({
+  data: z.object({
+    id: z.string().min(1),
+    model: z.object({ providerID: z.string(), id: z.string(), variant: z.string() }),
+    location: z.object({ directory: z.string() }),
+  }),
+});
+const sessionFailure = {
+  reason: "host_session_failed" as const,
+  detail:
+    "OpenCode did not confirm a session with the selected model, effort, and directory. No agent was started. Session creation may have succeeded; inspect OpenCode before retrying.",
+};
+
+function openCodeArguments(launch: LaunchSelection, cwd: string) {
+  // The catalog qualifies models as provider/id; model ids can themselves contain slashes.
+  const separator = launch.model.indexOf("/");
+  const model = {
+    providerID: launch.model.slice(0, separator),
+    id: launch.model.slice(separator + 1),
+    variant: launch.reasoningEffort,
+  };
+  return fromPromise(
+    async () => {
+      const result = await ToolInvocation.run({
+        tool: "opencode",
+        args: [
+          "api",
+          "post",
+          "/api/session",
+          "--data",
+          JSON.stringify({ model, location: { directory: cwd } }),
+        ],
+        cwd,
+        timeoutMs: 30000,
+      });
+      if (result.status !== "completed")
+        return { ...sessionFailure, detail: `${result.detail} ${sessionFailure.detail}` };
+      if (result.exitCode !== 0)
+        return {
+          ...sessionFailure,
+          detail: `OpenCode session creation exited ${result.exitCode}. ${sessionFailure.detail}`,
+        };
+      const { data } = createdSession.parse(JSON.parse(result.stdout));
+      if (
+        data.location.directory !== cwd ||
+        data.model.providerID !== model.providerID ||
+        data.model.id !== model.id ||
+        data.model.variant !== model.variant
+      )
+        return sessionFailure;
+      return { args: ["--session", data.id] };
+    },
+    (cause, defect) =>
+      cause instanceof SyntaxError || cause instanceof z.ZodError ? sessionFailure : defect(cause),
+  ).flatMap((result) => ("reason" in result ? Err(result) : Ok(result.args)));
+}
 
 function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (
@@ -23,7 +82,7 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   return defect(cause);
 }
 
-/** Host metadata is not a readiness proof. Commands contain no permission policy or fallback. */
+/** Host selection and startup contain no permission policy or fallback. */
 export const AgentHosts = {
   models(input: { host: Host; cwd: string }) {
     return fromPromise(
@@ -56,7 +115,7 @@ export const AgentHosts = {
           input.host === "opencode"
             ? {
                 tool: "opencode",
-                args: ["mini", "--model", `${resolvedModel}#${input.reasoningEffort}`],
+                args: [],
               }
             : {
                 tool: "claude",
@@ -64,5 +123,19 @@ export const AgentHosts = {
               },
       });
     });
+  },
+  /** Mini does not load Herdr's terminal plugin. The full TUI takes a session, not --model. */
+  start(input: { launch: ResolvedLaunch; cwd: string; name: string; paneId: string }) {
+    const { launch, cwd, name, paneId } = input;
+    const args =
+      launch.host === "opencode" ? openCodeArguments(launch, cwd) : OkAsync(launch.command.args);
+    return args.flatMap((args) =>
+      Herdr.startAgent({
+        name,
+        paneId,
+        kind: launch.host === "opencode" ? "opencode" : "claude",
+        args,
+      }),
+    );
   },
 };

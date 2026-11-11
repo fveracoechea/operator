@@ -1,6 +1,7 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, spyOn, test } from "bun:test";
 import { ErrAsync, OkAsync, fromPromise } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
+import { AgentHosts } from "../agent-hosts/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -126,6 +127,7 @@ test("read-only work gets a tab in the project workspace, a brief, and a running
 test("worktree work gets a new prepared worktree on its branch and an OpenCode agent", async () => {
   // The hook records its preparation after Herdr answers, so the start waits for it.
   await using device = await dispatchDevice({ deferPreparation: true });
+  const start = spyOn(AgentHosts, "start").mockReturnValue(OkAsync(null));
   spyOn(DeviceSettings, "resolve").mockReturnValue(
     OkAsync({ ...resolved, host: "opencode" as const, command: { tool: "opencode", args: [] } }),
   );
@@ -151,11 +153,11 @@ test("worktree work gets a new prepared worktree on its branch and an OpenCode a
   });
   expect(device.herdr.renameTab).toHaveBeenCalledWith({ tabId: "t2", label: name });
   expect(device.herdr.createTab).not.toHaveBeenCalled();
-  expect(device.herdr.startAgent).toHaveBeenCalledWith({
+  expect(start).toHaveBeenCalledWith({
     name,
-    kind: "opencode",
+    launch: { ...resolved, host: "opencode", command: { tool: "opencode", args: [] } },
+    cwd: worktree,
     paneId: "p2",
-    args: [],
   });
   expect(await device.launches("impl")).toMatchObject([
     {

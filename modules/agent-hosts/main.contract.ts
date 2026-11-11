@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 // Bun has no temporary-directory, real-path, or recursive removal API.
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,8 +6,11 @@ import path from "node:path";
 import { ok } from "../../scripts/live-contract-fixture.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { AgentHosts } from "./main.ts";
+import { Herdr } from "../herdr/main.ts";
+import { OkAsync } from "unthrown";
 
-// A live contract: each test reads the installed host. No test sends a prompt or starts a session.
+// Live host contracts send no prompts. The startup contract creates and deletes an empty session,
+// replacing only Herdr's terminal launch so the API preserves the selection without paid generation.
 const cwd = await realpath(await mkdtemp(path.join(tmpdir(), "operator-hosts-")));
 afterAll(async () => {
   await rm(cwd, { recursive: true, force: true });
@@ -22,10 +25,9 @@ async function contract(host: "opencode" | "claude-code") {
   const launch = await ok(
     AgentHosts.resolve({ host, cwd, model: model.model, reasoningEffort: model.efforts[0] ?? "" }),
   );
-  const subcommand = launch.command.args.filter((arg) => !arg.startsWith("-")).slice(0, 1);
   const help = await ToolInvocation.run({
     tool: launch.command.tool,
-    args: [...(host === "opencode" ? subcommand : []), "--help"],
+    args: ["--help"],
     cwd,
     timeoutMs: 30000,
   });
@@ -33,12 +35,56 @@ async function contract(host: "opencode" | "claude-code") {
   const text = help.status === "completed" ? help.stdout + help.stderr : "";
   for (const flag of launch.command.args.filter((arg) => arg.startsWith("--")))
     expect(text).toContain(flag);
+  if (host === "opencode") expect(text).toContain("--session");
 }
 
-test("opencode api get /api/model answers the model catalog, and opencode mini takes --model", async () => {
+test("opencode api get /api/model answers the model catalog, and the full TUI takes --session", async () => {
   await contract("opencode");
 }, 60000);
 
 test("the Claude Agent SDK reads the claude model catalog, and claude takes --model and --effort", async () => {
   await contract("claude-code");
+}, 60000);
+
+test("OpenCode session creation preserves the model and effort before the full TUI attaches", async () => {
+  const models = await ok(AgentHosts.models({ host: "opencode", cwd }));
+  const model = models.find((candidate) => candidate.efforts.length > 0);
+  if (model === undefined)
+    return expect.unreachable("OpenCode advertises no model with an effort.");
+  const launch = await ok(
+    AgentHosts.resolve({
+      host: "opencode",
+      cwd,
+      model: model.model,
+      reasoningEffort: model.efforts[0] ?? "",
+    }),
+  );
+  const start = spyOn(Herdr, "startAgent").mockReturnValue(OkAsync(null));
+  let sessionID: string | undefined;
+  try {
+    await ok(AgentHosts.start({ launch, cwd, name: "contract", paneId: "not-a-real-pane" }));
+    sessionID = start.mock.calls[0]?.[0].args[1];
+    if (sessionID === undefined)
+      return expect.unreachable("OpenCode did not provide a session ID.");
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(sessionID).toMatch(/^ses/);
+    expect(start.mock.calls[0]?.[0]).toEqual({
+      name: "contract",
+      paneId: "not-a-real-pane",
+      kind: "opencode",
+      args: ["--session", sessionID],
+    });
+  } finally {
+    start.mockRestore();
+    if (sessionID !== undefined) {
+      expect(
+        await ToolInvocation.run({
+          tool: "opencode",
+          args: ["api", "delete", `/api/session/${sessionID}`],
+          cwd,
+          timeoutMs: 30000,
+        }),
+      ).toMatchObject({ status: "completed", exitCode: 0 });
+    }
+  }
 }, 60000);

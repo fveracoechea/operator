@@ -81,7 +81,7 @@ test.each([
     after:
       'args: ["--model", resolvedModel, "--permission-mode", "bypassPermissions", "--effort", input.reasoningEffort]',
     testFile: "agent-hosts/main.test.ts",
-    pattern: "constructs only model and effort",
+    pattern: "selects the full OpenCode TUI",
   },
   {
     name: "profile ownership",
