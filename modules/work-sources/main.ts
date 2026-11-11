@@ -23,6 +23,7 @@ import {
   type Launch,
   type PullRequest,
   type Message,
+  type Obligation,
   type Question,
   type Report,
 } from "./snapshot.ts";
@@ -792,6 +793,22 @@ function described<T extends object>(
   return row;
 }
 
+/**
+ * What the SuperAgent still owes the person. It is shown beside the actions, not as one, so the
+ * SuperAgent's own addition or close wakes no coordination wait. ADR-0026.
+ */
+function owed(obligations: Obligation[]) {
+  return obligations
+    .filter((row) => row.state === "open")
+    .map(({ key, kind, summary, reference, openedAt }) => ({
+      key,
+      kind,
+      summary,
+      reference,
+      openedAt,
+    }));
+}
+
 function nextActions(input: Input, source: Source, now: number) {
   const decisions = decide(input, source, now);
   // An ended source keeps the cleanup that its completed work still owes.
@@ -814,6 +831,7 @@ function nextActions(input: Input, source: Source, now: number) {
         ...cleanup,
       ],
       waits: decisions.filter((decision) => decision.reason === "cleanup_running"),
+      owed: owed(source.obligations),
     };
   }
   return {
@@ -823,5 +841,6 @@ function nextActions(input: Input, source: Source, now: number) {
       (decision) => decision.action !== "wait" && decision.action !== "ended",
     ),
     waits: decisions.filter((decision) => decision.action === "wait"),
+    owed: owed(source.obligations),
   };
 }

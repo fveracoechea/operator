@@ -3,6 +3,7 @@ import type { DeviceState } from "../device-state/main.ts";
 import { planSchema } from "./plan.ts";
 import { assignmentStateSchema, type AssignmentState } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
+import { Obligations } from "../obligations/main.ts";
 
 type StoredSource = Extract<
   ReturnType<typeof DeviceState.readSources>,
@@ -255,6 +256,21 @@ function validMessages(source: {
   );
 }
 
+// What the SuperAgent owes the person. Next actions show the open ones. ADR-0026.
+const obligationSchema = z
+  .object({
+    key: z.string(),
+    kind: z.enum(Obligations.kinds()),
+    summary: z.string(),
+    reference: z.string().nullable(),
+    openedAt: z.string(),
+    state: z.enum(Obligations.states()),
+    closedAt: z.string().nullable(),
+  })
+  // Only a closed obligation has an end.
+  .refine((row) => (row.state === "closed") === (row.closedAt !== null));
+export type Obligation = z.infer<typeof obligationSchema>;
+
 /** Only an associated PR records an internal review, from one of its assignment's launches. */
 function reviewsConsistent(source: {
   launches: Launch[];
@@ -392,6 +408,7 @@ export function decodeSource(input: StoredSource) {
     internalReviewRounds: z.array(roundSchema).parse(input.internalReviewRounds),
     questions: z.array(questionSchema).parse(input.questions),
     messages: z.array(messageSchema).parse(input.messages),
+    obligations: z.array(obligationSchema).parse(input.obligations),
   };
   const promotions = z.array(promotionSchema).parse(input.promotions);
   const assignments = withPromotions(source.plan, promotions);

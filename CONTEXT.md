@@ -174,6 +174,7 @@ The worker resumes the assignment with those instructions and the prior reports 
 **Next actions**:
 The CLI's applicable actions and waits derived from recorded workflow state and observed facts.
 They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
+Each source also lists its open obligations beside its actions.
 
 **Coordination wait**:
 The SuperAgent's blocking read of next actions, which returns when the set of actions other than waits changes or its timeout ends.
@@ -193,6 +194,11 @@ _Avoid_: supervising pane
 A keyed question that a WorkerAgent records for its supervising SuperAgent, which stays open in next actions until it is answered on the record.
 A question that the SuperAgent passes to the person is a person decision until the human answer is recorded.
 _Avoid_: blocker message, grilling message
+
+**Obligation**:
+A keyed record of what the SuperAgent owes the person in one work source: a PR to share for review, a review reply, a merge hold, a standing rule, or a person decision that no question or brief records yet.
+Next actions list each open obligation beside the actions until the SuperAgent closes it, and its addition or close changes no action set.
+_Avoid_: promise, todo, commitment in chat
 
 **Steering message**:
 A recorded instruction from a SuperAgent, or from an operation that it runs, to a running WorkerAgent, which stays pending until the worker acknowledges it.

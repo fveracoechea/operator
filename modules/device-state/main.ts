@@ -67,6 +67,7 @@ import {
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
 import { changeQuestion, readQuestion } from "./questions.ts";
 import { changeMessage, readMessage } from "./messages.ts";
+import { changeObligation, readObligations } from "./obligations.ts";
 import {
   changeReviewRequest,
   readReviewRequest,
@@ -202,6 +203,18 @@ export const DeviceState = {
   },
   readMessage(paths: Paths, target: ReportTarget, key: string) {
     return reading(paths, (client) => readMessage(client, target, key));
+  },
+  /** Apply one obligation change that the caller's rule decides from facts read in the same transaction. */
+  changeObligation<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: Parameters<typeof readObligations>[1],
+    key: string,
+    decide: Parameters<typeof changeObligation<E>>[3],
+  ) {
+    return writing(paths, (client) => changeObligation(client, target, key, decide));
+  },
+  readObligations(paths: Paths, target: Parameters<typeof readObligations>[1]) {
+    return reading(paths, (client) => readObligations(client, target));
   },
   launchNames(paths: Paths) {
     return reading(paths, (client) => launchNames(client));

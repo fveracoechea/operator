@@ -363,6 +363,25 @@ export const workerMessages = sqliteTable(
   ],
 );
 
+// What the SuperAgent owes the person in a source, keyed within it. It stays open until the
+// SuperAgent closes it, so the commitment does not depend on the conversation. ADR-0026.
+export const obligations = sqliteTable(
+  "obligations",
+  {
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => sources.id),
+    key: text().notNull(),
+    kind: text().notNull(),
+    summary: text().notNull(),
+    reference: text(),
+    openedAt: text("opened_at").notNull(),
+    state: text().notNull(),
+    closedAt: text("closed_at"),
+  },
+  (table) => [primaryKey({ columns: [table.sourceId, table.key] })],
+);
+
 // A review request is not an assignment. One request per PR is open until it is closed or skipped.
 // An approved request stays open, so a renewed request reopens it. The approval cleans up its reviewer.
 export const reviewRequests = sqliteTable(
