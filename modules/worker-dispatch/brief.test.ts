@@ -523,8 +523,8 @@ Run \`operator pr associate --json\` in your worktree before your first wait.`);
   const draft = renderBrief({ ...input, adoption: { ...adoption, draft: true } });
   expect(draft).toContain("You adopt draft PR #41");
   expect(draft).toContain(
-    "Internal review is off for this assignment.\nTarget the default branch.",
+    "Internal review is off for this assignment.\nMark the draft ready for review with `gh pr ready` before your first wait, because the merge needs a ready PR.\nTarget the default branch.",
   );
-  expect(draft).not.toContain("ready for review");
+  expect(draft).not.toContain("The PR is ready for review");
   for (const brief of [ready, draft]) expect(superAgentMessages(brief)).toEqual([]);
 });

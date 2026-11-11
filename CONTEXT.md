@@ -211,7 +211,7 @@ _Avoid_: conversion, report upgrade
 **Adoption**:
 A PR assignment's start on an open PR that Operator did not create, named by its number in the plan.
 Dispatch puts the PR's own branch in a new worktree, and the owner reads the PR and its threads, associates it, and runs the PR feedback loop.
-A ready PR gets no internal review, and a draft keeps it.
+A ready PR gets no internal review, and a draft keeps the resolved setting.
 _Avoid_: takeover, import
 
 **PR feedback loop**:

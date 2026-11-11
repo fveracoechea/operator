@@ -37,7 +37,7 @@ Add a PR assignment with `adopt` set to the PR number and `branch` set to its he
 
 Dispatch reads the PR, puts the branch at the PR head in a new worktree, and starts the owner.
 The owner's brief tells it to read the PR, its reviews, comments, unresolved threads, and checks, to associate the PR, and then to run its feedback loop.
-A ready PR gets no internal review. A draft keeps it, so its owner associates the draft and a fresh reviewer takes over.
+A ready PR gets no internal review. A draft keeps the resolved setting: with internal review on, its owner associates the draft and a fresh reviewer takes over, and with it off, its owner marks the draft ready.
 Dispatch refuses and changes nothing on these reasons. The detail names the PR, branch, or worktree.
 
 - `adopt_pr_not_open`, `adopt_pr_branch_mismatch`: the PR is closed or merged, or its head is another branch or a fork. Fix the plan in a new source.

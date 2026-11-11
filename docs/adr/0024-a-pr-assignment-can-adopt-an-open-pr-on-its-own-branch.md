@@ -37,6 +37,7 @@ A PR that is ready for review when dispatch reads it gets no internal review: th
 A ready PR is already in front of reviewers, and the internal review exists to run before that point.
 Turning it back to a draft would hide it from people who already review it, and an approval or thread that exists stays valid only on a ready PR.
 A draft keeps the resolved setting, so with internal review on, its owner works as the implementer and the association hands the draft to a fresh reviewer.
+With it off, the owner marks the draft ready before its first wait, because the merge gate needs a ready PR.
 
 ## Consequences
 

@@ -179,9 +179,12 @@ ${[
     input.pullRequest === null && input.adoption !== null
       ? [
           ...adopted(input.adoption),
-          input.adoption.draft
-            ? "Internal review is off for this assignment."
-            : "The PR is ready for review, so it gets no internal review.",
+          ...(input.adoption.draft
+            ? [
+                "Internal review is off for this assignment.",
+                "Mark the draft ready for review with `gh pr ready` before your first wait, because the merge needs a ready PR.",
+              ]
+            : ["The PR is ready for review, so it gets no internal review."]),
           base,
           "Push your fixes with `git push -u`, so Git records the remote of your branch.",
           "Run `operator pr associate --json` in your worktree before your first wait. It records the PR for this assignment.",
