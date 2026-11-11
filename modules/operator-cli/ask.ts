@@ -64,7 +64,7 @@ async function dispatchQuestion(
 
 /**
  * Registers a research question as its own report source and dispatches its worker. A failed
- * dispatch keeps the registered source, so its detail names the dispatch to run again. ADR-0025.
+ * dispatch keeps the registered source, so its detail names the dispatch to run again. ADR-0027.
  */
 export async function runAsk(
   args: string[],

@@ -1,4 +1,4 @@
-# ADR-0025: A question becomes a one-assignment report source in one command
+# ADR-0027: A question becomes a one-assignment report source in one command
 
 ## Status
 

@@ -139,7 +139,7 @@ function questionKey(question: string) {
 /**
  * The plan of one research question: one read-only report assignment in its own source. Each
  * question gets a new tracker key, so asking the same question again never meets an open
- * parent. The question stays quoted, so its text cannot open a brief section. ADR-0025.
+ * parent. The question stays quoted, so its text cannot open a brief section. ADR-0027.
  */
 export function questionPlan(question: string, profile: string | undefined) {
   const trackerKey = `ask:${crypto.randomUUID().slice(0, 8)}`;
