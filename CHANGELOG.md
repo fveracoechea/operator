@@ -1,5 +1,16 @@
 # @fveracoechea/operator
 
+## 2.3.1
+
+### Patch Changes
+
+- 009a5f6: Correct the Claude turn-end guard integration test for session-scoped coordination waits.
+  Consume the other session's initial wait result before checking its background wait.
+  This fixes the reproducible release-check failure without changing runtime behavior or weakening session isolation.
+- 0690538: Add reusable OpenCode v2 `super` and `worker` Markdown agents under `agents/opencode/`.
+  Each mode loads its matching Operator skill before other tool calls.
+  Shared prompts and permissions replace the inline SuperAgent configuration while dotfiles retain machine-specific model overrides.
+
 ## 2.3.0
 
 ### Minor Changes
