@@ -20,18 +20,19 @@ export const AgentGuards = {
     );
   },
   /**
-   * The reason to keep a SuperAgent's turn going in a Herdr pane. It answers a reason while the
-   * pane's sources have running work and no wait from that pane covers them. The host bounds how
-   * often it acts on a reason, so a SuperAgent that the person told to stop can still stop.
+   * The reason to keep a SuperAgent session's turn going. It answers a reason while the sources
+   * that the session supervises have running work and no wait from that session covers them.
+   * Another session, also one in the same pane, gets none. The host bounds how often it acts on a
+   * reason, so a SuperAgent that the person told to stop can still stop.
    * State that is missing, blocked, or unreadable lets the turn end, because the guard is a nudge.
    */
-  turnEnd(input: { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string; paneId: string }) {
+  turnEnd(input: { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string; session: string }) {
     const unwatched = WorkSources.unwatched(input);
     if (unwatched.tag === "Err") return OkAsync(null);
     return unwatched
       .map((sources) =>
         sources.length > 0
-          ? `This pane supervises running work in ${sources.join(", ")}, and no coordination wait runs from it. Start operator next --wait --json as a background command from the project checkout. Worker events then reach you as a new turn, so end your turn after you start it.`
+          ? `This session supervises running work in ${sources.join(", ")}, and no coordination wait runs from it. Start operator next --wait --json as a background command from the project checkout. Worker events then reach you as a new turn, so end your turn after you start it.`
           : null,
       )
       .toAsync();

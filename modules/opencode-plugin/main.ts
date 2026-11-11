@@ -1,10 +1,9 @@
 import path from "node:path";
-import { Err, Ok, OkAsync, fromPromise, fromSafePromise, fromThrowable } from "unthrown";
+import { Err, Ok, fromPromise, fromThrowable } from "unthrown";
 import { z } from "zod";
 import { isCodedError } from "../../lib/coded-error.ts";
 import { AgentGuards } from "../agent-guards/main.ts";
 import { Environment } from "../environment/main.ts";
-import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { installPlugin } from "./install.ts";
 
@@ -21,28 +20,6 @@ const eventSchema = z.discriminatedUnion("event", [
   }),
   z.object({ event: z.literal("session.idle"), directory: z.string(), sessionID: z.string() }),
 ]);
-
-/**
- * The pane of an OpenCode session comes from Herdr, because one shared OpenCode server runs every
- * session and its environment names the pane that started the server. A session that Herdr does
- * not map, such as a subagent's, or a Herdr that does not answer, supervises nothing.
- */
-function idle(input: {
-  paths: ReturnType<typeof OperatorHome.resolve>;
-  sessionID: string;
-  cwd: string;
-}) {
-  return fromSafePromise(async () => Herdr.panes()).flatMap((panes) => {
-    if (panes.tag === "Err") return OkAsync("");
-    return panes.toAsync().flatMap((rows) => {
-      const paneId = rows.find((row) => row.agentSession === input.sessionID)?.paneId;
-      if (paneId === undefined) return OkAsync("");
-      return AgentGuards.turnEnd({ paths: input.paths, cwd: input.cwd, paneId }).map(
-        (reason) => reason ?? "",
-      );
-    });
-  });
-}
 
 /**
  * Operator's OpenCode plugin file and the answers that `operator opencode hook` gives it.
@@ -71,7 +48,13 @@ export const OpenCodePlugin = {
       .toAsync()
       .flatMap((parsed) =>
         parsed.event === "session.idle"
-          ? idle({ paths: input.paths, sessionID: parsed.sessionID, cwd: parsed.directory })
+          ? // The idle session itself is the supervisor that the guard asks for, so a subagent's
+            // session or another session in the supervising pane gets no reason.
+            AgentGuards.turnEnd({
+              paths: input.paths,
+              cwd: parsed.directory,
+              session: parsed.sessionID,
+            }).map((reason) => reason ?? "")
           : AgentGuards.commit({
               command: parsed.input.command,
               cwd: path.resolve(parsed.directory, parsed.input.workdir ?? "."),

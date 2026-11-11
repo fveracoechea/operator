@@ -2,7 +2,7 @@ import { WorkSources } from "../work-sources/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 
-const sourceCommands = ["register", "show", "reset", "prune"] as const;
+const sourceCommands = ["register", "show", "reset", "take-over", "prune"] as const;
 const defaultTimeoutSeconds = 300;
 
 // Each operation's value flag. Only prune and next run without their value.
@@ -10,6 +10,7 @@ const valueFlags = {
   register: "--file",
   show: "--source",
   reset: "--source",
+  "take-over": "--source",
   prune: null,
   next: "--source",
 } as const;
@@ -30,7 +31,11 @@ export function sourceArgs(args: string[]) {
       ? waitFlags(args.slice(1))
       : { flags: args.slice(2), wait: false, timeoutSeconds: undefined };
   if (waiting === null) return null;
-  const flags = sourceFlags(waiting.flags, valueFlags[operation], operation === "reset");
+  const flags = sourceFlags(
+    waiting.flags,
+    valueFlags[operation],
+    operation === "reset" || operation === "take-over",
+  );
   if (flags === null) return null;
   const { value, personInstructed } = flags;
   if (waiting.wait)
@@ -100,6 +105,7 @@ const completed = {
   register: "source_registered",
   show: "source_read",
   reset: "source_reset",
+  "take-over": "source_taken_over",
   prune: "sources_pruned",
   next: "next_actions_read",
 } as const;
@@ -114,6 +120,12 @@ function execute(
   if (parsed.operation === "show") return WorkSources.show({ ...input, sourceId: parsed.sourceId });
   if (parsed.operation === "reset")
     return WorkSources.reset({
+      ...input,
+      sourceId: parsed.sourceId,
+      personInstructed: parsed.personInstructed,
+    });
+  if (parsed.operation === "take-over")
+    return WorkSources.takeOver({
       ...input,
       sourceId: parsed.sourceId,
       personInstructed: parsed.personInstructed,
@@ -144,7 +156,7 @@ export async function runSources(
         }));
   const operation = parsed.operation.startsWith("next")
     ? parsed.operation
-    : `source_${parsed.operation}`;
+    : `source_${parsed.operation.replace("-", "_")}`;
   respond({
     operation,
     result,

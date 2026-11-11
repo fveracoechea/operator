@@ -25,7 +25,7 @@ For task instructions, authority, what you do yourself, and the stops that need 
 For an answer to the person with a table or more than about 15 lines, read [answers.md](answers.md).
 To ask the person anything, or for a worker question, `answer_question`, or a `person_decision` for a question, read [questions.md](questions.md).
 For device setup and owned skills, read [setup.md](setup.md).
-For supplied assignment plans, dependency blockers, next actions, source reset, or prune, read [sources.md](sources.md).
+For supplied assignment plans, dependency blockers, next actions, `source_supervised_elsewhere`, a take-over, source reset, or prune, read [sources.md](sources.md).
 For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).
 To tell a running worker anything, or for `read_reply`, `doorbell_failed`, or `message_unacknowledged`, read [steering.md](steering.md).
 For PR owners, an open PR that Operator did not create, a PR stack, `owner_attention`, a replaced PR owner, an internal review handoff, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).

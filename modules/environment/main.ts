@@ -17,6 +17,10 @@ const schema = z.object({
   HERDR_PANE_ID: z.string().min(1).optional(),
   HERDR_PLUGIN_EVENT: z.string().min(1).optional(),
   HERDR_PLUGIN_EVENT_JSON: z.string().min(1).optional(),
+  // The agent hosts name the session that runs a shell command. Empty text names none, and the
+  // CLI never refuses to start over a session value.
+  OPENCODE_SESSION_ID: z.string().min(1).optional().catch(undefined),
+  CLAUDE_CODE_SESSION_ID: z.string().min(1).optional().catch(undefined),
 });
 type EnvironmentValues = z.infer<typeof schema>;
 let snapshot: Record<string, string | undefined> | undefined;
@@ -31,6 +35,17 @@ export const Environment = {
     snapshot ??= { ...process.env };
     validated ??= schema.parse(snapshot);
     return validated;
+  },
+  /**
+   * The Herdr pane and the agent session that run this command, when the hosts name them.
+   * OpenCode names its session for each shell command, so it wins over a Claude Code session that
+   * a shared OpenCode server inherited from the pane that started it.
+   */
+  caller(values: EnvironmentValues = Environment.read()) {
+    return {
+      pane: values.HERDR_PANE_ID ?? null,
+      session: values.OPENCODE_SESSION_ID ?? values.CLAUDE_CODE_SESSION_ID ?? null,
+    };
   },
   child(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
     const values = Environment.read();

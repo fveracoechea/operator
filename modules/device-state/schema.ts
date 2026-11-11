@@ -26,8 +26,10 @@ export const sources = sqliteTable(
     registeredAt: text("registered_at").notNull(),
     endedAt: text("ended_at"),
     plan: text().notNull(),
-    // The Herdr pane that last ran the source's coordination wait or dispatched its work.
+    // The Herdr pane and the agent session that last ran the source's coordination wait or
+    // dispatched its work. Only that session coordinates the source until a take-over.
     supervisingPane: text("supervising_pane"),
+    supervisingSession: text("supervising_session"),
   },
   (table) => [
     uniqueIndex("one_open_parent")
@@ -480,7 +482,8 @@ export const slackWatches = sqliteTable("slack_watches", {
 });
 
 // A reply or a reaction that the CLI generated and an agent transports through Slack MCP tools.
-// An acknowledgement marks it done. A pending effect survives a restart.
+// An acknowledgement marks it done, and a person-instructed drop marks it dropped unsent.
+// A pending effect survives a restart.
 export const slackEffects = sqliteTable(
   "slack_effects",
   {
@@ -516,10 +519,12 @@ export const coordinationWaits = sqliteTable(
     scope: text().notNull(),
     actions: text(),
     returnedAt: text("returned_at"),
-    // The waiting process, its lease, and its Herdr pane. A gone process or a stale lease is no wait.
+    // The waiting process, its lease, its Herdr pane, and its agent session. A gone process or a
+    // stale lease is no wait.
     ownerPid: integer("owner_pid"),
     leaseAt: text("lease_at"),
     paneId: text("pane_id"),
+    session: text(),
     startedAt: text("started_at"),
   },
   (table) => [primaryKey({ columns: [table.repository, table.scope] })],
