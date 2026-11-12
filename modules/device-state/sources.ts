@@ -253,7 +253,15 @@ export function controlledSource(db: Db, target: ControlledSource) {
 export type EndFacts = {
   source: SourceRow;
   assignments: AssignmentRow[];
-  launches: { assignment: string; state: string; abandoned: boolean; paneId: string | null }[];
+  launches: {
+    id: string;
+    name: string;
+    assignment: string;
+    state: string;
+    abandoned: boolean;
+    paneId: string | null;
+    herdrSocket: string | null;
+  }[];
   cleanups: { state: string }[];
   reports: { decision: string | null; cleanupState: string | null }[];
 };
@@ -269,10 +277,13 @@ function endFacts(db: Db, source: SourceRow): EndFacts {
       .where(eq(launches.sourceId, source.id))
       .all()
       .map((launch) => ({
+        id: launch.id,
+        name: launch.name,
         assignment: launch.assignment,
         state: launch.state,
         abandoned: launch.state === "starting" && ownerGone(launch, now),
         paneId: launch.paneId,
+        herdrSocket: launch.herdrSocket,
       })),
     cleanups: db
       .select({ state: cleanups.state })
@@ -341,14 +352,31 @@ function retainedResources(db: Db, sourceId: string) {
 export function resetSource<E extends { reason: string; detail: string }>(
   client: Database,
   target: ControlledSource,
-  decide: (facts: EndFacts) => Result<{ abandon: string[] }, E>,
+  decide: (facts: EndFacts) => Result<{ abandon: string[]; interrupted?: string[] }, E>,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
       controlledSource(db, target).flatMap(
         (source): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> =>
-          decide(endFacts(db, source)).map(({ abandon }) => {
+          decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
             const endedAt = new Date().toISOString();
+            if (interrupted !== undefined)
+              db.update(launches)
+                .set({
+                  state: "interrupted",
+                  endedAt,
+                  failureReason: "pane_missing",
+                  failureDetail:
+                    "Herdr confirmed that the worker pane and named agent no longer exist.",
+                })
+                .where(
+                  and(
+                    eq(launches.sourceId, source.id),
+                    eq(launches.state, "running"),
+                    inArray(launches.id, interrupted),
+                  ),
+                )
+                .run();
             // An empty list matches no assignment.
             db.update(assignments)
               .set({ state: "abandoned" })

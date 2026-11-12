@@ -68,7 +68,8 @@ test.each([
     before:
       ".where(and(eq(sources.id, target.sourceId), eq(sources.repository, target.repository)))",
     after: ".where(eq(sources.id, target.sourceId))",
-    pattern: refusals,
+    pattern: "reset checks source ownership inside its transaction",
+    testFile: "device-state/sources.test.ts",
   },
   {
     name: "14-day retention",

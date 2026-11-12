@@ -116,6 +116,11 @@ Reset a source only when the person tells you to end it. Never reset on your own
 Run `operator source reset --source <source-id> --person-instructed --json` from the controlling checkout.
 `--person-instructed` attests the person's instruction. It does not grant authority.
 Reset refuses with `source_worker_running` while a worker of the source runs or starts. The detail names each pane. Close that pane in Herdr, so that the Operator Herdr plugin records its end, then reset again. Run `operator herdr install` first when the plugin is missing or from another release.
+If a recorded running worker disappeared without an event, reset can recover it from the same Herdr session that launched it.
+Herdr must confirm that both its recorded pane and its named agent are absent.
+Reset records that launch as `interrupted` with `pane_missing` in the same transaction that ends the source.
+A live pane, a moved named agent, a different socket, or a failed Herdr query does not authorize recovery.
+If any worker still blocks reset, no launch or assignment changes.
 It refuses with `source_ended` for a finished or reset source.
 Reset keeps merged PR assignments and completed reports, and marks every other assignment `abandoned`.
 It removes no worktree, branch, or pane, closes no PR, and changes no tracker content.

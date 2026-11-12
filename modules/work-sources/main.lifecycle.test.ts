@@ -3,11 +3,12 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Err, fromThrowable, Ok } from "unthrown";
+import { Err, fromThrowable, Ok, OkAsync } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
+import { Herdr } from "../herdr/main.ts";
 import { WorkSources } from "./main.ts";
 
 const day = 24 * 60 * 60 * 1000;
@@ -110,6 +111,7 @@ function launch(sourceId: string, key: string, state: "running" | "failed") {
     }).tag,
   ).toBe("Ok");
   expect(DeviceState.updateLaunch(paths, id, { state, paneId: `w1:${key}` }).tag).toBe("Ok");
+  return id;
 }
 
 function reset(sourceId: string, personInstructed = true) {
@@ -268,6 +270,124 @@ test("reset refuses a running worker and corrupt records", async () => {
     mock.restore();
   }
   expect(await shown(sourceId)).toMatchObject({ state: "open" });
+});
+
+test("reset retires a missing worker and preserves its unlanded work", async () => {
+  const sourceId = await registered(["read"]);
+  launch(sourceId, "read", "running");
+  await Bun.write(`${root}/worktrees/read/uncommitted.txt`, "keep this work\n", {
+    createPath: true,
+  });
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_SOCKET_PATH: "/herdr.sock",
+  });
+  const panes = spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+  const names = spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+  const closed = spyOn(Herdr, "closePane");
+
+  expect(await reset(sourceId)).toMatchObject({
+    tag: "Ok",
+    value: {
+      state: "reset",
+      abandoned: ["read"],
+      retained: [{ worktreePath: `${root}/worktrees/read`, branch: "task/read" }],
+    },
+  });
+  expect(panes).toHaveBeenCalledWith("w1:read");
+  expect(names).toHaveBeenCalledTimes(1);
+  expect(closed).not.toHaveBeenCalled();
+  expect(await shown(sourceId)).toMatchObject({
+    assignments: [{ key: "read", state: "abandoned" }],
+    launches: [{ state: "interrupted", failureReason: "pane_missing" }],
+  });
+  expect(await Bun.file(`${root}/worktrees/read/uncommitted.txt`).text()).toBe("keep this work\n");
+});
+
+test("a live worker prevents retirement of every missing worker", async () => {
+  const sourceId = await registered(["gone", "live"]);
+  launch(sourceId, "gone", "running");
+  launch(sourceId, "live", "running");
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_SOCKET_PATH: "/herdr.sock",
+  });
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+  spyOn(Herdr, "pane").mockImplementation((id) =>
+    OkAsync(id === "w1:gone" ? null : { tabId: "w1:t1", workspaceId: "w1" }),
+  );
+  const before = await shown(sourceId);
+  expect(await reset(sourceId)).toMatchObject({
+    tag: "Err",
+    error: { reason: "source_worker_running" },
+  });
+  expect(await shown(sourceId)).toEqual(before);
+});
+
+test("reset includes assignments promoted after the registered plan in its ordered results", async () => {
+  const sourceId = await registered(["read"]);
+  const original = DeviceState.resetSource;
+  spyOn(DeviceState, "resetSource").mockImplementation((p, target, decide) =>
+    original(p, target, (facts) =>
+      decide({
+        ...facts,
+        assignments: [
+          { sourceId, key: "build", completion: "pr", state: "ready" },
+          ...facts.assignments,
+          { sourceId, key: "done", completion: "report", state: "completed" },
+        ],
+      }),
+    ),
+  );
+  expect(await reset(sourceId)).toMatchObject({
+    tag: "Ok",
+    value: {
+      state: "reset",
+      preserved: ["done"],
+      abandoned: ["read", "build"],
+    },
+  });
+});
+
+test("a changed launch identity or new worker between observation and reset stays protected", async () => {
+  for (const change of ["pane", "new-launch"] as const) {
+    const sourceId = await registered(["one", "two"], `APP-${change}`);
+    launch(sourceId, "one", "running");
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+    });
+    spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+    const original = DeviceState.resetSource;
+    if (change === "pane")
+      spyOn(DeviceState, "resetSource").mockImplementation((p, target, decide) =>
+        original(p, target, (facts) =>
+          decide({
+            ...facts,
+            launches: facts.launches.map((worker) => ({ ...worker, paneId: "w2:p1" })),
+          }),
+        ),
+      );
+    spyOn(Herdr, "pane").mockImplementationOnce(() => {
+      if (change === "new-launch") launch(sourceId, "two", "running");
+      return OkAsync(null);
+    });
+    expect(await reset(sourceId)).toMatchObject({
+      tag: "Err",
+      error: { reason: "source_worker_running" },
+    });
+    const after = await shown(sourceId);
+    expect(after).toMatchObject({ state: "open" });
+    expect(after?.launches.map((worker) => [worker.state, worker.failureReason])).toEqual(
+      change === "pane"
+        ? [["running", null]]
+        : [
+            ["running", null],
+            ["running", null],
+          ],
+    );
+    mock.restore();
+  }
 });
 
 test("prune deletes an ended source only after its retention", async () => {

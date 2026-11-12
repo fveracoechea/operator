@@ -90,6 +90,21 @@ function endedDatabase() {
 }
 const target = { repository: project.repository, checkout: project.checkout, sourceId: "one" };
 
+test("reset checks source ownership inside its transaction", () => {
+  using db = endedDatabase();
+  const other = { ...project, repository: "owner/two", checkout: "/isolated/two" };
+  expect(registerProject(db, other).tag).toBe("Ok");
+  const before = db.serialize();
+  expect(
+    resetSource(
+      db,
+      { repository: other.repository, checkout: other.checkout, sourceId: "one" },
+      () => Ok({ abandon: ["open"] }),
+    ),
+  ).toMatchObject({ tag: "Err", error: { reason: "source_not_found" } });
+  expect(db.serialize()).toEqual(before);
+});
+
 test("reset applies the caller's rule to facts from its own transaction", () => {
   using db = endedDatabase();
   db.exec(
@@ -135,6 +150,80 @@ test("reset applies the caller's rule to facts from its own transaction", () => 
     .get();
   expect(row?.state).toBe("reset");
   expect(Number.isNaN(Date.parse(row?.ended_at ?? ""))).toBe(false);
+});
+
+test("reset interrupts only selected running launches in its source", () => {
+  using db = endedDatabase();
+  expect(
+    registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, []).tag,
+  ).toBe("Ok");
+  db.exec("INSERT INTO assignments VALUES ('two', 'open', 'pr', 'running')");
+  for (const [id, sourceId, state, attempt] of [
+    ["missing", "one", "running", 1],
+    ["other", "one", "running", 2],
+    ["starting", "one", "starting", 3],
+    ["finished", "one", "finished", 4],
+    ["foreign", "two", "running", 1],
+  ] as const)
+    insertRow(db, "launches", {
+      id,
+      source_id: sourceId,
+      assignment: "open",
+      attempt,
+      state,
+      name: `worker-${id}`,
+      pane_id: `w1:${id}`,
+      herdr_socket: "/herdr.sock",
+    });
+  expect(
+    resetSource(db, target, (facts) => {
+      expect(facts.launches.find((worker) => worker.id === "missing")).toMatchObject({
+        id: "missing",
+        name: "worker-missing",
+        state: "running",
+        paneId: "w1:missing",
+        herdrSocket: "/herdr.sock",
+      });
+      return Ok({ abandon: ["open"], interrupted: ["missing", "starting", "finished", "foreign"] });
+    }),
+  ).toMatchObject({ tag: "Ok", value: { source: { state: "reset" } } });
+  expect(db.query("SELECT id, state FROM launches ORDER BY id").all()).toEqual([
+    { id: "finished", state: "finished" },
+    { id: "foreign", state: "running" },
+    { id: "missing", state: "interrupted" },
+    { id: "other", state: "running" },
+    { id: "starting", state: "starting" },
+  ]);
+  const endedAt = db.query("SELECT ended_at FROM sources WHERE id = 'one'").get();
+  expect(db.query("SELECT ended_at FROM launches WHERE id = 'missing'").get()).toEqual(endedAt);
+  expect(
+    db.query("SELECT failure_reason, failure_detail FROM launches WHERE id = 'missing'").get(),
+  ).toEqual({
+    failure_reason: "pane_missing",
+    failure_detail: "Herdr confirmed that the worker pane and named agent no longer exist.",
+  });
+  expect(
+    db.query("SELECT state FROM assignments WHERE source_id = 'one' AND key = 'open'").get(),
+  ).toEqual({ state: "abandoned" });
+});
+
+test("a failed reset rolls back missing-worker interruption and assignment abandonment", () => {
+  using db = endedDatabase();
+  insertRow(db, "launches", {
+    id: "missing",
+    source_id: "one",
+    assignment: "open",
+    attempt: 1,
+    state: "running",
+  });
+  db.exec(
+    `CREATE TRIGGER refuse_reset BEFORE UPDATE ON sources BEGIN SELECT RAISE(ABORT, 'reset refused'); END`,
+  );
+  const before = db.serialize();
+  expect(
+    resetSource(db, target, () => Ok({ abandon: ["open"], interrupted: ["missing"] })).tag,
+  ).not.toBe("Ok");
+  expect(db.serialize()).toEqual(before);
 });
 
 test("prune deletes files and records together, and a refused path keeps both", async () => {

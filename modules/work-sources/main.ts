@@ -42,6 +42,7 @@ import {
 } from "./coordination.ts";
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
+import { missingWorkers } from "./missing-workers.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
@@ -322,61 +323,77 @@ export const WorkSources = {
         detail:
           "Reset a source only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
       });
-    return Projects.current(input).flatMap(({ data: project }) => {
-      // Stryker disable next-line ArrayDeclaration: equivalent: the reset rule sets both lists before any success reads them
-      let preserved: string[] = [];
-      // Stryker disable next-line ArrayDeclaration: equivalent: the reset rule sets both lists before any success reads them
-      let abandoned: string[] = [];
-      return DeviceState.resetSource(
-        input.paths,
-        { repository: project.repository, checkout: project.checkout, sourceId: input.sourceId },
-        (facts): Result<{ abandon: string[] }, ResetRefusal> => {
-          const parsed = z.array(assignmentStateSchema).safeParse(facts.assignments);
-          // Any failure to read the stored plan is corruption.
-          const plan = fromThrowable(
-            () => planSchema.parse(JSON.parse(facts.source.plan)),
-            // Stryker disable next-line ArrowFunction: equivalent: every failed plan read ends as the same state_corrupt refusal
-            () => null,
-          )();
-          if (!parsed.success || plan.tag !== "Ok")
-            return Err({
-              reason: "state_corrupt" as const,
-              detail:
-                "The source assignments are invalid. They were not repaired. Nothing changed.",
-            });
-          return decideReset({
-            state: facts.source.state,
-            assignments: parsed.data,
-            workers: facts.launches.filter(liveWorker),
-          }).map((change) => {
-            // Promoted assignments follow the registered ones. ADR-0023.
-            const registered = plan.value.assignments.map((assignment) => assignment.key);
-            const keys = [
-              ...registered,
-              ...parsed.data.map((row) => row.key).filter((key) => !registered.includes(key)),
-            ];
-            abandoned = keys.filter((key) => change.abandon.includes(key));
-            // An assignment that was abandoned before the reset is neither kept nor changed.
-            preserved = keys.filter(
-              (key) =>
-                !change.abandon.includes(key) &&
-                parsed.data.find((row) => row.key === key)?.state !== "abandoned",
-            );
-            return change;
-          });
-        },
-      ).map(({ source, retained }) => ({
-        id: source.id,
-        trackerKey: source.trackerKey,
-        state: source.state,
-        endedAt: source.endedAt,
-        // Stryker disable next-line ArrayDeclaration: equivalent: the prunable time depends only on the state and the end time
-        prunableAt: retention({ ...source, launches: [], cleanups: [], reports: [] }, 0).prunableAt,
-        preserved,
-        abandoned,
-        retained,
-      }));
-    });
+    return Projects.current(input).flatMap(({ data: project }) =>
+      DeviceState.readSources(input.paths, project.repository, input.sourceId)
+        .toAsync()
+        .flatMap((sources) => missingWorkers(sources.flatMap((source) => source.launches)))
+        .flatMap((isMissing) => {
+          // Stryker disable next-line ArrayDeclaration: equivalent: the reset rule sets both lists before any success reads them
+          let preserved: string[] = [];
+          // Stryker disable next-line ArrayDeclaration: equivalent: the reset rule sets both lists before any success reads them
+          let abandoned: string[] = [];
+          return DeviceState.resetSource(
+            input.paths,
+            {
+              repository: project.repository,
+              checkout: project.checkout,
+              sourceId: input.sourceId,
+            },
+            (facts): Result<{ abandon: string[]; interrupted: string[] }, ResetRefusal> => {
+              const parsed = z.array(assignmentStateSchema).safeParse(facts.assignments);
+              // Any failure to read the stored plan is corruption.
+              const plan = fromThrowable(
+                () => planSchema.parse(JSON.parse(facts.source.plan)),
+                // Stryker disable next-line ArrowFunction: equivalent: every failed plan read ends as the same state_corrupt refusal
+                () => null,
+              )();
+              if (!parsed.success || plan.tag !== "Ok")
+                return Err({
+                  reason: "state_corrupt" as const,
+                  detail:
+                    "The source assignments are invalid. They were not repaired. Nothing changed.",
+                });
+              return decideReset({
+                state: facts.source.state,
+                assignments: parsed.data,
+                workers: facts.launches.filter(
+                  (launch) => liveWorker(launch) && !isMissing(launch),
+                ),
+              }).map((change) => {
+                // Promoted assignments follow the registered ones. ADR-0023.
+                const registered = plan.value.assignments.map((assignment) => assignment.key);
+                const keys = [
+                  ...registered,
+                  ...parsed.data.map((row) => row.key).filter((key) => !registered.includes(key)),
+                ];
+                abandoned = keys.filter((key) => change.abandon.includes(key));
+                // An assignment that was abandoned before the reset is neither kept nor changed.
+                preserved = keys.filter(
+                  (key) =>
+                    !change.abandon.includes(key) &&
+                    parsed.data.find((row) => row.key === key)?.state !== "abandoned",
+                );
+                return {
+                  ...change,
+                  // Stryker disable next-line MethodExpression: equivalent: reset has refused every unobserved running launch, and the transaction updates only running rows
+                  interrupted: facts.launches.filter(isMissing).map((launch) => launch.id),
+                };
+              });
+            },
+          ).map(({ source, retained }) => ({
+            id: source.id,
+            trackerKey: source.trackerKey,
+            state: source.state,
+            endedAt: source.endedAt,
+            // Stryker disable next-line ArrayDeclaration: equivalent: the prunable time depends only on the state and the end time
+            prunableAt: retention({ ...source, launches: [], cleanups: [], reports: [] }, 0)
+              .prunableAt,
+            preserved,
+            abandoned,
+            retained,
+          }));
+        }),
+    );
   },
   /**
    * Delete every ended source of the project whose 14-day retention has passed. A source with

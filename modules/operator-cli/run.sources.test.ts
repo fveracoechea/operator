@@ -110,6 +110,77 @@ const plan = {
   ],
 };
 
+test("reset recovers a confirmed missing worker but refuses ambiguous or live observations", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  const registered = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+  const id = z.object({ data: z.object({ id: z.uuid() }) }).parse(registered.output).data.id;
+  const database = `${root}/state/operator/operator.sqlite`;
+  const worktree = `${root}/unlanded`;
+  await Bun.write(`${worktree}/keep.txt`, "uncommitted work\n", { createPath: true });
+  {
+    using db = new Database(database);
+    db.query(`INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at, pane_id, herdr_socket, worktree_path)
+      VALUES ('missing', ?, 'investigate', 1, 'running', 'worker-gone', 'worktree', 'task/keep', 'opencode', 'm', 'm', 'medium', '{"version":"1"}', '[]', 'now', 'w1:p1', '/herdr.sock', ?)`).run(
+      id,
+      worktree,
+    );
+    db.exec("UPDATE assignments SET state = 'running' WHERE key = 'investigate'");
+  }
+  await Bun.write(
+    `${root}/tools/herdr`,
+    `#!${process.execPath}
+const mode = await Bun.file(${JSON.stringify(`${root}/herdr-mode`)}).text();
+const args = process.argv.slice(2);
+if (args.join(' ') === 'agent list') {
+  console.log(JSON.stringify({ result: { agents: mode === 'moved' ? [{ name: 'worker-gone' }] : [] } }));
+} else if (args.join(' ') === 'pane get w1:p1') {
+  if (mode === 'ambiguous') console.log('not-json');
+  else if (mode === 'live') console.log(JSON.stringify({ result: { pane: { pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' } } }));
+  else { console.log(JSON.stringify({ error: { code: 'pane_not_found' } })); process.exit(1); }
+} else { await Bun.write(${JSON.stringify(`${root}/external-called`)}, args.join(' ')); process.exit(99); }
+`,
+  );
+  const args = ["source", "reset", "--source", id, "--person-instructed"];
+  const env = { HERDR_SOCKET_PATH: "/herdr.sock" };
+  function records() {
+    using db = new Database(database, { readonly: true });
+    return {
+      sources: db.query("SELECT * FROM sources").all(),
+      assignments: db.query("SELECT * FROM assignments").all(),
+      launches: db.query("SELECT * FROM launches").all(),
+    };
+  }
+  const before = records();
+  for (const mode of ["live", "moved", "ambiguous"]) {
+    await Bun.write(`${root}/herdr-mode`, mode);
+    expect(await run(cwd, args, env)).toMatchObject({
+      code: 3,
+      output: { reason: mode === "ambiguous" ? "herdr_invalid_response" : "source_worker_running" },
+    });
+    expect(records()).toEqual(before);
+  }
+  await Bun.write(`${root}/herdr-mode`, "missing");
+  expect(await run(cwd, args, env)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "source_reset",
+      data: {
+        state: "reset",
+        abandoned: ["investigate", "implement"],
+        retained: [{ worktreePath: worktree, branch: "task/keep" }],
+      },
+    },
+  });
+  using db = new Database(database, { readonly: true });
+  expect(db.query("SELECT state, failure_reason FROM launches WHERE id = 'missing'").get()).toEqual(
+    { state: "interrupted", failure_reason: "pane_missing" },
+  );
+  expect(await Bun.file(`${worktree}/keep.txt`).text()).toBe("uncommitted work\n");
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+});
+
 test("registers a supplied mixed plan and derives ready assignments and waits without changing the checkout", async () => {
   const cwd = await repository();
   await prohibitExternalTools();

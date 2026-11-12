@@ -154,4 +154,10 @@ Read the `detail` first, because it names the path or the command to fix.
 
 A `state_migration_blocked` refusal changes no state.
 The previous release still reads the device state, so you can install it again with its exact version or commit.
+Use that compatible release to reset work only on the person's instruction.
+When that release supports missing-worker recovery, run reset in the launch's recorded Herdr session.
+It requires confirmation that both the recorded pane and named agent are absent, and preserves unlanded work.
+An older release without recovery can still refuse with `source_worker_running` after the pane disappears.
+Do not bypass startup compatibility, fabricate a pane event, or edit the database to clear that refusal.
+That case needs a recovery fix backported to the compatible release before the device can migrate.
 After a migration completes, an older release refuses with `state_incompatible`.
