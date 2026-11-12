@@ -191,12 +191,13 @@ const start = { launch, cwd: "/worktree", name: "worker", paneId: "w1:p2" };
 const session = {
   data: {
     id: "ses_worker",
+    agent: "worker",
     model: { providerID: "provider", id: "model/with-slash", variant: "medium" },
     location: { directory: "/worktree" },
   },
 };
 
-test("starts the full TUI on a session with the exact model, effort, and working directory", async () => {
+test("starts the full TUI on a worker session with the exact model, effort, and working directory", async () => {
   const run = spyOn(ToolInvocation, "run").mockResolvedValue({
     status: "completed",
     exitCode: 0,
@@ -215,6 +216,7 @@ test("starts the full TUI on a session with the exact model, effort, and working
       "/api/session",
       "--data",
       JSON.stringify({
+        agent: "worker",
         model: { providerID: "provider", id: "model/with-slash", variant: "medium" },
         location: { directory: "/worktree" },
       }),
@@ -246,6 +248,8 @@ test("never launches or substitutes after failed, uncertain, malformed, or misma
       "{",
       "{}",
       JSON.stringify({ data: { ...session.data, id: "" } }),
+      JSON.stringify({ data: { ...session.data, agent: undefined } }),
+      JSON.stringify({ data: { ...session.data, agent: "super" } }),
       JSON.stringify({
         data: { ...session.data, model: { ...session.data.model, variant: "high" } },
       }),
@@ -258,7 +262,7 @@ test("never launches or substitutes after failed, uncertain, malformed, or misma
   ]) {
     run.mockResolvedValue(result);
     const failure =
-      "OpenCode did not confirm a session with the selected model, effort, and directory. No agent was started. Session creation may have succeeded; inspect OpenCode before retrying.";
+      "OpenCode did not confirm a session with the worker agent and selected model, effort, and directory. No agent was started. Session creation may have succeeded; inspect OpenCode before retrying.";
     const detail =
       result.status !== "completed"
         ? `${result.detail} ${failure}`

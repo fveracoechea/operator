@@ -12,6 +12,7 @@ They are opt-in.
 
 1. Install `herdr`, `opencode`, and `claude`, and put them on `PATH`.
 2. Sign in to OpenCode and Claude Code, so each one can list its models.
+   Configure the `worker` primary agent in OpenCode before running its startup contract.
 3. Run `bun run test:live` from the repository root.
 
 The runner prints the versions it runs against before the tests start.
@@ -28,13 +29,14 @@ A run of a single file records no versions.
 | --- | --- |
 | `modules/herdr/main.contract.ts` | The workspace, tab, pane, worktree, agent, and plugin commands of the Herdr adapter, and the `pane_not_found` answer for a closed pane. |
 | `modules/worker-dispatch/hooks.contract.ts` | The released plugin manifest. Herdr runs each hook with the event name, the event fields, and the socket path that `operator herdr event` reads. The installed Herdr meets `min_herdr_version`. |
-| `modules/agent-hosts/main.contract.ts` | `opencode api get /api/model` and the Claude Agent SDK model read return a model catalog. `opencode mini` and `claude` accept each launch flag that Operator passes. |
+| `modules/agent-hosts/main.contract.ts` | OpenCode and Claude Code return model catalogs and accept the launch flags. OpenCode preserves the `worker` agent, model, effort, and directory before full-TUI attachment. |
 
 ## What they change
 
 The Herdr contracts start a private Herdr server with its own config folder and home in a temporary folder.
 They never use your Herdr session, its panes, or its plugin links, and they remove the folder when they finish.
-The host contracts read model catalogs only. They send no prompt and start no session.
+The host contracts read model catalogs and create and delete an empty OpenCode session.
+They send no prompt and start no terminal agent.
 
 Keep each contract beside the module it checks, as `<unit>.contract.ts`.
 Name each test after the vendor command it runs, so a failure names the command that changed.

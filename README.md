@@ -323,7 +323,9 @@ The SuperAgent runs it in the background, so worker events reach it without text
 `ask` registers one research question as its own source with a read-only report assignment, and dispatches its worker in the same command.
 The agent session that dispatches a source's work or waits for that source supervises it, together with its Herdr pane. Operator reads the session from `OPENCODE_SESSION_ID` or `CLAUDE_CODE_SESSION_ID`.
 A coordination command for that source from another session refuses with `source_supervised_elsewhere` and names the supervising session and pane. `source take-over` moves supervision to the calling session on the person's instruction.
-OpenCode workers use the full TUI, with the selected model and effort set on their session before attachment.
+OpenCode WorkerAgents use the full TUI, with the `worker` agent and selected model and effort set before attachment.
+Configure a primary agent named `worker` in OpenCode; Operator does not install or modify that agent's permissions.
+If OpenCode does not confirm the `worker` selection, dispatch fails instead of using the default agent.
 Herdr's OpenCode terminal integration must be enabled to report their activity; Mini does not load it.
 
 ### Reports

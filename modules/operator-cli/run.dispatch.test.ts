@@ -293,6 +293,7 @@ test("read-only report work gets a tab in the project workspace and a device-sta
     },
   ]);
   expect(await Bun.file(`${root}/session.json`).json()).toEqual({
+    agent: "worker",
     model: { providerID: "test", id: "reasoner", variant: "medium" },
     location: { directory: checkout },
   });
@@ -382,6 +383,7 @@ test("worktree work prepares the new Herdr worktree before the agent starts", as
   });
   const worktree = data.worktreePath ?? "";
   expect(await Bun.file(`${root}/session.json`).json()).toEqual({
+    agent: "worker",
     model: { providerID: "test", id: "reasoner", variant: "high" },
     location: { directory: worktree },
   });

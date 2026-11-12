@@ -8,6 +8,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import { AgentHosts } from "./main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OkAsync } from "unthrown";
+import { z } from "zod";
 
 // Live host contracts send no prompts. The startup contract creates and deletes an empty session,
 // replacing only Herdr's terminal launch so the API preserves the selection without paid generation.
@@ -46,7 +47,7 @@ test("the Claude Agent SDK reads the claude model catalog, and claude takes --mo
   await contract("claude-code");
 }, 60000);
 
-test("OpenCode session creation preserves the model and effort before the full TUI attaches", async () => {
+test("OpenCode session creation selects the worker agent and preserves the model and effort before the full TUI attaches", async () => {
   const models = await ok(AgentHosts.models({ host: "opencode", cwd }));
   const model = models.find((candidate) => candidate.efforts.length > 0);
   if (model === undefined)
@@ -74,6 +75,19 @@ test("OpenCode session creation preserves the model and effort before the full T
       kind: "opencode",
       args: ["--session", sessionID],
     });
+    const session = await ToolInvocation.run({
+      tool: "opencode",
+      args: ["api", "get", `/api/session/${sessionID}`],
+      cwd,
+      timeoutMs: 30000,
+    });
+    expect(session).toMatchObject({ status: "completed", exitCode: 0 });
+    if (session.status !== "completed")
+      return expect.unreachable("OpenCode did not return the session.");
+    const { data } = z
+      .object({ data: z.object({ agent: z.string().optional() }) })
+      .parse(JSON.parse(session.stdout));
+    expect(data.agent).toBe("worker");
   } finally {
     start.mockRestore();
     if (sessionID !== undefined) {

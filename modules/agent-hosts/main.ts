@@ -14,6 +14,7 @@ type ResolvedLaunch = LaunchSelection & {
 const createdSession = z.object({
   data: z.object({
     id: z.string().min(1),
+    agent: z.literal("worker"),
     model: z.object({ providerID: z.string(), id: z.string(), variant: z.string() }),
     location: z.object({ directory: z.string() }),
   }),
@@ -21,7 +22,7 @@ const createdSession = z.object({
 const sessionFailure = {
   reason: "host_session_failed" as const,
   detail:
-    "OpenCode did not confirm a session with the selected model, effort, and directory. No agent was started. Session creation may have succeeded; inspect OpenCode before retrying.",
+    "OpenCode did not confirm a session with the worker agent and selected model, effort, and directory. No agent was started. Session creation may have succeeded; inspect OpenCode before retrying.",
 };
 
 function openCodeArguments(launch: LaunchSelection, cwd: string) {
@@ -41,7 +42,7 @@ function openCodeArguments(launch: LaunchSelection, cwd: string) {
           "post",
           "/api/session",
           "--data",
-          JSON.stringify({ model, location: { directory: cwd } }),
+          JSON.stringify({ agent: "worker", model, location: { directory: cwd } }),
         ],
         cwd,
         timeoutMs: 30000,
