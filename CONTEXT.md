@@ -94,7 +94,8 @@ The content-identified CLI, public declarations, owned skills, plugin content, s
 All delivery paths preserve that release's commit, and JSR and Nix also preserve its artifact identity.
 
 **Release publication**:
-Automatic delivery from a merged version change after its quality checks and release smoke pass.
+Delivery from a merged version change after explicit authorization and passing quality checks and release smoke.
+Preparing a version pull request does not authorize publication.
 A published tag or version is immutable.
 
 **Delivery record**:
