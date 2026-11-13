@@ -187,6 +187,8 @@ test("reset needs the person's instruction and changes nothing without it", asyn
     tag: "Err",
     error: {
       reason: "person_instruction_required",
+      next: { decider: "person", question: "May this command run on your explicit instruction?" },
+      state: { personInstructed: false },
       detail:
         "Reset a source only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
     },

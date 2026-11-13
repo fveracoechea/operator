@@ -63,7 +63,16 @@ test("an obligation stays in next until the SuperAgent closes it", async () => {
 
   // A retry of the same key adds nothing.
   expect(await device.run(["obligation", "add", "--source", source, "--file", file])).toMatchObject(
-    { code: 4, output: { reason: "obligation_exists" } },
+    {
+      code: 4,
+      output: {
+        reason: "obligation_exists",
+        next: {
+          decider: "super-agent",
+          question: "Which new key should identify this obligation?",
+        },
+      },
+    },
   );
 
   const closed = await device.run(["obligation", "close", "--source", source, "--key", "share-12"]);

@@ -43,6 +43,8 @@ import {
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 import { missingWorkers } from "./missing-workers.ts";
+import { decideRefusal } from "./refusal-decision.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
@@ -258,6 +260,10 @@ function registerPlan(input: Input, supply: () => Promise<object>) {
 
 /** Plans are supplied by the SuperAgent. No operation reads or updates a tracker. */
 export const WorkSources = {
+  /** Recovery advice for workflow refusals; never changes a source or grants authority. */
+  refusal(operation: string, reason: string, context: ResultContext) {
+    return decideRefusal(operation, reason, context);
+  },
   register(input: Input & { file: string }) {
     return registerPlan(input, () => Bun.file(input.file).json());
   },
@@ -320,6 +326,11 @@ export const WorkSources = {
     if (!input.personInstructed)
       return Err({
         reason: "person_instruction_required" as const,
+        next: {
+          decider: "person" as const,
+          question: "May this command run on your explicit instruction?",
+        },
+        state: { personInstructed: false },
         detail:
           "Reset a source only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
       });
@@ -559,6 +570,11 @@ export const WorkSources = {
     if (!input.personInstructed)
       return Err({
         reason: "person_instruction_required" as const,
+        next: {
+          decider: "person" as const,
+          question: "May this command run on your explicit instruction?",
+        },
+        state: { personInstructed: false },
         detail:
           "Take over a source only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
       });

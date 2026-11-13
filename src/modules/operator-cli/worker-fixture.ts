@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
+import { expectWorkflowRefusal, workflowOutputSchema } from "./refusal-fixture.ts";
 import { fixtureCommand, writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
 
 const command = fixtureCommand();
@@ -145,9 +146,11 @@ export async function workerDevice(options: { github?: boolean } = {}) {
       options.cwd ?? main,
       environment(options.pane, options.socket),
     );
+    const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
+    expectWorkflowRefusal(args, output, result.stderr);
     return {
       code: result.code,
-      output: z.looseObject({}).parse(JSON.parse(result.stdout)),
+      output,
       stderr: result.stderr,
     };
   }

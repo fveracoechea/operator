@@ -83,6 +83,11 @@ test("refuses bare repositories, legacy state, and linked worktrees", async () =
   expect(await inspectCheckout(`${root}/linked`)).toEqual({
     reason: "linked_checkout",
     detail: `A linked worktree cannot control a project. Use the main checkout associated with ${root}/main/.git.`,
+    next: {
+      command: `git --git-dir '${root}/main/.git' worktree list`,
+      why: "Locate the controlling checkout, then run the Operator command there.",
+    },
+    state: { gitDir: `${root}/main/.git/worktrees/linked`, commonDir: `${root}/main/.git` },
   });
 });
 

@@ -3,8 +3,9 @@ import { lstat, realpath } from "node:fs/promises";
 import { isCodedError } from "../../lib/coded-error.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { githubIdentity } from "./identity.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
-export type CheckoutFailure = {
+export type CheckoutFailure = ResultContext & {
   reason:
     | "git_unavailable"
     | "git_checkout_invalid"
@@ -49,6 +50,11 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
     return {
       reason: "linked_checkout" as const,
       detail: `A linked worktree cannot control a project. Use the main checkout associated with ${common.text}.`,
+      next: {
+        command: `git --git-dir '${common.text.replaceAll("'", "'\\''")}' worktree list`,
+        why: "Locate the controlling checkout, then run the Operator command there.",
+      },
+      state: { gitDir: dir.text, commonDir: common.text },
     };
   const remotes = await git(checkout, ["remote", "-v"]);
   if ("reason" in remotes) return remotes;
