@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { registerTestDevice } from "../../../tools/device-fixture.ts";
 import { writeUpstreamTools } from "../../../tools/upstream-tools-fixture.ts";
+import { quietPrStates } from "./turn-end-fixture.ts";
 
 let root = "";
 // Install also runs the upstream installer, so fake upstream tools sit outside the device root.
@@ -236,7 +237,7 @@ function update(sql: string) {
   db.query(sql).run();
 }
 
-test("the turn-end guard blocks once while the session supervises running work and no wait runs", async () => {
+test("the turn-end guard fires only with a live worker launch", async () => {
   const id = await registeredSource();
   // The SuperAgent's wait runs in its Claude Code session, which names itself to its commands.
   const waitEnv = { ...git, HERDR_PANE_ID: "pane-1", CLAUDE_CODE_SESSION_ID: "ses-1" };
@@ -245,6 +246,14 @@ test("the turn-end guard blocks once while the session supervises running work a
   // Ready work runs nothing, so there is nothing to guard.
   expect(await run(["claude", "hook"], stop())).toEqual(allowed);
   update("UPDATE assignments SET state = 'running'");
+  // Assignment state alone is not a live launch.
+  expect(await run(["claude", "hook"], stop())).toEqual(allowed);
+  update(`INSERT INTO launches
+    (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model,
+     reasoning_effort, release, skills, started_at, owner_pid, lease_at)
+    VALUES ('launch-1', '${id}', 'investigate', 1, 'running', 'worker-1', 'pane',
+      'claude-code', 'model', 'model', 'default', '{"version":"2.3.2"}', '[]',
+      '${new Date().toISOString()}', ${process.pid}, '${new Date().toISOString()}')`);
   // A new session in the supervising pane, such as one after /clear, supervises nothing.
   expect(await run(["claude", "hook"], stop(false, "ses-2"), { HERDR_PANE_ID: "pane-1" })).toEqual(
     allowed,
@@ -288,6 +297,31 @@ test("the turn-end guard blocks once while the session supervises running work a
   expect(JSON.parse((await run(["claude", "hook"], stop())).stdout)).toMatchObject({
     decision: "block",
   });
+  for (const state of ["starting", "running"]) {
+    update(`UPDATE launches SET state = '${state}'`);
+    for (const activity of ["active", "idle"]) {
+      update(`UPDATE launches SET activity = '${activity}'`);
+      expect((await run(["claude", "hook"], stop())).stdout).toBe(blocked.stdout);
+    }
+  }
+  update(`INSERT INTO worker_questions
+    (source_id, assignment, key, launch_id, question, asked_at, state)
+    VALUES ('${id}', 'investigate', 'q', 'launch-1', 'Which approach?',
+      '${new Date().toISOString()}', 'open')`);
+  expect((await run(["claude", "hook"], stop())).stdout).toBe(blocked.stdout);
+  update("UPDATE worker_questions SET state = 'awaiting_person'");
+  expect((await run(["claude", "hook"], stop())).stdout).toBe(blocked.stdout);
+  // Decisions do not guard a turn after its worker ends, nor do failed/interrupted launches.
+  for (const state of ["finished", "failed", "interrupted", "starting"]) {
+    update(`UPDATE launches SET state = '${state}', owner_pid = NULL, lease_at = NULL`);
+    expect((await run(["source", "show", "--source", id, "--json"], "", git)).code).toBe(0);
+    expect(await run(["claude", "hook"], stop())).toEqual(allowed);
+  }
+  for (const scenario of quietPrStates(`${root}/state/operator/operator.sqlite`, id)) {
+    const shown = await run(["source", "show", "--source", id, "--json"], "", git);
+    expect(shown.code, `${scenario}: ${shown.stdout} ${shown.stderr}`).toBe(0);
+    expect(await run(["claude", "hook"], stop()), scenario).toEqual(allowed);
+  }
 }, 60000);
 
 test("the turn-end guard lets the turn end when device state is missing or incompatible", async () => {

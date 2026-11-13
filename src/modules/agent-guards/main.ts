@@ -21,7 +21,7 @@ export const AgentGuards = {
   },
   /**
    * The reason to keep a SuperAgent session's turn going. It answers a reason while the sources
-   * that the session supervises have running work and no wait from that session covers them.
+   * that the session supervises have a live worker launch and no wait from that session covers them.
    * Another session, also one in the same pane, gets none. The host bounds how often it acts on a
    * reason, so a SuperAgent that the person told to stop can still stop.
    * State that is missing, blocked, or unreadable lets the turn end, because the guard is a nudge.
