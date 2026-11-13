@@ -570,6 +570,10 @@ function dispatch(request: DispatchRequest) {
                     ? ("pr-feedback" as const)
                     : definition.nextKind,
                 guide: `${request.paths.skillHosts[settings.launch.host]}/${definition.guide}`,
+                skillsToRead: definition.skillsToRead.map(
+                  (name) =>
+                    `${request.paths.upstreamSkills[settings.launch.host]}/${name}/SKILL.md`,
+                ),
               };
         return chooseResources(request, facts).flatMap((resources) =>
           launch(request, { ...facts, ...settings, kind }, resources),

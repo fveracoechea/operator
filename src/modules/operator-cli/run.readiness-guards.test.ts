@@ -134,10 +134,18 @@ test.each([
   {
     name: "required upstream presence",
     file: "upstream-skills/main.ts",
-    before: 'const required = ["code-review"];',
-    after: "const required: string[] = [];",
+    before: "if (await readableSkill(file, optional)) continue;",
+    after: "continue;",
     testFile: "operator-cli/run.readiness.test.ts",
-    pattern: "reports failed authentication",
+    pattern: "ready blocks on a guide",
+  },
+  {
+    name: "optional show-me link warning",
+    file: "upstream-skills/main.ts",
+    before: 'const optional = name === "show-me" && link !== null;',
+    after: "const optional = false;",
+    testFile: "operator-cli/run.readiness.test.ts",
+    pattern: "ready blocks on a guide",
   },
   {
     name: "no host launch",

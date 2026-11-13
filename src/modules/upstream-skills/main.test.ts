@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no temporary-directory, chmod, symlink, or recursive removal API.
-import { chmod, mkdtemp, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Err, Ok } from "unthrown";
@@ -23,6 +23,165 @@ afterEach(async () => {
 function paths() {
   return OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
 }
+
+test("guide content resolves owned skills, upstream links, and warning-only visual links", async () => {
+  const input = paths();
+  const guides = spyOn(OwnedSkills, "guides").mockResolvedValue([
+    {
+      guide: "worker-agent/kinds/answer.md",
+      text: "Load `tdd` and `no-slop`. Read [show-me](../../show-me/SKILL.md).",
+    },
+  ]);
+  try {
+    const skill = `${input.upstreamSkills.opencode}/tdd/SKILL.md`;
+    const owned = `${input.skillHosts.opencode}/no-slop/SKILL.md`;
+    const visual = `${input.skillHosts.opencode}/show-me/SKILL.md`;
+    await Bun.write(owned, "# Owned\n", { createPath: true });
+    await Bun.write(skill, " \n", { createPath: true });
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: {
+        blockers: [{ skill: "tdd", file: skill, reason: "guide_skill_unresolved" }],
+        warnings: [{ skill: "show-me", file: visual, reason: "skill_link_unresolved" }],
+      },
+    });
+    const messages = await UpstreamSkills.checkGuides(input, "opencode");
+    expect(messages).toMatchObject({
+      tag: "Ok",
+      value: {
+        blockers: [
+          {
+            detail: `worker-agent/kinds/answer.md requires tdd, but ${skill} does not resolve to a readable, nonempty regular file. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
+          },
+        ],
+        warnings: [
+          {
+            detail:
+              "worker-agent/kinds/answer.md: ../../show-me/SKILL.md does not resolve. Read show-me by the absolute path in the brief when available.",
+          },
+        ],
+      },
+    });
+    await rm(skill);
+    await mkdir(skill);
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [{ skill: "tdd" }] },
+    });
+    await rm(skill, { recursive: true });
+    await rm(path.dirname(skill), { recursive: true });
+    await Bun.write(path.dirname(skill), "file parent\n");
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [{ skill: "tdd" }] },
+    });
+    await rm(path.dirname(skill));
+    await mkdir(path.dirname(skill));
+    await symlink(skill, skill);
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [{ skill: "tdd" }] },
+    });
+    await rm(skill);
+    await symlink(`${root}/missing`, skill);
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [{ skill: "tdd" }] },
+    });
+    await Bun.write(`${root}/missing`, "# Independent upstream\n");
+    await Bun.write(visual, "# Visual\n", { createPath: true });
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toEqual(
+      Ok({ blockers: [], warnings: [] }),
+    );
+    if (!asRoot) {
+      await chmod(`${root}/missing`, 0);
+      expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+        tag: "Err",
+        error: { reason: "upstream_io_failed" },
+      });
+    }
+  } finally {
+    guides.mockRestore();
+  }
+});
+
+test("only the linked visual skill is optional, while required relative targets must resolve", async () => {
+  const input = paths();
+  const guides = spyOn(OwnedSkills, "guides").mockResolvedValue([
+    {
+      guide: "worker-agent/kinds/review.md",
+      text: "Load `show-me`. Read [handoff](../../handoff/SKILL.md).",
+    },
+  ]);
+  try {
+    await Bun.write(`${input.upstreamSkills.opencode}/handoff/SKILL.md`, "# Upstream handoff\n", {
+      createPath: true,
+    });
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: {
+        blockers: [{ skill: "show-me" }, { skill: "handoff" }],
+        warnings: [],
+      },
+    });
+    await Bun.write(`${input.upstreamSkills.opencode}/show-me/SKILL.md`, "# Visual\n", {
+      createPath: true,
+    });
+    await Bun.write(`${input.skillHosts.opencode}/handoff/SKILL.md`, "# Linked handoff\n", {
+      createPath: true,
+    });
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toEqual(
+      Ok({ blockers: [], warnings: [] }),
+    );
+  } finally {
+    guides.mockRestore();
+  }
+});
+
+test.skipIf(asRoot)("an unreadable optional guide target remains a warning", async () => {
+  const input = paths();
+  const file = `${input.skillHosts.opencode}/show-me/SKILL.md`;
+  await Bun.write(file, "# Visual skill\n", { createPath: true });
+  await chmod(file, 0);
+  const guides = spyOn(OwnedSkills, "guides").mockResolvedValue([
+    {
+      guide: "worker-agent/kinds/answer.md",
+      text: "Read [show-me](../../show-me/SKILL.md).",
+    },
+  ]);
+  try {
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toEqual(
+      Ok({
+        blockers: [],
+        warnings: [
+          {
+            reason: "skill_link_unresolved",
+            host: "opencode",
+            guide: "worker-agent/kinds/answer.md",
+            skill: "show-me",
+            file,
+            detail:
+              "worker-agent/kinds/answer.md: ../../show-me/SKILL.md does not resolve. Read show-me by the absolute path in the brief when available.",
+          },
+        ],
+      }),
+    );
+  } finally {
+    guides.mockRestore();
+  }
+});
+
+test("guide checks reject either non-temporary skill root before inspecting it", async () => {
+  const input = paths();
+  for (const outside of [
+    { ...input, skillHosts: { ...input.skillHosts, opencode: "/operator-absent-host/skills" } },
+    {
+      ...input,
+      upstreamSkills: { ...input.upstreamSkills, opencode: "/operator-absent-host/skills" },
+    },
+  ])
+    expect(await UpstreamSkills.checkGuides(outside, "opencode")).toMatchObject({ tag: "Defect" });
+});
 
 test("presence follows independently revised links without an Operator content ledger", async () => {
   const input = paths();
