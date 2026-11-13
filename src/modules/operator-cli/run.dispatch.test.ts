@@ -231,10 +231,14 @@ test("dispatch with a kind fixes the completion type and refuses a completion ov
       assignments: [{ ...assignment, completion: "pr" }],
     }),
   );
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const callsBefore = await herdrCalls();
   expect(await run(["source", "register", "--file", `${root}/plan.json`])).toMatchObject({
     code: 2,
     output: { reason: "invalid_source_plan" },
   });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect(await herdrCalls()).toEqual(callsBefore);
 });
 
 test("a plan assignment without a kind is refused at registration", async () => {
