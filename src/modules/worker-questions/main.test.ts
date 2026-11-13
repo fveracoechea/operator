@@ -33,7 +33,7 @@ function selector(sourceId: string, key = "scope") {
 async function answer(sourceId: string, by: "super-agent" | "person", text = "No, only a.ts.") {
   const file = await device.write("answer.md", `${text}\n`);
   device.inPane(superPane);
-  const result = await WorkerQuestions.answer({ ...selector(sourceId), by, file, text: null });
+  const result = await WorkerQuestions.answer({ ...selector(sourceId), by, file });
   mock.restore();
   return result;
 }
@@ -217,7 +217,6 @@ test("only the worker's pane asks, and only another pane answers or moves the qu
       ...selector(sourceId),
       by: "super-agent",
       file: text,
-      text: null,
     }),
   ).toMatchObject({ error: { reason: "self_decision_refused" } });
   expect(await WorkerQuestions.escalate(selector(sourceId))).toMatchObject({
@@ -260,16 +259,6 @@ test("an invalid draft or a missing file refuses and records nothing", async () 
       ...selector(sourceId),
       by: "super-agent",
       file: empty,
-      text: null,
-    }),
-  ).toMatchObject({ error: { reason: "invalid_question_input" } });
-  // Text in place of a file passes the same check, and the file is not read.
-  expect(
-    await WorkerQuestions.answer({
-      ...selector(sourceId),
-      by: "super-agent",
-      file: `${device.root}/missing.md`,
-      text: " ",
     }),
   ).toMatchObject({ error: { reason: "invalid_question_input" } });
   expect((await device.actions())[0]).toMatchObject({ action: "answer_question" });

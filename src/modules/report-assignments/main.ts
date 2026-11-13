@@ -240,7 +240,15 @@ function submit(input: { paths: Paths; file: string }) {
         },
       });
     },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    (cause, defect) =>
+      cause instanceof Error
+        ? qualify(cause, defect, {
+            next: {
+              command: "operator report submit --file <path|->",
+              why: "Correct the report headings and content, then submit it again.",
+            },
+          })
+        : defect(cause),
   ).flatMap((result) => result);
 }
 

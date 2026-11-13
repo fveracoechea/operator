@@ -24,7 +24,7 @@ import {
   type QuestionState,
 } from "./question-machine.ts";
 
-type AnswerText = { file: string; text?: string | null };
+type AnswerText = { file: string };
 
 type Facts = Extract<ReturnType<typeof DeviceState.readQuestion>, { tag: "Ok" }>["value"];
 type Row = NonNullable<Facts["question"]>;
@@ -141,7 +141,7 @@ function answer(input: Selector & { by: AnswerAuthority } & AnswerText) {
     async () => {
       const target = await superAgentTarget(input);
       if (target.tag !== "Ok") return stop(target);
-      const text = answerSchema.parse(input.text ?? (await readTextInput(input.file)));
+      const text = answerSchema.parse(await readTextInput(input.file));
       const key = answerKey(input.key);
       // The answer reaches the worker as a steering message, recorded with the answer itself.
       const changed = DeviceState.changeQuestion(input.paths, target.value, input.key, (facts) =>
@@ -254,8 +254,8 @@ export const WorkerQuestions = {
     return steering.send(input);
   },
   /**
-   * Record a steering message from its key and text, such as one that the SuperAgent passes as
-   * flags or the handover of a promoted report's worker, and ring its doorbell. ADR-0023.
+   * Record a steering message composed by another module, such as a report promotion's
+   * handover, and ring its doorbell. ADR-0023.
    */
   steer(input: Omit<Selector, "key"> & { key: string; message: string }) {
     return steering.steer(input);

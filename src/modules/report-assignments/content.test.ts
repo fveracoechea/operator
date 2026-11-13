@@ -103,8 +103,8 @@ test("Markdown reports parse the rendered headings and authority sections", () =
     unresolved: [],
     files: ["/drafts/notes.md"],
     decisions: [
-      { question: "Scope?", answer: "a.ts only", by: "person" },
-      { question: "Name?", answer: "reader", by: "super-agent" },
+      { question: "Scope?", answer: "a.ts only", by: "person" as const },
+      { question: "Name?", answer: "reader", by: "super-agent" as const },
     ],
   };
   expect(parseSubmission(markdown)).toEqual(expected);
@@ -137,4 +137,70 @@ test("Markdown report format errors never discard unknown content", () => {
     JSON.stringify(submission),
   ])
     expect(() => parseSubmission(invalid)).toThrow();
+});
+
+test("report diagnostics identify missing, duplicate, and unknown sections", () => {
+  expect(() => parseSubmission(`${markdown}\n## Extras\n- Hidden.`)).toThrow(
+    "Unknown report heading: Extras.",
+  );
+  expect(() => parseSubmission(markdown.replace("## Unresolved points\n- None.\n", ""))).toThrow(
+    "Missing report heading: Unresolved points.",
+  );
+  expect(() => parseSubmission(`${markdown}\n## Conclusion\nReplacement`)).toThrow(
+    "Duplicate report heading: Conclusion.",
+  );
+  expect(() => parseSubmission(`Unheaded text\n${markdown}`)).toThrow(
+    "Start the report with ## Conclusion.",
+  );
+  expect(() => parseSubmission(markdown.replace("- a.ts:10", "a.ts:10"))).toThrow(
+    "Use - bullets in ## Evidence.",
+  );
+  expect(() =>
+    parseSubmission(markdown.replace("Scope? Answer: a.ts only", "Scope? a.ts only")),
+  ).toThrow("Use <question> Answer: <answer> in ## Human answers.");
+});
+
+test("the rendered authority explanation is accepted only in SuperAgent decisions", () => {
+  expect(() =>
+    parseSubmission(
+      markdown.replace(
+        "## Unresolved points\n- None.",
+        "## Unresolved points\nA SuperAgent decision is not a human answer.",
+      ),
+    ),
+  ).toThrow("Use - bullets in ## Unresolved points.");
+});
+
+test("reports keep unresolved points and trim list items without losing entries", () => {
+  expect(parseSubmission(`  \n${markdown}`)).toMatchObject({ conclusion: "Two gaps." });
+  expect(
+    parseSubmission(
+      markdown.replace(
+        "## Unresolved points\n- None.",
+        "## Unresolved points\n- Decide the scope.\n  ",
+      ),
+    ).unresolved,
+  ).toEqual(["Decide the scope."]);
+  expect(
+    parseSubmission(markdown.replace("- `/drafts/notes.md`", "-   /drafts/notes.md  ")).files,
+  ).toEqual(["/drafts/notes.md"]);
+  expect(
+    parseSubmission(
+      markdown.replace(
+        "## Unresolved points\n- None.",
+        "## Unresolved points\n- None.\n- A real point.",
+      ),
+    ).unresolved,
+  ).toEqual(["None.", "A real point."]);
+  expect(
+    parseSubmission(
+      markdown.replace("Two gaps.", "Two gaps.\nA ## marker inside prose stays prose."),
+    ).conclusion,
+  ).toBe("Two gaps.\nA ## marker inside prose stays prose.");
+  expect(() =>
+    parseSubmission(markdown.replace("`/drafts/notes.md`", "`/drafts/notes.md")),
+  ).toThrow("Use absolute file paths.");
+  expect(
+    parseSubmission(markdown.replace("`/drafts/notes.md`", "/drafts/notes.md`")).files,
+  ).toEqual(["/drafts/notes.md`"]);
 });
