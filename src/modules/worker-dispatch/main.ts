@@ -205,6 +205,9 @@ function chooseResources(input: Request, facts: Facts) {
           return Err<Failure>({
             reason: "promotion_worktree_missing",
             detail: `The worktree ${facts.planned.promotion.worktreePath} of promoted report ${facts.planned.promotion.report} is missing. Ask the person how to recover it. Nothing was launched.`,
+            ...WorkSources.refusal("dispatch", "promotion_worktree_missing", {
+              state: { reusable: false },
+            }),
           });
         return Ok(reuse);
       }),

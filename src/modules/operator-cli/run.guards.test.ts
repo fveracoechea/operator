@@ -25,7 +25,7 @@ test.each([
     after: "row.assignment",
     testFile: "src/modules/operator-cli/run.next-commands.test.ts",
     pattern: "next emits a runnable command preserving assignment key",
-    diagnostic: "error: Usage:",
+    diagnostic: "error: operator: invalid_arguments:",
   },
   {
     name: "supported prune command",
@@ -34,7 +34,7 @@ test.each([
     after: `command: \`operator source prune \${source}\`,`,
     testFile: "src/modules/operator-cli/run.next-commands.test.ts",
     pattern: "the prune row command runs through the supported CLI",
-    diagnostic: "error: Usage:",
+    diagnostic: "error: operator: invalid_arguments:",
   },
   {
     name: "next metadata transport",

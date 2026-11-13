@@ -174,3 +174,147 @@ test("a Herdr event without state ends startup before the compatibility check", 
   expect(lines(output.log)).toEqual([expect.objectContaining({ reason: "herdr_event_ignored" })]);
   expect(checked).not.toHaveBeenCalled();
 });
+
+test.each([true, false])(
+  "workflow startup refuses an unsupported runtime with only its checked versions, json %p",
+  async (json) => {
+    spyOn(Environment, "read").mockReturnValue(environment);
+    release("<1");
+    const checked = compatibility(Ok(undefined));
+    const output = capture();
+    expect(
+      await startup(["dispatch", "--source", "unchecked", "--assignment", "unchecked"], json),
+    ).toBeNull();
+    expect(lines(output.log)).toEqual(
+      json
+        ? [
+            {
+              schemaVersion: 1,
+              operation: "startup",
+              outcome: "refused",
+              reason: "unsupported_bun",
+              blockers: [
+                {
+                  reason: "unsupported_bun",
+                  detail: `Bun <1 is required; running ${Bun.version}.`,
+                },
+              ],
+              next: {
+                decider: "super-agent",
+                question: "Which supported Bun runtime should run this command?",
+              },
+              state: { required: "<1", actual: Bun.version },
+            },
+          ]
+        : [],
+    );
+    expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
+      `operator: unsupported_bun: Bun <1 is required; running ${Bun.version}.`,
+      "next: super-agent decides: Which supported Bun runtime should run this command?",
+      `state: required="<1" actual="${Bun.version}"`,
+    ]);
+    expect(process.exitCode).toBe(1);
+    expect(checked).not.toHaveBeenCalled();
+  },
+);
+
+test("workflow startup rejects invalid environment before release or compatibility reads", async () => {
+  spyOn(Environment, "read").mockImplementation(() => Environment.parse({}));
+  const manifest = spyOn(OperatorRelease, "manifest");
+  const checked = compatibility(Ok(undefined));
+  const output = capture();
+  expect(await startup(["dispatch"], true)).toBeNull();
+  const result = z
+    .looseObject({ next: z.unknown() })
+    .parse(JSON.parse(String(output.log.mock.calls[0]?.[0])));
+  expect(result.next).toEqual({
+    decider: "super-agent",
+    question: "Which valid device environment should this command use?",
+  });
+  expect(result).not.toHaveProperty("state");
+  expect(output.error.mock.calls.length).toBe(2);
+  expect(process.exitCode).toBe(2);
+  expect(manifest).not.toHaveBeenCalled();
+  expect(checked).not.toHaveBeenCalled();
+});
+
+test("workflow startup defects name a supervisor decision without fabricated checked state", async () => {
+  spyOn(Environment, "read").mockImplementation(() => {
+    // oxlint-disable-next-line unthrown/no-throw -- Inject a defect at the environment boundary.
+    throw injected;
+  });
+  const manifest = spyOn(OperatorRelease, "manifest");
+  const checked = compatibility(Ok(undefined));
+  const output = capture();
+  expect(await startup(["dispatch"], true)).toBeNull();
+  expect(lines(output.log)).toEqual([
+    {
+      schemaVersion: 1,
+      operation: "startup",
+      outcome: "refused",
+      reason: "startup_defect",
+      blockers: [{ reason: "startup_defect", detail: "Error: injected" }],
+      next: {
+        decider: "super-agent",
+        question: "How should startup_defect be corrected before retrying workflow_startup?",
+      },
+    },
+  ]);
+  expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: startup_defect: Error: injected",
+    "next: super-agent decides: How should startup_defect be corrected before retrying workflow_startup?",
+  ]);
+  expect(process.exitCode).toBe(1);
+  expect(manifest).not.toHaveBeenCalled();
+  expect(checked).not.toHaveBeenCalled();
+});
+
+test("workflow startup preserves compatibility guard authority and checked state", async () => {
+  spyOn(Environment, "read").mockReturnValue(environment);
+  release(">=1");
+  compatibility(
+    Err({
+      reason: "state_corrupt",
+      detail: "Damaged.",
+      next: { decider: "person", question: "May the backup be restored?" },
+      state: { found: "damaged" },
+    }),
+  );
+  const output = capture();
+  expect(await startup(["next"], true)).toBeNull();
+  expect(lines(output.log)).toEqual([
+    {
+      schemaVersion: 1,
+      operation: "startup",
+      outcome: "refused",
+      reason: "state_corrupt",
+      blockers: [{ reason: "state_corrupt", detail: "Damaged." }],
+      next: { decider: "person", question: "May the backup be restored?" },
+      state: { found: "damaged" },
+    },
+  ]);
+  expect(process.exitCode).toBe(3);
+});
+
+test("workflow compatibility defects retain the compact recovery contract", async () => {
+  spyOn(Environment, "read").mockReturnValue(environment);
+  release(">=1");
+  compatibility(defect() as never);
+  const output = capture();
+  expect(await startup(["next"], true)).toBeNull();
+  expect(lines(output.log)).toEqual([
+    {
+      schemaVersion: 1,
+      operation: "startup",
+      outcome: "refused",
+      reason: "startup_defect",
+      blockers: [{ reason: "startup_defect", detail: "Error: injected" }],
+      next: {
+        decider: "super-agent",
+        question: "How should startup_defect be corrected before retrying workflow_startup?",
+      },
+    },
+  ]);
+  expect(output.error.mock.calls.length).toBe(2);
+  expect(process.exitCode).toBe(1);
+});

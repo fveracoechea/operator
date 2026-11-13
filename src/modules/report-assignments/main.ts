@@ -14,9 +14,10 @@ import { WorkerQuestions } from "../worker-questions/main.ts";
 import { realPathOrNull } from "../../lib/real-path.ts";
 import { renderReport, submissionSchema, type Submission } from "./content.ts";
 import { qualify } from "./failures.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
-type Failure = { reason: string; detail: string };
+type Failure = ResultContext & { reason: string; detail: string };
 type Target = Parameters<typeof DeviceState.readReport>[1];
 type Facts = Extract<ReturnType<typeof DeviceState.readReport>, { tag: "Ok" }>["value"];
 type Decided = Extract<ReturnType<typeof WorkSources.decideReport>, { tag: "Ok" }>["value"];
@@ -526,6 +527,12 @@ async function promotionFacts(input: PromoteInput) {
     return Err<Failure>({
       reason: "promotion_worktree_missing",
       detail: `The worktree ${worktreePath} of ${facts.assignment.key} no longer exists. Nothing changed.`,
+      next: {
+        decider: "person",
+        question:
+          "How should the missing report worktree be recovered without losing unlanded work?",
+      },
+      state: { worktree: worktreePath, exists: false },
     });
   return Ok({
     checkout: target.value.checkout,

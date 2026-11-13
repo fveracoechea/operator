@@ -53,6 +53,14 @@ const steps: Record<string, NextStep> = {
     question: "Which supported Bun runtime should run this command?",
   },
   person_instruction_required: person,
+  pr_not_open: {
+    decider: "person",
+    question: "How should the closed PR be handled before this review can continue?",
+  },
+  review_worktree_changed: {
+    decider: "person",
+    question: "Which work in the changed reviewer worktree must be kept?",
+  },
   legacy_project_state: {
     decider: "person",
     question: "How should the legacy checkout be retired with its old release?",
@@ -282,6 +290,15 @@ export function decideRefusal(
   context: ResultContext,
 ): ResultContext {
   if (!operations.has(operation) || context.next !== undefined) return context;
+  if (operation === "dispatch" && reason === "promotion_worktree_missing")
+    return {
+      ...context,
+      next: {
+        decider: "person",
+        question:
+          "How should the missing promoted worktree be recovered without losing unlanded work?",
+      },
+    };
   return {
     ...context,
     next: Object.hasOwn(steps, reason)

@@ -344,7 +344,15 @@ test("a removed worktree refuses the promotion before any rename", async () => {
   device.inPane(superPane);
   const called = herdr([launch.name]);
   expect(await promote(sourceId)).toMatchObject({
-    error: { reason: "promotion_worktree_missing" },
+    error: {
+      reason: "promotion_worktree_missing",
+      next: {
+        decider: "person",
+        question:
+          "How should the missing report worktree be recovered without losing unlanded work?",
+      },
+      state: { worktree, exists: false },
+    },
   });
   expect(called.agent).not.toHaveBeenCalled();
   expect((await device.show(sourceId)).reports).toMatchObject([{ decision: null }]);

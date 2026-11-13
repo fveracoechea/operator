@@ -7,10 +7,11 @@ import { Err, Ok, OkAsync, fromPromise, fromSafePromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
-export type Failure = { reason: string; detail: string };
+export type Failure = ResultContext & { reason: string; detail: string };
 
 const preparationWaitMs = 600000;
 

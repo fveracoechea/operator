@@ -163,7 +163,10 @@ test("reports a dispatch defect with exit code 1", async () => {
     operation: "dispatch",
     reason: "dispatch_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: dispatch_defect: Error: boom",
+    "next: super-agent decides: How should dispatch_defect be corrected before retrying dispatch?",
+  ]);
   expect(process.exitCode).toBe(1);
 });
 

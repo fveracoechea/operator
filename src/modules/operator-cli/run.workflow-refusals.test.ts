@@ -115,3 +115,101 @@ test("linked checkout recovery quotes the controlling repository command and che
   );
   expect(await device.herdrCalls()).toEqual(calls);
 });
+
+test.each(["pane", "worktree"] as const)(
+  "promotion recovery distinguishes a %s report from a lost promoted worktree",
+  async (resources) => {
+    device = await workerDevice();
+    const assignment: Record<string, unknown> = {
+      key: "read",
+      trackerKey: "github:example/one#11",
+      instructions: "Investigate the module.",
+      completion: "report",
+      resources,
+      dependencies: [],
+    };
+    if (resources === "worktree") assignment.branch = "report/read";
+    const source = await device.register({
+      trackerKey: "github:example/one#10",
+      assignments: [assignment],
+    });
+    const worker = await device.dispatch(source, "read");
+    const report = await device.writeJson("report.json", {
+      conclusion: "Implement it.",
+      evidence: ["src/a.ts:1"],
+      unresolved: [],
+    });
+    expect(
+      (await device.run(["report", "submit", "--file", report], { pane: worker.paneId })).code,
+    ).toBe(0);
+    expect(
+      (await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main)).code,
+    ).toBe(0);
+    const promotion = await device.writeJson("promotion.json", {
+      key: "build",
+      trackerKey: "github:example/one#12",
+      instructions: "Build the accepted report.",
+      branch: "task/build",
+    });
+    const database = Bun.file(`${device.root}/state/operator/operator.sqlite`);
+    const beforePromotion = await database.arrayBuffer();
+    const accepted = await device.run([
+      "report",
+      "accept",
+      "--source",
+      source,
+      "--assignment",
+      "read",
+      "--promote",
+      promotion,
+    ]);
+    if (resources === "pane") {
+      expect(accepted).toMatchObject({
+        code: 3,
+        output: {
+          reason: "promotion_worktree_missing",
+          next: {
+            decider: "super-agent",
+            question:
+              "Should the report be accepted without promotion and a new source registered instead?",
+          },
+        },
+      });
+      expect(await database.arrayBuffer()).toEqual(beforePromotion);
+      return;
+    }
+    expect(accepted.code, accepted.stderr).toBe(0);
+    expect(
+      (
+        await device.exec(
+          ["git", "worktree", "remove", "--force", worker.worktreePath ?? ""],
+          device.main,
+        )
+      ).code,
+    ).toBe(0);
+    const beforeDispatch = await database.arrayBuffer();
+    const calls = await device.herdrCalls();
+    expect(
+      await device.run(["dispatch", "--source", source, "--assignment", "build"]),
+    ).toMatchObject({
+      code: 3,
+      output: {
+        reason: "promotion_worktree_missing",
+        next: {
+          decider: "person",
+          question:
+            "How should the missing promoted worktree be recovered without losing unlanded work?",
+        },
+        state: { reusable: false },
+      },
+    });
+    expect(await database.arrayBuffer()).toEqual(beforeDispatch);
+    expect(await device.herdrCalls()).toEqual([
+      ...calls,
+      "plugin list",
+      "workspace list",
+      "agent list",
+      "tab list",
+    ]);
+  },
+);
