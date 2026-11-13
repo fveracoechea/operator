@@ -44,7 +44,7 @@ type Refusal = {
   reason: "skills_release_invalid" | "skill_copy_conflict" | "skills_missing";
   detail: string;
 };
-const retired = ["operator", "operative"];
+const retired = ["operator", "operative", "slack-pr-review-workflow"];
 
 export function checkOnly(source: string, requested: boolean) {
   return requested || source.startsWith("/nix/store/");

@@ -82,10 +82,10 @@ test("adopts exact unrelated contents without rewriting them", async () => {
   expect((await Bun.file(`${destination}/SKILL.md`).stat()).mtimeMs).toBe(before.mtimeMs);
 });
 
-test("removes old role copies only when the device ledger proves unchanged contents", async () => {
+test("removes retired copies only when the device ledger proves unchanged contents", async () => {
   const entries: Record<string, NonNullable<Awaited<ReturnType<typeof contents>>>> = {};
   for (const host of request.hosts) {
-    for (const name of ["operator", "operative"]) {
+    for (const name of ["operator", "operative", "slack-pr-review-workflow"]) {
       const destination = `${request.paths.skillHosts[host]}/${name}`;
       await cp(`${request.source}/example`, destination, { recursive: true });
       const identity = await contents(destination, false);
@@ -100,6 +100,9 @@ test("removes old role copies only when the device ledger proves unchanged conte
   for (const host of request.hosts) {
     expect(await contents(`${request.paths.skillHosts[host]}/operator`, false)).toBeNull();
     expect(await contents(`${request.paths.skillHosts[host]}/operative`, false)).toBeNull();
+    expect(
+      await contents(`${request.paths.skillHosts[host]}/slack-pr-review-workflow`, false),
+    ).toBeNull();
   }
 });
 
