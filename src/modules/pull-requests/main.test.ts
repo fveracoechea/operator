@@ -47,6 +47,18 @@ const allMet = {
   reviewEnded: true,
 };
 
+test("worker phase selection uses the same validated worktree owner as PR effects", async () => {
+  await using device = await prDevice();
+  const { worktree, launchId } = device.start("other");
+  expect<unknown>(await PullRequests.workerTarget({ paths: device.paths, cwd: worktree })).toEqual({
+    tag: "Ok",
+    value: { repository, sourceId: device.sourceId, assignment: "other", launchId },
+  });
+  expect<unknown>(
+    await PullRequests.workerTarget({ paths: device.paths, cwd: device.checkout }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_worktree_unrecorded" } });
+});
+
 test("the owner associates its one open PR, and a repeat changes nothing", async () => {
   await using device = await prDevice();
   const { worktree } = device.start("other");

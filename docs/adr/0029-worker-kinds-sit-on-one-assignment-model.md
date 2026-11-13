@@ -45,6 +45,7 @@ Before explicit ready-transition records exist, a compatibility adapter requires
 It uses a ready or skipped review, or an eligible-head observation that passed the non-draft and merge checks.
 Association without internal review does not itself prove readiness.
 Missing or stale evidence remains unknown and sends the owner to its PR wait.
+An ended review stays in feedback after a newer head, without reopening review rounds or the ready step.
 The final merge gate still refreshes its independent live checks.
 
 For unguarded work, the phase in a result names the command frontier: the last declared work phase before the tail.

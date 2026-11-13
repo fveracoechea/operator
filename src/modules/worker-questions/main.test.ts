@@ -51,6 +51,7 @@ test("an asked question replaces the idle worker in next actions until the Super
   expect(askedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   expect(okValue(result)).toEqual({
     reason: "question_asked",
+    next: { command: "operator question wait --key scope", why: "Wait for the recorded answer." },
     data: {
       sourceId,
       assignment: "read",
@@ -139,6 +140,7 @@ test("a wait times out with the question's current state and records nothing", a
   const started = Date.now();
   expect(okValue(await wait("scope", 1))).toMatchObject({
     reason: "question_wait_timed_out",
+    next: { command: "operator question wait --key scope", why: "Wait for the recorded answer." },
     data: { key: "scope", state: "open", answer: null },
   });
   expect(Date.now() - started).toBeGreaterThanOrEqual(1000);

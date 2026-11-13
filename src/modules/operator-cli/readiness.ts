@@ -24,7 +24,7 @@ export async function runReadiness(
           reason: ready ? "ready" : "not_ready",
           blockers: result.value.blockers,
           data: { staticOnly: true },
-          ...outputContext("ready", ready ? "ready" : "not_ready"),
+          ...outputContext(),
         },
         null,
         json ? undefined : 2,

@@ -1,17 +1,12 @@
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 // Bun has no native invocation-local context API.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { z } from "zod";
 
-type ContextReader = (output: {
-  operation: string;
-  reason: string;
-  questionKey?: string;
-}) => ResultContext;
+type ContextReader = () => ResultContext;
 const workerContext = new AsyncLocalStorage<ContextReader>();
 
-export function outputContext(operation: string, reason: string, questionKey?: string) {
-  return workerContext.getStore()?.({ operation, reason, questionKey }) ?? {};
+export function outputContext() {
+  return workerContext.getStore()?.() ?? {};
 }
 
 /** Output context is local to one invocation, including concurrent embedded CLI callers. */
@@ -54,7 +49,7 @@ export function failure(
   json: boolean,
   context: ResultContext = {},
 ) {
-  const defaults = outputContext(operation, reason);
+  const defaults = outputContext();
   context = { ...defaults, ...context, next: context.next ?? defaults.next };
   if (json)
     console.log(
@@ -109,11 +104,7 @@ export function respond(input: {
 }) {
   const { operation, result, json } = input;
   if (result.tag === "Ok") {
-    const defaults = outputContext(
-      operation,
-      result.value.reason,
-      z.object({ key: z.string().optional() }).safeParse(result.value.data).data?.key,
-    );
+    const defaults = outputContext();
     const context = { ...defaults, ...result.value, next: result.value.next ?? defaults.next };
     console.log(
       JSON.stringify(

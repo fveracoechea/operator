@@ -33,14 +33,22 @@ test("marks invalid input separately from a refused operation", () => {
   expect(process.exitCode).toBe(2);
 });
 
+test("a compact nonworker refusal with next has no fabricated kind or phase suffix", () => {
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  failure("command", "guard", "Not ready.", 3, false, {
+    next: { command: "operator ready", why: "Check." },
+  });
+  expect(error.mock.calls.map((call) => String(call[0]))).toEqual([
+    "operator: guard: Not ready.",
+    "next: operator ready",
+  ]);
+});
+
 test("worker output includes phase defaults without replacing owner authority or checked state", async () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
   await withOutputContext(
-    ({ operation, reason, questionKey }) => {
-      expect(operation).toBe("question_ask");
-      expect(reason).toBe("question_asked");
-      expect(questionKey).toBe("scope");
+    () => {
       return {
         kind: "research",
         phase: "investigate",
@@ -74,7 +82,7 @@ test("worker output includes phase defaults without replacing owner authority or
     next: { command: "operator question wait --key scope", why: "Wait." },
     state: { question: "open" },
   });
-  expect(outputContext("outside", "outside")).toEqual({});
+  expect(outputContext()).toEqual({});
   expect(error).not.toHaveBeenCalled();
 });
 

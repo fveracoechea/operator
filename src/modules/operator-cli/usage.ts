@@ -26,7 +26,7 @@ export function runUsage(args: string[], release: Release, json: boolean) {
           reason: "version_reported",
           blockers: [],
           data: { operatorVersion, bunVersion: Bun.version, commit, artifactIdentity },
-          ...outputContext("version", "version_reported"),
+          ...outputContext(),
         })
       : `operator ${operatorVersion}`,
   );
@@ -36,7 +36,7 @@ export function runUsage(args: string[], release: Release, json: boolean) {
 
 /** Reports arguments that no command accepts. */
 export function invalidArguments(json: boolean) {
-  if (outputContext("parse_arguments", "invalid_arguments").kind !== undefined) {
+  if (outputContext().kind !== undefined) {
     failure(
       "parse_arguments",
       "invalid_arguments",

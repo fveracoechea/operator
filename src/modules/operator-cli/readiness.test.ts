@@ -107,9 +107,7 @@ test.each([true, false])(
     );
     const { log } = quiet();
     await withOutputContext(
-      ({ operation, reason }) => {
-        expect(operation).toBe("ready");
-        expect(reason).toBe(ready ? "ready" : "not_ready");
+      () => {
         return {
           kind: "prototype",
           phase: "react",

@@ -17,6 +17,7 @@ export type PhaseFacts = {
   report: { returned: boolean; accepted: boolean; resumed?: boolean } | null;
   pr: { associated: boolean; rounds: number; ready: boolean; merged: boolean; parked: boolean };
   internalReview: boolean;
+  reviewEnded?: boolean;
   handedOff?: boolean;
   worktreeClean: boolean;
 };
@@ -90,7 +91,7 @@ const prTail: Rule[] = [
     }),
   },
   {
-    when: (facts) => facts.pr.ready,
+    when: (facts) => facts.pr.ready || facts.reviewEnded === true,
     phase: () => ({
       phase: "feedback",
       next: { command: "operator pr wait", why: "Wait for PR feedback or merge eligibility." },

@@ -494,6 +494,19 @@ ${overview}
   const owner = await Bun.file(brief).text();
   expect(owner).toContain(`The internal review of PR #7 ended ready at \`${third}\`.`);
   expect(owner).not.toContain("You are the internal reviewer");
+  const pane = (await shown(source)).launches.at(-1)?.paneId ?? "";
+  await commit(reviewer, "after-ready.txt");
+  expect(await run(["--version"], reviewer, pane)).toMatchObject({
+    output: { phase: "feedback", next: { command: "operator pr wait" } },
+  });
+  expect(await run(["pr", "merge"], reviewer, pane)).toMatchObject({
+    output: {
+      reason: "pr_not_ready",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+      state: { pr_ready: false },
+    },
+  });
 }, 180000);
 
 test("a retry after a lost comment or ready answer posts one comment and records the end", async () => {
@@ -599,6 +612,9 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
     output: { reason: "internal_review_ended" },
   });
   const pane = (await shown(source)).launches[1]?.paneId ?? "";
+  expect(await run(["pr", "merge"], reviewer, pane)).toMatchObject({
+    output: { reason: "pr_merge_blocked", phase: "feedback" },
+  });
   expect(await run(["pr", "wait", "--timeout", "0"], reviewer, pane)).toMatchObject({
     output: {
       kind: "review",
@@ -608,6 +624,9 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
     },
   });
   await commit(reviewer, "after-skip.txt");
+  expect(await run(["--version"], reviewer, pane)).toMatchObject({
+    output: { phase: "feedback", next: { command: "operator pr wait" } },
+  });
   expect(await run(["pr", "merge"], reviewer, pane)).toMatchObject({
     output: {
       reason: "pr_not_ready",
