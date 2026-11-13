@@ -232,6 +232,13 @@ test.each([0, 1, 2])(
       next: { command: "operator pr wait" },
       refusal: { reason: "pr_not_ready", state: { pr_ready: false } },
     });
+    for (const event of ["round", "ready"] as const)
+      expect(decidePhase(facts, event)).toEqual({
+        kind: "custom",
+        phase: "feedback",
+        next: { command: "operator pr wait", why: "Wait for PR feedback or merge eligibility." },
+        refusal: undefined,
+      });
   },
 );
 

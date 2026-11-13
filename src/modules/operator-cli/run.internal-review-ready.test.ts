@@ -212,6 +212,7 @@ const statusSchema = z.object({
     internalReviews: z.array(
       z.looseObject({ handoffState: z.string(), handoffRunning: z.boolean() }),
     ),
+    internalReviewRounds: z.array(z.looseObject({ number: z.number() })),
   }),
 });
 
@@ -457,14 +458,29 @@ ${overview}
     { origin: "assignment", state: "queued", action: "start_reviewer" },
   ]);
   // The review ended, so the owner takes no more rounds and the gate now permits the merge.
-  expect(await run(["pr", "round", "--file", await findings([])], reviewer)).toMatchObject({
+  const ended = await shown(source);
+  const reviewerPane = ended.launches[1]?.paneId ?? "";
+  const publicBefore = await githubState();
+  expect(
+    await run(["pr", "round", "--file", await findings([])], reviewer, reviewerPane),
+  ).toMatchObject({
     code: 3,
-    output: { reason: "internal_review_ended" },
+    output: {
+      reason: "internal_review_ended",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    },
   });
-  expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
+  expect(await run(["pr", "ready", "--file", file], reviewer, reviewerPane)).toMatchObject({
     code: 3,
-    output: { reason: "internal_review_ended" },
+    output: {
+      reason: "internal_review_ended",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    },
   });
+  expect(await shown(source)).toEqual(ended);
+  expect(await githubState()).toEqual(publicBefore);
   const eligible = await run(
     ["pr", "wait", "--timeout", "0"],
     reviewer,
@@ -607,11 +623,19 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
 
   // The running reviewer learns of the skip from its next review command and owns the PR.
   const file = await summary("x", []);
-  expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
-    code: 3,
-    output: { reason: "internal_review_ended" },
-  });
   const pane = (await shown(source)).launches[1]?.paneId ?? "";
+  const ended = await shown(source);
+  const publicBefore = await githubState();
+  expect(await run(["pr", "ready", "--file", file], reviewer, pane)).toMatchObject({
+    code: 3,
+    output: {
+      reason: "internal_review_ended",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    },
+  });
+  expect(await shown(source)).toEqual(ended);
+  expect(await githubState()).toEqual(publicBefore);
   expect(await run(["pr", "merge"], reviewer, pane)).toMatchObject({
     output: { reason: "pr_merge_blocked", phase: "feedback" },
   });

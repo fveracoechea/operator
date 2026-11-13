@@ -214,9 +214,13 @@ test.each([
 test("a deliberate widening of the readiness failure contract fails typechecking", async () => {
   const file = `${root}/src/modules/readiness/main.ts`;
   const original = await Bun.file(file).text();
+  const consumer = `${root}/src/modules/readiness/main.test.ts`;
+  const originalConsumer = await Bun.file(consumer).text();
   const before = 'reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";';
   expect(original).toContain(before);
   try {
+    // Stryker disables diagnostics on sandbox tests. This private type-contract consumer must check types.
+    await Bun.write(consumer, originalConsumer.replace(/^\/\/ @ts-nocheck\r?\n/, ""));
     await Bun.write(file, original.replace(before, "reason: string;"));
     const child = Bun.spawn([process.execPath, "run", "typecheck"], {
       cwd: root,
@@ -234,5 +238,6 @@ test("a deliberate widening of the readiness failure contract fails typechecking
     expect(`${stdout}${stderr}`).toContain("TS2554");
   } finally {
     await Bun.write(file, original);
+    await Bun.write(consumer, originalConsumer);
   }
 }, 30000);
