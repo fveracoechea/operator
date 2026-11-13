@@ -1,5 +1,13 @@
 # @fveracoechea/operator
 
+## 2.3.3
+
+### Patch Changes
+
+- c573bfd: Upgrade the dependency toolchain and move application sources to src and development tools to tools before Spec #373 implementation.
+  Preserve installed CLI, plugin, migration, and built artifact paths.
+  Require explicit authorization before release publication; ordinary main merges only prepare the version PR.
+
 ## 2.3.2
 
 ### Patch Changes
