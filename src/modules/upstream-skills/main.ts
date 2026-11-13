@@ -27,11 +27,12 @@ type GuideIssue = {
   detail: string;
 };
 
-async function readableSkill(file: string) {
+async function readableSkill(file: string, optional = false) {
   try {
     return (await stat(file)).isFile() && (await Bun.file(file).text()).trim().length > 0;
   } catch (cause) {
-    if (isCodedError(cause) && ["ENOENT", "ENOTDIR", "ELOOP"].includes(cause.code)) return false;
+    if (isCodedError(cause) && (optional || ["ENOENT", "ENOTDIR", "ELOOP"].includes(cause.code)))
+      return false;
     // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
     throw cause;
   }
@@ -203,7 +204,7 @@ export const UpstreamSkills = {
               link === null
                 ? `${owned.has(name) ? paths.skillHosts[host] : paths.upstreamSkills[host]}/${name}/SKILL.md`
                 : path.resolve(paths.skillHosts[host], path.dirname(guide), link);
-            if (await readableSkill(file)) continue;
+            if (await readableSkill(file, optional)) continue;
             const issue: GuideIssue = {
               reason: optional ? "skill_link_unresolved" : "guide_skill_unresolved",
               host,
@@ -212,7 +213,7 @@ export const UpstreamSkills = {
               file,
               detail: optional
                 ? `${guide}: ${link} does not resolve. Read show-me by the absolute path in the brief when available.`
-                : `${guide} requires ${name}, but ${file} is absent or empty. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
+                : `${guide} requires ${name}, but ${file} does not resolve to a readable, nonempty regular file. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
             };
             (optional ? warnings : blockers).push(issue);
           }
@@ -244,15 +245,7 @@ export const UpstreamSkills = {
         const missing = [];
         for (const name of required) {
           const file = `${paths.upstreamSkills[host]}/${name}/SKILL.md`;
-          try {
-            if (!(await stat(file)).isFile() || (await Bun.file(file).text()).trim().length === 0)
-              missing.push(file);
-          } catch (cause) {
-            if (isCodedError(cause) && ["ENOENT", "ENOTDIR", "ELOOP"].includes(cause.code))
-              missing.push(file);
-            // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
-            else throw cause;
-          }
+          if (!(await readableSkill(file))) missing.push(file);
         }
         return missing;
       },

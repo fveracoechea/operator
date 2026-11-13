@@ -51,7 +51,7 @@ test("guide content resolves owned skills, upstream links, and warning-only visu
       value: {
         blockers: [
           {
-            detail: `worker-agent/kinds/answer.md requires tdd, but ${skill} is absent or empty. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
+            detail: `worker-agent/kinds/answer.md requires tdd, but ${skill} does not resolve to a readable, nonempty regular file. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
           },
         ],
         warnings: [
@@ -132,6 +132,39 @@ test("only the linked visual skill is optional, while required relative targets 
     });
     expect(await UpstreamSkills.checkGuides(input, "opencode")).toEqual(
       Ok({ blockers: [], warnings: [] }),
+    );
+  } finally {
+    guides.mockRestore();
+  }
+});
+
+test.skipIf(asRoot)("an unreadable optional guide target remains a warning", async () => {
+  const input = paths();
+  const file = `${input.skillHosts.opencode}/show-me/SKILL.md`;
+  await Bun.write(file, "# Visual skill\n", { createPath: true });
+  await chmod(file, 0);
+  const guides = spyOn(OwnedSkills, "guides").mockResolvedValue([
+    {
+      guide: "worker-agent/kinds/answer.md",
+      text: "Read [show-me](../../show-me/SKILL.md).",
+    },
+  ]);
+  try {
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toEqual(
+      Ok({
+        blockers: [],
+        warnings: [
+          {
+            reason: "skill_link_unresolved",
+            host: "opencode",
+            guide: "worker-agent/kinds/answer.md",
+            skill: "show-me",
+            file,
+            detail:
+              "worker-agent/kinds/answer.md: ../../show-me/SKILL.md does not resolve. Read show-me by the absolute path in the brief when available.",
+          },
+        ],
+      }),
     );
   } finally {
     guides.mockRestore();

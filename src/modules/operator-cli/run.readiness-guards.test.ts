@@ -134,7 +134,7 @@ test.each([
   {
     name: "required upstream presence",
     file: "upstream-skills/main.ts",
-    before: "if (await readableSkill(file)) continue;",
+    before: "if (await readableSkill(file, optional)) continue;",
     after: "continue;",
     testFile: "operator-cli/run.readiness.test.ts",
     pattern: "ready blocks on a guide",

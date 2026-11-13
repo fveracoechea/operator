@@ -187,6 +187,39 @@ test("reports failed authentication, a missing host, changed owned assets, and a
   );
 });
 
+// Root bypasses file modes, so it cannot exercise a denied skill read.
+test.skipIf(process.getuid?.() === 0)(
+  "an unreadable optional show-me link warns while required skill access still blocks",
+  async () => {
+    const { folder, upstream } = await configure("opencode");
+    const visual = `${folder}/show-me/SKILL.md`;
+    await Bun.write(visual, "# Linked visual skill\n", { createPath: true });
+    await Bun.write(`${upstream}/show-me/SKILL.md`, "# Usable absolute fallback\n", {
+      createPath: true,
+    });
+    await chmod(visual, 0);
+    expect(await run()).toMatchObject({
+      code: 0,
+      output: {
+        reason: "ready",
+        blockers: [],
+        warnings: [expect.objectContaining({ skill: "show-me", file: visual })],
+      },
+    });
+    await chmod(`${root}/independent-code-review/SKILL.md`, 0);
+    expect(await run()).toMatchObject({
+      code: 3,
+      output: { blockers: [expect.objectContaining({ reason: "upstream_io_failed" })] },
+    });
+    expect(await Bun.file(`${upstream}/show-me/SKILL.md`).text()).toBe(
+      "# Usable absolute fallback\n",
+    );
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
+  },
+);
+
 test.each([
   {
     name: "a foreign command",

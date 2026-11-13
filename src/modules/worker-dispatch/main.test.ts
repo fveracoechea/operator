@@ -195,6 +195,53 @@ function briefOf(device: { paths: Paths }, sourceId: string, assignment: string)
   ).text();
 }
 
+test.each(["opencode", "claude-code"] as const)(
+  "answer dispatch records and renders the %s absolute fallback",
+  async (host) => {
+    await using device = await dispatchDevice();
+    spyOn(DeviceSettings, "resolve").mockReturnValue(OkAsync({ ...resolved, host }));
+    const file = `${device.root}/answer.json`;
+    await Bun.write(
+      file,
+      JSON.stringify({
+        trackerKey: "github:example/one#90",
+        assignments: [
+          {
+            key: "answer",
+            trackerKey: "github:example/one#91",
+            kind: "answer",
+            instructions: "Explain the guide.",
+            dependencies: [],
+          },
+        ],
+      }),
+    );
+    const registered = await WorkSources.register({
+      paths: device.paths,
+      cwd: device.checkout,
+      file,
+    });
+    expect(registered.tag).toBe("Ok");
+    if (registered.tag !== "Ok") return;
+    const sourceId = registered.value.id;
+    const fallback =
+      host === "opencode"
+        ? `${device.root}/.agents/skills/show-me/SKILL.md`
+        : `${device.root}/.claude/skills/show-me/SKILL.md`;
+    expect(await WorkerDispatch.dispatch({ ...device.request("answer"), sourceId })).toMatchObject({
+      tag: "Ok",
+    });
+    const shown = await WorkSources.show({ paths: device.paths, cwd: device.checkout, sourceId });
+    expect(shown).toMatchObject({
+      tag: "Ok",
+      value: { launches: [{ host, kind: { name: "answer", skillsToRead: [fallback] } }] },
+    });
+    expect(await briefOf(device, sourceId, "answer")).toContain(
+      `When the guide calls for it and the file exists, read skill by path: \`${fallback}\`.`,
+    );
+  },
+);
+
 test("a plan that turns internal review off gives a ready PR, and an assignment can turn it on", async () => {
   await using device = await dispatchDevice();
   const pr = {

@@ -119,6 +119,43 @@ describe("static blockers", () => {
     for (const spy of restorable.splice(0)) spy.mockRestore();
   });
 
+  test("preserves optional warnings from every configured host without blocking", async () => {
+    const device = await scenario({
+      host: "opencode",
+      tools: ["gh", "herdr", "opencode", "claude"],
+    });
+    await Bun.write(
+      device.config,
+      JSON.stringify({
+        superAgent: { host: "opencode" },
+        workerAgent: { host: "claude-code" },
+      }),
+    );
+    stub(GlobalLauncher, "check").mockReturnValue(OkAsync([]));
+    stub(OwnedSkills, "install").mockReturnValue(
+      OkAsync({ reason: "skills_checked" as const, data: { hosts: [], checkOnly: true } }),
+    );
+    stub(ClaudeHook, "install").mockReturnValue(OkAsync("already_installed" as const));
+    stub(OpenCodePlugin, "install").mockReturnValue(OkAsync("already_installed" as const));
+    const opencode = {
+      reason: "skill_link_unresolved" as const,
+      host: "opencode" as const,
+      guide: "worker-agent/kinds/answer.md",
+      skill: "show-me",
+      file: "/opencode/show-me/SKILL.md",
+      detail: "The relative link does not resolve.",
+    };
+    const claude = { ...opencode, host: "claude-code" as const, file: "/claude/show-me/SKILL.md" };
+    const upstream = stub(UpstreamSkills, "checkGuides")
+      .mockReturnValueOnce(OkAsync({ blockers: [], warnings: [opencode] }))
+      .mockReturnValueOnce(OkAsync({ blockers: [], warnings: [claude] }));
+    expect(await Readiness.check(device)).toEqual(
+      Ok({ blockers: [], warnings: [opencode, claude] }),
+    );
+    expect(upstream).toHaveBeenNthCalledWith(1, device, "opencode");
+    expect(upstream).toHaveBeenNthCalledWith(2, device, "claude-code");
+  });
+
   test("reports missing tools, skips authentication without gh, and names the OpenCode host", async () => {
     const device = await scenario({ host: "opencode", tools: [] });
     stub(GlobalLauncher, "check").mockReturnValue(OkAsync([launcherBlocker]));
