@@ -12,10 +12,17 @@ An obligation is not an action, so adding or closing one wakes no coordination w
 | `standing-rule`   | the person gives a rule for the rest of the work, such as "only use dev:trane"    | the person withdraws it, or the source work ends  |
 | `person-decision` | the person decided in chat and no worker question or brief records it yet         | the decision is recorded where the work reads it  |
 
-1. Write the obligation as JSON outside the checkout, for example `{"key": "share-2141", "kind": "pr-share", "summary": "Share #2141 in the team review thread.", "reference": "https://github.com/owner/repo/pull/2141"}`.
-   The key has lowercase letters, digits, and single hyphens. It names one obligation for the whole source, so use a new key for each. `reference` is optional.
-2. Run `operator obligation add --source <id> --file <obligation.json> --json`.
-3. When the obligation is met, run `operator obligation close --source <id> --key <key> --json`.
+Pass identifiers as flags and the summary as plain text from an external file or stdin:
+
+```sh
+operator obligation add --source <id> --key share-2141 --kind pr-share --reference https://github.com/owner/repo/pull/2141 --file - --json <<'EOF'
+Share #2141 in the team review thread.
+EOF
+```
+
+The key has lowercase letters, digits, and single hyphens. Use a new key for each obligation in a source.
+`--reference` is optional. The summary must contain 1 to 2000 characters after trimming. JSON is not accepted.
+When the obligation is met, run `operator obligation close --source <id> --key <key> --json`.
 
 `operator obligation list --source <id> --json` shows the whole ledger, closed obligations included.
 An ended source keeps showing its open obligations, and it takes no new ones.

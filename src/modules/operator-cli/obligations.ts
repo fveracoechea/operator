@@ -5,7 +5,7 @@ import { recordFlags } from "./questions.ts";
 
 // The SuperAgent names the source, because the ledger belongs to the source, not to a worker.
 const commands = {
-  add: { required: ["--source", "--file"], optional: [] },
+  add: { required: ["--source", "--key", "--kind", "--file"], optional: ["--reference"] },
   close: { required: ["--source", "--key"], optional: [] },
   list: { required: ["--source"], optional: [] },
 } as const;
@@ -26,6 +26,8 @@ export function obligationArgs(args: string[]) {
     sourceId: values["--source"] ?? "",
     file: values["--file"] ?? "",
     key: values["--key"] ?? "",
+    kind: values["--kind"] ?? "",
+    reference: values["--reference"],
   };
 }
 

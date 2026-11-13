@@ -34,17 +34,18 @@ Do the Skills axis yourself.
 Read the checks with `gh pr checks <number>`. A failing check is a blocker finding.
 
 Before you change code, record the round's findings at your worktree head, which must be the pushed PR head.
-Write a JSON file outside the checkout, then run `operator pr round --file <file> --json`:
+Pass markdown from an external file or stdin:
 
-```json
-{
-  "findings": [
-    { "axis": "Spec", "severity": "blocker", "location": "src/a.ts:12", "claim": "<claim with its evidence>" }
-  ]
-}
+```sh
+operator pr round --file - --json <<'EOF'
+## Findings
+- blocker, Spec, src/a.ts:12: <claim with its evidence>
+EOF
 ```
 
-`axis` is `Spec`, `Standards`, or `Skills`, and `severity` is `blocker` or `nice-to-have`. A round with no findings records `"findings": []`.
+`axis` is `Spec`, `Standards`, or `Skills`, and `severity` is `blocker` or `nice-to-have`.
+For no findings, keep `## Findings` with no bullets.
+Keep each finding on one line. A malformed bullet reports its line number and the next command.
 The command refuses a file with any other shape, a third round, a second round at the head of the first, and a round after the review ended. A refusal records nothing.
 
 ## 3. Apply the valid findings
@@ -67,20 +68,23 @@ The limit is two rounds, and `operator pr round` refuses a third. After round 2,
 ## 5. End the review with the ready step
 
 Load the `no-slop` skill before you write the overview.
-Write a JSON summary file outside the checkout:
+Pass a markdown summary from an external file or stdin:
 
-```json
-{
-  "overview": "<one or two sentences on what the review found and changed>",
-  "dispositions": [
-    { "round": 1, "finding": 1, "disposition": "applied" },
-    { "round": 1, "finding": 2, "disposition": "declined", "reason": "<why>" }
-  ]
-}
+```sh
+operator pr ready --file - --json <<'EOF'
+## Overview
+<one or two sentences on what the review found and changed>
+
+## Dispositions
+- 1.1 applied
+- 1.2 declined: <why>
+EOF
 ```
 
 `finding` numbers each finding of a round from 1, in the order of its round file.
 Give every recorded finding exactly one disposition, and every declined finding a reason.
+Keep each disposition on one line. Keep `## Dispositions` without bullets when no findings were recorded.
+JSON input is not accepted by either review command.
 Commit and push all work, then run `operator pr ready --file <file> --json` in your worktree.
 
 It posts one summary comment and then marks the PR ready. The CLI renders one line for each recorded finding with its axis, severity, and disposition, under your overview.

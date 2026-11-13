@@ -16,10 +16,19 @@ type Target = Parameters<typeof DeviceState.readObligations>[1];
 const stateSchema = z.enum(states);
 const ioCodes = ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "EISDIR", "ELOOP"];
 
-/** Invalid input and file system failures are refusals. Any other error stays a defect. */
+function invalidInput() {
+  return Err({
+    reason: "invalid_obligation_input",
+    detail: `Use valid --key, --kind, optional --reference, and a nonempty plain-text summary of at most 2000 characters. JSON is not accepted. Nothing changed.`,
+    next: {
+      command: "operator obligation add --source <id> --key <key> --kind <kind> --file <path|->",
+      why: "Correct the obligation flags or summary and try again.",
+    },
+  });
+}
+
+/** File system failures are refusals. Any other error stays a defect. */
 function qualify<T>(cause: Error, defect: (cause: Error) => T) {
-  if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-    return { reason: "invalid_obligation_input", detail: `${cause.message} Nothing changed.` };
   if (isCodedError(cause) && ioCodes.includes(cause.code))
     return { reason: "obligation_io_failed", detail: String(cause) };
   return defect(cause);
@@ -69,30 +78,44 @@ function recorded(input: Selector, selected: Target, key: string) {
   });
 }
 
-function add(input: Selector & { file: string }) {
+type AddInput = Selector & { file: string; key: string; kind: string; reference?: string };
+
+function add(input: AddInput) {
   return fromPromise(
-    async () => obligationSchema.parse(JSON.parse(await Bun.file(input.file).text())),
+    () => (input.file === "-" ? Bun.stdin : Bun.file(input.file)).text(),
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((added) =>
-    target(input).flatMap((selected) =>
-      DeviceState.changeObligation(input.paths, selected, added.key, (facts) =>
-        decide(facts, "add").map((state) => ({
-          insert: {
-            sourceId: facts.source.id,
-            key: added.key,
-            kind: added.kind,
-            summary: added.summary,
-            reference: added.reference ?? null,
-            openedAt: new Date().toISOString(),
-            state,
-            closedAt: null,
-          },
-        })),
-      )
-        .flatMap(() => recorded(input, selected, added.key))
-        .map((data) => ({ reason: "obligation_added" as const, data })),
-    ),
-  );
+  )
+    .flatMap((text) => {
+      const summary = text.trim();
+      if (/^[{[]/.test(summary)) return invalidInput();
+      const parsed = obligationSchema.safeParse({
+        key: input.key,
+        kind: input.kind,
+        summary,
+        reference: input.reference,
+      });
+      return parsed.success ? Ok(parsed.data) : invalidInput();
+    })
+    .flatMap((added) =>
+      target(input).flatMap((selected) =>
+        DeviceState.changeObligation(input.paths, selected, added.key, (facts) =>
+          decide(facts, "add").map((state) => ({
+            insert: {
+              sourceId: facts.source.id,
+              key: added.key,
+              kind: added.kind,
+              summary: added.summary,
+              reference: added.reference ?? null,
+              openedAt: new Date().toISOString(),
+              state,
+              closedAt: null,
+            },
+          })),
+        )
+          .flatMap(() => recorded(input, selected, added.key))
+          .map((data) => ({ reason: "obligation_added" as const, data })),
+      ),
+    );
 }
 
 function close(input: Selector & { key: string }) {
@@ -130,7 +153,7 @@ export const Obligations = {
   states() {
     return states;
   },
-  add(input: Selector & { file: string }) {
+  add(input: AddInput) {
     return add(input);
   },
   close(input: Selector & { key: string }) {
