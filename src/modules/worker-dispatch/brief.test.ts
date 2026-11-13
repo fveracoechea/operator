@@ -56,6 +56,18 @@ test.each(["research", "answer", "prototype", "implementation", "review", "pr-fe
   },
 );
 
+test("kind guides honor pane overrides and require the conflict-resolution skill", async () => {
+  const prototype = await Bun.file(
+    new URL("../../../skills/worker-agent/kinds/prototype.md", import.meta.url),
+  ).text();
+  expect(prototype).toContain("When the brief gives a worktree");
+  expect(prototype).toContain("For pane resources, change no project files.");
+  const feedback = await Bun.file(
+    new URL("../../../skills/worker-agent/kinds/pr-feedback.md", import.meta.url),
+  ).text();
+  expect(feedback).toContain("Load `resolving-merge-conflicts`");
+});
+
 test("read-only work forbids project changes, and the brief names no runtime agent", () => {
   const brief = renderBrief({
     ...input,
