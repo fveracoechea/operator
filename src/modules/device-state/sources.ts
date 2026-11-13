@@ -39,7 +39,7 @@ export function registerSource(
   client: Database,
   checkout: string,
   source: StoredSource,
-  rows: AssignmentRow[],
+  rows: (typeof assignments.$inferInsert)[],
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<StoredSource, SourceFailure> => {

@@ -80,7 +80,7 @@ function plan(keys: string[]) {
       key,
       trackerKey: `github:example/one#${12 + index}`,
       instructions: "Implement the change.",
-      completion: "pr",
+      kind: "implementation",
       resources: "worktree",
       branch: index === 0 ? branch : `task/${12 + index}-${key}`,
       dependencies: [],

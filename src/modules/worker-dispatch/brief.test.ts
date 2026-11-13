@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { superAgentMessages } from "../../lib/superagent-messages.ts";
 import { renderBrief } from "./brief.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 const input = {
   sourceId: "source-1",
@@ -39,6 +40,21 @@ test("the brief carries the task, resources, results, and earlier history", () =
     expect(brief).toContain(text);
   expect(brief).toContain("## Follow-up instructions\n\n- None.");
 });
+
+test.each(["research", "answer", "prototype", "implementation", "review", "pr-feedback"] as const)(
+  "%s has a shipped guide and its brief links the resolved absolute path",
+  async (name) => {
+    const kind = WorkerKinds.resolve(name);
+    const guide = Bun.fileURLToPath(
+      new URL(`../../../skills/worker-agent/kinds/${name}.md`, import.meta.url),
+    );
+    expect(kind.guide).toBe(`worker-agent/kinds/${name}.md`);
+    expect(await Bun.file(guide).exists()).toBe(true);
+    expect((await Bun.file(guide).text()).trim().length).toBeGreaterThan(30);
+    const brief = renderBrief({ ...input, kind: { ...kind, guide } });
+    expect(brief).toContain(`Worker kind: \`${name}\`. Read \`${guide}\`.`);
+  },
+);
 
 test("read-only work forbids project changes, and the brief names no runtime agent", () => {
   const brief = renderBrief({

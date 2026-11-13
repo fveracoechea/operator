@@ -94,7 +94,7 @@ const plan = {
       key: "investigate",
       trackerKey: "github:example/one#11",
       instructions: "Read and report. Ask the person when authority is unclear.",
-      completion: "report",
+      kind: "research",
       resources: "pane",
       dependencies: [],
     },
@@ -102,7 +102,7 @@ const plan = {
       key: "implement",
       trackerKey: "github:example/one#12",
       instructions: "Implement the accepted report.",
-      completion: "pr",
+      kind: "implementation",
       resources: "worktree",
       branch: "task/12-implement",
       dependencies: ["investigate"],
@@ -424,8 +424,8 @@ test.each([
     ],
   },
   {
-    name: "PR without worktree",
-    assignments: [{ ...plan.assignments[1], resources: "pane", dependencies: [] }],
+    name: "PR without branch",
+    assignments: [{ ...plan.assignments[1], branch: undefined, dependencies: [] }],
   },
   {
     name: "invalid branch",
@@ -706,7 +706,7 @@ test.each(["missing-row", "extra-row", "changed-completion", "invalid-state"])(
       if (mode === "missing-row") db.exec("DELETE FROM assignments WHERE key = 'implement'");
       if (mode === "extra-row")
         db.exec(
-          "INSERT INTO assignments SELECT source_id, 'extra', 'report', 'ready' FROM assignments LIMIT 1",
+          "INSERT INTO assignments (source_id, key, completion, state) SELECT source_id, 'extra', 'report', 'ready' FROM assignments LIMIT 1",
         );
       if (mode === "changed-completion")
         db.exec("UPDATE assignments SET completion = 'report' WHERE key = 'implement'");

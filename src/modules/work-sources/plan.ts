@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { slug } from "../../lib/slug.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 const key = z
   .string()
@@ -38,7 +39,7 @@ const shared = {
     .optional(),
   dependencies: z.array(key),
 };
-export const planSchema = z
+export const storedPlanSchema = z
   .strictObject({
     trackerKey: key,
     intent,
@@ -50,8 +51,9 @@ export const planSchema = z
       z.union([
         z.strictObject({
           ...shared,
+          kind: z.enum(WorkerKinds.names()).nullable().default(null),
           completion: z.literal("pr"),
-          resources: z.literal("worktree"),
+          resources: z.enum(["worktree", "pane"]),
           branch,
           internalReview: z.boolean().optional(),
           // An open PR whose branch Operator did not create. Dispatch checks the PR at each
@@ -60,11 +62,13 @@ export const planSchema = z
         }),
         z.strictObject({
           ...shared,
+          kind: z.enum(WorkerKinds.names()).nullable().default(null),
           completion: z.literal("report"),
           resources: z.literal("pane"),
         }),
         z.strictObject({
           ...shared,
+          kind: z.enum(WorkerKinds.names()).nullable().default(null),
           completion: z.literal("report"),
           resources: z.literal("worktree"),
           branch,
@@ -115,6 +119,44 @@ export const planSchema = z
     }
   });
 
+/** New plans name a kind. Completion is resolved, never supplied as an override. */
+export const planSchema = z
+  .strictObject({
+    trackerKey: key,
+    intent,
+    internalReview: z.boolean().optional(),
+    maxRunning: z.number().int().min(1).optional(),
+    assignments: z.array(
+      z.strictObject({
+        ...shared,
+        kind: z.enum(WorkerKinds.names()),
+        resources: z.enum(["pane", "worktree"]).optional(),
+        branch: branch.optional(),
+        internalReview: z.boolean().optional(),
+        adopt: z.number().int().min(1).optional(),
+      }),
+    ),
+  })
+  .transform((plan, context) => {
+    const parsed = storedPlanSchema.safeParse({
+      ...plan,
+      assignments: plan.assignments.map((assignment) => {
+        const kind = WorkerKinds.resolve(assignment.kind);
+        return {
+          ...assignment,
+          completion: kind.completion,
+          resources: assignment.resources ?? kind.resources,
+          profile: assignment.profile ?? kind.profile ?? undefined,
+        };
+      }),
+    });
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) context.addIssue({ ...issue });
+      return z.NEVER;
+    }
+    return parsed.data;
+  });
+
 /**
  * The PR assignment that the SuperAgent supplies when it promotes an accepted report. Its
  * completion, worktree, and dependency on the report follow from the promotion. ADR-0023.
@@ -154,8 +196,7 @@ export function questionPlan(question: string, profile: string | undefined) {
       {
         key: questionKey(question),
         trackerKey,
-        completion: "report",
-        resources: "pane",
+        kind: "answer",
         dependencies: [],
         profile,
         instructions: `Answer this question from your supervising SuperAgent.

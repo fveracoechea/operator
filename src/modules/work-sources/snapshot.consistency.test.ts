@@ -219,9 +219,18 @@ test("the stored assignment set must match the plan", () => {
     { key: "b", completion: "report", state: "ready" },
   ]);
   for (const assignments of [
-    [...two.assignments, { sourceId: "one", key: "c", completion: "report", state: "ready" }],
-    [two.assignments[0], { sourceId: "one", key: "b", completion: "pr", state: "ready" }],
-    [two.assignments[0], { sourceId: "one", key: "c", completion: "report", state: "ready" }],
+    [
+      ...two.assignments,
+      { sourceId: "one", key: "c", kind: null, completion: "report", state: "ready" },
+    ],
+    [
+      two.assignments[0],
+      { sourceId: "one", key: "b", kind: null, completion: "pr", state: "ready" },
+    ],
+    [
+      two.assignments[0],
+      { sourceId: "one", key: "c", kind: null, completion: "report", state: "ready" },
+    ],
   ])
     expect(() =>
       decodeSource({ ...two, assignments: assignments.filter((row) => row !== undefined) }),
@@ -278,7 +287,7 @@ test("an ended source needs its end time and only ended work", () => {
       ...reset,
       assignments: [
         ...reset.assignments.slice(0, 2),
-        { sourceId: "one", key: "c", completion: "report", state: "running" },
+        { sourceId: "one", key: "c", kind: null, completion: "report", state: "running" },
       ],
     }),
   ).toThrow(corrupt);
