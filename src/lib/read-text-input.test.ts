@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-// Bun has no temporary directory or recursive removal API.
+// Bun has no path, temporary directory, or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { readTextInput } from "./read-text-input.ts";
 
-let directory: string;
+let directory: string | undefined;
 beforeEach(async () => {
-  directory = await mkdtemp("/tmp/opencode/read-text-input-");
+  directory = await mkdtemp(path.join(tmpdir(), "read-text-input-"));
 });
 afterEach(async () => {
-  await rm(directory, { recursive: true, force: true });
+  if (directory !== undefined) await rm(directory, { recursive: true, force: true });
+  directory = undefined;
 });
 
 test("a file preserves UTF-8 text and shell punctuation without trimming", async () => {
