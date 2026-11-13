@@ -255,6 +255,145 @@ test("passes a wait to the coordination wait, which names its own result", async
   expect(called.next).not.toHaveBeenCalled();
 });
 
+test("an absent source result keeps its empty success without next-action metadata", async () => {
+  const { log, error } = quiet();
+  spyOn(WorkSources, "show").mockReturnValue(OkAsync(undefined));
+  await runSources(["source", "show", "--source", "missing"], paths, true);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toStrictEqual({
+    schemaVersion: 1,
+    operation: "source_show",
+    outcome: "completed",
+    reason: "source_read",
+    blockers: [],
+  });
+  expect(error).not.toHaveBeenCalled();
+  expect(process.exitCode).toBe(0);
+});
+
+test("next decorates nonempty actions and waits without losing source facts", async () => {
+  const { log, error } = quiet();
+  spyOn(WorkSources, "next").mockReturnValue(
+    OkAsync({
+      sources: [
+        {
+          id: "source",
+          state: "open",
+          repository: "example/one",
+          actions: [
+            {
+              assignment: "read",
+              action: "ready_assignment",
+              reason: "assignment_ready",
+              blockers: [],
+            },
+          ],
+          waits: [
+            { assignment: "write", action: "wait", reason: "dependencies_pending", blockers: [] },
+          ],
+          owed: [],
+        },
+      ],
+    }),
+  );
+  await runSources(["next"], paths, true);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toStrictEqual({
+    schemaVersion: 1,
+    operation: "next",
+    outcome: "completed",
+    reason: "next_actions_read",
+    blockers: [],
+    next: { why: "Follow the next step on the applicable row." },
+    data: {
+      sources: [
+        {
+          id: "source",
+          state: "open",
+          repository: "example/one",
+          actions: [
+            {
+              assignment: "read",
+              action: "ready_assignment",
+              reason: "assignment_ready",
+              blockers: [],
+              command: "operator dispatch --source source --assignment read",
+              next: {
+                command: "operator dispatch --source source --assignment read",
+                why: "The assignment is ready to start.",
+              },
+            },
+          ],
+          waits: [
+            {
+              assignment: "write",
+              action: "wait",
+              reason: "dependencies_pending",
+              blockers: [],
+              command: "operator next --source source --wait",
+              next: {
+                command: "operator next --source source --wait",
+                why: "Wait for the recorded blockers to change.",
+              },
+            },
+          ],
+          owed: [],
+        },
+      ],
+    },
+  });
+  expect(error).not.toHaveBeenCalled();
+  expect(process.exitCode).toBe(0);
+});
+
+test("a coordination change decorates actions without adding an absent waits field", async () => {
+  const { log, error } = quiet();
+  spyOn(WorkSources, "wait").mockReturnValue(
+    OkAsync({
+      reason: "next_actions_changed",
+      data: {
+        sources: [
+          {
+            id: "source",
+            state: "finished",
+            repository: "example/one",
+            actions: [{ action: "prune_source", reason: "retention_elapsed" }],
+          },
+        ],
+      },
+    }),
+  );
+  await runSources(["next", "--wait"], paths, true);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toStrictEqual({
+    schemaVersion: 1,
+    operation: "next_wait",
+    outcome: "completed",
+    reason: "next_actions_changed",
+    blockers: [],
+    next: { why: "Follow the next step on the applicable row." },
+    data: {
+      sources: [
+        {
+          id: "source",
+          state: "finished",
+          repository: "example/one",
+          actions: [
+            {
+              action: "prune_source",
+              reason: "retention_elapsed",
+              command: "operator source prune",
+              next: {
+                command: "operator source prune",
+                why: "The source retention period has elapsed.",
+              },
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(error).not.toHaveBeenCalled();
+  expect(process.exitCode).toBe(0);
+});
+
 test("prints a completed operation as compact JSON or as indented text", async () => {
   spies();
   const { log } = quiet();

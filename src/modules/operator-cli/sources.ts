@@ -164,12 +164,7 @@ export async function runSources(
           data,
         }));
   const result = executed.map((value) => {
-    if (
-      !parsed.operation.startsWith("next") ||
-      value.data === undefined ||
-      !("sources" in value.data)
-    )
-      return value;
+    if (value.data === undefined || !("sources" in value.data)) return value;
     return {
       ...value,
       next: {
