@@ -74,6 +74,28 @@ test("skill identities name every bundled skill with a stable content identity",
 
 const bundled = Bun.fileURLToPath(new URL("../../../skills/", import.meta.url));
 
+test("release guides include each built-in kind and its skill instructions", async () => {
+  const guides = await OwnedSkills.guides();
+  expect(guides.map(({ guide }) => guide)).toEqual([
+    "worker-agent/kinds/research.md",
+    "worker-agent/kinds/answer.md",
+    "worker-agent/kinds/prototype.md",
+    "worker-agent/kinds/implementation.md",
+    "worker-agent/kinds/review.md",
+    "worker-agent/kinds/pr-feedback.md",
+  ]);
+  expect(guides.map(({ text }) => text.split("\n")[0])).toEqual([
+    "# Research",
+    "# Answer",
+    "# Prototype",
+    "# Implementation",
+    "# Review",
+    "# PR feedback",
+  ]);
+  expect(guides[1]?.text).toContain("../../show-me/SKILL.md");
+  expect(guides[5]?.text).toContain("Load `resolving-merge-conflicts`");
+});
+
 test("names every bundled skill folder with a SKILL.md, sorted", async () => {
   const expected = [];
   for (const entry of await readdir(bundled, { withFileTypes: true }))
