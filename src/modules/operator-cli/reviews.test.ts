@@ -62,6 +62,8 @@ test("parses each review command with its own flags and defaults", () => {
   });
 });
 test.each([
+  [["review", "add", url, "--slack-thread", `prefix${thread}`]],
+  [["review", "add", url, "--slack-thread", `${thread}/suffix`]],
   [["other", "add", url]],
   [["review"]],
   [["review", "close", url]],
@@ -87,6 +89,14 @@ test.each([
 ])("refuses invalid review arguments %j", async (args) => {
   expect(reviewArgs(args)).toBeNull();
   expect(await runReviews(args, paths, true)).toBe(false);
+});
+
+test("accepts Slack permalinks with workspace digits and thread query parameters", () => {
+  const permalink =
+    "https://example2.slack.com/archives/C0123/p1234000005?thread_ts=1234.000005&cid=C0123";
+  expect(reviewArgs(["review", "add", url, "--slack-thread", permalink])?.slackThread).toBe(
+    permalink,
+  );
 });
 test("passes each command to the matching review operation", async () => {
   const called = spies();
