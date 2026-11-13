@@ -161,6 +161,12 @@ in
     ${jq}/bin/jq -e '.warnings | length == 1 and .[0].reason == "skill_link_unresolved"
       and .[0].skill == "show-me"' ready.json
 
+    operator install --claude --opencode --check --json > install.json
+    ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true
+      and .data.opencodePlugin == "already_installed"' install.json
+    test "$before" = "$(hosts)"
+
+    # Deliberate fixture edits stay outside the read-only checks' metadata snapshot.
     # Required guide references still block, even though the visual link only warns.
     rm $HOME/.claude/skills/resolving-merge-conflicts/SKILL.md
     status=0; operator ready --json > unresolved.json || status=$?
@@ -168,11 +174,6 @@ in
     ${jq}/bin/jq -e '.blockers | length == 1 and .[0].reason == "guide_skill_unresolved"
       and .[0].skill == "resolving-merge-conflicts"' unresolved.json
     echo "fixture resolving-merge-conflicts" > $HOME/.claude/skills/resolving-merge-conflicts/SKILL.md
-
-    operator install --claude --opencode --check --json > install.json
-    ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true
-      and .data.opencodePlugin == "already_installed"' install.json
-    test "$before" = "$(hosts)"
 
     # A missing consumer link is a blocker that names the Nix links, and nothing repairs it.
     rm -r $HOME/.claude/skills/worker-agent
