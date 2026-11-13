@@ -1,9 +1,11 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { readSummary } from "./internal-review-summary.ts";
 
-const root = await mkdtemp("/tmp/opencode/review-summary-");
+const root = await mkdtemp(path.join(tmpdir(), "operator-review-summary-"));
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
