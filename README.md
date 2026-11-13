@@ -376,7 +376,7 @@ An answer to a worker question reaches the worker as the message `answer:<questi
 ### Obligations
 
 ```sh
-operator obligation add --source <source-id> --file <obligation.json> --json
+operator obligation add --source <source-id> --key <key> --kind <kind> [--reference <ref>] --file <summary.txt> --json
 operator obligation close --source <source-id> --key <key> --json
 operator obligation list --source <source-id> --json
 ```
@@ -385,13 +385,26 @@ The SuperAgent records what it owes the person in a source: a PR to share, a rev
 `next` lists each open obligation in the source's `owed` field until the SuperAgent closes it.
 An obligation is not an action, so adding or closing one wakes no coordination wait.
 
+Pass identifiers as flags and the summary as plain text from a file or stdin.
+For example:
+
+```sh
+operator obligation add --source <source-id> --key share-12 --kind pr-share --reference https://github.com/example/one/pull/12 --file - --json <<'EOF'
+Share PR #12 in the team review thread.
+EOF
+```
+
+`--reference` is optional. The summary must contain 1 to 2000 characters after trimming.
+JSON documents are refused, including JSON strings and scalar values.
+Bracket-prefixed prose such as `[Hold] Wait for approval.` remains plain text.
+
 ### Pull requests
 
 ```sh
 operator pr associate --json
-operator pr round --file <findings.json> --json
+operator pr round --file <findings.md> --json
 operator pr wait --timeout 300 --json
-operator pr ready --file <summary.json> --json
+operator pr ready --file <summary.md> --json
 operator pr merge --json
 operator handoff --source <source-id> --assignment <key> --json
 operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
@@ -404,6 +417,33 @@ The WorkerAgent runs the `pr` commands in its worktree.
 It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and an internal review that ended ready or skipped.
 It asks GitHub for the merge in the background, then records it only after GitHub shows the PR merged.
 `pr round` records the findings of one internal review round at the worktree head, and refuses a third round or a second round at the first round's head.
+Both review commands read markdown from a file or stdin and refuse JSON.
+A round with no findings uses the heading without bullets:
+
+```sh
+operator pr round --file - --json <<'EOF'
+## Findings
+EOF
+```
+
+Each finding is one bullet: `- <severity>, <axis>, <location>: <claim>`.
+Severity is `blocker` or `nice-to-have`. Axis is `Spec`, `Standards`, or `Skills`.
+Ready input has a prose overview and one disposition per recorded finding.
+With no findings, keep the dispositions heading without bullets:
+
+```sh
+operator pr ready --file - --json <<'EOF'
+## Overview
+The review found no issues.
+
+## Dispositions
+EOF
+```
+
+Disposition bullets read `- 1.1 applied` or `- 1.1 declined: <reason>`.
+The first number selects the round; the second selects its finding, starting at 1.
+Malformed bullets report their line number and the next command. A refusal changes nothing.
+
 The SuperAgent runs `handoff` from the controlling checkout when `next` shows `retry_handoff`.
 Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.
 A plan's `internalReview` field sets it for all its assignments, and a PR assignment's `internalReview` field sets it for that assignment.
