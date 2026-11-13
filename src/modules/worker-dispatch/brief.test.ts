@@ -81,6 +81,16 @@ test("a skill-path fallback retains the guide's condition and permits an absent 
     "When the guide calls for it and the file exists, read skill by path: `/upstream/show-me/SKILL.md`.",
   );
   expect(brief).not.toContain("\nRead skill by path:");
+  const multiple = renderBrief({
+    ...input,
+    kind: {
+      ...WorkerKinds.resolve("answer"),
+      skillsToRead: ["/one/SKILL.md", "/two/SKILL.md"],
+    },
+  });
+  expect(multiple).toContain(
+    "When the guide calls for it and the file exists, read skill by path: `/one/SKILL.md`.\nWhen the guide calls for it and the file exists, read skill by path: `/two/SKILL.md`.",
+  );
   expect(renderBrief({ ...input, kind: WorkerKinds.resolve("research") })).not.toContain(
     "read skill by path:",
   );

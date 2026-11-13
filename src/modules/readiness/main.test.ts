@@ -39,6 +39,7 @@ test("settings failures remain static blockers without repairing the document", 
   expect(result.tag).toBe("Ok");
   if (result.tag === "Ok")
     expect(result.value.blockers.map((blocker) => blocker.reason)).toContain("invalid_settings");
+  expect(result).toMatchObject({ tag: "Ok", value: { warnings: [] } });
   expect(await Bun.file(paths.config).text()).toBe("{broken");
 });
 test("a settings defect does not become a readiness claim", async () => {
