@@ -86,19 +86,19 @@ function add(input: AddInput) {
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   )
     .flatMap((text) => {
-      const summary = text.trim();
       const json = fromThrowable(
         () => {
-          JSON.parse(summary);
+          JSON.parse(text);
           return true;
         },
-        (cause, defect) => (cause instanceof SyntaxError ? "plain_text" : defect(cause)),
+        // Stryker disable next-line ArrowFunction: equivalent: only JSON parse success is used; a syntax failure's payload is discarded by getOr
+        (cause, defect) => (cause instanceof SyntaxError ? null : defect(cause)),
       )().getOr(false);
       if (json) return invalidInput();
       const parsed = obligationSchema.safeParse({
         key: input.key,
         kind: input.kind,
-        summary,
+        summary: text,
         reference: input.reference,
       });
       return parsed.success ? Ok(parsed.data) : invalidInput();
