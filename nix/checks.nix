@@ -113,10 +113,15 @@ in
     ${register}
 
     printf '{"superAgent":{"host":"claude-code"}}' > $TMPDIR/config.json
-    mkdir -p $XDG_CONFIG_HOME/operator $HOME/.claude/skills/code-review $HOME/.agents/skills/code-review
+    mkdir -p $XDG_CONFIG_HOME/operator
     cp $TMPDIR/config.json $XDG_CONFIG_HOME/operator/config.json
-    echo upstream > $HOME/.claude/skills/code-review/SKILL.md
-    echo upstream > $HOME/.agents/skills/code-review/SKILL.md
+    # Test stand-ins only. The real upstream roster does not provision the archived conflict skill.
+    for host in $HOME/.claude/skills $HOME/.agents/skills; do
+      for name in code-review research prototype grilling tdd diagnosing-bugs pr resolving-merge-conflicts; do
+        mkdir -p $host/$name
+        echo "fixture $name" > $host/$name/SKILL.md
+      done
+    done
     # Nix consumers also own the Claude Code settings that readiness checks.
     cat > $HOME/.claude/settings.json <<'JSON'
     {
@@ -153,6 +158,16 @@ in
     operator ready --json > ready.json || true
     cat ready.json
     ${jq}/bin/jq -e '.reason == "ready" and .blockers == []' ready.json
+    ${jq}/bin/jq -e '.warnings | length == 1 and .[0].reason == "skill_link_unresolved"
+      and .[0].skill == "show-me"' ready.json
+
+    # Required guide references still block, even though the visual link only warns.
+    rm $HOME/.claude/skills/resolving-merge-conflicts/SKILL.md
+    status=0; operator ready --json > unresolved.json || status=$?
+    test $status = 3
+    ${jq}/bin/jq -e '.blockers | length == 1 and .[0].reason == "guide_skill_unresolved"
+      and .[0].skill == "resolving-merge-conflicts"' unresolved.json
+    echo "fixture resolving-merge-conflicts" > $HOME/.claude/skills/resolving-merge-conflicts/SKILL.md
 
     operator install --claude --opencode --check --json > install.json
     ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true
