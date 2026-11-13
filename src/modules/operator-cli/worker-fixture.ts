@@ -7,7 +7,12 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
-import { fixtureCommand, writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
+import {
+  fixtureCommand,
+  writeClaudeHookSettings,
+  writeOpenCodePlugin,
+  writeGuideSkills,
+} from "./command-fixture.ts";
 
 const command = fixtureCommand();
 const gitEnv = {
@@ -125,11 +130,13 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(`${root}/home/.agents/skills`, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${root}/home/.agents/skills/code-review`);
+  await writeGuideSkills(`${root}/home/.agents/skills`);
   // The claude profile launches workers on Claude Code, whose folder holds both skill kinds.
   await cp(`${root}/release`, `${root}/claude-skills`, { recursive: true });
   await mkdir(`${root}/home/.claude`, { recursive: true });
   await symlink(`${root}/claude-skills`, `${root}/home/.claude/skills`);
   await symlink(`${root}/upstream/code-review`, `${root}/claude-skills/code-review`);
+  await writeGuideSkills(`${root}/claude-skills`);
   await writeClaudeHookSettings(`${root}/home`);
   await writeOpenCodePlugin(`${root}/config`);
 

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { writeOpenCodePlugin } from "./command-fixture.ts";
+import { writeOpenCodePlugin, writeGuideSkills } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { Database } from "bun:sqlite";
 
@@ -144,6 +144,7 @@ if (args[1] === "post") {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(`${root}/home/.agents/skills`, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${root}/home/.agents/skills/code-review`);
+  await writeGuideSkills(`${root}/home/.agents/skills`);
   await writeOpenCodePlugin(`${root}/config`);
 
   expect((await run(["project", "register"])).code).toBe(0);
@@ -266,6 +267,9 @@ test("a plan assignment without a kind is refused at registration", async () => 
 });
 
 test("a launch keeps its kind snapshot after a settings edit", async () => {
+  await Bun.write(`${root}/home/.agents/skills/show-me/SKILL.md`, "# Show me\n", {
+    createPath: true,
+  });
   await Bun.write(
     `${root}/plan.json`,
     JSON.stringify({
@@ -295,6 +299,7 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
     nextKind: null,
     readsNote: false,
     guide: `${root}/config/opencode/skills/worker-agent/kinds/answer.md`,
+    skillsToRead: [`${root}/home/.agents/skills/show-me/SKILL.md`],
     dispatchable: true,
     workPhases: [{ name: "investigate", goal: "Answer the assigned question." }],
   };
@@ -303,6 +308,8 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
   expect(brief).toContain(`Worker kind: \`answer\``);
   expect(brief).toContain(`Read \`${expected.guide}\``);
   expect(await Bun.file(expected.guide).exists()).toBe(true);
+  expect(await Bun.file(`${root}/config/opencode/skills/show-me/SKILL.md`).exists()).toBe(false);
+  expect(brief).toContain(`Read skill by path: \`${root}/home/.agents/skills/show-me/SKILL.md\``);
   await Bun.write(
     `${root}/config/operator/config.json`,
     JSON.stringify({

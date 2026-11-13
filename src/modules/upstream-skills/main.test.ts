@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no temporary-directory, chmod, symlink, or recursive removal API.
-import { chmod, mkdtemp, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Err, Ok } from "unthrown";
@@ -23,6 +23,56 @@ afterEach(async () => {
 function paths() {
   return OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
 }
+
+test("guide content resolves owned skills, upstream links, and warning-only visual links", async () => {
+  const input = paths();
+  const guides = spyOn(OwnedSkills, "guides").mockResolvedValue([
+    {
+      guide: "worker-agent/kinds/answer.md",
+      text: "Load `tdd` and `no-slop`. Read [show-me](../../show-me/SKILL.md).",
+    },
+  ]);
+  try {
+    const skill = `${input.upstreamSkills.opencode}/tdd/SKILL.md`;
+    const owned = `${input.skillHosts.opencode}/no-slop/SKILL.md`;
+    const visual = `${input.skillHosts.opencode}/show-me/SKILL.md`;
+    await Bun.write(owned, "# Owned\n", { createPath: true });
+    await Bun.write(skill, " \n", { createPath: true });
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: {
+        blockers: [{ skill: "tdd", file: skill, reason: "guide_skill_unresolved" }],
+        warnings: [{ skill: "show-me", file: visual, reason: "skill_link_unresolved" }],
+      },
+    });
+    await rm(skill);
+    await mkdir(skill);
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [{ skill: "tdd" }] },
+    });
+    await rm(skill, { recursive: true });
+    await symlink(`${root}/missing`, skill);
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [{ skill: "tdd" }] },
+    });
+    await Bun.write(`${root}/missing`, "# Independent upstream\n");
+    await Bun.write(visual, "# Visual\n", { createPath: true });
+    expect(await UpstreamSkills.checkGuides(input, "opencode")).toEqual(
+      Ok({ blockers: [], warnings: [] }),
+    );
+    if (!asRoot) {
+      await chmod(`${root}/missing`, 0);
+      expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
+        tag: "Err",
+        error: { reason: "upstream_io_failed" },
+      });
+    }
+  } finally {
+    guides.mockRestore();
+  }
+});
 
 test("presence follows independently revised links without an Operator content ledger", async () => {
   const input = paths();
