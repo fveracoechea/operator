@@ -459,7 +459,7 @@ export const reviewRounds = sqliteTable(
     postedAt: text("posted_at"),
     // The head-move limit facts when the round posts against an older reviewed commit.
     warning: text(),
-    // The short text of each open blocker, for the Slack reply of the round.
+    // The short text of each open blocker in the posted round.
     blockers: text(),
   },
   (table) => [primaryKey({ columns: [table.requestId, table.number] })],
