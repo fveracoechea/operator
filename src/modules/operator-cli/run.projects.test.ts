@@ -420,10 +420,15 @@ test("project file cleanup holds the writer reservation until deletion and oblig
     `import { Database } from "bun:sqlite";
 import { writeFileSync, existsSync } from "node:fs";
 const exec = Database.prototype.exec;
-let transactions = 0;
+const prepare = Database.prototype.prepare;
+let removalRecorded = false;
+Database.prototype.prepare = function(sql, ...args) {
+  if (sql.startsWith('insert into "project_removals"')) removalRecorded = true;
+  return prepare.call(this, sql, ...args);
+};
 Database.prototype.exec = function(sql, ...args) {
   const result = exec.call(this, sql, ...args);
-  if ((sql === "BEGIN IMMEDIATE" || sql === "BEGIN") && ++transactions === 3) {
+  if ((sql === "BEGIN IMMEDIATE" || sql === "BEGIN") && removalRecorded) {
     writeFileSync(${JSON.stringify(`${root}/reserved`)}, "held");
     const until = Date.now() + 10000;
     while (!existsSync(${JSON.stringify(`${root}/release`)}) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);

@@ -1,7 +1,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { Environment } from "../src/modules/environment/main.ts";
 // Bun has no temporary directory or recursive removal API.
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -89,6 +89,25 @@ test("the repository's public script invokes the mutation CLI", async () => {
   const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
   expect(code).toBe(0);
   expect(stdout).toStartWith("Usage: bun run mutate");
+});
+
+test("sandbox tests can execute the source CLI that Stryker copies without its executable mode", async () => {
+  const cwd = await fixture({
+    "src/cli.ts": `#!${process.execPath}\nconsole.log("fixture release");\n`,
+    "src/lib/count.ts": "export function count(n: number) { return n + 1; }\n",
+    "src/lib/count.test.ts": `import { expect, test } from "bun:test";
+import { count } from "./count.ts";
+test("source command identity", () => {
+  const command = Bun.spawnSync(["./src/cli.ts"], { stdout: "pipe", stderr: "pipe" });
+  expect(command.exitCode).toBe(0);
+  expect(command.stdout.toString()).toBe("fixture release\\n");
+  expect(count(1)).toBe(2);
+});\n`,
+  });
+  await chmod(`${cwd}/src/cli.ts`, 0o755);
+  const result = await mutate(cwd, ["src/lib/count.ts"]);
+  expect(result.code, `${result.stdout}${result.stderr}`).toBe(0);
+  expect(result.stdout).toContain("0 survivors, 0 untested, 0 incomplete");
 });
 
 // Early in the file, so a broken reuse fails before the slow tests run.

@@ -1,4 +1,18 @@
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
+// Bun has no native invocation-local context API.
+import { AsyncLocalStorage } from "node:async_hooks";
+
+type ContextReader = () => ResultContext;
+const workerContext = new AsyncLocalStorage<ContextReader>();
+
+export function outputContext() {
+  return workerContext.getStore()?.() ?? {};
+}
+
+/** Output context is local to one invocation, including concurrent embedded CLI callers. */
+export function withOutputContext(read: ContextReader, run: () => Promise<void>) {
+  return workerContext.run(read, run);
+}
 
 // Structural, so a union of command results with different value types still fits.
 type Outcome =
@@ -35,6 +49,8 @@ export function failure(
   json: boolean,
   context: ResultContext = {},
 ) {
+  const defaults = outputContext();
+  context = { ...defaults, ...context, next: context.next ?? defaults.next };
   if (json)
     console.log(
       JSON.stringify({
@@ -45,11 +61,15 @@ export function failure(
         blockers: [{ reason, detail }],
         next: context.next,
         state: context.state,
+        kind: context.kind,
+        phase: context.phase,
       }),
     );
   if (context.next === undefined) console.error(`operator: ${detail}`);
   else {
-    console.error(oneLine(`operator: ${reason}: ${detail}`));
+    const phase =
+      context.kind === undefined ? "" : ` [kind=${context.kind} phase=${context.phase}]`;
+    console.error(oneLine(`operator: ${reason}: ${detail}${phase}`));
     console.error(oneLine(`next: ${nextText(context.next)}`));
     if (context.state !== undefined)
       console.error(
@@ -84,6 +104,8 @@ export function respond(input: {
 }) {
   const { operation, result, json } = input;
   if (result.tag === "Ok") {
+    const defaults = outputContext();
+    const context = { ...defaults, ...result.value, next: result.value.next ?? defaults.next };
     console.log(
       JSON.stringify(
         {
@@ -93,8 +115,10 @@ export function respond(input: {
           reason: result.value.reason,
           blockers: [],
           data: result.value.data,
-          next: result.value.next,
-          state: result.value.state,
+          next: context.next,
+          state: context.state,
+          kind: context.kind,
+          phase: context.phase,
         },
         null,
         json ? undefined : 2,

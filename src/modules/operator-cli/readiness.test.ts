@@ -6,6 +6,7 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Readiness } from "../readiness/main.ts";
 import { runReadiness } from "./readiness.ts";
+import { withOutputContext } from "./output.ts";
 
 const paths = OperatorHome.resolve(
   Environment.parse({ HOME: `${tmpdir()}/unused-ready-parser`, NODE_ENV: "test" }),
@@ -95,3 +96,32 @@ test("reports a readiness refusal and a defect with exit code 1", async () => {
   expect(error).toHaveBeenLastCalledWith("operator: Error: boom");
   expect(process.exitCode).toBe(1);
 });
+
+test.each([true, false])(
+  "readiness preserves worker phase context when ready is %p",
+  async (ready) => {
+    spyOn(Readiness, "check").mockReturnValue(
+      OkAsync({
+        blockers: ready ? [] : [{ reason: "executable_missing", tool: "herdr", detail: "missing" }],
+      }) as never,
+    );
+    const { log } = quiet();
+    await withOutputContext(
+      () => {
+        return {
+          kind: "prototype",
+          phase: "react",
+          next: { command: "operator report submit --file <file>", why: "Submit." },
+        };
+      },
+      async () => {
+        await runReadiness(["ready"], paths, true);
+      },
+    );
+    expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+      kind: "prototype",
+      phase: "react",
+      next: { command: "operator report submit --file <file>", why: "Submit." },
+    });
+  },
+);

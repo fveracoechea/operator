@@ -33,6 +33,10 @@ type Row = NonNullable<Facts["question"]>;
 const pollMs = 1000;
 const stateSchema = z.enum(["open", "awaiting_person", "answered", "withdrawn", "abandoned"]);
 
+function waitNext(key: string) {
+  return { command: `operator question wait --key ${key}`, why: "Wait for the recorded answer." };
+}
+
 function decide(facts: Facts, command: QuestionCommand) {
   return decideQuestion({
     command,
@@ -112,7 +116,7 @@ function ask(input: { paths: Paths; file: string }) {
       )
         .flatMap(() => DeviceState.readQuestion(input.paths, target.value, asked.key))
         .flatMap(recordedSummary)
-        .map((data) => ({ reason: "question_asked", data }));
+        .map((data) => ({ reason: "question_asked", data, next: waitNext(data.key) }));
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
@@ -182,6 +186,12 @@ function read(paths: Paths, target: Target, key: string) {
   );
 }
 
+type WaitOutcome = {
+  reason: NonNullable<ReturnType<typeof decideQuestionWait>> | "question_wait_timed_out";
+  data: ReturnType<typeof summary>;
+  next?: ReturnType<typeof waitNext>;
+};
+
 async function poll(
   input: { paths: Paths; target: Target; key: string },
   started: QuestionState,
@@ -198,10 +208,14 @@ async function poll(
       if (read.tag === "Defect" || (read.tag === "Err" && read.error.reason !== "message_not_open"))
         return stop(read);
     }
-    if (reason !== null) return Ok({ reason, data: summary(facts, row) });
+    if (reason !== null) return Ok<WaitOutcome>({ reason, data: summary(facts, row) });
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
     if (Date.now() >= deadline)
-      return Ok({ reason: "question_wait_timed_out", data: summary(facts, row) });
+      return Ok<WaitOutcome>({
+        reason: "question_wait_timed_out",
+        data: summary(facts, row),
+        next: waitNext(row.key),
+      });
     await Bun.sleep(Math.min(pollMs, deadline - Date.now()));
   }
 }

@@ -1,6 +1,6 @@
 import { Readiness } from "../readiness/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { failure, outputContext } from "./output.ts";
 
 export async function runReadiness(
   args: string[],
@@ -24,6 +24,7 @@ export async function runReadiness(
           reason: ready ? "ready" : "not_ready",
           blockers: result.value.blockers,
           data: { staticOnly: true },
+          ...outputContext(),
         },
         null,
         json ? undefined : 2,
