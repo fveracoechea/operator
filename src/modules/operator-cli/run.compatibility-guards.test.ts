@@ -30,8 +30,8 @@ test.each([
   {
     name: "refusal database contents",
     file: "operator-cli/run.ts",
-    before: "invalidArguments(json);",
-    after: `using broken = new (await import("bun:sqlite")).Database(started.paths.database); broken.exec("UPDATE projects SET registered_at = 'prohibited'"); invalidArguments(json);`,
+    before: "invalidArguments(json, args);",
+    after: `using broken = new (await import("bun:sqlite")).Database(started.paths.database); broken.exec("UPDATE projects SET registered_at = 'prohibited'"); invalidArguments(json, args);`,
     pattern: "rejects removed or invalid command.*unknown",
     testFile: "operator-cli/run.test.ts",
   },

@@ -200,7 +200,8 @@ test.each([
     operation: "report_resume",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not resumed");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not resumed`);
+  expect(error.mock.calls).toHaveLength(2);
   expect(process.exitCode).toBe(code);
 });
 
@@ -216,6 +217,9 @@ test("reports a report defect with exit code 1", async () => {
     operation: "report_accept",
     reason: "report_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: report_defect: Error: boom",
+    "next: super-agent decides: How should report_defect be corrected before retrying report_accept?",
+  ]);
   expect(process.exitCode).toBe(1);
 });

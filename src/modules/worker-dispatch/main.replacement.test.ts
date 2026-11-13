@@ -258,6 +258,12 @@ test("a promoted assignment whose worktree is gone is not started anywhere else"
     error: {
       reason: "promotion_worktree_missing",
       detail: `The worktree ${worktree} of promoted report survey is missing. Ask the person how to recover it. Nothing was launched.`,
+      next: {
+        decider: "person",
+        question:
+          "How should the missing promoted worktree be recovered without losing unlanded work?",
+      },
+      state: { reusable: false },
     },
   });
   expect(await device.launches("build")).toEqual([]);

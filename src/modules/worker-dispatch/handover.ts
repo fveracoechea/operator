@@ -189,6 +189,6 @@ export function handOver(input: {
           return labelled.map(() => taken);
         }
         return Ok(taken);
-      }).flatMap((result) => result);
+      }).flatMap((result): Result<Handover, Failure> => result);
     });
 }

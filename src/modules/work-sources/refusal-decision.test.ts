@@ -174,11 +174,6 @@ test.each([
     "How should the missing PR worktree be recovered without losing unlanded work?",
   ],
   [
-    "promotion_worktree_missing",
-    "super-agent",
-    "Should the report be accepted without promotion and a new source registered instead?",
-  ],
-  [
     "promotion_key_taken",
     "super-agent",
     "Which unused assignment key should the promotion plan use?",
@@ -351,4 +346,30 @@ test("an unclassified external failure asks the supervisor, never repeats an out
 test("the workflow migration leaves other commands unchanged", () => {
   const context = {};
   expect(workflowRefusal("pr_associate", "pr_not_open", context)).toBe(context);
+});
+
+test("the same promotion reason keeps dispatch's person stop distinct from a report without a worktree", () => {
+  expect(workflowRefusal("dispatch", "promotion_worktree_missing", {})).toEqual({
+    next: {
+      decider: "person",
+      question:
+        "How should the missing promoted worktree be recovered without losing unlanded work?",
+    },
+  });
+  expect(workflowRefusal("report_accept", "promotion_worktree_missing", {})).toEqual({
+    next: {
+      decider: "super-agent",
+      question:
+        "Should the report be accepted without promotion and a new source registered instead?",
+    },
+  });
+});
+
+test.each([
+  ["pr_not_open", "How should the closed PR be handled before this review can continue?"],
+  ["review_worktree_changed", "Which work in the changed reviewer worktree must be kept?"],
+])("%s retains the existing person stop", (reason, question) => {
+  expect(workflowRefusal("internal_review_skip", reason, {})).toEqual({
+    next: { decider: "person", question },
+  });
 });
