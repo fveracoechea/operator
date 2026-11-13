@@ -80,7 +80,8 @@ test.each([
   {
     name: "prune offered in next",
     file: "work-sources/main.ts",
-    before: '...(kept.prune ? [{ action: "prune_source", reason: "retention_elapsed" }] : []),',
+    before:
+      '...(kept.prune ? [{ action: "prune_source" as const, reason: "retention_elapsed" }] : []),',
     after: "",
     pattern: prune,
   },
