@@ -5,8 +5,7 @@ import { recordFlags } from "./questions.ts";
 
 // The worker's commands take no assignment selector, because its pane is the selector.
 const commands = {
-  // A send takes a JSON file with its key, or the key and the text as flags.
-  send: { required: ["--source", "--assignment"], optional: ["--file", "--key", "--text"] },
+  send: { required: ["--source", "--assignment", "--key", "--file"], optional: [] },
   ring: { required: ["--source", "--assignment", "--key"], optional: [] },
   close: { required: ["--source", "--assignment", "--key"], optional: [] },
   read: { required: ["--key"], optional: [] },
@@ -18,25 +17,15 @@ const names = Object.keys(commands).filter((name): name is Command =>
   Object.hasOwn(commands, name),
 );
 
-/** A send names its message by a file, or by its key and text, never by both. */
-function sendShaped(values: Record<string, string>) {
-  const named = Object.keys(values)
-    .filter((flag) => flag !== "--source" && flag !== "--assignment")
-    .toSorted()
-    .join(" ");
-  return named === "--file" || named === "--key --text";
-}
-
 export function messageArgs(args: string[]) {
   const [group, name, ...flags] = args;
   const command = group === "message" ? (names.find((known) => known === name) ?? null) : null;
   if (command === null) return null;
   const values = recordFlags(flags, commands[command]);
-  if (values === null || (command === "send" && !sendShaped(values))) return null;
+  if (values === null) return null;
   return {
     command,
     file: values["--file"] ?? null,
-    text: values["--text"] ?? null,
     key: values["--key"] ?? "",
     sourceId: values["--source"] ?? "",
     assignment: values["--assignment"] ?? "",
@@ -54,10 +43,7 @@ const messageExitCodes = {
 function dispatch(
   input: NonNullable<ReturnType<typeof messageArgs>> & { paths: Paths; cwd: string },
 ) {
-  if (input.command === "send")
-    return input.text === null
-      ? WorkerQuestions.send({ ...input, file: input.file ?? "" })
-      : WorkerQuestions.steer({ ...input, message: input.text });
+  if (input.command === "send") return WorkerQuestions.send({ ...input, file: input.file ?? "" });
   if (input.command === "ring") return WorkerQuestions.ring(input);
   if (input.command === "close") return WorkerQuestions.close(input);
   if (input.command === "read") return WorkerQuestions.read(input);

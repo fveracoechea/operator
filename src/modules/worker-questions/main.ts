@@ -1,5 +1,6 @@
 import { Err, Ok, fromPromise } from "unthrown";
 import { z } from "zod";
+import { readTextInput } from "../../lib/read-text-input.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { answerKey, answerSchema, questionSchema } from "./content.ts";
 import { acknowledge, pendingMessage, ring, steering } from "./steering.ts";
@@ -23,8 +24,7 @@ import {
   type QuestionState,
 } from "./question-machine.ts";
 
-/** An answer is its text, or the text of its file when the text is null. */
-type AnswerText = { file: string; text: string | null };
+type AnswerText = { file: string; text?: string | null };
 
 type Facts = Extract<ReturnType<typeof DeviceState.readQuestion>, { tag: "Ok" }>["value"];
 type Row = NonNullable<Facts["question"]>;
@@ -86,12 +86,15 @@ function recordedSummary(facts: Facts) {
   return Ok(summary(facts, facts.question));
 }
 
-function ask(input: { paths: Paths; file: string }) {
+function ask(input: { paths: Paths; key: string; file: string }) {
   return fromPromise(
     async () => {
       const target = workerPane();
       if (target.tag !== "Ok") return stop(target);
-      const asked = questionSchema.parse(JSON.parse(await Bun.file(input.file).text()));
+      const asked = questionSchema.parse({
+        key: input.key,
+        question: await readTextInput(input.file),
+      });
       return DeviceState.changeQuestion(input.paths, target.value, asked.key, (facts) =>
         decide(facts, "ask").map(({ state }) => ({
           insert: {
@@ -138,7 +141,7 @@ function answer(input: Selector & { by: AnswerAuthority } & AnswerText) {
     async () => {
       const target = await superAgentTarget(input);
       if (target.tag !== "Ok") return stop(target);
-      const text = answerSchema.parse(input.text ?? (await Bun.file(input.file).text()));
+      const text = answerSchema.parse(input.text ?? (await readTextInput(input.file)));
       const key = answerKey(input.key);
       // The answer reaches the worker as a steering message, recorded with the answer itself.
       const changed = DeviceState.changeQuestion(input.paths, target.value, input.key, (facts) =>
@@ -231,7 +234,7 @@ function wait(input: { paths: Paths; key: string; timeoutSeconds: number }) {
  * answer reaches the worker as a steering message, so one doorbell serves both.
  */
 export const WorkerQuestions = {
-  ask(input: { paths: Paths; file: string }) {
+  ask(input: { paths: Paths; key: string; file: string }) {
     return ask(input);
   },
   wait(input: { paths: Paths; key: string; timeoutSeconds: number }) {
@@ -247,7 +250,7 @@ export const WorkerQuestions = {
     return answer(input);
   },
   /** Record a steering message for the running worker and ring its doorbell. */
-  send(input: Omit<Selector, "key"> & { file: string }) {
+  send(input: Selector & { file: string }) {
     return steering.send(input);
   },
   /**

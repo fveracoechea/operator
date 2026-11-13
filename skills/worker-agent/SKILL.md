@@ -19,10 +19,13 @@ You reach it only through recorded Operator state: reports, PR waits, questions,
 For report work, submit from the pane that Operator dispatched for you:
 
 ```sh
-operator report submit --file <report.json> --json
+operator report submit --file <report.md> --json
 ```
 
-The brief names the report fields.
+The report uses `## Conclusion`, `## Evidence`, `## Unresolved points`, `## Supporting files`, `## Human answers`, and `## SuperAgent decisions`.
+Write the conclusion as prose and the other sections as `- ` bullets, or `- None.` when empty.
+Decision bullets read `<question> Answer: <answer>`; supporting files use absolute paths.
+Use `--file -` to read stdin, with a quoted heredoc.
 Write the report file and drafts outside the project checkout.
 Label an answer `person` only when the person gave it. Every other answer is a `super-agent` decision.
 Submission records the report, and your SuperAgent's coordination wait returns it, so send no message about it.

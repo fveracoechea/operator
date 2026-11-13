@@ -53,7 +53,7 @@ async function submitted(keys?: string[]) {
     worktreePath: worktree,
     branch: "report/read",
   });
-  const file = await device.writeJson("report.json", draft);
+  const file = await device.writeReport("report.md", draft);
   const pane = device.inPane(workerPane);
   okValue(await ReportAssignments.submit({ paths: device.paths, file }));
   pane.mockRestore();
@@ -290,7 +290,7 @@ test("promotion refuses read-only report work, which has no worktree to reuse", 
   okValue(
     await ReportAssignments.submit({
       paths: device.paths,
-      file: await device.writeJson("pane.json", draft),
+      file: await device.writeReport("pane.md", draft),
     }),
   );
   device.inPane(superPane);

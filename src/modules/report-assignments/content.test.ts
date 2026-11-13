@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { renderReport, submissionSchema } from "./content.ts";
+import { parseSubmission, renderReport, submissionSchema } from "./content.ts";
 
 const submission = {
   conclusion: "Two gaps.",
@@ -75,4 +75,66 @@ test("each list item is its own line", () => {
   });
   expect(text).toContain("## Evidence\n\n- a.ts:1\n- b.ts:2\n");
   expect(text).toContain("## Supporting files\n\n- None.\n");
+});
+
+const markdown = `## Conclusion
+Two gaps.
+
+## Evidence
+- a.ts:10
+
+## Unresolved points
+- None.
+
+## Supporting files
+- \`/drafts/notes.md\`
+
+## Human answers
+- Scope? Answer: a.ts only
+
+## SuperAgent decisions
+- Name? Answer: reader
+`;
+
+test("Markdown reports parse the rendered headings and authority sections", () => {
+  const expected = {
+    conclusion: "Two gaps.",
+    evidence: ["a.ts:10"],
+    unresolved: [],
+    files: ["/drafts/notes.md"],
+    decisions: [
+      { question: "Scope?", answer: "a.ts only", by: "person" },
+      { question: "Name?", answer: "reader", by: "super-agent" },
+    ],
+  };
+  expect(parseSubmission(markdown)).toEqual(expected);
+  expect(parseSubmission(markdown.replaceAll("\n", "\r\n"))).toEqual(expected);
+  expect(
+    parseSubmission(
+      renderReport({
+        number: 1,
+        assignment: "read",
+        submission: submissionSchema.parse(submission),
+        files: submission.files,
+      }),
+    ),
+  ).toEqual(expected);
+  expect(parseSubmission(markdown.replace("`/drafts/notes.md`", "/drafts/notes.md")).files).toEqual(
+    ["/drafts/notes.md"],
+  );
+});
+
+test("Markdown report format errors never discard unknown content", () => {
+  for (const invalid of [
+    markdown.replace("## Evidence", "## Proof"),
+    markdown.replace("## Evidence\n- a.ts:10\n", ""),
+    `${markdown}\n## Conclusion\nReplacement`,
+    `Unheaded prose\n${markdown}`,
+    markdown.replace("- a.ts:10", "a.ts:10"),
+    markdown.replace("Scope? Answer: a.ts only", "Scope? a.ts only"),
+    markdown.replace("/drafts/notes.md", "notes.md"),
+    markdown.replace("- a.ts:10", "- None."),
+    JSON.stringify(submission),
+  ])
+    expect(() => parseSubmission(invalid)).toThrow();
 });
