@@ -208,7 +208,7 @@ An answer to a worker question reaches the worker as a steering message.
 _Avoid_: nudge, pane message
 
 **Turn-end guard**:
-The Stop branch of Operator's Claude Code hook, and the idle hook of Operator's OpenCode plugin, which keep a supervising session from ending its turn while its sources have running work and no coordination wait from that session runs.
+The Stop branch of Operator's Claude Code hook, and the idle hook of Operator's OpenCode plugin, which keep a supervising session from ending its turn while its sources have a live worker launch and no coordination wait from that session runs.
 It blocks at most once in a row.
 
 **Doorbell**:

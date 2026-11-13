@@ -6,7 +6,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "./main.ts";
 import { actionKey, addKeys, dropKeys } from "./coordination.ts";
-import { storedSource } from "./source-fixture.ts";
+import { storedLaunch, storedSource } from "./source-fixture.ts";
 
 const root = "/isolated/wait";
 const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
@@ -353,9 +353,11 @@ function supervised(...sources: { id: string; waiting: boolean }[]) {
   );
 }
 
-test("a supervised source with running work and no wait from the session is unwatched", async () => {
+test("a supervised source with a live worker and no wait from the session is unwatched", async () => {
   const read = supervised({ id: "one", waiting: false });
-  const rows = spyOn(DeviceState, "readSources").mockReturnValue(Ok([running]));
+  const rows = spyOn(DeviceState, "readSources").mockReturnValue(
+    Ok([{ ...running, launches: [storedLaunch("a")] }]),
+  );
   expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
     tag: "Ok",
     value: ["one"],

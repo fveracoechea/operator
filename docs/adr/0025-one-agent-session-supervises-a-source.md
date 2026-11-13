@@ -3,6 +3,7 @@
 ## Status
 
 Accepted - 2026-11-11.
+Amended 2026-11-13: the turn-end guard fires only while a supervised source has a live worker launch, as decided in #373.
 Amends ADR-0022.
 
 ## Context
@@ -51,7 +52,10 @@ There is no automatic take-over from a session that looks gone, because Operator
 ### The guard speaks to the session
 
 The turn-end guard asks for the hook's session, not for a pane.
-It answers a reason while the sources that the session supervises have running work and no live coordination wait from that session covers them.
+It answers a reason only while a source that the session supervises has a live worker launch and no live coordination wait from that session covers it.
+A launch is live while it starts with a live dispatch owner, runs, is idle, or waits on a question.
+Parked PRs, cleanup, retention, the running cap, and person decisions alone do not trigger the guard, because they require no worker coordination.
+The guard acts at most once in a row, and its reason text stays the same.
 The Claude Code hook reads `session_id` from the Stop event and no longer needs `HERDR_PANE_ID`.
 The OpenCode plugin's command passes the idle event's `sessionID` and no longer reads Herdr's pane list, so the plugin file and its version marker do not change.
 A new session in the supervising pane, a subagent's session, and a session that only waits for another session's sources get no reason.
