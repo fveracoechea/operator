@@ -59,10 +59,9 @@ test("reports an own __proto__ profile as a custom issue", () => {
   ]);
 });
 
-test("accepts the Slack review policy fields with GitHub identities", () => {
+test("accepts the author policy fields with GitHub identities", () => {
   const review = {
     assignments: true,
-    channel: "C0123ABCD",
     repos: ["1org/repo2", "o1rg/operator.js", "fveracoechea/my_repo-1"],
     authors: ["octocat", "1octo", "o1cto-cat", "renovate[bot]"],
   };
@@ -102,7 +101,10 @@ test("renders the editor schema as indented JSON with a final newline", () => {
     properties: {
       $schema: { const: "./config.schema.json", default: "./config.schema.json" },
       superAgent: { type: "object" },
-      review: { type: "object", properties: { channel: { type: "string" } } },
+      review: {
+        type: "object",
+        properties: { repos: { type: "array" }, authors: { type: "array" } },
+      },
     },
   });
 });

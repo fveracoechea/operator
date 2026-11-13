@@ -69,8 +69,7 @@ function request(change: Partial<Row>): Row {
     sync: null,
     cleanupState: null,
     cleanupDetail: null,
-    slackChannel: null,
-    slackTs: null,
+    slackThread: null,
     ...change,
   };
 }

@@ -50,6 +50,21 @@ async function fileInfo(file: string) {
   }
 }
 
+// ADR-0015: retire the old setting on read without rewriting externally managed configuration.
+// Only the previously valid field is tolerated; the editor and edit registry remain strict.
+const storedSettingsSchema = settingsSchema.extend({
+  review: settingsSchema.shape.review
+    .unwrap()
+    .extend({
+      channel: z
+        .string()
+        .regex(/^[CGD][A-Z0-9]{2,30}$/)
+        .optional(),
+    })
+    .transform(({ channel: _channel, ...review }) => review)
+    .optional(),
+});
+
 export async function readConfig(paths: OperatorPaths) {
   const info = await fileInfo(paths.config);
   const exists = info !== null;
@@ -60,7 +75,7 @@ export async function readConfig(paths: OperatorPaths) {
     exists,
     text,
     identity: sha256(text ?? "absent"),
-    config: settingsSchema.parse(value),
+    config: storedSettingsSchema.parse(value),
   };
 }
 

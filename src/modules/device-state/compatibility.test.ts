@@ -87,9 +87,9 @@ test("an older history upgrades once behind a verified backup, and retention kee
   {
     // The upgrade ran each pending migration, not only its history record.
     using db = new Database(paths.database, { readonly: true });
-    expect(db.query("SELECT name FROM sqlite_master WHERE name = 'slack_effects'").all()).toEqual([
-      { name: "slack_effects" },
-    ]);
+    expect(db.query("SELECT name FROM sqlite_master WHERE name = 'slack_effects'").all()).toEqual(
+      [],
+    );
     expect(
       db
         .query(

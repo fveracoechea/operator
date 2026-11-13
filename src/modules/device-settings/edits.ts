@@ -107,13 +107,6 @@ const reviewEdits = new Map<string, (review: Review, value: string | null) => vo
     },
   ],
   [
-    "review.channel",
-    (review, value) => {
-      if (value === null) delete review.channel;
-      else review.channel = value;
-    },
-  ],
-  [
     "review.repos",
     (review, value) => {
       if (value === null) delete review.repos;

@@ -393,7 +393,7 @@ export const reviewRequests = sqliteTable(
       .references(() => projects.repository, { onDelete: "cascade" }),
     number: integer().notNull(),
     url: text().notNull(),
-    // `slack` also covers a manual addition. `assignment` is the optional reviewer of a PR assignment.
+    // `manual` is an explicit add. `assignment` is the optional reviewer of a PR assignment.
     origin: text().notNull(),
     sourceId: text("source_id"),
     assignment: text(),
@@ -429,9 +429,8 @@ export const reviewRequests = sqliteTable(
     // Reviewer cleanup after the request is approved, closed, or skipped.
     cleanupState: text("cleanup_state"),
     cleanupDetail: text("cleanup_detail"),
-    // The Slack message that posted the PR. Its thread gets one reply for each posted round.
-    slackChannel: text("slack_channel"),
-    slackTs: text("slack_ts"),
+    // An optional thread permalink for a SuperAgent's status reply.
+    slackThread: text("slack_thread"),
   },
   (table) => [
     uniqueIndex("one_open_review")
@@ -460,7 +459,7 @@ export const reviewRounds = sqliteTable(
     postedAt: text("posted_at"),
     // The head-move limit facts when the round posts against an older reviewed commit.
     warning: text(),
-    // The short text of each open blocker, for the Slack reply of the round.
+    // The short text of each open blocker in the posted round.
     blockers: text(),
   },
   (table) => [primaryKey({ columns: [table.requestId, table.number] })],
@@ -486,45 +485,6 @@ export const reviewThreadOperations = sqliteTable(
       foreignColumns: [reviewRounds.requestId, reviewRounds.number],
     }).onDelete("cascade"),
   ],
-);
-
-// The cursor of the watched Slack channel. An agent reads the channel and the CLI ingests the result.
-export const slackWatches = sqliteTable("slack_watches", {
-  channel: text().primaryKey(),
-  // The newest Slack message ts that an ingest saw. The next read starts after it.
-  cursor: text().notNull(),
-  // The last ingest. The next read is due five minutes after it, or at once while paging.
-  readAt: text("read_at"),
-  // While Slack pages older messages: the upper bound of the next read, and the newest ts seen.
-  latest: text(),
-  pending: text(),
-});
-
-// A reply or a reaction that the CLI generated and an agent transports through Slack MCP tools.
-// An acknowledgement marks it done, and a person-instructed drop marks it dropped unsent.
-// A pending effect survives a restart.
-export const slackEffects = sqliteTable(
-  "slack_effects",
-  {
-    id: text().primaryKey(),
-    requestId: text("request_id")
-      .notNull()
-      .references(() => reviewRequests.id, { onDelete: "cascade" }),
-    // One effect for each key: `reaction:<name>` once per request, `reply:<round>` once per round.
-    key: text().notNull(),
-    kind: text().notNull(),
-    channel: text().notNull(),
-    threadTs: text("thread_ts").notNull(),
-    content: text().notNull(),
-    state: text().notNull(),
-    createdAt: text("created_at").notNull(),
-    doneAt: text("done_at"),
-    // The Slack ts of a sent reply, when the acknowledgement names one.
-    slackTs: text("slack_ts"),
-    // The last refused acknowledgement. The effect stays pending.
-    failure: text(),
-  },
-  (table) => [uniqueIndex("one_effect_per_key").on(table.requestId, table.key)],
 );
 
 // The coordination wait of one scope: one source, or every source of the project when empty.

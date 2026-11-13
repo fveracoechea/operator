@@ -1,40 +1,27 @@
-import { Err, fromPromise, type Result } from "unthrown";
+import type { Result } from "unthrown";
 import { ReviewRequests } from "../review-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 
-const reviewCommands = [
-  "add",
-  "start",
-  "post",
-  "skip",
-  "cleanup",
-  "slack-done",
-  "slack-drop",
-  "next",
-  "wait",
-  "ingest",
-] as const;
-const deviceCommands: readonly string[] = ["next", "wait", "ingest"];
-// `ingest` and `slack-done` read the raw result of a Slack MCP tool from a file, or `-` for stdin.
-const inputCommands = ["ingest", "slack-done"];
+const reviewCommands = ["add", "start", "post", "skip", "cleanup", "next", "wait"] as const;
+const deviceCommands: readonly string[] = ["next", "wait"];
 const valueFlags = new Map([
   ["--profile", { commands: ["start"], valid: (value: string) => !value.startsWith("--") }],
   ["--timeout", { commands: ["wait"], valid: (value: string) => /^\d{1,5}$/.test(value) }],
   [
-    "--input",
-    { commands: inputCommands, valid: (value: string) => value !== "" && !value.startsWith("--") },
+    "--slack-thread",
+    {
+      commands: ["add"],
+      valid: (value: string) =>
+        /^https:\/\/[a-z\d-]+\.slack\.com\/archives\/[A-Z\d]+\/p\d+(?:\?[^\s]*)?$/.test(value),
+    },
   ],
 ]);
 
-// `--slack` makes a wait the Slack transport loop of the slack-pr-review-workflow skill.
 // `--all` makes a wait return every request rather than only the changed ones and the actions.
-// `--person-instructed` attests the person's instruction for a drop. It does not grant authority.
 const switchFlags = new Map([
   ["--json", null],
-  ["--slack", ["wait"]],
   ["--all", ["wait"]],
-  ["--person-instructed", ["slack-drop"]],
 ]);
 
 function acceptsSwitch(command: string, flag: string, switches: Set<string>) {
@@ -75,15 +62,12 @@ function reviewFlags(command: string, flags: string[]) {
     if (!acceptsValue(command, flag, value, values)) return null;
     values.set(flag, value);
   }
-  if (inputCommands.includes(command) && !values.has("--input")) return null;
   const timeout = values.get("--timeout");
   return {
     profile: values.get("--profile"),
     timeout: timeout === undefined ? undefined : Number(timeout),
-    input: values.get("--input"),
-    slack: switches.has("--slack"),
+    slackThread: values.get("--slack-thread"),
     all: switches.has("--all"),
-    personInstructed: switches.has("--person-instructed"),
   };
 }
 
@@ -102,15 +86,14 @@ export function reviewArgs(args: string[]) {
         url,
         profile: flags.profile,
         timeout: flags.timeout ?? 300,
-        input: flags.input ?? "",
-        slack: flags.slack,
+        slackThread: flags.slackThread,
         all: flags.all,
-        personInstructed: flags.personInstructed,
       };
 }
 
 const reviewExitCodes = {
   review_url_invalid: 2,
+  review_author_excluded: 2,
   review_start_in_progress: 4,
   review_post_in_progress: 4,
   review_reviewer_started: 4,
@@ -126,10 +109,6 @@ const reviewExitCodes = {
   review_cleanup_in_progress: 4,
   reviewer_work_kept: 4,
   review_lease_lost: 4,
-  slack_cursor_moved: 4,
-  slack_effect_finished: 4,
-  slack_effect_failed: 1,
-  slack_input_unreadable: 1,
   review_io_failed: 1,
   review_post_failed: 1,
   review_fetch_failed: 1,
@@ -138,26 +117,6 @@ const reviewExitCodes = {
   github_uncertain: 1,
   github_invalid_response: 1,
 };
-
-/** The raw tool result, from a file or from stdin. An absent or unreadable file is a refusal. */
-async function readInput(input: string) {
-  const file = Bun.file(input);
-  if (input !== "-" && !(await file.exists()))
-    return Err({
-      reason: "slack_input_missing",
-      detail: `The input file ${input} does not exist. Nothing was recorded.`,
-    });
-  return fromPromise(
-    () => (input === "-" ? Bun.stdin.text() : file.text()),
-    (cause, defect) =>
-      cause instanceof Error
-        ? {
-            reason: "slack_input_unreadable",
-            detail: `The input ${input} could not be read: ${cause.message} Nothing was recorded.`,
-          }
-        : defect(cause),
-  );
-}
 
 export async function runReviews(
   args: string[],
@@ -172,7 +131,7 @@ export async function runReviews(
     (typeof reviewCommands)[number],
     () => PromiseLike<Result<{ reason: string; data: unknown }, { reason: string; detail: string }>>
   > = {
-    add: () => ReviewRequests.add(input),
+    add: () => ReviewRequests.add({ ...input, slackThread: parsed.slackThread }),
     start: () => ReviewRequests.start({ ...input, profile: parsed.profile }),
     post: () => ReviewRequests.post(input),
     skip: () => ReviewRequests.skip(input),
@@ -181,20 +140,9 @@ export async function runReviews(
       ReviewRequests.wait({
         paths,
         timeoutSeconds: parsed.timeout,
-        slack: parsed.slack,
         all: parsed.all,
       }),
     next: () => ReviewRequests.next(paths),
-    ingest: async () =>
-      (await readInput(parsed.input))
-        .toAsync()
-        .flatMap((text) => ReviewRequests.ingest({ paths, text })),
-    "slack-done": async () =>
-      (await readInput(parsed.input))
-        .toAsync()
-        .flatMap((text) => ReviewRequests.acknowledge({ paths, id: parsed.url, text })),
-    "slack-drop": () =>
-      ReviewRequests.drop({ paths, id: parsed.url, personInstructed: parsed.personInstructed }),
   };
   const result = await operations[parsed.command]();
   respond({ operation, result, exitCodes: reviewExitCodes, defect: "review_defect", json });

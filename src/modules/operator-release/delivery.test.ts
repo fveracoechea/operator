@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
+import { sha256 } from "../../lib/sha256.ts";
 import { packArtifact } from "../../../tools/tarball-fixture.ts";
 import { Database } from "bun:sqlite";
 import { registerTestDevice } from "../../../tools/device-fixture.ts";
@@ -480,7 +481,7 @@ test("project registration uses installed migrations and ignores unrelated globa
     {
       using database = new Database(`${isolated.XDG_STATE_HOME}/operator/operator.sqlite`);
       database.exec(
-        "DROP TABLE obligations; DROP TABLE worker_messages; DROP TABLE internal_review_rounds; DROP TABLE internal_reviews; DROP TABLE worker_questions; DROP TABLE coordination_waits; DROP TABLE promotions; DROP TABLE slack_effects; DROP TABLE slack_watches; DROP TABLE review_thread_operations; DROP TABLE review_rounds; DROP TABLE review_requests; DROP TABLE cleanups; DROP TABLE reports; DROP TABLE pull_requests; DROP TABLE launches; DROP TABLE worktree_preparations; DROP TABLE assignments; DROP TABLE sources; DROP TABLE project_removals; DELETE FROM __drizzle_migrations WHERE created_at > (SELECT MIN(created_at) FROM __drizzle_migrations)",
+        "DROP TABLE obligations; DROP TABLE worker_messages; DROP TABLE internal_review_rounds; DROP TABLE internal_reviews; DROP TABLE worker_questions; DROP TABLE coordination_waits; DROP TABLE promotions; DROP TABLE review_thread_operations; DROP TABLE review_rounds; DROP TABLE review_requests; DROP TABLE cleanups; DROP TABLE reports; DROP TABLE pull_requests; DROP TABLE launches; DROP TABLE worktree_preparations; DROP TABLE assignments; DROP TABLE sources; DROP TABLE project_removals; DELETE FROM __drizzle_migrations WHERE created_at > (SELECT MIN(created_at) FROM __drizzle_migrations)",
       );
     }
     const migrated = await run(
@@ -783,6 +784,19 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
       await chmod(`${tools}/${tool}`, 0o755);
     }
     const controlled = { ...environment, PATH: tools };
+    const hosts = [
+      `${environment.HOME}/.claude/skills`,
+      `${environment.XDG_CONFIG_HOME}/opencode/skills`,
+    ];
+    const entries: Record<string, Record<string, string>> = {};
+    const retired = "retired transport instructions\n";
+    for (const host of hosts) {
+      const destination = `${host}/slack-pr-review-workflow`;
+      await Bun.write(`${destination}/SKILL.md`, retired, { createPath: true });
+      entries[destination] = { "/": "directory", "SKILL.md": sha256(retired) };
+    }
+    const ledger = `${environment.XDG_STATE_HOME}/operator/owned-skills.json`;
+    await Bun.write(ledger, JSON.stringify({ version: 1, entries }), { createPath: true });
     for (const flags of [
       ["--opencode"],
       ["--claude"],
@@ -810,11 +824,9 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
           },
         });
     }
-    const hosts = [
-      `${environment.HOME}/.claude/skills`,
-      `${environment.XDG_CONFIG_HOME}/opencode/skills`,
-    ];
+    expect(await Bun.file(ledger).text()).not.toContain("slack-pr-review-workflow");
     for (const host of hosts) {
+      expect(await Bun.file(`${host}/slack-pr-review-workflow/SKILL.md`).exists()).toBe(false);
       for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: `${installed}/skills` })) {
         const name = file.split("/")[0];
         for await (const asset of new Bun.Glob("**/*").scan({
