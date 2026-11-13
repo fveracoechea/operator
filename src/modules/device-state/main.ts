@@ -440,7 +440,7 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) => resetSource(client, target, decide));
   },
-  /** Delete one ended source's files and records when the caller's rule permits it. */
+  /** End selected assignments and retain their resources under one writer reservation. */
   endAssignments<E extends { reason: string; detail: string }>(
     paths: Paths,
     target: Parameters<typeof endAssignments>[1],

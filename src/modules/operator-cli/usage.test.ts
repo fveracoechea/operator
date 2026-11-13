@@ -20,7 +20,8 @@ function capture() {
 function usageText(text: string | undefined) {
   const usage = String(text).split("\n");
   expect(usage[0]).toBe("Usage: operator --help | --version [--json]");
-  expect(usage).toHaveLength(55);
+  expect(usage).toHaveLength(56);
+  expect(usage).toContain("       operator abandon --source id --assignment key [--json]");
 }
 
 test.each([

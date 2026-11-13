@@ -201,11 +201,16 @@ test.each([
     pattern: "a killed wait and an idle owner",
   },
   {
-    name: "PR open blocks migration",
+    name: "assignment state alone does not block migration",
     file: "device-state/migration-policy.ts",
-    replacements: [["'running', 'pr-open', 'reported'", "'running', 'reported'"]],
-    testFile: "device-state/migration-policy.test.ts",
-    pattern: "idle guards cover active assignments",
+    replacements: [
+      [
+        "return guard === undefined",
+        "return guard === undefined && !found(client, \"SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1\")",
+      ],
+    ],
+    testFile: "operator-cli/run.compatibility.test.ts",
+    pattern: "a migration runs with a",
   },
   {
     name: "stacked start on the parent's pushed head",

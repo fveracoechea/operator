@@ -35,7 +35,7 @@ test.each([
   {
     name: "one assignment only",
     file: "device-state/sources.ts",
-    before: "inArray(assignments.key, abandon)",
+    before: "inArray(assignments.key, change.abandon)",
     after: "true",
     pattern: "abandon ends one assignment and deletes nothing",
   },

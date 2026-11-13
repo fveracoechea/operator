@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { workerDevice } from "./worker-fixture.ts";
 import { z } from "zod";
+import { Database } from "bun:sqlite";
 
 let device: Awaited<ReturnType<typeof workerDevice>>;
 afterEach(async () => {
@@ -228,4 +229,94 @@ test("a failed lifecycle probe leaves assignments and launches unchanged", async
     output: { outcome: "refused", reason: "herdr_failed" },
   });
   expect(await database.bytes()).toEqual(before);
+}, 60000);
+
+test("a recorded worker end and missing worktree end the assignment even while its terminal pane remains", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-7",
+    assignments: [assignment("read", "worktree")],
+  });
+  const worker = await device.dispatch(source, "read");
+  expect((await device.event("pane.exited", { pane_id: worker.paneId })).code).toBe(0);
+  await rm(worker.worktreePath ?? "", { recursive: true, force: true });
+  expect(await device.next("read")).toMatchObject([
+    { action: "ended", reason: "assignment_ended" },
+  ]);
+}, 60000);
+
+test("a session wait reconciles only its supervised sources", async () => {
+  device = await workerDevice();
+  const selected = await device.register({
+    trackerKey: "APP-8",
+    assignments: [assignment("selected", "pane")],
+  });
+  const other = await device.register({
+    trackerKey: "APP-9",
+    assignments: [assignment("other", "pane")],
+  });
+  await device.dispatch(selected, "selected");
+  await device.dispatch(other, "other");
+  {
+    using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+    db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_scope", selected);
+    db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_other", other);
+  }
+  await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
+  const waited = await device.exec(
+    [
+      "env",
+      "OPENCODE_SESSION_ID=ses_scope",
+      "CLAUDE_CODE_SESSION_ID=",
+      "operator",
+      "next",
+      "--wait",
+      "--timeout",
+      "0",
+      "--json",
+    ],
+    device.main,
+  );
+  expect(waited.code, waited.stderr).toBe(0);
+  expect(JSON.parse(waited.stdout)).toMatchObject({
+    reason: "next_actions_changed",
+    data: { sources: [{ id: selected, actions: [{ assignment: "selected", action: "ended" }] }] },
+  });
+  expect((await device.run(["source", "show", "--source", other])).output).toMatchObject({
+    data: { assignments: [{ key: "other", state: "running" }], launches: [{ state: "running" }] },
+  });
+}, 60000);
+
+test("abandon refusals leave database, resources and external tools unchanged", async () => {
+  device = await workerDevice({ github: true });
+  const source = await device.register({
+    trackerKey: "APP-10",
+    assignments: [assignment("read", "worktree")],
+  });
+  const worker = await device.dispatch(source, "read");
+  const args = ["abandon", "--source", source, "--assignment"];
+  const database = Bun.file(`${device.root}/state/operator/operator.sqlite`);
+  const before = await database.bytes();
+  const calls = await device.herdrCalls();
+  const githubCalls = Bun.file(`${device.root}/gh-calls.jsonl`);
+  const githubBefore = (await githubCalls.exists()) ? await githubCalls.text() : "";
+  expect(await device.run([...args, "missing"])).toMatchObject({
+    code: 3,
+    output: {
+      reason: "assignment_not_found",
+      next: { command: `operator source show --source ${source}` },
+      state: { assignment: "missing" },
+    },
+  });
+  expect(await database.bytes()).toEqual(before);
+  expect((await device.run([...args, "read"])).code).toBe(0);
+  const ended = await database.bytes();
+  expect(await device.run([...args, "read"])).toMatchObject({
+    code: 3,
+    output: { reason: "assignment_ended", state: { found: "abandoned" } },
+  });
+  expect(await database.bytes()).toEqual(ended);
+  expect(await device.herdrCalls()).toEqual(calls);
+  expect(await Bun.file(`${worker.worktreePath}/package.json`).exists()).toBe(true);
+  expect((await githubCalls.exists()) ? await githubCalls.text() : "").toBe(githubBefore);
 }, 60000);

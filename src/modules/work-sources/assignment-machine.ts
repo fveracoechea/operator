@@ -34,6 +34,13 @@ type Facts = {
   reviewing?: boolean;
   /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
   capReached?: boolean;
+  resources?: {
+    kind: "pane" | "worktree";
+    workerGone: boolean;
+    paneGone: boolean;
+    worktreeGone: boolean;
+    retained: boolean;
+  };
 };
 type Decision = {
   action:
@@ -171,6 +178,20 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: ({ cleanup }) => cleanup === "pending",
     decide: () => ({ action: "retry_cleanup", reason: "cleanup_stopped", blockers: [] }),
+  },
+  {
+    when: ({ assignment, resources }) =>
+      assignment.state === "abandoned" && resources?.retained === true,
+    decide: () => ({ action: "person_decision", reason: "cleanup_unlanded_work", blockers: [] }),
+  },
+  {
+    when: ({ assignment, resources }) =>
+      !["ready", "merged", "completed", "abandoned"].includes(assignment.state) &&
+      resources !== undefined &&
+      (resources.kind === "pane"
+        ? resources.paneGone
+        : resources.workerGone && resources.worktreeGone),
+    decide: () => ({ action: "ended", reason: "assignment_ended", blockers: [] }),
   },
   {
     when: ({ assignment }) => ["merged", "completed", "abandoned"].includes(assignment.state),

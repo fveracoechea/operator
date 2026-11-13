@@ -74,7 +74,7 @@ test("a failed start stays visible with its resources, and a replacement starts 
   });
 });
 
-test("a replacement whose recorded worktree is gone gets a new worktree", async () => {
+test("a failed worker whose worktree is gone ends instead of creating replacement work", async () => {
   await using device = await dispatchDevice();
   device.herdr.startAgent.mockReturnValueOnce(
     ErrAsync({ reason: "herdr_failed" as const, detail: "no agent" }),
@@ -83,8 +83,8 @@ test("a replacement whose recorded worktree is gone gets a new worktree", async 
   const worktree = `${device.root}/worktrees/report-one-6-survey`;
   git(device.checkout, "worktree", "remove", "--force", worktree);
   expect(await WorkerDispatch.dispatch(device.request("survey"))).toMatchObject({
-    tag: "Ok",
-    value: { branch: "task/survey-2", worktreePath: `${worktree}-2` },
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable" },
   });
   expect(device.herdr.openWorktree).not.toHaveBeenCalled();
 });
@@ -149,9 +149,7 @@ test("a PR owner whose PR worktree is gone is refused before any record", async 
   expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({
     tag: "Err",
     error: {
-      reason: "pr_worktree_missing",
-      detail:
-        "The recorded worktree of PR #7 on task/impl is missing. Ask the person how to recover it. Nothing was launched.",
+      reason: "assignment_not_dispatchable",
     },
   });
   expect(await device.launches("impl")).toHaveLength(1);

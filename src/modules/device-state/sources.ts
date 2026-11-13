@@ -310,6 +310,35 @@ export type RetainedResource = {
   pullRequest: string | null;
 };
 
+function applyEnds(
+  db: Db,
+  sourceId: string,
+  change: { abandon: string[]; interrupted?: string[] },
+) {
+  const endedAt = new Date().toISOString();
+  db.update(launches)
+    .set({
+      state: "interrupted",
+      endedAt,
+      failureReason: "pane_missing",
+      failureDetail: "Herdr confirmed that the worker pane and named agent no longer exist.",
+    })
+    .where(
+      and(
+        eq(launches.sourceId, sourceId),
+        eq(launches.state, "running"),
+        inArray(launches.id, change.interrupted ?? []),
+      ),
+    )
+    .run();
+  db.update(assignments)
+    .set({ state: "abandoned" })
+    .where(and(eq(assignments.sourceId, sourceId), inArray(assignments.key, change.abandon)))
+    .run();
+  abandonConversations(db, sourceId, change.abandon);
+  return endedAt;
+}
+
 /** Apply lifecycle observations under the same writer reservation as dispatch and reset. */
 export function endAssignments<E extends { reason: string; detail: string }>(
   client: Database,
@@ -320,28 +349,7 @@ export function endAssignments<E extends { reason: string; detail: string }>(
     checkHistory(client).flatMap((db) =>
       controlledSource(db, target).flatMap((source) =>
         decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
-          const endedAt = new Date().toISOString();
-          db.update(launches)
-            .set({
-              state: "interrupted",
-              endedAt,
-              failureReason: "pane_missing",
-              failureDetail:
-                "Herdr confirmed that the worker pane and named agent no longer exist.",
-            })
-            .where(
-              and(
-                eq(launches.sourceId, source.id),
-                eq(launches.state, "running"),
-                inArray(launches.id, interrupted),
-              ),
-            )
-            .run();
-          db.update(assignments)
-            .set({ state: "abandoned" })
-            .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
-            .run();
-          abandonConversations(db, source.id, abandon);
+          applyEnds(db, source.id, { abandon, interrupted });
           return {
             ended: abandon,
             retained: retainedResources(db, source.id).filter((row) =>
@@ -408,30 +416,7 @@ export function resetSource<E extends { reason: string; detail: string }>(
       controlledSource(db, target).flatMap(
         (source): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> =>
           decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
-            const endedAt = new Date().toISOString();
-            if (interrupted !== undefined)
-              db.update(launches)
-                .set({
-                  state: "interrupted",
-                  endedAt,
-                  failureReason: "pane_missing",
-                  failureDetail:
-                    "Herdr confirmed that the worker pane and named agent no longer exist.",
-                })
-                .where(
-                  and(
-                    eq(launches.sourceId, source.id),
-                    eq(launches.state, "running"),
-                    inArray(launches.id, interrupted),
-                  ),
-                )
-                .run();
-            // An empty list matches no assignment.
-            db.update(assignments)
-              .set({ state: "abandoned" })
-              .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
-              .run();
-            abandonConversations(db, source.id, abandon);
+            const endedAt = applyEnds(db, source.id, { abandon, interrupted });
             db.update(sources)
               .set({ state: "reset", endedAt })
               .where(eq(sources.id, source.id))

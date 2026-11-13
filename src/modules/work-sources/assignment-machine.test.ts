@@ -20,6 +20,78 @@ test("PR and report states remain closed and completion-specific", () => {
   ).toBe(false);
 });
 const child: AssignmentState = { key: "child", completion: "pr", state: "ready" };
+test("resource facts end work only when its required resources are gone, and retain abandoned work for the person", () => {
+  const assignment: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
+  for (const workerGone of [false, true]) {
+    for (const worktreeGone of [false, true]) {
+      expect(
+        decideAssignment({
+          assignment,
+          dependencies: [],
+          resources: {
+            kind: "worktree",
+            workerGone,
+            worktreeGone,
+            paneGone: true,
+            retained: false,
+          },
+        }).action,
+      ).toBe(workerGone && worktreeGone ? "ended" : "wait");
+    }
+  }
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      resources: {
+        kind: "pane",
+        workerGone: true,
+        paneGone: false,
+        worktreeGone: true,
+        retained: false,
+      },
+    }).action,
+  ).toBe("wait");
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      resources: {
+        kind: "pane",
+        workerGone: false,
+        paneGone: true,
+        worktreeGone: false,
+        retained: false,
+      },
+    }),
+  ).toMatchObject({ action: "ended", reason: "assignment_ended" });
+  expect(
+    decideAssignment({
+      assignment: { ...assignment, state: "abandoned" },
+      dependencies: [],
+      resources: {
+        kind: "worktree",
+        workerGone: false,
+        paneGone: false,
+        worktreeGone: false,
+        retained: true,
+      },
+    }),
+  ).toMatchObject({ action: "person_decision", reason: "cleanup_unlanded_work" });
+  expect(
+    decideAssignment({
+      assignment: { ...assignment, state: "ready" },
+      dependencies: [],
+      resources: {
+        kind: "worktree",
+        workerGone: true,
+        paneGone: true,
+        worktreeGone: true,
+        retained: false,
+      },
+    }).action,
+  ).toBe("ready_assignment");
+});
 test("only open or merged PRs and accepted reports satisfy dependencies", () => {
   for (const state of prStates)
     expect(dependencyBlockers(child, [{ key: "parent", completion: "pr", state }]).length).toBe(

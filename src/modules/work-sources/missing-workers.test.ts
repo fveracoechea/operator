@@ -48,6 +48,22 @@ test("multiple candidates keep separate identities", async () => {
   expect(result.value(other)).toBe(false);
 });
 
+test("next can observe ended launch identities but never a start or changed identity", async () => {
+  for (const state of ["interrupted", "finished", "failed"]) {
+    const ended = { ...worker, state };
+    const observed = await missingWorkers([ended], true);
+    expect(observed.tag).toBe("Ok");
+    if (observed.tag !== "Ok") return;
+    expect(observed.value(ended)).toBe(true);
+    expect(observed.value({ ...ended, state: "running" })).toBe(false);
+    expect(observed.value({ ...ended, paneId: "replacement" })).toBe(false);
+  }
+  const starting = { ...worker, state: "starting" };
+  const observed = await missingWorkers([starting], true);
+  expect(observed.tag).toBe("Ok");
+  if (observed.tag === "Ok") expect(observed.value(starting)).toBe(false);
+});
+
 test("a live pane or a named agent moved elsewhere stays protected", async () => {
   spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "w1:t1", workspaceId: "w1" }));
   const live = await missingWorkers([worker]);

@@ -535,8 +535,15 @@ test("next --wait returns a new action, also one that came between waits, and ti
     using db = new Database(database);
     db.query("UPDATE assignments SET state = ? WHERE key = 'investigate'").run(state);
   }
-  // A removed action wakes nobody, and leaves the returned set.
+  // An abandoned assignment now reports its end once, then leaves no new action.
   setState("abandoned");
+  expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
+    code: 0,
+    output: {
+      reason: "next_actions_changed",
+      data: { sources: [{ actions: [{ action: "ended", assignment: "investigate" }] }] },
+    },
+  });
   expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
     code: 0,
     output: { reason: "next_wait_timed_out", data: { sources: [] } },
@@ -554,6 +561,7 @@ test("next --wait returns a new action, also one that came between waits, and ti
   expect(actions.parse(between.output).data).toEqual(actions.parse(first.output).data);
   // A new action during a running wait ends it before its timeout.
   setState("abandoned");
+  expect((await run(cwd, ["next", "--wait", "--timeout", "0"])).code).toBe(0);
   const waiting = run(cwd, ["next", "--wait", "--timeout", "120"]);
   await Bun.sleep(3000);
   setState("ready");
