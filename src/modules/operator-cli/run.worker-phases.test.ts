@@ -259,3 +259,68 @@ test("prototype results expose the command frontier, not observed reasoning prog
     next: { command: "operator --help" },
   });
 });
+
+test("PR guards and result context follow the canonical worktree owner, not the caller's other pane", async () => {
+  device = await workerDevice({ github: true });
+  const source = await device.register({
+    trackerKey: "github:example/one#383",
+    maxRunning: 2,
+    assignments: [
+      {
+        key: "build",
+        kind: "implementation",
+        trackerKey: "github:example/one#1",
+        instructions: "Build.",
+        branch: "task/build",
+        dependencies: [],
+      },
+      {
+        key: "read",
+        kind: "research",
+        trackerKey: "github:example/one#2",
+        instructions: "Read.",
+        dependencies: [],
+      },
+    ],
+  });
+  const builder = await device.dispatch(source, "build");
+  const reader = await device.dispatch(source, "read");
+  expect(
+    (
+      await device.run(["pr", "round", "--file", "absent.json"], {
+        pane: builder.paneId,
+        cwd: device.main,
+      })
+    ).output,
+  ).toMatchObject({ reason: "pr_worktree_unrecorded" });
+  await Bun.write(
+    `${device.root}/github.json`,
+    JSON.stringify({
+      pulls: [
+        {
+          number: 7,
+          url: "https://github.com/example/one/pull/7",
+          headRefName: "task/build",
+          headRepository: "example/one",
+          state: "OPEN",
+        },
+      ],
+    }),
+  );
+  const options = { pane: reader.paneId, cwd: builder.worktreePath ?? "" };
+  expect((await device.run(["pr", "associate"], options)).output).toMatchObject({
+    reason: "pr_associated",
+    kind: "implementation",
+    phase: "feedback",
+    data: { assignment: "build" },
+    next: { command: "operator pr wait" },
+  });
+  expect((await device.run(["pr", "wait", "--timeout", "0"], options)).output).toMatchObject({
+    kind: "implementation",
+    phase: "feedback",
+    data: { assignment: "build" },
+  });
+  expect((await device.run(["source", "show", "--source", source])).output).toMatchObject({
+    data: { reports: [], pullRequests: [{ assignment: "build", number: 7 }] },
+  });
+});

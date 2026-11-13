@@ -213,6 +213,28 @@ test("an outgoing launch never gets its fresh reviewer's next command", () => {
   });
 });
 
+test.each([0, 1, 2])(
+  "an ended review stays in feedback after readiness becomes unknown, with %i rounds",
+  (rounds) => {
+    const facts = {
+      ...prFacts(),
+      reviewEnded: true,
+      pr: { associated: true, rounds, ready: false, merged: false, parked: false },
+    };
+    expect(decidePhase(facts)).toEqual({
+      kind: "custom",
+      phase: "feedback",
+      next: { command: "operator pr wait", why: "Wait for PR feedback or merge eligibility." },
+      refusal: undefined,
+    });
+    expect(decidePhase(facts, "merge")).toMatchObject({
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+      refusal: { reason: "pr_not_ready", state: { pr_ready: false } },
+    });
+  },
+);
+
 test("a phase exit command refuses until its guard holds, and names the next command", () => {
   const facts = {
     kind: { name: "review", completion: "pr" as const, workPhases: [] },

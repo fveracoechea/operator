@@ -1,8 +1,8 @@
 import type { OperatorHome } from "../operator-home/main.ts";
-import type { ResultContext } from "../../lib/cli-result.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { PullRequests } from "../pull-requests/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { z } from "zod";
 import { failure, withOutputContext } from "./output.ts";
@@ -49,9 +49,35 @@ function worker(paths: OperatorPaths) {
   const read = DeviceState.readReport(paths, { by: "pane", socket, paneId });
   if (read.tag !== "Ok") return null;
   const launch = read.value.launch;
-  if (launch === null || launch.kind === null) return null;
+  if (launch === null) return null;
+  if (launch.kind === null) return null;
   const kind = WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind));
-  return { ...read.value, launch, kind };
+  return {
+    source: { id: read.value.source.id, repository: read.value.source.repository },
+    assignment: { key: read.value.assignment.key },
+    launch,
+    kind,
+  };
+}
+
+/** PR commands select by the validated Git worktree, even when another pane runs them. */
+function worktreeWorker(
+  paths: OperatorPaths,
+  target: Extract<Awaited<ReturnType<typeof PullRequests.workerTarget>>, { tag: "Ok" }>["value"],
+) {
+  const read = DeviceState.readSources(paths, target.repository, target.sourceId);
+  if (read.tag !== "Ok") return null;
+  const source = read.value[0];
+  if (source === undefined) return null;
+  const launch = source.launches.find((row) => row.id === target.launchId);
+  if (launch === undefined) return null;
+  if (launch.kind === null) return null;
+  return {
+    source: { id: target.sourceId, repository: target.repository },
+    assignment: { key: target.assignment },
+    launch,
+    kind: WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
+  };
 }
 
 function recorded(
@@ -68,6 +94,7 @@ function recorded(
   const report = source.reports.findLast((row) => row.assignment === key);
   const pr = source.pullRequests.find((row) => row.assignment === key);
   const review = source.internalReviews.find((row) => row.assignment === key);
+  const reviewEnded = review !== undefined && ["ready", "skipped"].includes(review.state);
   const eligibleHead =
     pr === undefined
       ? null
@@ -88,38 +115,32 @@ function recorded(
       rounds: source.internalReviewRounds.filter((row) => row.assignment === key).length,
       // Until explicit ready transitions land, only same-head recorded evidence proves readiness.
       ready:
-        head !== null &&
-        ((review !== undefined &&
-          ["ready", "skipped"].includes(review.state) &&
-          review.readyHead === head) ||
-          eligibleHead === head),
+        head !== null && ((review?.readyHead === head && reviewEnded) || eligibleHead === head),
       merged: pr !== undefined && pr.mergedAt !== null,
       parked: false,
     },
     internalReview: selected.launch.internalReview === true,
+    reviewEnded,
     handedOff: review !== undefined && review.implementerLaunchId === selected.launch.id,
     worktreeClean: clean,
   };
 }
 
-function questionNext(operation: string, reason: string, key: string | undefined): ResultContext {
-  if (operation !== "question_ask" && operation !== "question_wait") return {};
-  if (reason !== "question_asked" && reason !== "question_wait_timed_out") return {};
-  return key === undefined
-    ? {}
-    : {
-        next: {
-          command: `operator question wait --key ${key}`,
-          why: "Wait for the recorded answer.",
-        },
-      };
-}
-
 /** Commands and results share the same phase decision over the launch's immutable kind. */
 async function withWorkerContext(args: string[], paths: OperatorPaths, run: () => Promise<void>) {
-  const selected = worker(paths);
+  let selected = worker(paths);
   if (selected === null) return run();
-  const event = eventOf(args);
+  let event = eventOf(args);
+  if (event !== undefined && event !== "submit" && event !== "resume") {
+    const target = await PullRequests.workerTarget({ paths, cwd: process.cwd() });
+    if (target.tag === "Ok") {
+      selected = worktreeWorker(paths, target.value);
+      if (selected === null) return run();
+    } else {
+      // The command owner reports its canonical ownership refusal, not a phase refusal.
+      event = undefined;
+    }
+  }
   let clean = true;
   let head: string | null = null;
   if (selected.launch.worktreePath !== null) {
@@ -141,13 +162,12 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   const initial = recorded(paths, selected, clean, head);
   if (initial === null) return run();
   return withOutputContext(
-    ({ operation, reason, questionKey }) => {
+    () => {
       const phase = WorkerKinds.decidePhase(recorded(paths, selected, clean, head) ?? initial);
       return {
         kind: phase.kind,
         phase: phase.phase,
         next: phase.next,
-        ...questionNext(operation, reason, questionKey),
       };
     },
     async () => {
