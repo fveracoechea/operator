@@ -61,8 +61,8 @@ test.each([
   },
   {
     name: "plain dispatch kind restriction",
-    file: "worker-dispatch/main.ts",
-    before: "!WorkerKinds.resolve(planned.kind).dispatchable",
+    file: "work-sources/assignment-machine.ts",
+    before: "dispatchable === false",
     after: "false",
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "cannot be plainly dispatched",
