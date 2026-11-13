@@ -68,6 +68,11 @@ test("kind guides honor pane overrides and require the conflict-resolution skill
   expect(feedback).toContain("Load `resolving-merge-conflicts`");
 });
 
+test("an explicit null kind preserves the legacy brief without a guide", () => {
+  expect(renderBrief({ ...input, kind: null })).toBe(renderBrief(input));
+  expect(renderBrief({ ...input, kind: null })).not.toContain("Worker kind:");
+});
+
 test("read-only work forbids project changes, and the brief names no runtime agent", () => {
   const brief = renderBrief({
     ...input,

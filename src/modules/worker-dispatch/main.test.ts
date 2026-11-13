@@ -229,7 +229,15 @@ test("a plan that turns internal review off gives a ready PR, and an assignment 
   for (const assignment of ["urgent", "checked"])
     expect(
       await WorkerDispatch.dispatch({ ...device.request(assignment), sourceId }),
-    ).toMatchObject({ tag: "Ok" });
+    ).toMatchObject({
+      tag: "Ok",
+      value: {
+        kind: {
+          name: "implementation",
+          nextKind: assignment === "urgent" ? "pr-feedback" : "review",
+        },
+      },
+    });
   const urgent = await briefOf(device, sourceId, "urgent");
   expect(urgent).toContain("Open one PR from your branch");
   expect(urgent).not.toMatch(/draft|internal review/i);
