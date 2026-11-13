@@ -199,6 +199,7 @@ test.each(["opencode", "claude-code"] as const)(
   "answer dispatch records and renders the %s absolute fallback",
   async (host) => {
     await using device = await dispatchDevice();
+    spyOn(AgentHosts, "start").mockReturnValue(OkAsync(null));
     spyOn(DeviceSettings, "resolve").mockReturnValue(OkAsync({ ...resolved, host }));
     const file = `${device.root}/answer.json`;
     await Bun.write(
