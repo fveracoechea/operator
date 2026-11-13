@@ -52,7 +52,7 @@ async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: H
   if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
     blockers.push({ reason: "executable_missing", tool, detail: `Install ${tool} on PATH.` });
   const owned = await OwnedSkills.install({ paths, hosts: [host], check: true });
-  // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
+  // Stryker disable next-line ArrowFunction,ObjectLiteral: equivalent: map on a Defect never calls its function
   if (owned.tag === "Defect") return owned.map((): Checked => ({ blockers, warnings }));
   if (owned.tag === "Err")
     blockers.push({
@@ -60,7 +60,7 @@ async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: H
       detail: `${owned.error.detail} Run operator install ${flag}, or update consumer-owned Nix links.`,
     });
   const upstream = await UpstreamSkills.checkGuides(paths, host);
-  // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
+  // Stryker disable next-line ArrowFunction,ObjectLiteral: equivalent: map on a Defect never calls its function
   if (upstream.tag === "Defect") return upstream.map((): Checked => ({ blockers, warnings }));
   if (upstream.tag === "Err") blockers.push(upstream.error);
   else {
@@ -71,7 +71,7 @@ async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: H
     paths,
     check: true,
   });
-  // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
+  // Stryker disable next-line ArrowFunction,ObjectLiteral: equivalent: map on a Defect never calls its function
   if (hook.tag === "Defect") return hook.map((): Checked => ({ blockers, warnings }));
   if (hook.tag === "Err") blockers.push(hook.error);
   return Ok({ blockers, warnings });
@@ -82,8 +82,8 @@ function checkHosts(paths: ReturnType<typeof OperatorHome.resolve>, only: Host |
   return fromPromise(
     async () => {
       const settings = await DeviceSettings.show(paths);
-      // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
       if (settings.tag === "Defect")
+        // Stryker disable next-line ArrowFunction,ObjectLiteral,ArrayDeclaration: equivalent: map on a Defect never calls its function
         return settings.map((): Checked => ({ blockers: [], warnings: [] }));
       if (settings.tag === "Err") return Ok({ blockers: [settings.error], warnings: [] });
       const config = settings.value.data.config;
@@ -140,8 +140,8 @@ export const Readiness = {
         }
         // Herdr hooks and agents reach the running release only through the global command.
         const command = await GlobalLauncher.check();
-        // Stryker disable next-line ArrowFunction,ObjectLiteral: equivalent: map on a Defect never calls its function
         if (command.tag === "Defect")
+          // Stryker disable next-line ArrowFunction,ObjectLiteral,ArrayDeclaration: equivalent: map on a Defect never calls its function
           return command.map((): Checked => ({ blockers, warnings: [] }));
         if (command.tag === "Err") blockers.push(command.error);
         else blockers.push(...command.value);
