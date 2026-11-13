@@ -69,31 +69,22 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
       .bind("next", () => WorkSources.next(input))
       .bind("planned", ({ source, next }) => {
         const planned = source.planned.find((row) => row.key === input.assignment);
-        const rows = next.sources.flatMap((row) => [...row.actions, ...row.waits]);
-        if (
-          planned !== undefined &&
-          rows.some(
-            (row) =>
-              "assignment" in row &&
-              row.assignment === input.assignment &&
-              row.reason === "kind_not_dispatchable",
-          )
-        )
+        if (planned === undefined) return notDispatchable(input.assignment);
+        const kind = planned.kind;
+        const rows = next.sources
+          .flatMap((row) => [...row.actions, ...row.waits])
+          .filter((row) => "assignment" in row && row.assignment === input.assignment);
+        if (rows.some((row) => row.reason === "kind_not_dispatchable"))
           return Err({
             reason: "kind_not_dispatchable",
-            detail: `The ${planned.kind} kind starts through a handoff or adoption, not plain dispatch.`,
+            detail: `The ${kind} kind starts through a handoff or adoption, not plain dispatch.`,
             next: {
               decider: "super-agent",
               question: "Which implementation assignment should hand this PR to its next worker?",
             } satisfies NextStep,
-            state: { kind: planned.kind },
+            state: { kind },
           });
-        const held = rows.some(
-          (row) =>
-            "assignment" in row &&
-            row.assignment === input.assignment &&
-            row.reason === "running_cap_reached",
-        );
+        const held = rows.some((row) => row.reason === "running_cap_reached");
         if (held)
           return Err<Failure>({
             reason: "running_cap_reached",
@@ -103,13 +94,10 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         // matches no wait, because no wait has a dispatch action.
         const action = rows.find(
           (row) =>
-            "assignment" in row &&
-            row.assignment === input.assignment &&
-            (actions.includes(row.action) ||
-              (input.handoff === true && row.reason === "internal_review_handoff")),
+            actions.includes(row.action) ||
+            (input.handoff === true && row.reason === "internal_review_handoff"),
         );
-        // Stryker disable next-line ConditionalExpression: equivalent: next gives a dispatch action only for a planned assignment
-        return planned === undefined || action === undefined
+        return action === undefined
           ? notDispatchable(input.assignment)
           : Ok({
               ...planned,

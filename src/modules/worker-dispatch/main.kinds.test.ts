@@ -1,6 +1,6 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { Ok } from "unthrown";
+import { ErrAsync, Ok } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -15,6 +15,14 @@ afterAll(removeDevices);
 
 test("a dispatch persists its resolved kind and absolute host guide", async () => {
   await using device = await dispatchDevice();
+  await Bun.write(
+    device.paths.config,
+    JSON.stringify({
+      superAgent: { host: "opencode", model: "test/reasoner" },
+      profiles: { careful: { reasoningEffort: "high" } },
+      review: { internal: false },
+    }),
+  );
   const kind = {
     name: "research",
     completion: "report",
@@ -100,6 +108,12 @@ test("the handoff launch records the review kind rather than the implementation 
   expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({ tag: "Ok" });
   const launch = (await device.launches("impl"))[0];
   if (launch === undefined) expect.unreachable("The implementer launch is missing.");
+  expect(await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true })).toMatchObject(
+    {
+      tag: "Err",
+      error: { reason: "assignment_not_dispatchable" },
+    },
+  );
   expect(
     DeviceState.associatePullRequest(
       device.paths,
@@ -110,6 +124,10 @@ test("the handoff launch records the review kind rather than the implementation 
     ).tag,
   ).toBe("Ok");
   expect(DeviceState.finishImplementer(device.paths, launch.id).tag).toBe("Ok");
+  expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable" },
+  });
   expect(await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true })).toMatchObject(
     {
       tag: "Ok",
@@ -124,6 +142,55 @@ test("the handoff launch records the review kind rather than the implementation 
     },
   );
   expect((await device.launches("impl"))[1]).toMatchObject({ kind: { name: "review" } });
+});
+
+test("another assignment's running-cap wait does not block a failed worker's replacement", async () => {
+  await using device = await dispatchDevice();
+  const file = `${device.root}/capped-replacement.json`;
+  await Bun.write(
+    file,
+    JSON.stringify({
+      trackerKey: "cap:replacement",
+      maxRunning: 1,
+      assignments: ["failed", "live", "ready"].map((key) => ({
+        key,
+        trackerKey: key,
+        kind: "research",
+        instructions: "Read.",
+        dependencies: [],
+      })),
+    }),
+  );
+  const registered = await WorkSources.register({
+    paths: device.paths,
+    cwd: device.checkout,
+    file,
+  });
+  if (registered.tag !== "Ok") expect.unreachable("The capped plan was refused.");
+  const sourceId = registered.value.id;
+  device.herdr.prompt.mockReturnValueOnce(
+    ErrAsync({ reason: "herdr_failed" as const, detail: "The fixture prompt failed." }),
+  );
+  expect(await WorkerDispatch.dispatch({ ...device.request("failed"), sourceId })).toMatchObject({
+    tag: "Err",
+    error: { reason: "launch_failed" },
+  });
+  expect(await WorkerDispatch.dispatch({ ...device.request("live"), sourceId })).toMatchObject({
+    tag: "Ok",
+  });
+  expect(
+    await WorkSources.next({ paths: device.paths, cwd: device.checkout, sourceId }),
+  ).toMatchObject({
+    tag: "Ok",
+    value: {
+      sources: [
+        { waits: [{ assignment: "live" }, { assignment: "ready", reason: "running_cap_reached" }] },
+      ],
+    },
+  });
+  expect(await WorkerDispatch.dispatch({ ...device.request("failed"), sourceId })).toMatchObject({
+    tag: "Ok",
+  });
 });
 
 test("refreshing a promoted brief keeps its recorded kind and profile", async () => {
