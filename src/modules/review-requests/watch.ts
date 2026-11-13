@@ -18,7 +18,6 @@ import {
 } from "./request.ts";
 import { cleanupResult, cleanupReviewer, failureOf, syncReviewer } from "./reviewer.ts";
 import { decideWatch, type WatchDecision } from "./rounds.ts";
-import { slackActions, type SlackView } from "./slack.ts";
 import type { NextStep } from "../../lib/cli-result.ts";
 
 const pollMs = 30000;
@@ -47,15 +46,26 @@ export function rows(paths: Paths, listed: Snapshot[]) {
       wait_reviews: "operator review wait",
       clean_reviewer: `operator review cleanup ${request.url}`,
     };
+    const posted = latestPosted(row.rounds);
+    const reply =
+      request.slackThread !== null &&
+      posted !== null &&
+      ["watching", "approved"].includes(request.state)
+        ? `Reply once in ${request.slackThread} with one short status line for review round ${posted.number} (${posted.reviewUrl}). Use your own tools, with no draft. Operator records no acknowledgement or retry.`
+        : null;
+    const why = reply === null ? step.reason : `${step.reason}. ${reply}`;
     const next: NextStep =
       step.kind === "action"
-        ? { command: commands[step.action], why: step.reason }
+        ? { command: commands[step.action], why }
         : step.kind === "attention"
           ? {
               decider: step.reason === "reviewer_work_kept" ? "person" : "super-agent",
-              question: `What intervention does this review need for ${step.reason}?`,
+              question:
+                `What intervention does this review need for ${step.reason}? ${reply ?? ""}`.trim(),
             }
-          : { command: "operator review wait", why: step.reason };
+          : reply === null
+            ? { command: "operator review wait", why }
+            : { decider: "super-agent", question: reply };
     return [
       {
         ...summary(paths, row),
@@ -247,20 +257,7 @@ function pass(paths: Paths) {
     );
 }
 
-/**
- * In the Slack loop, a due read or a new effect ends a wait. An effect whose send Slack refused
- * ends only the first pass, so a refused effect does not turn repeated waits into a busy loop.
- * Any other wait only reports Slack, so a host without Slack tools never waits on it.
- */
-function slackDue(slack: SlackView | null, loop: Loop) {
-  return (
-    loop.slack &&
-    slack !== null &&
-    (slack.read !== null || slack.effects.some((effect) => loop.first || effect.failure === null))
-  );
-}
-
-type Loop = { paths: Paths; deadline: number; first: boolean; slack: boolean; all: boolean };
+type Loop = { paths: Paths; deadline: number; first: boolean; all: boolean };
 
 /** The requests that the wait returns: those its events name and those with an action. */
 function shown(requests: ReturnType<typeof rows>, events: Event[], all: boolean) {
@@ -271,46 +268,35 @@ function shown(requests: ReturnType<typeof rows>, events: Event[], all: boolean)
 
 function poll(loop: Loop): AsyncResult<Outcome, Failure> {
   const { paths, deadline, first } = loop;
-  return pass(paths)
-    .flatMap((passed) => slackActions(paths, loop.slack).map((slack) => ({ ...passed, slack })))
-    .flatMap(({ events, listed, slack }): AsyncResult<Outcome, Failure> => {
-      const listedRows = rows(paths, listed);
-      const requests = shown(listedRows, events, loop.all);
-      if (events.length > 0)
-        return OkAsync({ reason: "review_events_observed", data: { events, requests, slack } });
-      if (slackDue(slack, loop))
-        return OkAsync({ reason: "review_slack_ready", data: { events, requests, slack } });
-      // Only the first pass returns for an action, so a row that waits for the SuperAgent or the
-      // person does not turn repeated waits into a busy loop. A wait finishes moves by itself.
-      if (first && listedRows.some((row) => "action" in row && row.action !== "wait_reviews"))
-        return OkAsync({ reason: "review_actions_ready", data: { events, requests, slack } });
-      if (Date.now() >= deadline)
-        return OkAsync({ reason: "review_wait_timed_out", data: { events, requests, slack } });
-      return fromPromise(() => Bun.sleep(Math.min(pollMs, deadline - Date.now())), qualify).flatMap(
-        () => poll({ ...loop, first: false }),
-      );
-    });
+  return pass(paths).flatMap(({ events, listed }): AsyncResult<Outcome, Failure> => {
+    const listedRows = rows(paths, listed);
+    const requests = shown(listedRows, events, loop.all);
+    if (events.length > 0)
+      return OkAsync({ reason: "review_events_observed", data: { events, requests } });
+    // Only the first pass returns for an action, so a row that waits for the SuperAgent or the
+    // person does not turn repeated waits into a busy loop. A wait finishes moves by itself.
+    if (first && listedRows.some((row) => "action" in row && row.action !== "wait_reviews"))
+      return OkAsync({ reason: "review_actions_ready", data: { events, requests } });
+    if (Date.now() >= deadline)
+      return OkAsync({ reason: "review_wait_timed_out", data: { events, requests } });
+    return fromPromise(() => Bun.sleep(Math.min(pollMs, deadline - Date.now())), qualify).flatMap(
+      () => poll({ ...loop, first: false }),
+    );
+  });
 }
 
 /**
  * Observes every open review request until one changes or an action waits for the SuperAgent,
  * or the timeout passes. It moves reviewers to new heads, starts rounds, marks stale requests,
  * and ends closed PRs inside the loop. Each change is a guarded transition, so two waits never
- * apply the same observation twice. With `slack`, it is the Slack transport loop: it records the
- * channel's start cursor and also ends for a due read or a pending effect. Without `all`, it
+ * apply the same observation twice. Without `all`, it
  * returns only the requests that its events name and those with an action.
  */
-export function wait(input: {
-  paths: Paths;
-  timeoutSeconds: number;
-  slack: boolean;
-  all?: boolean;
-}) {
+export function wait(input: { paths: Paths; timeoutSeconds: number; all?: boolean }) {
   return poll({
     paths: input.paths,
     deadline: Date.now() + input.timeoutSeconds * 1000,
     first: true,
-    slack: input.slack,
     all: input.all === true,
   });
 }

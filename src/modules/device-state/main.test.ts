@@ -180,7 +180,6 @@ test("missing state refuses each operation with its own detail and writes nothin
   const operation = missing("Register the project explicitly before this operation.");
   expect(DeviceState.launchNames(paths)).toMatchObject(operation);
   expect(DeviceState.readReviewRequests(paths)).toMatchObject(operation);
-  expect(DeviceState.startSlackWatch(paths, "C1", "1.0")).toMatchObject(operation);
   expect(DeviceState.registerSource(paths, one.checkout, openSource, [])).toMatchObject(
     missing("Register the project explicitly before registering a source."),
   );
@@ -350,32 +349,6 @@ test("each interface operation reaches its state owner on the registered databas
     tag: "Ok",
     value: { state: "prepared", abandoned: false },
   });
-  expect(DeviceState.startSlackWatch(paths, "C1", "10.000000").tag).toBe("Ok");
-  expect(
-    DeviceState.ingestSlack(paths, {
-      channel: "C1",
-      from: { cursor: "10.000000", latest: null, pending: null },
-      to: { cursor: "20.000000", latest: null, pending: null, paging: false },
-      candidates: [
-        {
-          repository: "owner/one",
-          number: 9,
-          url: "https://github.com/owner/one/pull/9",
-          threadTs: "11.000000",
-        },
-      ],
-      start: [{ key: "reaction:eyes", kind: "reaction", content: "eyes" }],
-    }),
-  ).toMatchObject({ tag: "Ok", value: [{ outcome: "recorded" }] });
-  const slack = DeviceState.readSlack(paths, "C1");
-  expect(slack).toMatchObject({
-    tag: "Ok",
-    value: { watch: { cursor: "20.000000" }, effects: [{ kind: "reaction" }] },
-  });
-  const effect = slack.tag === "Ok" ? (slack.value.effects[0]?.id ?? "") : "";
-  expect(
-    DeviceState.acknowledgeSlackEffect(paths, effect, () => ({ kind: "done", slackTs: null })),
-  ).toMatchObject({ tag: "Ok", value: { changed: true, effect: { state: "done" } } });
   expect(
     DeviceState.recordPullRequestMerge(
       paths,
@@ -442,7 +415,7 @@ test("each hold renews its lease on the renewal interval until it stops", async 
         repository: "owner/one",
         number: 7,
         url: "u",
-        origin: "slack",
+        origin: "manual",
         state: "queued",
       },
       lease: "hold" as const,

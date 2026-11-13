@@ -38,7 +38,7 @@ test.each([
   { sets: [], unsets: [], issues: ["Name at least one --set or --unset field."] },
   { sets: ["superAgent.host="], unsets: [], issues: [empty("superAgent.host")] },
   { sets: ["superAgent.host= "], unsets: [], issues: [empty("superAgent.host")] },
-  { sets: ["review.channel"], unsets: [], issues: [empty("review.channel")] },
+  { sets: ["review.channel"], unsets: [], issues: [unsupported("review.channel")] },
   { sets: ["review.channelX"], unsets: [], issues: [unsupported("review.channelX")] },
   { sets: ["superAgent.host"], unsets: [], issues: [empty("superAgent.host")] },
   {
@@ -201,13 +201,9 @@ test("internal review is a boolean that stays unset until the person turns it of
   expect(settingsSchema.safeParse({ review: { internal: "false" } }).success).toBe(false);
 });
 
-test("edits the Slack author policy as a channel id, lowercase repositories, and GitHub logins", () => {
+test("edits the author policy as lowercase repositories and GitHub logins", () => {
   const edits = parseEdits(
-    [
-      "review.channel=C0REVIEW",
-      "review.repos=Owner/One,, owner/two,",
-      "review.authors=Alice,bob-2",
-    ],
+    ["review.repos=Owner/One,, owner/two,", "review.authors=Alice,bob-2"],
     [],
   );
   const changed = editConfig(
@@ -216,11 +212,10 @@ test("edits the Slack author policy as a channel id, lowercase repositories, and
   );
   expect(changed.success && changed.data.review).toEqual({
     assignments: true,
-    channel: "C0REVIEW",
     repos: ["owner/one", "owner/two"],
     authors: ["Alice", "bob-2"],
   });
-  const unset = parseEdits([], ["review.channel", "review.repos", "review.authors"]);
+  const unset = parseEdits([], ["review.repos", "review.authors"]);
   const removed = editConfig(
     changed.success ? changed.data : settingsSchema.parse({}),
     unset.edits ?? [],
@@ -229,13 +224,11 @@ test("edits the Slack author policy as a channel id, lowercase repositories, and
 });
 
 test.each([
-  "review.channel=#reviews",
-  "review.channel=general",
   "review.repos=owner",
   "review.repos=owner/one/extra",
   "review.authors=@alice",
   "review.authors=Alice Smith",
-])("refuses the Slack policy value %s", (set) => {
+])("refuses the author policy value %s", (set) => {
   const edits = parseEdits([set], []);
   expect(edits.issues).toBeUndefined();
   expect(editConfig(settingsSchema.parse({}), edits.edits ?? []).success).toBe(false);

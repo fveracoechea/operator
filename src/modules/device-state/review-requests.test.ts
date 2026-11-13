@@ -9,7 +9,6 @@ import { registerProject, removeProject } from "./projects.ts";
 import {
   changeReviewRequest,
   emptyRequest,
-  insertEffects,
   readReviewRequest,
   readReviewRequests,
   renewReviewLease,
@@ -30,7 +29,7 @@ const identity = {
   repository: "owner/one",
   number: 7,
   url: "https://github.com/owner/one/pull/7",
-  origin: "slack",
+  origin: "manual",
   state: "queued",
 };
 
@@ -240,53 +239,6 @@ test("a change keeps a held lease unless it releases it, and returns the request
   });
 });
 
-test("a change adds Slack effects only to a request with a Slack thread, once per key", () => {
-  using db = fixture();
-  const eyes = { key: "reaction:eyes", kind: "reaction", content: "eyes" };
-  changeReviewRequest(db, target, () => Ok({ insert: identity, effects: [eyes] }));
-  expect(db.query("SELECT * FROM slack_effects").all()).toEqual([]);
-  changeReviewRequest(db, target, () =>
-    Ok({ update: { slackChannel: "C1", slackTs: "100.000001" } }),
-  );
-  expect(db.query("SELECT * FROM slack_effects").all()).toEqual([]);
-  changeReviewRequest(db, target, () => Ok({ effects: [eyes] }));
-  changeReviewRequest(db, target, () => Ok({ effects: [{ ...eyes, content: "later" }] }));
-  expect(
-    db
-      .query(
-        "SELECT request_id, channel, thread_ts, key, kind, content, state, done_at, slack_ts, failure FROM slack_effects",
-      )
-      .all(),
-  ).toEqual([
-    {
-      request_id: "r1",
-      channel: "C1",
-      thread_ts: "100.000001",
-      key: "reaction:eyes",
-      kind: "reaction",
-      content: "eyes",
-      state: "pending",
-      done_at: null,
-      slack_ts: null,
-      failure: null,
-    },
-  ]);
-});
-
-test("Slack effects need both the channel and the thread of their request", () => {
-  using db = fixture();
-  changeReviewRequest(db, target, () => Ok({ insert: identity }));
-  const eyes = { key: "reaction:eyes", kind: "reaction", content: "eyes" };
-  function effects() {
-    return db.query("SELECT key FROM slack_effects").all();
-  }
-  insertEffects(drizzle(db), { id: "r1", slackChannel: "C1", slackTs: null }, [eyes]);
-  insertEffects(drizzle(db), { id: "r1", slackChannel: null, slackTs: "100.000001" }, [eyes]);
-  expect(effects()).toEqual([]);
-  insertEffects(drizzle(db), { id: "r1", slackChannel: "C1", slackTs: "100.000001" }, [eyes]);
-  expect(effects()).toEqual([{ key: "reaction:eyes" }]);
-});
-
 test("a PR assignment gets one queued reviewer request unless its PR has an open request", () => {
   using db = fixture();
   const pr = {
@@ -301,7 +253,7 @@ test("a PR assignment gets one queued reviewer request unless its PR has an open
   expect(
     db
       .query(
-        "SELECT repository, number, url, origin, source_id, assignment, state, head_moves, owner_pid, slack_ts FROM review_requests",
+        "SELECT repository, number, url, origin, source_id, assignment, state, head_moves, owner_pid, slack_thread FROM review_requests",
       )
       .all(),
   ).toEqual([
@@ -315,12 +267,12 @@ test("a PR assignment gets one queued reviewer request unless its PR has an open
       state: "queued",
       head_moves: 0,
       owner_pid: null,
-      slack_ts: null,
+      slack_thread: null,
     },
   ]);
-  expect(emptyRequest()).toMatchObject({ sourceId: null, headMoves: 0, slackTs: null });
+  expect(emptyRequest()).toMatchObject({ sourceId: null, headMoves: 0, slackThread: null });
   expect(Object.values(emptyRequest()).filter((value) => value !== null)).toEqual([0]);
-  expect(Object.keys(emptyRequest())).toHaveLength(28);
+  expect(Object.keys(emptyRequest())).toHaveLength(27);
 });
 
 test("reads need no writer reservation, and a change waits for it even when it refuses", () => {

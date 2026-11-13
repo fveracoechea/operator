@@ -3,20 +3,12 @@ import type { Database } from "bun:sqlite";
 import type { Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
-import {
-  projects,
-  reviewRequests,
-  reviewRounds,
-  reviewThreadOperations,
-  slackEffects,
-} from "./schema.ts";
+import { projects, reviewRequests, reviewRounds, reviewThreadOperations } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type ReviewRequestRow = typeof reviewRequests.$inferSelect;
 export type ReviewRoundRow = typeof reviewRounds.$inferSelect;
 export type ThreadOperationRow = typeof reviewThreadOperations.$inferSelect;
-/** An effect that a caller generated. The store gives it an id, a state, and a time. */
-export type NewSlackEffect = Pick<typeof slackEffects.$inferSelect, "key" | "kind" | "content">;
 export type ReviewSnapshot = {
   project: { repository: string; checkout: string } | null;
   request: ReviewRequestRow | null;
@@ -30,12 +22,12 @@ export type ReviewSnapshot = {
 };
 /** One decided change. `hold` gives this process the lease, and `release` ends it. */
 export type ReviewChange = {
-  insert?: Pick<ReviewRequestRow, "id" | "repository" | "number" | "url" | "origin" | "state">;
+  insert?: Pick<ReviewRequestRow, "id" | "repository" | "number" | "url" | "origin" | "state"> & {
+    slackThread?: string | null;
+  };
   update?: Partial<Omit<ReviewRequestRow, "id">>;
   round?: ReviewRoundRow;
   operations?: ThreadOperationRow[];
-  /** Slack effects of a request with a Slack thread. A request without one gets none. */
-  effects?: NewSlackEffect[];
   lease?: "hold" | "release";
 };
 type Target = { repository: string; number: number; id?: string };
@@ -178,7 +170,6 @@ export function changeReviewRequest<E>(
             })
             .run();
         const after = read(db, { ...target, id: id ?? target.id });
-        if (after.request !== null) insertEffects(db, after.request, change.effects ?? []);
         return { ...after, ended: before.ended };
       });
     }),
@@ -282,34 +273,8 @@ export function emptyRequest(): Omit<
     sync: null,
     cleanupState: null,
     cleanupDetail: null,
-    slackChannel: null,
-    slackTs: null,
+    slackThread: null,
   };
-}
-
-/** Adds each effect of a request once. A key that exists already keeps its first effect. */
-export function insertEffects(
-  db: Db,
-  request: { id: string; slackChannel: string | null; slackTs: string | null },
-  effects: NewSlackEffect[],
-) {
-  if (request.slackChannel === null || request.slackTs === null) return;
-  for (const effect of effects)
-    db.insert(slackEffects)
-      .values({
-        ...effect,
-        id: crypto.randomUUID(),
-        requestId: request.id,
-        channel: request.slackChannel,
-        threadTs: request.slackTs,
-        state: "pending",
-        createdAt: new Date().toISOString(),
-        doneAt: null,
-        slackTs: null,
-        failure: null,
-      })
-      .onConflictDoNothing()
-      .run();
 }
 
 /** Renew the lease of a start, post, reviewer move, or cleanup that this process runs. */

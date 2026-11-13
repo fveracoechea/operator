@@ -140,8 +140,8 @@ test("a PR with no request is refused, and GitHub gets no post", async () => {
   expect(calls.posts).toEqual([]);
 });
 
-test("a clean draft of the live head approves once and ends the round with its Slack effects", async () => {
-  reviewing({ slackChannel: "C1", slackTs: "1.5", resolvedThreads: '["old"]' });
+test("a clean draft of the live head approves once and ends the round", async () => {
+  reviewing({ resolvedThreads: '["old"]' });
   await draft();
   const calls = github({
     read: () =>
@@ -193,15 +193,6 @@ test("a clean draft of the live head approves once and ends the round with its S
       blockers: "[]",
     },
   ]);
-  expect(DeviceState.readSlack(home.paths, "C1")).toMatchObject({
-    tag: "Ok",
-    value: {
-      effects: [
-        { kind: "reaction", content: "white_check_mark" },
-        { kind: "reply", content: "Approved · [review](https://github.com/example/one/pull/7#r1)" },
-      ],
-    },
-  });
 });
 
 test("blockers, inline findings, and thread replies post as a comment, and an explained resolved thread reopens", async () => {
