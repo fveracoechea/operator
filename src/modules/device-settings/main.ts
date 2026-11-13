@@ -61,16 +61,13 @@ export const DeviceSettings = {
     return operate(() => recover(paths));
   },
   /**
-   * The author policy of the watched Slack channel, or null when no channel is set. A repository
-   * or an author outside the lists gets no review request from Slack.
+   * The registered repositories and GitHub authors eligible for manual review requests.
    */
-  slackReviewPolicy(paths: OperatorPaths) {
+  reviewPolicy(paths: OperatorPaths) {
     return fromPromise(
       async () => {
         const review = (await readConfig(paths)).config.review;
-        return review?.channel === undefined
-          ? null
-          : { channel: review.channel, repos: review.repos ?? [], authors: review.authors ?? [] };
+        return { repos: review?.repos ?? [], authors: review?.authors ?? [] };
       },
       (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
     );

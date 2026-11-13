@@ -90,7 +90,7 @@ test("qualifies invalid settings for plan, apply, recover, and the review policy
   for (const result of [
     await DeviceSettings.plan(request),
     await DeviceSettings.apply({ ...request, planId: "any" }),
-    await DeviceSettings.slackReviewPolicy(invalid),
+    await DeviceSettings.reviewPolicy(invalid),
   ])
     expect(result).toMatchObject({ tag: "Err", error: { reason: "invalid_settings" } });
   await Bun.write(invalid.receipt, "{}", { createPath: true });
@@ -145,21 +145,22 @@ test("resolves the selected launch with its role and profile", async () => {
   });
 });
 
-test("reads the Slack review policy only when a channel is set", async () => {
+test("reads the author policy independently of a channel", async () => {
   const fresh = freshPaths();
-  expect(await DeviceSettings.slackReviewPolicy(fresh)).toMatchObject({ tag: "Ok", value: null });
+  expect(await DeviceSettings.reviewPolicy(fresh)).toMatchObject({
+    tag: "Ok",
+    value: { repos: [], authors: [] },
+  });
   await Bun.write(fresh.config, JSON.stringify({ review: { assignments: true } }), {
     createPath: true,
   });
-  expect(await DeviceSettings.slackReviewPolicy(fresh)).toMatchObject({ tag: "Ok", value: null });
-  await Bun.write(fresh.config, JSON.stringify({ review: { channel: "C0123ABCD" } }));
-  expect(await DeviceSettings.slackReviewPolicy(fresh)).toMatchObject({
+  expect(await DeviceSettings.reviewPolicy(fresh)).toMatchObject({
     tag: "Ok",
-    value: { channel: "C0123ABCD", repos: [], authors: [] },
+    value: { repos: [], authors: [] },
   });
-  const review = { channel: "C0123ABCD", repos: ["org/repo"], authors: ["octocat"] };
+  const review = { repos: ["org/repo"], authors: ["octocat"] };
   await Bun.write(fresh.config, JSON.stringify({ review }));
-  expect(await DeviceSettings.slackReviewPolicy(fresh)).toMatchObject({ tag: "Ok", value: review });
+  expect(await DeviceSettings.reviewPolicy(fresh)).toMatchObject({ tag: "Ok", value: review });
 });
 
 test("renders the editor schema for releases and edits", () => {

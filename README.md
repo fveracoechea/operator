@@ -426,4 +426,8 @@ A reviewer agent writes a draft with the `pr-review` skill, and only `review pos
 With `review.assignments` set to `true`, each PR assignment also gets this reviewer after its PR is open.
 It posts a comment and is separate from internal review.
 With internal review on, it is queued when the internal review ends, so it reviews the ready PR.
-With `review.channel`, `review.repos`, and `review.authors` in settings, `review wait --slack` takes review requests from Slack.
+`review add` applies the device's `review.repos` and `review.authors` policy.
+On request, the SuperAgent searches GitHub for requested reviews or reads Slack with its own tools.
+An optional `--slack-thread <permalink>` on `review add` keeps the thread link on each review row.
+After a post, the SuperAgent replies once in that thread with one short status line and the review link, with no draft.
+Operator schedules no Slack reads and records no reply acknowledgement or retry.

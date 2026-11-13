@@ -279,7 +279,7 @@ It is a planning convention for agents, not a CLI tracker state machine.
 ## Review requests
 
 **Review request**:
-A separate record for review rounds on one PR, originating from Slack or the optional reviewer of a PR assignment.
+A separate record for review rounds on one PR, originating from a manual add or the optional reviewer of a PR assignment.
 It is not an assignment and does not wait for merge to deliver a review.
 An internal review is not a review request.
 _Avoid_: Slack review, PR review job
@@ -294,12 +294,8 @@ The CLI validates it, checks the PR head and CI, computes the event, and posts i
 
 **Author policy**:
 Device settings that select registered repositories and GitHub authors eligible for review requests.
+`review add` applies this policy.
 A skip applies to one PR, never to all PRs of an author.
-
-**Slack effect**:
-A CLI-generated reply or reaction that an agent transports through Slack MCP tools and acknowledges to the CLI.
-Its pending or completed record permits a session to resume without an agent-written ledger.
-A person-instructed drop completes it as dropped, unsent.
 
 ## Herdr language
 
