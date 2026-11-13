@@ -194,7 +194,6 @@ test("an answer reaches the worker as a steering message, and the wait acknowled
         ...selector(sourceId, "scope"),
         by: "super-agent",
         file: answer,
-        text: null,
       }),
     ),
   ).toMatchObject({

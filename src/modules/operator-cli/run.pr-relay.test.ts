@@ -469,7 +469,7 @@ test("an unaccepted report dependency blocks start, and its acceptance permits i
     ],
   });
   const worker = await device.dispatch(source, "research");
-  const report = await device.writeJson("report.json", {
+  const report = await device.writeReport("report.md", {
     conclusion: "Done.",
     evidence: ["a.ts:1"],
     unresolved: [],

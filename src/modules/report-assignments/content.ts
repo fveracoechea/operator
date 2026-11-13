@@ -44,12 +44,13 @@ const markdownSubmission = z
   .string()
   .transform((text, context): z.input<typeof submissionSchema> => {
     function invalid(message: string) {
+      // Stryker disable next-line StringLiteral: no rule: Zod's internal issue code is not part of the report input contract
       context.addIssue({ code: "custom", message });
     }
     const sections = new Map<string, string[]>();
     let current: string[] | undefined;
     for (const line of text.replaceAll("\r\n", "\n").split("\n")) {
-      const heading = /^## (.+)$/.exec(line)?.[1];
+      const heading = /^## (.+)/.exec(line)?.[1];
       if (heading !== undefined) {
         if (!headings.has(heading)) invalid(`Unknown report heading: ${heading}.`);
         if (sections.has(heading)) invalid(`Duplicate report heading: ${heading}.`);
@@ -62,12 +63,18 @@ const markdownSubmission = z
     for (const heading of headings)
       if (!sections.has(heading)) invalid(`Missing report heading: ${heading}.`);
     function section(heading: string) {
-      return sections.get(heading)?.join("\n").trim() ?? "";
+      // Stryker disable next-line ArrayDeclaration: equivalent: a missing section already records a parse issue, so fallback content cannot produce a submission
+      return (sections.get(heading) ?? []).join("\n");
     }
     function bullets(heading: string) {
       const items: string[] = [];
       for (const line of section(heading).split("\n")) {
-        if (line.trim() === "" || line === "A SuperAgent decision is not a human answer.") continue;
+        if (
+          line.trim() === "" ||
+          (heading === "SuperAgent decisions" &&
+            line === "A SuperAgent decision is not a human answer.")
+        )
+          continue;
         if (!line.startsWith("- ")) invalid(`Use - bullets in ## ${heading}.`);
         items.push(line.slice(2).trim());
       }
@@ -76,6 +83,7 @@ const markdownSubmission = z
     function decisions(heading: string, by: "person" | "super-agent") {
       return bullets(heading).map((item) => {
         const separator = item.indexOf(" Answer: ");
+        // Stryker disable next-line EqualityOperator: equivalent: a separator at zero also fails the required nonempty question schema
         if (separator < 0) invalid(`Use <question> Answer: <answer> in ## ${heading}.`);
         return { question: item.slice(0, separator), answer: item.slice(separator + 9), by };
       });
