@@ -1,4 +1,4 @@
-import { failure } from "./output.ts";
+import { failure, outputContext } from "./output.ts";
 
 type Release = { version: string; commit: string | null; artifactIdentity: string | null };
 
@@ -11,7 +11,6 @@ const workflowGroups = new Set([
   "message",
   "obligation",
   "cleanup",
-  "abandon",
 ]);
 
 export function workflowArguments(args: string[]) {
@@ -64,7 +63,6 @@ const usage = `Usage: operator --help | --version [--json]
        operator obligation list --source id [--json]
        operator pr merge [--json]
        operator cleanup --source id --assignment key [--person-instructed] [--json]
-       operator abandon --source id --assignment key [--json]
        operator handoff --source id --assignment key [--json]
        operator internal-review skip --source id --assignment key --person-instructed [--json]
        operator review add <pr-url> [--slack-thread permalink] [--json]
@@ -96,6 +94,7 @@ export function runUsage(args: string[], release: Release, json: boolean) {
           reason: "version_reported",
           blockers: [],
           data: { operatorVersion, bunVersion: Bun.version, commit, artifactIdentity },
+          ...outputContext(),
         })
       : `operator ${operatorVersion}`,
   );
@@ -104,7 +103,7 @@ export function runUsage(args: string[], release: Release, json: boolean) {
 }
 
 /** Reports arguments that no command accepts. */
-export function invalidArguments(json: boolean, _args: string[]) {
+export function invalidArguments(json: boolean, _args?: string[]) {
   failure(
     "parse_arguments",
     "invalid_arguments",

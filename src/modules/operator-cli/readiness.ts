@@ -1,6 +1,6 @@
 import { Readiness } from "../readiness/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure, printRefusal } from "./output.ts";
+import { failure, printRefusal, outputContext } from "./output.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { workflowRefusal } from "./workflow-refusal.ts";
 
@@ -49,6 +49,7 @@ export async function runReadiness(
             blockers: result.value.blockers,
             warnings: result.value.warnings,
             data: { staticOnly: true },
+            ...outputContext(),
             ...recovery,
           },
           null,

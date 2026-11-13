@@ -1,5 +1,19 @@
 import type { NextStep, Refusal, ResultContext } from "../../lib/cli-result.ts";
 import { workflowRefusal } from "./workflow-refusal.ts";
+// Bun has no native invocation-local context API.
+import { AsyncLocalStorage } from "node:async_hooks";
+
+type ContextReader = () => Partial<ResultContext>;
+const workerContext = new AsyncLocalStorage<ContextReader>();
+
+export function outputContext() {
+  return workerContext.getStore()?.() ?? {};
+}
+
+/** Output context is local to one invocation, including concurrent embedded CLI callers. */
+export function withOutputContext(read: ContextReader, run: () => Promise<void>) {
+  return workerContext.run(read, run);
+}
 
 // Structural, so a union of command results with different value types still fits.
 type Outcome =
@@ -36,6 +50,8 @@ export function failure(
   json: boolean,
   context: ResultContext,
 ) {
+  const defaults = outputContext();
+  context = { ...defaults, ...context, next: context.next ?? defaults.next };
   if (json)
     console.log(
       JSON.stringify({
@@ -46,9 +62,12 @@ export function failure(
         blockers: [{ reason, detail }],
         next: context.next,
         state: context.state,
+        kind: context.kind,
+        phase: context.phase,
       }),
     );
-  printRefusal(reason, detail, context);
+  const phase = context.kind === undefined ? "" : ` [kind=${context.kind} phase=${context.phase}]`;
+  printRefusal(reason, `${detail}${phase}`, context);
   process.exitCode = code;
 }
 
@@ -105,6 +124,8 @@ export function respond(input: {
 }) {
   const { operation, result, json } = input;
   if (result.tag === "Ok") {
+    const defaults = outputContext();
+    const context = { ...defaults, ...result.value, next: result.value.next ?? defaults.next };
     console.log(
       JSON.stringify(
         {
@@ -114,8 +135,10 @@ export function respond(input: {
           reason: result.value.reason,
           blockers: [],
           data: result.value.data,
-          next: result.value.next,
-          state: result.value.state,
+          next: context.next,
+          state: context.state,
+          kind: context.kind,
+          phase: context.phase,
         },
         null,
         json ? undefined : 2,
