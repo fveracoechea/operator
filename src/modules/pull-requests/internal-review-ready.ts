@@ -1,13 +1,4 @@
-import {
-  ErrAsync,
-  OkAsync,
-  fromPromise,
-  Err,
-  Ok,
-  type AsyncOkOf,
-  type AsyncResult,
-} from "unthrown";
-import { z } from "zod";
+import { ErrAsync, OkAsync, type AsyncOkOf, type AsyncResult } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -15,75 +6,12 @@ import { WorkSources } from "../work-sources/main.ts";
 import { markReady, postComment, readyFacts, updateComment } from "./github.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
 import { worktreeFacts } from "./internal-review.ts";
-import { qualify, resolveOwner, type Paths } from "./owner.ts";
+import { readSummary, type Disposition } from "./internal-review-summary.ts";
+import { resolveOwner, type Paths } from "./owner.ts";
 
 type Failure = { reason: string; detail: string };
 type Source = NonNullable<AsyncOkOf<ReturnType<typeof WorkSources.show>>>;
 type Finding = Source["internalReviewRounds"][number]["findings"][number];
-type Disposition = z.infer<typeof dispositionSchema>;
-
-const place = { round: z.number().int().positive(), finding: z.number().int().positive() };
-const dispositionSchema = z.discriminatedUnion("disposition", [
-  z.strictObject({ ...place, disposition: z.literal("applied") }),
-  z.strictObject({
-    ...place,
-    disposition: z.literal("declined"),
-    reason: z.string().trim().min(1),
-  }),
-]);
-
-function parseDisposition(line: string) {
-  const match = /^- ([1-9]\d*)\.([1-9]\d*) (applied|declined: (.+))$/.exec(line);
-  if (match === null) return null;
-  const place = { round: Number(match[1]), finding: Number(match[2]) };
-  const value =
-    match[3] === "applied"
-      ? { ...place, disposition: "applied" }
-      : { ...place, disposition: "declined", reason: match[4] };
-  const parsed = dispositionSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
-
-/** Validates the reviewer's summary: a short overview and one disposition for each finding. */
-function parseSummary(text: string) {
-  function invalid(line: number) {
-    return Err({
-      reason: "internal_review_summary_invalid",
-      detail: `Line ${line}: expected ## Overview with prose, then ## Dispositions with bullets '- <round>.<finding> applied' or '- <round>.<finding> declined: <reason>'. Nothing was changed.`,
-      next: {
-        command: "operator pr ready --file <path|->",
-        why: "Correct the markdown summary and try ready again.",
-      },
-    });
-  }
-  let section: "" | "overview" | "dispositions" = "";
-  const overview: string[] = [];
-  const dispositions: Disposition[] = [];
-  for (const [index, raw] of text.split(/\r?\n/).entries()) {
-    const line = raw.trim();
-    if (line === "") {
-      if (section === "overview") overview.push("");
-      continue;
-    }
-    if (section === "") {
-      if (line !== "## Overview") return invalid(index + 1);
-      section = "overview";
-    } else if (section === "overview" && line === "## Dispositions") {
-      if (overview.join("\n").trim() === "") return invalid(index + 1);
-      section = "dispositions";
-    } else if (section === "overview" && !line.startsWith("#")) {
-      overview.push(raw);
-    } else {
-      if (section !== "dispositions") return invalid(index + 1);
-      const parsed = parseDisposition(line);
-      if (parsed === null) return invalid(index + 1);
-      dispositions.push(parsed);
-    }
-  }
-  return section === "dispositions"
-    ? Ok({ overview: overview.join("\n").trim(), dispositions })
-    : invalid(1);
-}
 
 /** The hidden line that finds this review's comment again after a lost answer. */
 function commentMarker(sourceId: string, assignment: string) {
@@ -140,13 +68,6 @@ ${section("declined")}
 
 ${input.marker}
 `;
-}
-
-function readSummary(file: string) {
-  return fromPromise(
-    () => (file === "-" ? Bun.stdin.text() : Bun.file(file).text()),
-    qualify,
-  ).flatMap((text) => parseSummary(text).toAsync());
 }
 
 function reviewOf(source: Source | undefined, assignment: string) {
