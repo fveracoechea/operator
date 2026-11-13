@@ -6,7 +6,7 @@ A release ships these directories whole.
 Nix packages check consumer-owned links instead.
 
 Every skill here has exactly one home, so no name in this directory is a second copy under `.agents/skills/`.
-This repository reaches them through symlinks in `.agents/skills/` and `.claude/skills/`.
+Development uses globally installed skills rather than checkout links.
 Write to the portable frontmatter floor, `name`, `description`, `license`, `compatibility`, and `metadata`, because opencode drops every other field without a word.
 The one exception is `disable-model-invocation: true` for a user-invoked skill. opencode drops it, so there the skill falls back to model invocation.
 The frontmatter `name` and the directory name are the same string.

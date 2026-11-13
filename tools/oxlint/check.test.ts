@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { Environment } from "../../modules/environment/main.ts";
+import { Environment } from "../../src/modules/environment/main.ts";
 // Bun has no temporary directory, directory creation, or recursive removal API.
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,7 +16,9 @@ const check = lintProject();
 test("reports each probe finding by line, and separates the probe from extra files", async () => {
   const result = await check(
     'export const first = 1;\n\nexport const value: unknown = Reflect.get({}, "id");\n',
-    { files: { "lib/lint-extra.ts": 'export const extra: unknown = Reflect.get({}, "id");\n' } },
+    {
+      files: { "src/lib/lint-extra.ts": 'export const extra: unknown = Reflect.get({}, "id");\n' },
+    },
   );
 
   expect(result.exitCode).toBe(1);
@@ -36,8 +38,8 @@ test("puts the policy's blank line after one-line imports and passes clean code"
 });
 
 test("removes a new probe and restores a replaced file before the next probe", async () => {
-  await check('export const probe: string = "probe";\n', { path: "lib/lint-probe-a.ts" });
-  await check("export const replaced = 1;\n", { path: "lib/sha256.ts" });
+  await check('export const probe: string = "probe";\n', { path: "src/lib/lint-probe-a.ts" });
+  await check("export const replaced = 1;\n", { path: "src/lib/sha256.ts" });
   const consumer = [
     'import { probe } from "./lint-probe-a.ts";',
     'import { sha256 } from "./sha256.ts";',

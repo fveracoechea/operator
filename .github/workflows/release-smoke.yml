@@ -11,7 +11,7 @@ permissions:
 
 env:
   # The one Bun the project pins in `packageManager`. CI runs what the manifest names.
-  BUN_VERSION: 1.4.2
+  BUN_VERSION: 1.4.4
 
 jobs:
   nix:
@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
       # Build the package and check its locked dependencies, artifact, and installed CLI.
       # Release publication already requires every job in this workflow to pass.
       - name: Check the release flake
@@ -30,8 +30,8 @@ jobs:
     name: Smoke-test both delivery paths
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
@@ -42,10 +42,10 @@ jobs:
       # `shell: bash` sets `pipefail`, so `tee` cannot answer for the test run it copies.
       - name: Clean installation and CLI behaviour on both paths
         shell: bash
-        run: bun run test modules/operator-release 2>&1 | tee release-smoke.log
+        run: bun run test src/modules/operator-release 2>&1 | tee release-smoke.log
       - name: Preserve the attempt
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-smoke
           path: release-smoke.log
@@ -56,8 +56,8 @@ jobs:
     name: Check the package with the official JSR client
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
@@ -67,5 +67,5 @@ jobs:
       - name: Check the release artifact with the JSR client
         run: |
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
-            bun scripts/release.ts build --out dist --commit "$(git rev-parse HEAD)"
+            bun tools/release.ts build --out dist --commit "$(git rev-parse HEAD)"
           bun run --bun release check --out dist

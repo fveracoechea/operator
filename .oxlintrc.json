@@ -13,9 +13,9 @@
       "error",
       {
         "allowFiles": [
-          "modules/environment/main.ts",
-          "modules/release-publish/gh-fixture.ts",
-          "modules/release-publish/jsr-client-fixture.ts"
+          "src/modules/environment/main.ts",
+          "src/modules/release-publish/gh-fixture.ts",
+          "src/modules/release-publish/jsr-client-fixture.ts"
         ]
       }
     ],

@@ -1,12 +1,12 @@
-// The mutation sandbox holds only the unit-testing skill, so no unit owns these link checks.
+// Rule messages remain useful in a mutation sandbox without any installed skills.
 import { expect, test } from "bun:test";
 import antiSlop from "./anti-slop/index.ts";
 import customTests from "./custom-tests/index.ts";
 import operator from "./operator/index.ts";
 
-const skillsRoot = new URL("../../.agents/skills/", import.meta.url);
+const docsRoot = new URL("../../docs/agents/", import.meta.url);
 const plugins = { "anti-slop": antiSlop, "custom-tests": customTests, operator };
-const pointer = /See ([a-z-]+)\/([a-z-]+\.md)\.$/u;
+const pointer = /See docs\/agents\/([a-z-]+)\/([a-z-]+\.md)\.$/u;
 
 const messages = Object.entries(plugins).flatMap(([plugin, { rules }]) =>
   Object.entries(rules).flatMap(([rule, { meta }]) =>
@@ -14,24 +14,22 @@ const messages = Object.entries(plugins).flatMap(([plugin, { rules }]) =>
   ),
 );
 
-test("every custom rule message points to a linked topic that names the rule", async () => {
+test("every custom rule message points to a documentation topic that names the rule", async () => {
   expect(messages.length).toBeGreaterThanOrEqual(14);
   for (const { id, message } of messages) {
-    const [, skill, topic] = pointer.exec(message) ?? [];
+    const [, directory, topic] = pointer.exec(message) ?? [];
     expect(topic, `${id}: ${message}`).toBeDefined();
-    const router = await Bun.file(new URL(`${skill}/SKILL.md`, skillsRoot)).text();
-    expect(router, `${skill}/SKILL.md links ${topic}`).toContain(`](${topic})`);
-    const text = await Bun.file(new URL(`${skill}/${topic}`, skillsRoot)).text();
-    expect(text, `${skill}/${topic} names ${id}`).toContain(`\`${id}\``);
+    const text = await Bun.file(new URL(`${directory}/${topic}`, docsRoot)).text();
+    expect(text, `${directory}/${topic} names ${id}`).toContain(`\`${id}\``);
   }
 });
 
 test("each lint-fixes section for a rule shows the fix in code", async () => {
-  const fixes = messages.filter(({ message }) => message.includes("See lint-fixes/"));
+  const fixes = messages.filter(({ message }) => message.includes("See docs/agents/lint-fixes/"));
   expect(fixes.length).toBeGreaterThanOrEqual(13);
   for (const { id, message } of fixes) {
     const [, , topic] = pointer.exec(message) ?? [];
-    const text = await Bun.file(new URL(`lint-fixes/${topic}`, skillsRoot)).text();
+    const text = await Bun.file(new URL(`lint-fixes/${topic}`, docsRoot)).text();
     const start = text.indexOf(`## \`${id}\``);
     expect(start, `${topic} has a section for ${id}`).toBeGreaterThan(-1);
     const end = text.indexOf("\n## ", start + 1);

@@ -22,7 +22,7 @@ test("accepts precise values, boundary inputs, and reassigned bindings", async (
   expect(valid.codes).toEqual([]);
   const reassigned = await check(
     "export function widen() { let value = 1; value = 2; const widened: unknown = value; return widened as number; }",
-    { path: "lib/lint-probe.test.ts" },
+    { path: "src/lib/lint-probe.test.ts" },
   );
   expect(reassigned.codes).toEqual([]);
 });
@@ -57,6 +57,6 @@ test("an object-widened binding asserted back to a definite object type is flagg
       .map((finding) => Number.parseInt(finding, 10)),
   ).toEqual([3, 5, 7, 9, 10, 11, 12, 13, 14]);
   expect(result.stdout).toContain(
-    'Binding \\"value\\" discards type evidence and later recreates it with an assertion. Keep the precise type from initialization through use; parse boundary input once. See lint-fixes/type-assertions.md.',
+    'Binding \\"value\\" discards type evidence and later recreates it with an assertion. Keep the precise type from initialization through use; parse boundary input once. See docs/agents/lint-fixes/type-assertions.md.',
   );
 });

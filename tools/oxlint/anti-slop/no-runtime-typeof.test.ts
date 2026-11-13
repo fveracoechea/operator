@@ -46,6 +46,6 @@ test("keeps existence probes and type-position typeof legal", async () => {
 test("names the fix topic", async () => {
   const result = await check("export function kind(value: string) { return typeof value; }");
   expect(result.stdout).toContain(
-    "A `typeof` check narrows a representation without its contract. Parse input at its I/O boundary, then branch on the domain value. See lint-fixes/parse-at-the-boundary.md.",
+    "A `typeof` check narrows a representation without its contract. Parse input at its I/O boundary, then branch on the domain value. See docs/agents/lint-fixes/parse-at-the-boundary.md.",
   );
 });

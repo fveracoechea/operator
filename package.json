@@ -4,53 +4,54 @@
   "private": true,
   "license": "MIT",
   "bin": {
-    "operator": "./cli.ts"
+    "operator": "./src/cli.ts"
   },
   "type": "module",
   "exports": {
-    "./cli": "./cli.ts"
+    "./cli": "./src/cli.ts"
   },
   "scripts": {
-    "format": "bunx --bun --no-install oxfmt cli.ts cli.test.ts drizzle.config.ts modules lib scripts tools/oxlint package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
-    "format:check": "bunx --bun --no-install oxfmt --check cli.ts cli.test.ts drizzle.config.ts modules lib scripts tools/oxlint package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
-    "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts cli.test.ts drizzle.config.ts modules lib scripts tools/oxlint",
-    "lint:modules": "bun scripts/check-module-shape.ts",
-    "lint:skills": "bun scripts/check-skill-shape.ts",
-    "mutate": "bun scripts/mutate.ts",
-    "preinstall": "bun scripts/require-bun.ts",
-    "release": "bun scripts/release.ts",
+    "format": "bunx --bun --no-install oxfmt src tools package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "format:check": "bunx --bun --no-install oxfmt --check src tools package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "lint": "bunx --bun --no-install oxlint --deny-warnings src tools",
+    "lint:modules": "bun tools/check-module-shape.ts",
+    "lint:skills": "bun tools/check-skill-shape.ts",
+    "mutate": "bun tools/mutate.ts",
+    "preinstall": "bun tools/require-bun.ts",
+    "release": "bun tools/release.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
-    "studio": "bunx --bun --no-install drizzle-kit studio",
-    "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
-    "test": "bun scripts/test-watchdog.ts",
-    "test:timings": "bun scripts/test-watchdog.ts --update-timings",
-    "test:live": "bun scripts/live-contracts.ts",
+    "studio": "bunx --bun --no-install drizzle-kit studio --config tools/drizzle.config.ts",
+    "test:module-boundaries": "bun tools/prove-module-boundaries.ts",
+    "test": "bun tools/test-watchdog.ts",
+    "test:timings": "bun tools/test-watchdog.ts --update-timings",
+    "test:live": "bun tools/live-contracts.ts",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
     "quality": "bun run --parallel quality:static test",
     "quality:static": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.310",
+    "@anthropic-ai/claude-agent-sdk": "0.3.323",
     "drizzle-orm": "0.45.4",
-    "unthrown": "5.12.1",
+    "unthrown": "5.12.2",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@babel/parser": "8.0.8",
+    "@actions/expressions": "0.3.61",
+    "@babel/parser": "8.1.2",
     "@libsql/client": "0.18.0",
-    "@oxlint/plugins": "1.89.0",
+    "@oxlint/plugins": "1.93.0",
     "@stryker-mutator/core": "10.1.1",
     "@types/bun": "1.4.4",
-    "@unthrown/oxlint": "5.12.1",
+    "@unthrown/oxlint": "5.12.2",
     "drizzle-kit": "0.31.11",
     "jsr": "0.14.3",
-    "oxfmt": "0.74.0",
-    "oxlint": "1.89.0",
-    "oxlint-tsgolint": "7.0.2005",
+    "oxfmt": "0.78.0",
+    "oxlint": "1.93.0",
+    "oxlint-tsgolint": "7.0.2007",
     "typescript": "7.0.2"
   },
   "engines": {
     "bun": ">=1.4.0"
   },
-  "packageManager": "bun@1.4.2"
+  "packageManager": "bun@1.4.4"
 }

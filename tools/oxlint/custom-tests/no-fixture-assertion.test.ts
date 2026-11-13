@@ -7,7 +7,7 @@ const check = lintProject();
 test("a binding cycle is not a fixture", async () => {
   const result = await check(
     'import { expect } from "bun:test"; const loopA: number = loopB; const loopB: number = loopA; expect(loopA).toBe(1);',
-    { path: "lib/lint-probe.test.ts" },
+    { path: "src/lib/lint-probe.test.ts" },
   );
   expect(result.codes).not.toContain("custom-tests(no-fixture-assertion)");
 });
@@ -25,13 +25,13 @@ test.each([
   'import { expect } from "bun:test"; const observed = String(1); expect([observed]).toEqual(["1"]);',
   'import { expect } from "bun:test"; declare function update(input: { id: number }): void; const input = { id: 1 }; update(input); expect(input.id).toBe(2);',
 ])("accepts observations and mutation checks %s", async (source) => {
-  expect((await check(source, { path: "lib/lint-probe.test.ts" })).codes).toEqual([]);
+  expect((await check(source, { path: "src/lib/lint-probe.test.ts" })).codes).toEqual([]);
 });
 
 const rule = "custom-tests(no-fixture-assertion)";
 
 async function flagged(lines: string[]): Promise<number[]> {
-  const result = await check(lines.join("\n"), { path: "lib/lint-probe.test.ts" });
+  const result = await check(lines.join("\n"), { path: "src/lib/lint-probe.test.ts" });
   return result.findings
     .filter((finding) => finding.endsWith(` ${rule}`))
     .map((finding) => Number.parseInt(finding, 10));
@@ -92,9 +92,9 @@ test("only Bun's expect, by any local or quoted name, is an assertion", async ()
 test("the finding names the fix topic", async () => {
   const result = await check(
     'import { expect } from "bun:test"; const fixture = { id: 1 }; expect(fixture).toEqual({});',
-    { path: "lib/lint-probe.test.ts" },
+    { path: "src/lib/lint-probe.test.ts" },
   );
   expect(result.stdout).toContain(
-    "This assertion reads its own fixture. Call the code under test and assert on its result or effects. See lint-fixes/test-doubles.md.",
+    "This assertion reads its own fixture. Call the code under test and assert on its result or effects. See docs/agents/lint-fixes/test-doubles.md.",
   );
 });

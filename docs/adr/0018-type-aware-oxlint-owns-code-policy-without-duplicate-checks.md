@@ -43,7 +43,7 @@ Sibling parameters, nested callbacks, aliases, `asserts` predicates, broad targe
 A `typeof` comparison with `"undefined"` remains an existence probe, and type-position `typeof` remains legal.
 There is no file, directory, function-name, or disable-comment exception for these rules.
 The syntactic check does not prove that a predicate is true, so review and tests verify each validator.
-Each custom rule message ends with the skill topic that explains its fix, and a test checks that the topic names the rule.
+Each custom rule message ends with the documentation topic that explains its fix, and a test checks that the topic names the rule.
 
 There is no separate lint-version drift record.
 The exact pin, lock data, and PR review supply the upgrade decision without another value that must agree with them.
