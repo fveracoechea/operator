@@ -370,6 +370,27 @@ test.each(["review", "pr-feedback"])("%s cannot be plainly dispatched", async (k
     }),
   );
   const source = await register();
+  const next = await run(["next", "--source", source]);
+  expect(next).toMatchObject({
+    code: 0,
+    output: {
+      data: {
+        sources: [
+          {
+            actions: [
+              {
+                assignment: "implement",
+                action: "owner_attention",
+                reason: "kind_not_dispatchable",
+                next: { decider: "super-agent" },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  expect(JSON.stringify(next.output)).not.toContain("operator dispatch");
   const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
   expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
     code: 4,
