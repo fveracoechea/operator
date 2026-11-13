@@ -144,6 +144,8 @@ function requiredGuards(facts: PhaseFacts, event: PhaseEvent | undefined) {
   const completion = event === "submit" || event === "resume" ? "report" : "pr";
   // The completion lifecycle owns a wrong-command refusal, before phase-specific guards.
   if (facts.kind.completion !== completion) return [];
+  // An ended review owns its refusal; phase prerequisites cannot reopen its round/ready loop.
+  if (facts.reviewEnded && (event === "round" || event === "ready")) return [];
   const work =
     event === "submit" || event === "associate"
       ? facts.kind.workPhases.flatMap((phase) => (phase.guard === undefined ? [] : [phase.guard]))
@@ -193,7 +195,7 @@ export function decidePhase(facts: PhaseFacts, event?: PhaseEvent) {
         state: { [missing]: false },
       },
     };
-  if (event === "round" && facts.pr.rounds >= 2)
+  if (event === "round" && !facts.reviewEnded && facts.pr.rounds >= 2)
     return {
       kind: facts.kind.name,
       phase: current.phase,
