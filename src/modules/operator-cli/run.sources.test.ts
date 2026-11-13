@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
+import { expectWorkflowRefusal, workflowOutputSchema } from "./refusal-fixture.ts";
 import { z } from "zod";
 import { Database } from "bun:sqlite";
 
@@ -41,7 +42,12 @@ async function run(cwd: string, args: string[], env: Record<string, string> = {}
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
-  return { code, output: json ? (JSON.parse(stdout) as unknown) : stdout, stderr };
+  if (json) {
+    const output = workflowOutputSchema.parse(JSON.parse(stdout));
+    expectWorkflowRefusal(args, output, stderr);
+    return { code, output, stderr };
+  }
+  return { code, output: stdout, stderr };
 }
 
 /** A merged PR assignment always has its verified merge and a cleanup, as pr merge records. */

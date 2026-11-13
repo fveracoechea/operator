@@ -95,7 +95,11 @@ test("a take-over needs the person's instruction and makes the caller the superv
   );
   expect(await WorkSources.takeOver({ ...input, personInstructed: false })).toMatchObject({
     tag: "Err",
-    error: { reason: "person_instruction_required" },
+    error: {
+      reason: "person_instruction_required",
+      next: { decider: "person", question: "May this command run on your explicit instruction?" },
+      state: { personInstructed: false },
+    },
   });
   expect(taken).not.toHaveBeenCalled();
   expect(await WorkSources.takeOver({ ...input, personInstructed: true })).toMatchObject({

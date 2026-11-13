@@ -1,6 +1,7 @@
 import { isCodedError } from "../../lib/coded-error.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
-export type StateFailure = {
+export type StateFailure = ResultContext & {
   reason:
     | "state_missing"
     | "state_busy"

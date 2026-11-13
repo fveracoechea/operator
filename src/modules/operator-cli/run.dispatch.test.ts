@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
+import { expectWorkflowRefusal, workflowOutputSchema } from "./refusal-fixture.ts";
 import { writeOpenCodePlugin } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 
@@ -44,7 +45,9 @@ async function exec(args: string[], cwd = checkout) {
 
 async function run(args: string[], cwd = checkout) {
   const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
-  return { code: result.code, output: JSON.parse(result.stdout) as unknown, stderr: result.stderr };
+  const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
+  expectWorkflowRefusal(args, output, result.stderr);
+  return { code: result.code, output, stderr: result.stderr };
 }
 
 async function git(...args: string[]) {
@@ -763,7 +766,10 @@ test("dispatch outside a Herdr session and with a stale plugin refuses before an
     "--json",
   ]);
   expect(outside.code).toBe(3);
-  expect(JSON.parse(outside.stdout)).toMatchObject({ reason: "herdr_session_required" });
+  expect(JSON.parse(outside.stdout)).toMatchObject({
+    reason: "herdr_session_required",
+    next: { decider: "super-agent", question: "Which Herdr session should run this command?" },
+  });
   expect(await herdrCalls()).toEqual([]);
   const manifest = `${root}/state/operator/herdr-plugin/herdr-plugin.toml`;
   await Bun.write(manifest, `${await Bun.file(manifest).text()}# changed\n`);

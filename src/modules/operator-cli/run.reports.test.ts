@@ -224,7 +224,13 @@ test("report commands refuse PR work, undecided states, and missing panes withou
     ],
     device.main,
   );
-  expect(JSON.parse(outside.stdout)).toMatchObject({ reason: "worker_pane_required" });
+  expect(JSON.parse(outside.stdout)).toMatchObject({
+    reason: "worker_pane_required",
+    next: {
+      decider: "super-agent",
+      question: "Which dispatched worker pane must run this command?",
+    },
+  });
   for (const command of ["accept", "return"]) {
     const args = ["report", command, "--source", source, "--assignment", "investigate"];
     if (command === "return") args.push("--file", file);

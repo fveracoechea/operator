@@ -221,7 +221,11 @@ test("reset preserves merged and completed work, abandons the rest, and refuses 
   const effects = await externalEffects();
   expect(await device.run(["source", "reset", "--source", source])).toMatchObject({
     code: 3,
-    output: { reason: "person_instruction_required" },
+    output: {
+      reason: "person_instruction_required",
+      next: { decider: "person", question: "May this command run on your explicit instruction?" },
+      state: { personInstructed: false },
+    },
   });
   const refused = await device.run(["source", "reset", "--source", source, "--person-instructed"]);
   expect(refused).toMatchObject({ code: 3, output: { reason: "source_worker_running" } });

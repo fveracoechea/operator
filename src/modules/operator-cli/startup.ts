@@ -9,22 +9,58 @@ import { runOpenCodeHook } from "./opencode.ts";
 import { herdrEventWithoutState } from "./dispatch.ts";
 import { exitCodeOf, failure } from "./output.ts";
 import { projectArgs } from "./projects.ts";
+import { workflowArguments } from "./usage.ts";
+import { WorkSources } from "../work-sources/main.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
-function startupPaths(json: boolean) {
+function context(args: string[], reason: string, checked: ResultContext = {}) {
+  return workflowArguments(args)
+    ? WorkSources.refusal("workflow_startup", reason, checked)
+    : checked;
+}
+
+function startupPaths(args: string[], json: boolean) {
   const startup = fromThrowable(
     () => OperatorHome.resolve(Environment.read()),
     (cause, defect) => (cause instanceof z.ZodError ? cause.message : defect(cause)),
   )();
   if (startup.tag === "Ok") return startup.value;
-  if (startup.tag === "Err") failure("startup", "invalid_environment", startup.error, 2, json);
-  else failure("startup", "startup_defect", String(startup.cause), 1, json);
+  if (startup.tag === "Err")
+    failure(
+      "startup",
+      "invalid_environment",
+      startup.error,
+      2,
+      json,
+      context(args, "invalid_environment"),
+    );
+  else
+    failure(
+      "startup",
+      "startup_defect",
+      String(startup.cause),
+      1,
+      json,
+      context(args, "startup_defect"),
+    );
   return null;
 }
 
-function supportedRuntime(supportedBun: string, json: boolean) {
+function supportedRuntime(args: string[], supportedBun: string, json: boolean) {
   if (Bun.semver.satisfies(Bun.version, supportedBun)) return true;
+  if (workflowArguments(args)) {
+    failure(
+      "startup",
+      "unsupported_bun",
+      `Bun ${supportedBun} is required; running ${Bun.version}.`,
+      1,
+      json,
+      context(args, "unsupported_bun", { state: { required: supportedBun, actual: Bun.version } }),
+    );
+    return false;
+  }
   if (json)
     console.log(
       JSON.stringify({
@@ -54,17 +90,26 @@ function compatibleState(args: string[], paths: OperatorPaths, json: boolean) {
       compatible.error.detail,
       exitCodeOf(compatible.error.reason),
       json,
+      context(args, compatible.error.reason, compatible.error),
     );
-  else failure("startup", "startup_defect", String(compatible.cause), 1, json);
+  else
+    failure(
+      "startup",
+      "startup_defect",
+      String(compatible.cause),
+      1,
+      json,
+      context(args, "startup_defect"),
+    );
   return false;
 }
 
 /** Resolves the paths and release, or reports why no command may run, before any command. */
 export async function startup(args: string[], json: boolean) {
-  const paths = startupPaths(json);
+  const paths = startupPaths(args, json);
   if (paths === null) return null;
   const release = await OperatorRelease.manifest();
-  if (!supportedRuntime(release.supportedBun, json)) return null;
+  if (!supportedRuntime(args, release.supportedBun, json)) return null;
   if (await runClaudeHook(args, paths)) return null;
   if (await runOpenCodeHook(args, paths)) return null;
   if (await herdrEventWithoutState(args, paths, json)) return null;

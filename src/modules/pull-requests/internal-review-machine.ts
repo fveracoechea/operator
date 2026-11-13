@@ -1,5 +1,7 @@
 // The internal review of a PR assignment: reviewing with at most two rounds, then ready or
 // skipped. This decides the associate, handoff, round, ready, and skip events. ADR-0003, ADR-0020.
+import type { ResultContext } from "../../lib/cli-result.ts";
+
 type Review = { state: string; rounds: { head: string }[] };
 type Disposition = { round: number; finding: number; disposition: "applied" | "declined" };
 type PullRequest = { state: string; head: string; draft: boolean };
@@ -51,7 +53,7 @@ type SkipFacts = {
 };
 type Facts = AssociateFacts | HandoffFacts | RoundFacts | ReadyFacts | SkipFacts;
 
-type Refusal = { result: "refused"; reason: string; detail: string };
+type Refusal = ResultContext & { result: "refused"; reason: string; detail: string };
 type Decision =
   | Refusal
   | { result: "associate"; review: boolean }
@@ -63,8 +65,8 @@ type Rule<F> = { when: (facts: F) => boolean; refuse: (facts: F) => Refusal };
 
 const unchanged = "Nothing was changed.";
 
-function refused(reason: string, detail: string): Refusal {
-  return { result: "refused", reason, detail };
+function refused(reason: string, detail: string, context: ResultContext = {}): Refusal {
+  return { result: "refused", reason, detail, ...context };
 }
 
 // With internal review off, the association behaves as before ADR-0020.
@@ -254,6 +256,13 @@ const skipRules: Rule<SkipFacts>[] = [
       refused(
         "person_instruction_required",
         `Skip an internal review only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. ${unchanged}`,
+        {
+          next: {
+            decider: "person",
+            question: "May this command run on your explicit instruction?",
+          },
+          state: { personInstructed: false },
+        },
       ),
   },
   {
@@ -262,6 +271,7 @@ const skipRules: Rule<SkipFacts>[] = [
       refused(
         "internal_review_not_recorded",
         `The assignment has no internal review to skip. ${unchanged}`,
+        { next: { why: "No internal review exists to skip." }, state: { review: null } },
       ),
   },
   {
@@ -271,6 +281,10 @@ const skipRules: Rule<SkipFacts>[] = [
         "internal_review_ended",
         // Stryker disable next-line StringLiteral: equivalent: this rule matches only a recorded review, so its state is never null
         `The internal review already ended ${facts.review ?? ""}. ${unchanged}`,
+        {
+          next: { why: "The internal review has already ended. No skip remains." },
+          state: { review: facts.review },
+        },
       ),
   },
   {

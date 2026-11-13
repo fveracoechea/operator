@@ -100,3 +100,18 @@ test.each([true, false])("invalid arguments print the usage, json %p", (json) =>
   usageText(output.error.mock.calls[0]?.[0] as string | undefined);
   expect(process.exitCode).toBe(2);
 });
+
+test.each([true, false])("workflow syntax errors name help in two lines, json %p", (json) => {
+  const output = capture();
+  invalidArguments(json, ["dispatch"]);
+  expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: invalid_arguments: The command arguments are not supported.",
+    "next: operator --help",
+  ]);
+  if (json)
+    expect(JSON.parse(String(output.log.mock.calls[0]?.[0]))).toMatchObject({
+      reason: "invalid_arguments",
+      next: { command: "operator --help", why: "Read the supported command syntax." },
+    });
+  expect(process.exitCode).toBe(2);
+});

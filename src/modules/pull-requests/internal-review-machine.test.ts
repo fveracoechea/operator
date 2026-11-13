@@ -332,6 +332,16 @@ test("a skip refuses without the person's instruction, a running review, or an o
   }
   expect(decideInternalReview({ ...skip, personInstructed: false, review: null })).toMatchObject({
     reason: "person_instruction_required",
+    next: { decider: "person", question: "May this command run on your explicit instruction?" },
+    state: { personInstructed: false },
+  });
+  expect(decideInternalReview({ ...skip, review: null })).toMatchObject({
+    next: { why: "No internal review exists to skip." },
+    state: { review: null },
+  });
+  expect(decideInternalReview({ ...skip, review: "ready" })).toMatchObject({
+    next: { why: "The internal review has already ended. No skip remains." },
+    state: { review: "ready" },
   });
 });
 
