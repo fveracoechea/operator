@@ -583,6 +583,28 @@ test("review input refuses malformed markdown and JSON before recording or publi
   ).toMatchObject({ code: 0, output: { reason: "pr_ready" } });
 }, 180000);
 
+test("the README round and ready stdin examples complete an isolated internal review", async () => {
+  const source = await setup("opencode");
+  const { reviewer } = await reviewing(source);
+  const readme = await Bun.file(new URL("../../../README.md", import.meta.url)).text();
+  const roundExample =
+    /operator pr round --file - --json <<'EOF'\n[\s\S]*?\nEOF/.exec(readme)?.[0] ?? "";
+  const readyExample =
+    /operator pr ready --file - --json <<'EOF'\n[\s\S]*?\nEOF/.exec(readme)?.[0] ?? "";
+  expect(roundExample).toContain("## Findings");
+  expect(readyExample).toContain("## Overview");
+  const round = await exec(["bash", "-c", roundExample], reviewer);
+  expect(round.code, round.stderr).toBe(0);
+  expect(JSON.parse(round.stdout) as unknown).toMatchObject({
+    reason: "pr_round_recorded",
+    data: { round: 1, findings: 0 },
+  });
+  const ready = await exec(["bash", "-c", readyExample], reviewer);
+  expect(ready.code, ready.stderr).toBe(0);
+  expect(JSON.parse(ready.stdout) as unknown).toMatchObject({ reason: "pr_ready" });
+  expect((await githubState()).commented?.[0]?.body).toContain("The review found no issues.");
+}, 180000);
+
 test("a retry after a lost comment or ready answer posts one comment and records the end", async () => {
   const source = await setup("opencode");
   const { reviewer, head } = await reviewing(source);

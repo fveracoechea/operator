@@ -1,4 +1,4 @@
-import { Err, Ok, fromPromise } from "unthrown";
+import { Err, Ok, fromPromise, fromThrowable } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
@@ -87,7 +87,14 @@ function add(input: AddInput) {
   )
     .flatMap((text) => {
       const summary = text.trim();
-      if (/^[{[]/.test(summary)) return invalidInput();
+      const json = fromThrowable(
+        () => {
+          JSON.parse(summary);
+          return true;
+        },
+        (cause, defect) => (cause instanceof SyntaxError ? "plain_text" : defect(cause)),
+      )().getOr(false);
+      if (json) return invalidInput();
       const parsed = obligationSchema.safeParse({
         key: input.key,
         kind: input.kind,

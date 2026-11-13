@@ -174,7 +174,18 @@ test("obligation add reads plain text from stdin and refuses JSON without writin
     },
   });
   expect(await owed()).toEqual([]);
-  for (const stdin of ["  \n", "x".repeat(2001), "[]"]) {
+  for (const stdin of [
+    "  \n",
+    "x".repeat(2001),
+    "[]",
+    '"Hold it."',
+    "123",
+    "true",
+    "false",
+    "null",
+    '  ["hold"]\n',
+    '{"hold":true}',
+  ]) {
     expect(await device.run(add, { stdin })).toMatchObject({
       code: 2,
       output: { reason: "invalid_obligation_input" },
@@ -193,6 +204,60 @@ test("obligation add reads plain text from stdin and refuses JSON without writin
         summary: "Keep `main` on hold.\nUntil the person answers.",
         reference: null,
       },
+    },
+  });
+});
+
+test("obligation summaries can begin with brackets or braces when they are prose, not JSON documents", async () => {
+  const source = await device.register(plan);
+  for (const [index, summary] of [
+    "[Hold] Do not merge until approval.",
+    "{Reminder} Ask the person first.",
+  ].entries()) {
+    expect(
+      await device.run(
+        [
+          "obligation",
+          "add",
+          "--source",
+          source,
+          "--key",
+          `hold-${index}`,
+          "--kind",
+          "merge-hold",
+          "--file",
+          "-",
+        ],
+        { stdin: summary },
+      ),
+    ).toMatchObject({
+      code: 0,
+      output: { data: { key: `hold-${index}`, summary } },
+    });
+  }
+  expect(await owed()).toMatchObject([
+    { key: "hold-0", summary: "[Hold] Do not merge until approval." },
+    { key: "hold-1", summary: "{Reminder} Ask the person first." },
+  ]);
+});
+
+test("the README obligation stdin example runs on an isolated device", async () => {
+  const source = await device.register(plan);
+  const readme = await Bun.file(new URL("../../../README.md", import.meta.url)).text();
+  const example = /operator obligation add [^\n]+<<'EOF'\n[\s\S]*?\nEOF/.exec(readme)?.[0] ?? "";
+  expect(example).toContain("--key share-12 --kind pr-share --reference");
+  const added = await device.exec(
+    ["bash", "-c", example.replace("<source-id>", source)],
+    device.main,
+  );
+  expect(added.code, added.stderr).toBe(0);
+  expect(JSON.parse(added.stdout) as unknown).toMatchObject({
+    reason: "obligation_added",
+    data: {
+      key: "share-12",
+      kind: "pr-share",
+      summary: "Share PR #12 in the team review thread.",
+      reference: "https://github.com/example/one/pull/12",
     },
   });
 });
