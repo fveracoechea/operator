@@ -425,3 +425,27 @@ test("a filesystem failure while classifying is qualified", async () => {
     await WorktreePreparation.classifyIgnored({ paths, worktree, controller, ignored }),
   ).toEqual(Err({ reason: "preparation_io_failed", detail: "Error: git failed" }));
 });
+
+test("ignored environment inspection compares all env forms and protects links without preparation records", async () => {
+  await Bun.write(`${controller}/.git/info/exclude`, ".env*\n*.env*\nbuild/\ncache/\n");
+  for (const file of [".env", ".env.production", "app.env.local", "build/.env.test"]) {
+    await Bun.write(`${controller}/${file}`, "same\n", { createPath: true });
+    await Bun.write(`${worktree}/${file}`, "same\n", { createPath: true });
+  }
+  await Bun.write(`${worktree}/.env.production`, "changed\n");
+  await Bun.write(`${worktree}/build/.env.only-here`, "new\n");
+  await Bun.write(`${worktree}/cache/output.log`, "ignored output\n", { createPath: true });
+  await Bun.write(`${controller}/.env.link`, "same\n");
+  await symlink(`${controller}/.env.link`, `${worktree}/.env.link`);
+  expect(await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller })).toEqual(
+    Ok([".env.link", ".env.production", "apps/web/.env.test.local", "build/.env.only-here"]),
+  );
+  spyOn(ToolInvocation, "run").mockResolvedValue({
+    status: "unavailable",
+    tool: "git",
+    detail: "unavailable",
+  });
+  expect(await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller })).toEqual(
+    Ok(null),
+  );
+});

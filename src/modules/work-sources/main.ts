@@ -175,24 +175,62 @@ function read(input: Input & { sourceId?: string }) {
   return readProject(input).map(({ sources }) => sources);
 }
 
-function observedSources(input: Input & { sourceId?: string }, repository: string) {
+function resourceFacts(
+  launch: { state: string; resources: string; worktreePath: string | null } | undefined,
+  paneGone = false,
+) {
+  if (launch === undefined) return undefined;
+  const worktreeGone =
+    launch.worktreePath !== null &&
+    lstatSync(launch.worktreePath, { throwIfNoEntry: false }) === undefined;
+  return {
+    kind: launch.resources === "pane" ? ("pane" as const) : ("worktree" as const),
+    workerGone: paneGone || ["interrupted", "finished", "failed"].includes(launch.state),
+    paneGone,
+    worktreeGone,
+    retained: launch.worktreePath !== null && !worktreeGone,
+  };
+}
+
+function observedSources(
+  input: Input & { sourceId?: string },
+  repository: string,
+  selected?: Set<string> | null,
+) {
   return DeviceState.readSources(input.paths, repository, input.sourceId)
     .flatMap((rows) => decodeRows(rows).map((decoded) => ({ rows, decoded })))
     .toAsync()
-    .flatMap(({ rows, decoded }) =>
-      missingWorkers(
-        rows.flatMap((row) =>
-          row.launches.filter((launch) =>
-            row.assignments.some(
+    .flatMap(({ rows, decoded }) => {
+      const scoped = rows.filter((row) => selected?.has(row.source.id) ?? true);
+      const candidates = scoped.flatMap((row) => {
+        const active = new Set(
+          row.assignments
+            .filter(
               (assignment) =>
-                assignment.key === launch.assignment &&
                 !["ready", "merged", "completed", "abandoned"].includes(assignment.state),
-            ),
-          ),
-        ),
-        true,
-      ).flatMap((isMissing) => {
-        const changed = rows.filter((row) => row.launches.some(isMissing));
+            )
+            .map((assignment) => assignment.key),
+        );
+        const latest = new Map(
+          row.launches
+            .filter((launch) => active.has(launch.assignment))
+            .map((launch) => [launch.assignment, launch]),
+        );
+        return [...latest.values()];
+      });
+      return missingWorkers(candidates, true).flatMap((isMissing) => {
+        const changedIds = new Set(
+          candidates
+            .filter((launch) => {
+              const resources = resourceFacts(launch, isMissing(launch));
+              return (
+                isMissing(launch) ||
+                (resources?.kind === "worktree" && resources.workerGone && resources.worktreeGone)
+              );
+            })
+            .map((launch) => launch.sourceId),
+        );
+        const changed = scoped.filter((row) => changedIds.has(row.source.id));
         if (changed.length === 0) return Ok(decoded);
         return DeviceState.listProjects(input.paths)
           .flatMap(({ projects }) =>
@@ -219,11 +257,15 @@ function observedSources(input: Input & { sourceId?: string }, repository: strin
                         const launch = facts.launches.findLast(
                           (row) => row.assignment === assignment.key,
                         );
-                        if (launch === undefined || !isMissing(launch)) return false;
                         return (
-                          (launch.resources === "pane" && isMissing(launch)) ||
-                          (launch.worktreePath !== null &&
-                            lstatSync(launch.worktreePath, { throwIfNoEntry: false }) === undefined)
+                          decideAssignment({
+                            assignment: assignmentStateSchema.parse(assignment),
+                            dependencies: [],
+                            resources: resourceFacts(
+                              launch,
+                              launch !== undefined && isMissing(launch),
+                            ),
+                          }).action === "ended"
                         );
                       })
                       .map((assignment) => assignment.key);
@@ -234,8 +276,8 @@ function observedSources(input: Input & { sourceId?: string }, repository: strin
             ),
           )
           .flatMap(() => readSources(input, repository));
-      }),
-    );
+      });
+    });
 }
 
 // A start whose dispatching process stopped is abandoned, so it holds nothing.
@@ -341,7 +383,10 @@ export const WorkSources = {
           facts,
         ): Result<
           { abandon: string[]; interrupted: string[] },
-          ResultContext & { reason: "assignment_not_found" | "assignment_ended"; detail: string }
+          ResultContext & {
+            reason: "assignment_not_found" | "assignment_ended" | "state_corrupt";
+            detail: string;
+          }
         > => {
           const current = facts.assignments.find((row) => row.key === input.assignment);
           if (current === undefined)
@@ -353,6 +398,16 @@ export const WorkSources = {
                 why: "Read the registered assignments.",
               },
               state: { assignment: input.assignment },
+            });
+          if (!assignmentStateSchema.safeParse(current).success)
+            return Err({
+              reason: "state_corrupt",
+              detail: "The assignment state is invalid. It was not repaired. Nothing changed.",
+              state: { found: current.state },
+              next: {
+                decider: "person",
+                question: "How should the corrupt assignment record be recovered?",
+              },
             });
           if (["merged", "completed", "abandoned"].includes(current.state))
             return Err({
@@ -793,7 +848,7 @@ function scopeAnswer(
     fromSafePromise(
       Promise.all(
         list.map((project) =>
-          observedSources(input, project.repository).map((sources) =>
+          observedSources(input, project.repository, project.ids).map((sources) =>
             nextAnswer(
               input,
               sources.filter((source) => project.ids?.has(source.id) ?? true),
@@ -998,33 +1053,23 @@ function decideAssignmentRow(
   const report = source.reports.findLast((row) => row.assignment === assignment.key);
   const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
   const review = source.internalReviews.find((row) => row.assignment === assignment.key);
-  const retained =
-    current.state === "abandoned" &&
-    source.state === "open" &&
-    source.launches.some(
-      (row) =>
-        row.assignment === assignment.key &&
-        row.worktreePath !== null &&
-        lstatSync(row.worktreePath, { throwIfNoEntry: false }) !== undefined,
-    );
-  const decision = retained
-    ? { action: "person_decision" as const, reason: "cleanup_unlanded_work" as const, blockers: [] }
-    : decideAssignment({
-        assignment: current,
-        dependencies,
-        // A start whose dispatching process stopped can be replaced.
-        launch: launch?.abandoned === true ? "abandoned" : launch?.state,
-        ...pullRequestFacts(pullRequest),
-        activity: launch?.activity,
-        report:
-          report === undefined
-            ? undefined
-            : { decision: report.decision, cleanup: report.cleanupState },
-        cleanup: cleanupFact(cleanup),
-        handoff: handoffFact(review),
-        reviewing: review?.state === "reviewing",
-        capReached: maxRunning !== undefined && running >= maxRunning,
-      });
+  const decision = decideAssignment({
+    assignment: current,
+    dependencies,
+    // A start whose dispatching process stopped can be replaced.
+    launch: launch?.abandoned === true ? "abandoned" : launch?.state,
+    ...pullRequestFacts(pullRequest),
+    activity: launch?.activity,
+    report:
+      report === undefined
+        ? undefined
+        : { decision: report.decision, cleanup: report.cleanupState },
+    cleanup: cleanupFact(cleanup),
+    handoff: handoffFact(review),
+    reviewing: review?.state === "reviewing",
+    capReached: maxRunning !== undefined && running >= maxRunning,
+    resources: source.state === "open" ? resourceFacts(launch) : undefined,
+  });
   const cap =
     decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
   return described(

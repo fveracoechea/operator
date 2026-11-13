@@ -26,6 +26,8 @@ export function okValue<T>(result: { tag: string; value?: T }) {
  * A launch is recorded through device state, so no Herdr or host runs.
  */
 export async function questionDevice() {
+  spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "w1:t1", workspaceId: "w1" }));
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-question-module-")));
   const paths = OperatorHome.resolve(Environment.parse({ HOME: `${root}/home`, NODE_ENV: "test" }));
   const checkout = `${root}/checkout`;
@@ -46,6 +48,8 @@ export async function questionDevice() {
    * each doorbell instead of typing it.
    */
   function inPane(paneId: string | null) {
+    spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "w1:t1", workspaceId: "w1" }));
+    spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
     spyOn(Herdr, "prompt").mockImplementation((input) => {
       doorbells.push(input);
       return herdr.fails

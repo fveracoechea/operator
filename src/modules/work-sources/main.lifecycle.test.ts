@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 // Bun has no temporary-directory, folder creation, or recursive removal API.
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -572,4 +573,51 @@ test("a planned key with no stored row is kept by reset", async () => {
     tag: "Ok",
     value: { preserved: ["read"], abandoned: [] },
   });
+});
+
+test("abandon changes only its selected assignment and refuses missing or ended work without writes", async () => {
+  const sourceId = await registered(["read", "other"]);
+  const input = { paths, cwd: checkout, sourceId };
+  const database = Bun.file(paths.database);
+  const before = await database.bytes();
+  expect(await WorkSources.abandon({ ...input, assignment: "missing" })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "assignment_not_found",
+      state: { assignment: "missing" },
+      next: { command: `operator source show --source ${sourceId}` },
+    },
+  });
+  expect(await database.bytes()).toEqual(before);
+  expect(await WorkSources.abandon({ ...input, assignment: "read" })).toMatchObject({
+    tag: "Ok",
+    value: { assignment: "read", ended: ["read"], retained: [] },
+  });
+  expect((await WorkSources.show(input)).getOr(undefined)?.assignments).toMatchObject([
+    { key: "read", state: "abandoned" },
+    { key: "other", state: "ready" },
+  ]);
+  const ended = await database.bytes();
+  expect(await WorkSources.abandon({ ...input, assignment: "read" })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "assignment_ended",
+      state: { found: "abandoned" },
+      next: { why: "Nothing is left to abandon." },
+    },
+  });
+  expect(await database.bytes()).toEqual(ended);
+});
+
+test("abandon refuses corrupt persisted assignment state without repairing it", async () => {
+  const sourceId = await registered(["read"]);
+  {
+    using db = new Database(paths.database);
+    db.exec("UPDATE assignments SET state = 'corrupt'");
+  }
+  const before = await Bun.file(paths.database).bytes();
+  expect(
+    await WorkSources.abandon({ paths, cwd: checkout, sourceId, assignment: "read" }),
+  ).toMatchObject({ tag: "Err", error: { reason: "state_corrupt" } });
+  expect(await Bun.file(paths.database).bytes()).toEqual(before);
 });
