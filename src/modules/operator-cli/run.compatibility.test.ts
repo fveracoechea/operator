@@ -348,7 +348,7 @@ test("device-wide active assignments and migration-specific held records stop st
   expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
   db.exec("UPDATE sources SET state = 'finished'");
   expect((await run(["--version"], entry)).code).toBe(0);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
 });
 
 test("retention keeps three verified backups only after success and corruption names the latest valid copy", async () => {
