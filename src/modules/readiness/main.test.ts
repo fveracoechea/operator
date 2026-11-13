@@ -103,6 +103,14 @@ const launcherBlocker = {
   tool: "operator",
   detail: "Install operator.",
 } as const;
+const missingGuide = {
+  reason: "guide_skill_unresolved" as const,
+  host: "opencode" as const,
+  guide: "worker-agent/kinds/review.md",
+  skill: "code-review",
+  file: "/one/SKILL.md",
+  detail: "Missing required skill.",
+};
 
 describe("static blockers", () => {
   afterEach(() => {
@@ -117,8 +125,8 @@ describe("static blockers", () => {
     const owned = stub(OwnedSkills, "install").mockReturnValue(
       ErrAsync({ reason: "skill_copy_conflict" as const, detail: "Copies differ." }),
     );
-    const upstream = stub(UpstreamSkills, "check").mockReturnValue(
-      OkAsync(["/one/SKILL.md", "/two/SKILL.md"]),
+    const upstream = stub(UpstreamSkills, "checkGuides").mockReturnValue(
+      OkAsync({ blockers: [missingGuide], warnings: [] }),
     );
     const hook = stub(ClaudeHook, "install");
     const plugin = stub(OpenCodePlugin, "install").mockReturnValue(
@@ -126,6 +134,7 @@ describe("static blockers", () => {
     );
     expect(await Readiness.check(device)).toEqual(
       Ok({
+        warnings: [],
         blockers: [
           { reason: "executable_missing", tool: "gh", detail: "Install gh on PATH." },
           { reason: "executable_missing", tool: "herdr", detail: "Install herdr on PATH." },
@@ -136,11 +145,7 @@ describe("static blockers", () => {
             detail:
               "Copies differ. Run operator install --opencode, or update consumer-owned Nix links.",
           },
-          {
-            reason: "upstream_skills_missing",
-            detail:
-              "Run operator install --opencode. Missing required skill files: /one/SKILL.md, /two/SKILL.md",
-          },
+          missingGuide,
           { reason: "opencode_plugin_missing", detail: "No plugin." },
         ],
       }),
@@ -161,7 +166,7 @@ describe("static blockers", () => {
         data: { hosts: ["claude-code" as const], checkOnly: true },
       }),
     );
-    stub(UpstreamSkills, "check").mockReturnValue(OkAsync([]));
+    stub(UpstreamSkills, "checkGuides").mockReturnValue(OkAsync({ blockers: [], warnings: [] }));
     const group = { hooks: [{ type: "command", command: "operator claude hook" }] };
     await Bun.write(device.claudeSettings, JSON.stringify({ hooks: { PreToolUse: [group] } }), {
       createPath: true,
@@ -179,7 +184,7 @@ describe("static blockers", () => {
       device.claudeSettings,
       JSON.stringify({ hooks: { PreToolUse: [group], Stop: [group] } }),
     );
-    expect(await Readiness.check(device)).toEqual(Ok({ blockers: [] }));
+    expect(await Readiness.check(device)).toEqual(Ok({ blockers: [], warnings: [] }));
   });
 
   test("checks authentication when gh exists and names the Claude Code host", async () => {
@@ -190,7 +195,7 @@ describe("static blockers", () => {
     stub(OwnedSkills, "install").mockReturnValue(
       ErrAsync({ reason: "skills_io_failed" as const, detail: "Unreadable." }),
     );
-    stub(UpstreamSkills, "check").mockReturnValue(
+    stub(UpstreamSkills, "checkGuides").mockReturnValue(
       ErrAsync({ reason: "upstream_io_failed" as const, detail: "denied" }),
     );
     const hook = stub(ClaudeHook, "install").mockReturnValue(
@@ -199,6 +204,7 @@ describe("static blockers", () => {
     tools.mockResolvedValueOnce({ status: "completed", exitCode: 1, stdout: "", stderr: "" });
     expect(await Readiness.check(device)).toEqual(
       Ok({
+        warnings: [],
         blockers: [
           { reason: "launcher_io_failed", detail: "denied" },
           { reason: "github_auth_failed", detail: "Run gh auth login for github.com." },
@@ -222,15 +228,16 @@ describe("static blockers", () => {
     stub(OwnedSkills, "install").mockReturnValue(
       OkAsync({ reason: "skills_checked" as const, data: { hosts: [], checkOnly: true } }),
     );
-    stub(UpstreamSkills, "check").mockReturnValue(OkAsync([]));
+    stub(UpstreamSkills, "checkGuides").mockReturnValue(OkAsync({ blockers: [], warnings: [] }));
     stub(GlobalLauncher, "check").mockReturnValue(OkAsync([]));
     hook.mockReturnValue(OkAsync("already_installed" as const));
     expect(await Readiness.check(device)).toEqual(
       Ok({
+        warnings: [],
         blockers: [{ reason: "github_auth_failed", detail: "Run gh auth login for github.com." }],
       }),
     );
-    expect(await Readiness.check(device)).toEqual(Ok({ blockers: [] }));
+    expect(await Readiness.check(device)).toEqual(Ok({ blockers: [], warnings: [] }));
   });
 
   test("an unconfigured host is one blocker without skill checks", async () => {
@@ -239,6 +246,7 @@ describe("static blockers", () => {
     const owned = stub(OwnedSkills, "install");
     expect(await Readiness.check(device)).toEqual(
       Ok({
+        warnings: [],
         blockers: [
           { reason: "host_unconfigured", detail: "Set superAgent.host in device settings." },
         ],
@@ -258,7 +266,9 @@ describe("static blockers", () => {
     expect(tools).not.toHaveBeenCalled();
     launcher.mockReturnValue(OkAsync([]));
     const owned = stub(OwnedSkills, "install").mockReturnValue(defect());
-    const upstream = stub(UpstreamSkills, "check").mockReturnValue(OkAsync([]));
+    const upstream = stub(UpstreamSkills, "checkGuides").mockReturnValue(
+      OkAsync({ blockers: [], warnings: [] }),
+    );
     await expectInjectedDefect(device);
     expect(upstream).not.toHaveBeenCalled();
     owned.mockReturnValue(
@@ -271,7 +281,7 @@ describe("static blockers", () => {
     stub(OwnedSkills, "install").mockReturnValue(
       OkAsync({ reason: "skills_checked" as const, data: { hosts: [], checkOnly: true } }),
     );
-    stub(UpstreamSkills, "check").mockReturnValue(OkAsync([]));
+    stub(UpstreamSkills, "checkGuides").mockReturnValue(OkAsync({ blockers: [], warnings: [] }));
     stub(ClaudeHook, "install").mockReturnValue(defect());
     await expectInjectedDefect(claude);
   });
@@ -297,20 +307,20 @@ describe("static blockers", () => {
     stub(OwnedSkills, "install").mockReturnValue(
       OkAsync({ reason: "skills_checked" as const, data: { hosts: [], checkOnly: true } }),
     );
-    stub(UpstreamSkills, "check").mockReturnValue(OkAsync(["/claude/SKILL.md"]));
+    stub(UpstreamSkills, "checkGuides").mockReturnValue(
+      OkAsync({ blockers: [missingGuide], warnings: [] }),
+    );
     stub(ClaudeHook, "install").mockReturnValue(OkAsync("installed" as const));
     // An unfinished answer is refused even when it carries an exit code.
     const unfinished = { status: "no-answer" as const, detail: "interrupted", exitCode: 0 };
     tools.mockResolvedValueOnce(unfinished);
     expect(await Readiness.check(device)).toEqual(
       Ok({
+        warnings: [],
         blockers: [
           { reason: "executable_missing", tool: "herdr", detail: "Install herdr on PATH." },
           { reason: "github_auth_failed", detail: "Run gh auth login for github.com." },
-          {
-            reason: "upstream_skills_missing",
-            detail: "Run operator install --claude. Missing required skill files: /claude/SKILL.md",
-          },
+          missingGuide,
         ],
       }),
     );

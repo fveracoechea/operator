@@ -103,7 +103,7 @@ export function reviewerDoubles(project: Awaited<ReturnType<typeof reviewerProje
   // Git and the launch checks see an isolated Git configuration and a fixed Herdr session.
   const environment = { ...Environment.read(), ...gitEnv, HERDR_SOCKET_PATH: "fixture.sock" };
   spyOn(Environment, "read").mockReturnValue(environment);
-  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers: [] }));
+  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers: [], warnings: [] }));
   spyOn(DeviceSettings, "resolve").mockReturnValue(
     OkAsync({
       host: "claude-code" as const,

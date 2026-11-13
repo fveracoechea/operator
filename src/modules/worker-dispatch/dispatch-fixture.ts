@@ -142,7 +142,7 @@ export async function dispatchDevice(options: { deferPreparation?: boolean } = {
   });
   const sourceId = await prepareDevice();
 
-  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers: [] }));
+  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers: [], warnings: [] }));
   spyOn(DeviceSettings, "resolve").mockReturnValue(OkAsync(resolved));
   spyOn(Herdr, "plugins").mockReturnValue(OkAsync([{ id: "operator", root: paths.herdrPlugin }]));
   const herdr = {

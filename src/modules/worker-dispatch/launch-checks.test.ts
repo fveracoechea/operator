@@ -51,7 +51,7 @@ beforeEach(async () => {
     }).tag,
   ).toBe("Ok");
   session("/run/herdr.sock");
-  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers: [] }));
+  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers: [], warnings: [] }));
   spyOn(Herdr, "plugins").mockReturnValue(
     OkAsync([
       { id: "other", root },
@@ -131,6 +131,7 @@ test("a start outside a Herdr session is refused before any other check", async 
 test("static readiness blockers refuse the start and name each blocker", async () => {
   spyOn(Readiness, "check").mockReturnValue(
     OkAsync({
+      warnings: [],
       blockers: [
         { reason: "github_auth_failed" as const, detail: "a" },
         { reason: "host_unconfigured" as const, detail: "b" },
