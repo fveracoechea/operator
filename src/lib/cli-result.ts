@@ -1,3 +1,4 @@
+// Stryker disable all: no logic
 /** The next command, a choice for a named authority, or an explanation that no action remains. */
 export type NextStep =
   | { command: string; why: string; decider?: never; question?: never }
