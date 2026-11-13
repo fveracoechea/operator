@@ -224,7 +224,16 @@ test("invalid or unreadable submissions are refusals that change nothing", async
 
   for (const file of [broken, invalid]) {
     const result = await ReportAssignments.submit({ paths: device.paths, file });
-    expect(result).toMatchObject({ tag: "Err", error: { reason: "invalid_report_input" } });
+    expect(result).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "invalid_report_input",
+        next: {
+          command: "operator report submit --file <path|->",
+          why: "Correct the report headings and content, then submit it again.",
+        },
+      },
+    });
     expect(result.tag === "Err" && result.error.detail.endsWith(" Nothing changed.")).toBe(true);
   }
   const missing = await ReportAssignments.submit({

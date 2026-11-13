@@ -43,6 +43,7 @@ const messageExitCodes = {
 function dispatch(
   input: NonNullable<ReturnType<typeof messageArgs>> & { paths: Paths; cwd: string },
 ) {
+  // Stryker disable next-line StringLiteral: equivalent: the send parser requires --file, so its null fallback is unreachable
   if (input.command === "send") return WorkerQuestions.send({ ...input, file: input.file ?? "" });
   if (input.command === "ring") return WorkerQuestions.ring(input);
   if (input.command === "close") return WorkerQuestions.close(input);
