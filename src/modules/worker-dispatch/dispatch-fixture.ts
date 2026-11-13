@@ -38,7 +38,7 @@ function assignment(key: string, completion: "pr" | "report", dependencies: stri
     key,
     trackerKey: `github:example/one#${key.length}`,
     instructions: `Do the ${key} work.`,
-    completion,
+    kind: completion === "pr" ? "implementation" : "research",
     resources: "pane",
     dependencies,
   };

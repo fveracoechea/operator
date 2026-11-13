@@ -70,7 +70,7 @@ export async function questionDevice() {
           key,
           trackerKey: `github:example/one#${key.length}`,
           instructions: `Do ${key}.`,
-          completion: "report",
+          kind: "research",
           resources: "pane",
           dependencies: [],
         })),

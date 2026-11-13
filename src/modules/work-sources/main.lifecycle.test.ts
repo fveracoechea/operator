@@ -38,7 +38,7 @@ function assignment(key: string, completion: "pr" | "report" = "report") {
         key,
         trackerKey: `APP-${key}`,
         instructions: `Do ${key}.`,
-        completion,
+        kind: "implementation",
         resources: "worktree",
         branch: `task/${key}`,
         dependencies: [],
@@ -47,7 +47,7 @@ function assignment(key: string, completion: "pr" | "report" = "report") {
         key,
         trackerKey: `APP-${key}`,
         instructions: `Do ${key}.`,
-        completion,
+        kind: "research",
         resources: "pane",
         dependencies: [],
       };
@@ -96,6 +96,7 @@ function launch(sourceId: string, key: string, state: "running" | "failed") {
       profile: null,
       release: JSON.stringify({ version: "1.0.0" }),
       skills: "[]",
+      kind: null,
       herdrSocket: "/herdr.sock",
       workspaceId: "w1",
       tabId: "w1:t1",
@@ -135,7 +136,13 @@ test("registration stores a supplied plan with ready assignments and no tracker 
     state: "open",
     registeredAt: result.value.registeredAt,
     endedAt: null,
-    plan,
+    plan: {
+      ...plan,
+      assignments: [
+        { ...assignment("read"), completion: "report", profile: undefined },
+        { ...assignment("fix", "pr"), completion: "pr", profile: undefined },
+      ],
+    },
     assignments: [
       { key: "read", completion: "report", state: "ready" },
       { key: "fix", completion: "pr", state: "ready" },
@@ -248,7 +255,7 @@ test("reset refuses a running worker and corrupt records", async () => {
   for (const corrupt of [
     { plan: "{broken" },
     { plan: JSON.stringify({ trackerKey: "APP-1" }) },
-    { assignments: [{ sourceId, key: "read", completion: "report", state: "merged" }] },
+    { assignments: [{ sourceId, key: "read", kind: null, completion: "report", state: "merged" }] },
   ]) {
     spyOn(DeviceState, "resetSource").mockImplementation((p, target, decide) =>
       original(p, target, (facts) =>
@@ -332,9 +339,9 @@ test("reset includes assignments promoted after the registered plan in its order
       decide({
         ...facts,
         assignments: [
-          { sourceId, key: "build", completion: "pr", state: "ready" },
+          { sourceId, key: "build", kind: null, completion: "pr", state: "ready" },
           ...facts.assignments,
-          { sourceId, key: "done", completion: "report", state: "completed" },
+          { sourceId, key: "done", kind: null, completion: "report", state: "completed" },
         ],
       }),
     ),

@@ -133,7 +133,7 @@ test("startup upgrades matching older history before a state-free handler and ve
     output: { reason: "version_reported" },
   });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(20);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
   expect(db.query("SELECT * FROM sources").all()).toEqual([]);
   const copies = await backups();
   expect(copies).toHaveLength(1);
@@ -292,7 +292,7 @@ test("skipped releases apply each fixed migration in order with one pre-migratio
   );
   expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
   expect(db.query("SELECT * FROM later").all()).toEqual([{ repository: "example/one" }]);
   expect(await backups()).toHaveLength(1);
 });
@@ -327,7 +327,7 @@ test("device-wide active assignments and migration-specific held records stop st
   );
   using db = new Database(`${root}/state/operator/operator.sqlite`);
   db.exec(
-    "INSERT INTO projects VALUES ('example/two', '/isolated/other', '2026-10-26'); INSERT INTO sources VALUES ('other', 'example/two', 'tracker:2', 'open', '2026-10-26', NULL, '{}', NULL, NULL); INSERT INTO assignments VALUES ('other', 'worker', 'pr', 'running')",
+    "INSERT INTO projects VALUES ('example/two', '/isolated/other', '2026-10-26'); INSERT INTO sources VALUES ('other', 'example/two', 'tracker:2', 'open', '2026-10-26', NULL, '{}', NULL, NULL); INSERT INTO assignments (source_id, key, completion, state) VALUES ('other', 'worker', 'pr', 'running')",
   );
   const copies = await backups();
   for (const state of ["running", "pr-open", "reported"]) {
@@ -345,7 +345,7 @@ test("device-wide active assignments and migration-specific held records stop st
     output: { reason: "state_migration_blocked" },
   });
   expect((await backups()).toSorted()).toEqual(copies.toSorted());
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(20);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
   db.exec("UPDATE sources SET state = 'finished'");
   expect((await run(["--version"], entry)).code).toBe(0);
   expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
@@ -423,7 +423,7 @@ Database.prototype.serialize = function(...args) {
   );
   expect(await backups()).toHaveLength(1);
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(20);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
 });
 
 test("a pending migration has a definite writer timeout and never runs its handler", async () => {

@@ -505,7 +505,7 @@ test("an enabled assignment reviewer is queued at PR association and always comm
         key: "implement",
         trackerKey: "github:example/one#12",
         instructions: "Implement the change.",
-        completion: "pr",
+        kind: "implementation",
         resources: "worktree",
         branch: "task/12-implement",
         dependencies: [],

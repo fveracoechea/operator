@@ -8,6 +8,8 @@ import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
+import type { NextStep } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
 import { internalReview } from "./internal-review.ts";
@@ -29,10 +31,11 @@ import {
 } from "./observations.ts";
 
 type Request = { paths: Paths; cwd: string; sourceId: string; assignment: string };
+type WorkerKind = ReturnType<typeof WorkerKinds.resolve>;
 /** The internal review handoff starts the reviewer while next shows the handoff as a wait. */
 type DispatchRequest = Request & { handoff?: boolean };
 type Facts = AsyncOkOf<ReturnType<typeof assignmentFacts>>;
-type Settings = Facts & AsyncOkOf<ReturnType<typeof launchSettings>>;
+type Settings = Facts & AsyncOkOf<ReturnType<typeof launchSettings>> & { kind: WorkerKind | null };
 type Resources = AsyncOkOf<ReturnType<typeof chooseResources>>;
 type Placement = {
   workspaceId: string;
@@ -66,6 +69,21 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
       .bind("next", () => WorkSources.next(input))
       .bind("planned", ({ source, next }) => {
         const planned = source.planned.find((row) => row.key === input.assignment);
+        if (
+          planned !== undefined &&
+          planned.kind !== null &&
+          !WorkerKinds.resolve(planned.kind).dispatchable &&
+          !input.handoff
+        )
+          return Err({
+            reason: "kind_not_dispatchable",
+            detail: `The ${planned.kind} kind starts through a handoff or adoption, not plain dispatch.`,
+            next: {
+              decider: "super-agent",
+              question: "Which implementation assignment should hand this PR to its next worker?",
+            } satisfies NextStep,
+            state: { kind: planned.kind },
+          });
         const held = next.sources
           .flatMap((row) => row.waits)
           .some(
@@ -282,7 +300,7 @@ function place(input: {
 
 function writeBrief(
   request: Request,
-  settings: Facts & { launch: { profile: string | null } },
+  settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
   placement: { workingDirectory: string },
   branch: string | null,
 ) {
@@ -300,6 +318,7 @@ function writeBrief(
         assignment: settings.planned.key,
         trackerKey: settings.planned.trackerKey,
         completion: settings.planned.completion,
+        kind: settings.kind,
         profile: settings.launch.profile,
         instructions: settings.planned.instructions,
         intent: settings.planned.intent,
@@ -418,6 +437,7 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
       profile: launch.profile,
       release: JSON.stringify(settings.release),
       skills: JSON.stringify(settings.skills),
+      kind: settings.kind === null ? null : JSON.stringify(settings.kind),
       herdrSocket: settings.herdrSocket,
       workspaceId: null,
       tabId: null,
@@ -514,6 +534,7 @@ function launch(request: Request, settings: Settings, resources: Resources) {
             profile: settings.launch.profile,
             release: settings.release,
             skills: settings.skills,
+            kind: settings.kind,
             ...started.value,
           });
         return recordFailure(
@@ -530,10 +551,30 @@ function launch(request: Request, settings: Settings, resources: Resources) {
 function dispatch(request: DispatchRequest) {
   return assignmentFacts(request).flatMap((facts) =>
     launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
-      (settings) =>
-        chooseResources(request, facts).flatMap((resources) =>
-          launch(request, { ...facts, ...settings }, resources),
-        ),
+      (settings) => {
+        const definition =
+          facts.planned.kind === null
+            ? null
+            : WorkerKinds.resolve(
+                facts.review?.state === "reviewing" ? "review" : facts.planned.kind,
+              );
+        const kind =
+          definition === null
+            ? null
+            : {
+                ...definition,
+                resources: facts.planned.resources,
+                profile: settings.launch.profile,
+                nextKind:
+                  definition.name === "implementation" && !facts.internalReview
+                    ? ("pr-feedback" as const)
+                    : definition.nextKind,
+                guide: `${request.paths.skillHosts[settings.launch.host]}/${definition.guide}`,
+              };
+        return chooseResources(request, facts).flatMap((resources) =>
+          launch(request, { ...facts, ...settings, kind }, resources),
+        );
+      },
     ),
   );
 }
@@ -555,7 +596,7 @@ function refreshBrief(request: Request) {
       return notDispatchable(request.assignment);
     return writeBrief(
       request,
-      { ...facts, launch: { profile: launch.profile } },
+      { ...facts, launch: { profile: launch.profile }, kind: launch.kind },
       { workingDirectory: worktreePath },
       launch.branch,
     );

@@ -5,6 +5,10 @@ description: Use when a SuperAgent delegates work with an absolute brief referen
 
 # WorkerAgent
 
+When the brief names a kind guide, read it:
+[research](kinds/research.md), [answer](kinds/answer.md), [prototype](kinds/prototype.md),
+[implementation](kinds/implementation.md), [review](kinds/review.md), [PR feedback](kinds/pr-feedback.md).
+
 Read the supplied absolute brief before starting work.
 If no absolute brief is supplied, stop and say so in your own pane. Operator dispatch always supplies one.
 Do not infer a brief from a project-local Operator folder.

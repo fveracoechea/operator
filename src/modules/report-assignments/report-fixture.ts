@@ -25,7 +25,7 @@ function assignment(key: string, worktree: boolean) {
     key,
     trackerKey: `github:example/one#${key.length}`,
     instructions: `Do ${key}.`,
-    completion: "report",
+    kind: "research",
     dependencies: [],
     ...(worktree ? { resources: "worktree", branch: `report/${key}` } : { resources: "pane" }),
   };

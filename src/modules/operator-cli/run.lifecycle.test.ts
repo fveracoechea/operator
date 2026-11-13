@@ -13,7 +13,7 @@ test("activity reaches next at once, and an idle flip does not wake next --wait 
           key: "smoke",
           trackerKey: "github:example/one#332",
           instructions: "Run the lifecycle test.",
-          completion: "report",
+          kind: "research",
           resources: "pane",
           dependencies: [],
         },

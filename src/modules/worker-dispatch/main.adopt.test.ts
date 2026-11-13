@@ -59,7 +59,7 @@ async function adoptionDevice(
           key: "adopted",
           trackerKey: "github:example/one#41",
           instructions: "Carry PR #41 through its review.",
-          completion: "pr",
+          kind: "implementation",
           resources: "worktree",
           branch,
           adopt: 41,

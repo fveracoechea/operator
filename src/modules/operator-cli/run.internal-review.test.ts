@@ -81,7 +81,7 @@ const plan = {
       key: "implement",
       trackerKey: "github:example/one#12",
       instructions: "Implement the change.",
-      completion: "pr",
+      kind: "implementation",
       resources: "worktree",
       branch: "task/12-implement",
       dependencies: [],
@@ -90,7 +90,7 @@ const plan = {
       key: "second",
       trackerKey: "github:example/one#13",
       instructions: "Implement the second change.",
-      completion: "pr",
+      kind: "implementation",
       resources: "worktree",
       branch: "task/13-second",
       dependencies: [],
@@ -281,14 +281,22 @@ test("associate hands a clean draft to a fresh reviewer launch in the same workt
 
   const { launches } = await shown(source);
   expect(launches).toMatchObject([
-    { attempt: 1, state: "finished", paneId: worker.paneId },
-    { attempt: 2, state: "running", worktreePath: worker.worktreePath, internalReview: true },
+    { attempt: 1, state: "finished", paneId: worker.paneId, kind: { name: "implementation" } },
+    {
+      attempt: 2,
+      state: "running",
+      worktreePath: worker.worktreePath,
+      internalReview: true,
+      kind: { name: "review", readsNote: false },
+    },
   ]);
   expect(await calls("herdr-calls.jsonl", `"pane","close","${worker.paneId}"`)).toBe(1);
   expect(await calls("herdr-calls.jsonl", '"worktree","open"')).toBe(1);
   // The reviewer brief comes from the recorded review, with no draft-state wording.
   const brief = await Bun.file(worker.brief).text();
   expect(brief).toContain("You are the internal reviewer of PR #7.");
+  expect(brief).toContain("Worker kind: `review`");
+  expect(brief).toContain("/worker-agent/kinds/review.md`");
   expect(brief).toContain("No round is recorded yet.");
   expect(brief).not.toContain("If the PR is a draft");
   // The review runs as a wait, and the handoff left no failure in next.

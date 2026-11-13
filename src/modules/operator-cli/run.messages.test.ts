@@ -19,7 +19,7 @@ const plan = {
       key: "investigate",
       trackerKey: "github:example/one#21",
       instructions: "Read the module and report the gaps.",
-      completion: "report",
+      kind: "research",
       resources: "pane",
       dependencies: [],
     },
