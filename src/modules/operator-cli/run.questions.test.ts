@@ -37,13 +37,10 @@ test("a worker question stays in next actions until the SuperAgent answers it on
   const worker = await device.dispatch(source, "investigate");
   const selector = ["--source", source, "--assignment", "investigate"];
   const pane = { pane: worker.paneId };
-  const file = await device.writeJson("question.json", {
-    key: "scope",
-    question: "Is b.ts in scope?",
-  });
+  const file = await answerFile("Is b.ts in scope?");
 
   // The worker asks from its own pane, and nothing types into the SuperAgent's pane.
-  const asked = await device.run(["question", "ask", "--file", file], pane);
+  const asked = await device.run(["question", "ask", "--key", "scope", "--file", file], pane);
   expect(asked.code, asked.stderr).toBe(0);
   expect(asked.output).toMatchObject({
     operation: "question_ask",
@@ -127,13 +124,17 @@ test("a SuperAgent answer needs its authority, and only the asking pane withdraw
   const worker = await device.dispatch(source, "investigate");
   const selector = ["--source", source, "--assignment", "investigate", "--key", "name"];
   const pane = { pane: worker.paneId };
-  const file = await device.writeJson("question.json", { key: "name", question: "Which name?" });
-  expect(await device.run(["question", "ask", "--file", file])).toMatchObject({
+  const file = await answerFile("Which name?");
+  expect(await device.run(["question", "ask", "--key", "name", "--file", file])).toMatchObject({
     code: 4,
     output: { reason: "worker_launch_not_found" },
   });
-  expect(await device.run(["question", "ask", "--file", file], pane)).toMatchObject({ code: 0 });
-  expect(await device.run(["question", "ask", "--file", file], pane)).toMatchObject({
+  expect(
+    await device.run(["question", "ask", "--key", "name", "--file", file], pane),
+  ).toMatchObject({ code: 0 });
+  expect(
+    await device.run(["question", "ask", "--key", "name", "--file", file], pane),
+  ).toMatchObject({
     code: 3,
     output: { reason: "question_key_taken" },
   });

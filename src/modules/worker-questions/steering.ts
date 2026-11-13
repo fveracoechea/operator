@@ -1,5 +1,6 @@
 import { Err, Ok, fromPromise } from "unthrown";
 import { z } from "zod";
+import { readTextInput } from "../../lib/read-text-input.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { doorbell, messageSchema, replySchema } from "./content.ts";
@@ -127,14 +128,18 @@ async function deliver(input: Omit<Selector, "key">, sent: { key: string; messag
   }));
 }
 
-function send(input: Omit<Selector, "key"> & { file: string }) {
+function send(input: Selector & { file: string }) {
   return fromPromise(
-    async () => deliver(input, messageSchema.parse(JSON.parse(await Bun.file(input.file).text()))),
+    async () =>
+      deliver(
+        input,
+        messageSchema.parse({ key: input.key, message: await readTextInput(input.file) }),
+      ),
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect, "message") : defect(cause)),
   ).flatMap((result) => result);
 }
 
-/** Steer from a key and text, sent as flags or composed by another module. ADR-0023. */
+/** Steer from a key and text composed by another module. ADR-0023. */
 function steer(input: Omit<Selector, "key"> & { key: string; message: string }) {
   return fromPromise(
     async () => deliver(input, messageSchema.parse({ key: input.key, message: input.message })),
@@ -197,8 +202,7 @@ function acknowledgeFromPane(input: { paths: Paths; key: string; file: string | 
     async () => {
       const target = workerPane();
       if (target.tag !== "Ok") return stop(target);
-      const reply =
-        input.file === null ? null : replySchema.parse(await Bun.file(input.file).text());
+      const reply = input.file === null ? null : replySchema.parse(await readTextInput(input.file));
       return acknowledge(input.paths, target.value, input.key, reply).map((data) => ({
         reason: reply === null ? "message_acknowledged" : "message_replied",
         data,

@@ -8,6 +8,7 @@ import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 import { fixtureCommand, writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
+import { reportInput } from "./report-input-fixture.ts";
 
 const command = fixtureCommand();
 const gitEnv = {
@@ -60,8 +61,14 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     });
   }
 
-  async function exec(args: string[], cwd: string, env = environment()) {
-    const child = Bun.spawn(args, { cwd, env, stdout: "pipe", stderr: "pipe" });
+  async function exec(args: string[], cwd: string, env = environment(), stdin?: string) {
+    const child = Bun.spawn(args, {
+      cwd,
+      env,
+      stdin: stdin === undefined ? null : new Blob([stdin]),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const [code, stdout, stderr] = await Promise.all([
       child.exited,
       new Response(child.stdout).text(),
@@ -138,12 +145,13 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   /** Run the public CLI as the SuperAgent, or in a worker pane when `pane` is set. */
   async function run(
     args: string[],
-    options: { cwd?: string; pane?: string; socket?: string } = {},
+    options: { cwd?: string; pane?: string; socket?: string; stdin?: string } = {},
   ) {
     const result = await exec(
       [...command.argv, ...args, "--json"],
       options.cwd ?? main,
       environment(options.pane, options.socket),
+      options.stdin,
     );
     return {
       code: result.code,
@@ -181,6 +189,12 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   async function writeJson(name: string, value: Record<string, unknown>) {
     const file = `${root}/drafts/${name}`;
     await Bun.write(file, JSON.stringify(value), { createPath: true });
+    return file;
+  }
+
+  async function writeText(name: string, text: string) {
+    const file = `${root}/drafts/${name}`;
+    await Bun.write(file, text, { createPath: true });
     return file;
   }
 
@@ -245,6 +259,9 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     register,
     dispatch,
     writeJson,
+    writeText,
+    writeReport: (name: string, value: Parameters<typeof reportInput>[0]) =>
+      writeText(name, reportInput(value)),
     herdrCalls,
     setHerdr,
     next,

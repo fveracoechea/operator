@@ -10,9 +10,15 @@ A SuperAgent decision or accepted report is not a human answer.
 Ask each question on the record, from the pane that Operator dispatched for you.
 Never type a question into the SuperAgent's pane.
 
-1. Write the question as JSON outside the checkout, for example `{"key": "scope", "question": "Is b.ts in scope?"}`.
+1. Write the question as plain text outside the checkout, for example `Is b.ts in scope?`.
    The key has lowercase letters, digits, and single hyphens. It names one question for the whole assignment, so use a new key for a new question.
-2. Run `operator question ask --file <question.json> --json`.
+2. Run `operator question ask --key scope --file <question.md> --json`, or use stdin:
+
+   ```sh
+   operator question ask --key scope --file - --json <<'QUESTION'
+   Is `b.ts` in scope?
+   QUESTION
+   ```
 3. Run `operator question wait --key <key> --json`. Set your shell command timeout above the wait timeout, which is 300 seconds by default and `--timeout <seconds>` otherwise.
 4. Handle the result.
 

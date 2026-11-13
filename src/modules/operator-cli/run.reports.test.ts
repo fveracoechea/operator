@@ -100,7 +100,7 @@ test.each([
     const worker = await device.dispatch(source, "investigate");
     const launched = await device.run(["source", "show", "--source", source]);
     expect(launched.output).toMatchObject({ data: { launches: [{ host }] } });
-    const file = await device.writeJson("report.json", report);
+    const file = await device.writeReport("report.md", report);
 
     // Host activity is never a submission. A worker that stops with no report needs attention.
     await device.event("pane.agent_status_changed", {
@@ -203,7 +203,7 @@ test.each([
 test("report commands refuse PR work, undecided states, and missing panes without changes", async () => {
   const source = await device.register(plan());
   const pr = await device.dispatch(source, "implement");
-  const file = await device.writeJson("report.json", report);
+  const file = await device.writeReport("report.md", report);
   const database = `${device.root}/state/operator/operator.sqlite`;
   const before = await Bun.file(database).arrayBuffer();
   expect(await device.run(["report", "submit", "--file", file], { pane: pr.paneId })).toMatchObject(
@@ -251,7 +251,7 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   const source = await device.register(plan("careful"));
   const worker = await device.dispatch(source, "investigate");
   await Bun.write(`${device.root}/drafts/notes.md`, "first notes\n", { createPath: true });
-  const first = await device.writeJson("first.json", {
+  const first = await device.writeReport("first.md", {
     ...report,
     files: [`${device.root}/drafts/notes.md`],
   });
@@ -297,7 +297,7 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(await device.next("investigate")).toMatchObject([{ reason: "assignment_active" }]);
 
   // The second report is submitted, then the pane ends before the SuperAgent decides.
-  const second = await device.writeJson("second.json", { ...report, conclusion: "b.ts is fine." });
+  const second = await device.writeReport("second.md", { ...report, conclusion: "b.ts is fine." });
   expect(
     (await device.run(["report", "submit", "--file", second], { pane: worker.paneId })).code,
   ).toBe(0);
@@ -364,7 +364,7 @@ test("acceptance keeps a worktree with unlanded work for the person, and failed 
       dependencies: [],
     })),
   });
-  const file = await device.writeJson("report.json", report);
+  const file = await device.writeReport("report.md", report);
   function git(cwd: string, ...args: string[]) {
     return device.exec(["git", ...args], cwd);
   }
@@ -487,7 +487,7 @@ test("a consumer brief keeps accepted content after the producer project is remo
     assignments: [plan().assignments[0]],
   });
   const worker = await device.dispatch(producer, "investigate");
-  const file = await device.writeJson("report.json", report);
+  const file = await device.writeReport("report.md", report);
   await device.run(["report", "submit", "--file", file], { pane: worker.paneId });
   const accepted = z
     .object({ data: z.object({ conclusion: z.string(), reference: z.string(), file: z.string() }) })
@@ -546,7 +546,7 @@ test("a refused concurrent submission or return leaves the recorded files unchan
   const source = await device.register(plan());
   const worker = await device.dispatch(source, "investigate");
   const files = await Promise.all(
-    ["a", "b"].map((name) => device.writeJson(`${name}.json`, { ...report, conclusion: name })),
+    ["a", "b"].map((name) => device.writeReport(`${name}.md`, { ...report, conclusion: name })),
   );
   const submitted = await Promise.all(
     files.map((file) => device.run(["report", "submit", "--file", file], { pane: worker.paneId })),
@@ -605,7 +605,7 @@ test("a refused concurrent submission or return leaves the recorded files unchan
 test("unresolved points of an accepted report reach review, next, inspection, and the dependent brief", async () => {
   const source = await device.register(plan());
   const worker = await device.dispatch(source, "investigate");
-  const file = await device.writeJson("report.json", report);
+  const file = await device.writeReport("report.md", report);
   expect(
     (await device.run(["report", "submit", "--file", file], { pane: worker.paneId })).code,
   ).toBe(0);

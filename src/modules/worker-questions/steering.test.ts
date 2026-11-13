@@ -24,12 +24,9 @@ function selector(sourceId: string, key = "focus") {
 async function sent(key = "focus") {
   const sourceId = await device.source();
   const launchId = device.launch(sourceId);
-  const file = await device.write(
-    `${key}.json`,
-    JSON.stringify({ key, message: "  Focus on a.ts first.\n" }),
-  );
+  const file = await device.write(`${key}.json`, "  Focus on a.ts first.\n");
   device.inPane(superPane);
-  const result = await WorkerQuestions.send({ ...selector(sourceId), file });
+  const result = await WorkerQuestions.send({ ...selector(sourceId, key), file });
   mock.restore();
   return { sourceId, launchId, result };
 }
@@ -130,7 +127,7 @@ test("a reply shows in next actions until the SuperAgent closes the message", as
 test("a failed doorbell keeps the message pending as worker attention until a ring succeeds", async () => {
   const sourceId = await device.source();
   device.launch(sourceId);
-  const file = await device.write("m.json", JSON.stringify({ key: "focus", message: "Stop." }));
+  const file = await device.write("m.md", "Stop.");
   device.herdr.fails = true;
   device.inPane(superPane);
   expect(okValue(await WorkerQuestions.send({ ...selector(sourceId), file }))).toMatchObject({
@@ -165,7 +162,7 @@ test("a failed doorbell keeps the message pending as worker attention until a ri
 test("a doorbell records nothing on a message that ended while it rang", async () => {
   const sourceId = await device.source();
   device.launch(sourceId);
-  const file = await device.write("m.json", JSON.stringify({ key: "focus", message: "Stop." }));
+  const file = await device.write("m.md", "Stop.");
   device.inPane(superPane);
   // The SuperAgent closes the message while Herdr types its doorbell, and the doorbell fails.
   spyOn(Herdr, "prompt").mockImplementation(() =>
@@ -182,11 +179,12 @@ test("a doorbell records nothing on a message that ended while it rang", async (
 test("an answer reaches the worker as a steering message, and the wait acknowledges it", async () => {
   const sourceId = await device.source();
   device.launch(sourceId);
-  const question = await device.write(
-    "q.json",
-    JSON.stringify({ key: "scope", question: "Is b.ts in scope?" }),
+  const question = await device.write("q.json", "Is b.ts in scope?");
+  okValue(
+    await fromWorker(() =>
+      WorkerQuestions.ask({ paths: device.paths, key: "scope", file: question }),
+    ),
   );
-  okValue(await fromWorker(() => WorkerQuestions.ask({ paths: device.paths, file: question })));
   mock.restore();
   const answer = await device.write("answer.md", "No.");
   device.inPane(superPane);
@@ -225,7 +223,7 @@ test("an answer reaches the worker as a steering message, and the wait acknowled
 
 test("only the SuperAgent's pane steers, and only the worker's pane reads and acknowledges", async () => {
   const sourceId = await device.source();
-  const file = await device.write("m.json", JSON.stringify({ key: "focus", message: "Stop." }));
+  const file = await device.write("m.md", "Stop.");
   device.inPane(superPane);
   expect(await WorkerQuestions.send({ ...selector(sourceId), file })).toMatchObject({
     error: {
@@ -269,7 +267,7 @@ test("an invalid draft or a missing file refuses and records nothing", async () 
   const sourceId = await device.source();
   device.launch(sourceId);
   device.inPane(superPane);
-  for (const content of ["{", JSON.stringify({ key: "answer:x", message: "Stop." })]) {
+  for (const content of ["", " "]) {
     const file = await device.write("bad.json", content);
     expect(await WorkerQuestions.send({ ...selector(sourceId), file })).toMatchObject({
       error: { reason: "invalid_message_input" },
@@ -278,7 +276,7 @@ test("an invalid draft or a missing file refuses and records nothing", async () 
   expect(
     await WorkerQuestions.send({ ...selector(sourceId), file: `${device.root}/missing.json` }),
   ).toMatchObject({ error: { reason: "message_io_failed" } });
-  const file = await device.write("m.json", JSON.stringify({ key: "focus", message: "Stop." }));
+  const file = await device.write("m.md", "Stop.");
   okValue(await WorkerQuestions.send({ ...selector(sourceId), file }));
   mock.restore();
   device.inPane(workerPane);

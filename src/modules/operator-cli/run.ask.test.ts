@@ -68,7 +68,7 @@ test("ask registers a one-assignment report source and dispatches its worker in 
   expect(await device.next(data.assignment)).toMatchObject([{ reason: "assignment_active" }]);
 
   // Acceptance works as for any report assignment.
-  const report = await device.writeJson("report.json", {
+  const report = await device.writeReport("report.md", {
     conclusion: "The unscoped wait returns every ended source.",
     evidence: ["modules/work-sources/coordination.ts:10 keeps ended sources."],
     unresolved: [],

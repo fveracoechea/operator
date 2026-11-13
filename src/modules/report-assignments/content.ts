@@ -30,6 +30,75 @@ export const submissionSchema = z
   });
 export type Submission = z.infer<typeof submissionSchema>;
 
+const headings = new Set([
+  "Conclusion",
+  "Evidence",
+  "Unresolved points",
+  "Supporting files",
+  "Human answers",
+  "SuperAgent decisions",
+]);
+
+/** Read the same sections that the durable report renders. No JSON envelope is accepted. */
+const markdownSubmission = z
+  .string()
+  .transform((text, context): z.input<typeof submissionSchema> => {
+    function invalid(message: string) {
+      context.addIssue({ code: "custom", message });
+    }
+    const sections = new Map<string, string[]>();
+    let current: string[] | undefined;
+    for (const line of text.replaceAll("\r\n", "\n").split("\n")) {
+      const heading = /^## (.+)$/.exec(line)?.[1];
+      if (heading !== undefined) {
+        if (!headings.has(heading)) invalid(`Unknown report heading: ${heading}.`);
+        if (sections.has(heading)) invalid(`Duplicate report heading: ${heading}.`);
+        current = [];
+        sections.set(heading, current);
+      } else if (current !== undefined) current.push(line);
+      else if (line.trim() !== "" && !line.startsWith("# "))
+        invalid("Start the report with ## Conclusion.");
+    }
+    for (const heading of headings)
+      if (!sections.has(heading)) invalid(`Missing report heading: ${heading}.`);
+    function section(heading: string) {
+      return sections.get(heading)?.join("\n").trim() ?? "";
+    }
+    function bullets(heading: string) {
+      const items: string[] = [];
+      for (const line of section(heading).split("\n")) {
+        if (line.trim() === "" || line === "A SuperAgent decision is not a human answer.") continue;
+        if (!line.startsWith("- ")) invalid(`Use - bullets in ## ${heading}.`);
+        items.push(line.slice(2).trim());
+      }
+      return items.length === 1 && items[0] === "None." ? [] : items;
+    }
+    function decisions(heading: string, by: "person" | "super-agent") {
+      return bullets(heading).map((item) => {
+        const separator = item.indexOf(" Answer: ");
+        if (separator < 0) invalid(`Use <question> Answer: <answer> in ## ${heading}.`);
+        return { question: item.slice(0, separator), answer: item.slice(separator + 9), by };
+      });
+    }
+    return {
+      conclusion: section("Conclusion"),
+      evidence: bullets("Evidence"),
+      unresolved: bullets("Unresolved points"),
+      files: bullets("Supporting files").map((file) =>
+        file.startsWith("`") && file.endsWith("`") ? file.slice(1, -1) : file,
+      ),
+      decisions: [
+        ...decisions("Human answers", "person"),
+        ...decisions("SuperAgent decisions", "super-agent"),
+      ],
+    };
+  })
+  .pipe(submissionSchema);
+
+export function parseSubmission(text: string): Submission {
+  return markdownSubmission.parse(text);
+}
+
 function list(items: string[]) {
   return items.length === 0 ? "- None." : items.map((item) => `- ${item}`).join("\n");
 }
