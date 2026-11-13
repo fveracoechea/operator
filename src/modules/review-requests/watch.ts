@@ -19,6 +19,7 @@ import {
 import { cleanupResult, cleanupReviewer, failureOf, syncReviewer } from "./reviewer.ts";
 import { decideWatch, type WatchDecision } from "./rounds.ts";
 import { slackActions, type SlackView } from "./slack.ts";
+import type { NextStep } from "../../lib/cli-result.ts";
 
 const pollMs = 30000;
 type Listed = Snapshot;
@@ -43,14 +44,24 @@ export function rows(paths: Paths, listed: Snapshot[]) {
       wait_reviews: "operator review wait",
       clean_reviewer: `operator review cleanup ${request.url}`,
     };
+    const next: NextStep =
+      step.kind === "action"
+        ? { command: commands[step.action] ?? "operator review next", why: step.reason }
+        : step.kind === "attention"
+          ? {
+              decider: step.reason === "reviewer_work_kept" ? "person" : "super-agent",
+              question: `What intervention does this review need for ${step.reason}?`,
+            }
+          : { command: "operator review wait", why: step.reason };
     return [
       {
         ...summary(paths, row),
+        next,
         ...(step.kind === "action"
-          ? { action: step.action, reason: step.reason, command: commands[step.action] }
+          ? { action: step.action, reason: step.reason, command: next.command }
           : step.kind === "attention"
             ? { attention: step.reason }
-            : { wait: step.reason }),
+            : { wait: step.reason, command: next.command }),
       },
     ];
   });

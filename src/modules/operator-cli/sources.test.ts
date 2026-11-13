@@ -235,6 +235,7 @@ test("passes a wait to the coordination wait, which names its own result", async
     reason: "next_wait_timed_out",
     blockers: [],
     data: { sources: [] },
+    next: { why: "No next actions to report." },
   });
   called.wait.mockReturnValue(ErrAsync({ reason: "state_busy", detail: "busy" }) as never);
   await runSources(["next", "--wait", "--all"], paths, true);

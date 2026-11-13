@@ -16,8 +16,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function run(cwd: string, args: string[], env: Record<string, string> = {}) {
-  const child = Bun.spawn([process.execPath, cli, ...args, "--json"], {
+async function run(cwd: string, args: string[], env: Record<string, string> = {}, json = true) {
+  const child = Bun.spawn([process.execPath, cli, ...args, ...(json ? ["--json"] : [])], {
     cwd,
     env: Environment.child({
       HOME: `${root}/home`,
@@ -41,7 +41,7 @@ async function run(cwd: string, args: string[], env: Record<string, string> = {}
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
-  return { code, output: JSON.parse(stdout) as unknown, stderr };
+  return { code, output: json ? (JSON.parse(stdout) as unknown) : stdout, stderr };
 }
 
 /** A merged PR assignment always has its verified merge and a cleanup, as pr merge records. */
@@ -109,6 +109,106 @@ const plan = {
     },
   ],
 };
+
+test("every next-action row carries next", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  const registered = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+  const id = z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
+  expect(await run(cwd, ["next"])).toMatchObject({
+    code: 0,
+    output: {
+      next: { why: "Follow the next step on the applicable row." },
+      data: {
+        sources: [
+          {
+            actions: [
+              {
+                assignment: "investigate",
+                command: `operator dispatch --source ${id} --assignment investigate`,
+                next: {
+                  command: `operator dispatch --source ${id} --assignment investigate`,
+                  why: "The assignment is ready to start.",
+                },
+              },
+            ],
+            waits: [
+              {
+                assignment: "implement",
+                command: `operator next --source ${id} --wait`,
+                next: {
+                  command: `operator next --source ${id} --wait`,
+                  why: "Wait for the recorded blockers to change.",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+});
+
+test("every refusal carries reason, next, and checked state in at most three text lines", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  await Bun.write(`${root}/plan.json`, JSON.stringify({ ...plan, assignments: [] }));
+  const registered = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+  const id = z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const args = ["source", "reset", "--source", id, "--person-instructed"];
+  expect(await run(cwd, args)).toMatchObject({
+    code: 3,
+    output: {
+      reason: "source_ended",
+      next: { why: "Nothing is left to reset." },
+      state: { found: "finished", expected: "open" },
+    },
+  });
+  expect(await run(cwd, args, {}, false)).toEqual({
+    code: 3,
+    output: "",
+    stderr:
+      'operator: source_ended: The source is already finished. Nothing changed.\nnext: Nothing is left to reset.\nstate: found="finished" expected="open"\n',
+  });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+});
+
+test("ended-source and prune rows name their next steps", async () => {
+  const cwd = await repository();
+  await Bun.write(`${root}/plan.json`, JSON.stringify({ ...plan, assignments: [] }));
+  const registered = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+  const id = z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
+  {
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    db.exec("UPDATE sources SET ended_at = '2020-01-01T00:00:00.000Z'");
+  }
+  expect(await run(cwd, ["next", "--all"])).toMatchObject({
+    code: 0,
+    output: {
+      data: {
+        sources: [
+          {
+            actions: [
+              { action: "source_ended", next: { why: "No assignment work remains." } },
+              {
+                action: "prune_source",
+                command: `operator source prune --source ${id}`,
+                next: {
+                  command: `operator source prune --source ${id}`,
+                  why: "The source retention period has elapsed.",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+});
 
 test("reset recovers a confirmed missing worker but refuses ambiguous or live observations", async () => {
   const cwd = await repository();
