@@ -9,7 +9,7 @@ type Worker = {
   paneId: string | null;
   herdrSocket: string | null;
 };
-type Identity = { id: string; name: string; paneId: string; herdrSocket: string };
+type Identity = { id: string; name: string; paneId: string; herdrSocket: string; state: string };
 type Failure = AsyncErrOf<ReturnType<typeof Herdr.pane>>;
 
 async function observe(workers: Identity[], names: Set<string>) {
@@ -26,12 +26,13 @@ async function observe(workers: Identity[], names: Set<string>) {
 /** Missing panes count only in their recorded Herdr session, and a moved named agent stays live. */
 export function missingWorkers(
   workers: Worker[],
+  includeEnded = false,
 ): AsyncResult<(worker: Worker) => boolean, Failure> {
   const socket = Environment.read().HERDR_SOCKET_PATH;
   const candidates: Identity[] = [];
   for (const worker of workers) {
     if (
-      worker.state !== "running" ||
+      (worker.state !== "running" && (!includeEnded || worker.state === "starting")) ||
       !worker.name ||
       !worker.paneId ||
       !worker.herdrSocket ||
@@ -43,6 +44,7 @@ export function missingWorkers(
       name: worker.name,
       paneId: worker.paneId,
       herdrSocket: worker.herdrSocket,
+      state: worker.state,
     });
   }
   const observed =
@@ -59,8 +61,8 @@ export function missingWorkers(
     return (worker: Worker) => {
       const previous = byId.get(worker.id);
       return (
-        worker.state === "running" &&
         previous !== undefined &&
+        previous.state === worker.state &&
         previous.name === worker.name &&
         previous.paneId === worker.paneId &&
         previous.herdrSocket === worker.herdrSocket
