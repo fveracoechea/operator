@@ -192,13 +192,14 @@ test("ended-source and prune rows name their next steps", async () => {
       data: {
         sources: [
           {
+            id,
             actions: [
               { action: "source_ended", next: { why: "No assignment work remains." } },
               {
                 action: "prune_source",
-                command: `operator source prune --source ${id}`,
+                command: "operator source prune",
                 next: {
-                  command: `operator source prune --source ${id}`,
+                  command: "operator source prune",
                   why: "The source retention period has elapsed.",
                 },
               },

@@ -1,13 +1,9 @@
+import type { OkOf } from "unthrown";
 import type { NextStep } from "../../lib/cli-result.ts";
+import type { WorkSources } from "../work-sources/main.ts";
 
-type NextRow = {
-  action: string;
-  reason?: string;
-  assignment?: string;
-  question?: { key: string; question?: string };
-  message?: { key: string };
-  report?: object;
-};
+type SourceRows = OkOf<Awaited<ReturnType<typeof WorkSources.next>>>["sources"][number];
+type NextRow = SourceRows["actions"][number] | SourceRows["waits"][number];
 
 /** The row and its next step share one command, so they cannot disagree. */
 export function withNext<T extends NextRow>(sourceId: string, row: T) {
@@ -17,10 +13,27 @@ export function withNext<T extends NextRow>(sourceId: string, row: T) {
   return described;
 }
 
+/** Leave simple identifiers readable; quote all other shell arguments without changing their bytes. */
+function argument(value: string) {
+  return /^[a-zA-Z0-9_:/.-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 function rowNext(sourceId: string, row: NextRow): NextStep {
-  const source = `--source ${sourceId}`;
-  const target = `${source} --assignment ${row.assignment}`;
-  const steps: Record<string, NextStep> = {
+  const source = `--source ${argument(sourceId)}`;
+  const target =
+    "assignment" in row ? `${source} --assignment ${argument(row.assignment)}` : source;
+  if (row.action === "answer_question")
+    return { decider: "super-agent", question: row.question.question };
+  if (row.action === "read_reply")
+    return {
+      command: `operator message close ${target} --key ${argument(row.message.key)}`,
+      why: "Read the recorded reply and act on it before closing the message.",
+    };
+  const steering: NextStep = {
+    decider: "super-agent",
+    question: `What steering does the worker need for ${row.reason}?`,
+  };
+  const steps: Record<typeof row.action, NextStep> = {
     ready_assignment: {
       command: `operator dispatch ${target}`,
       why: "The assignment is ready to start.",
@@ -35,29 +48,25 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
     },
     retry_cleanup: {
       command:
-        row.report === undefined
-          ? `operator cleanup ${target}`
-          : `operator report accept ${target}`,
+        "report" in row && row.report !== undefined
+          ? `operator report accept ${target}`
+          : `operator cleanup ${target}`,
       why: "Continue the recorded cleanup.",
     },
     review_report: {
       decider: "super-agent",
       question: "Does the submitted report meet the assignment, or does it need follow-up?",
     },
-    answer_question: {
-      decider: "super-agent",
-      question: row.question?.question ?? "How should the worker proceed?",
-    },
     person_decision: {
       decider: "person",
-      question: row.question?.question ?? "May the retained work or resource be removed?",
+      question:
+        "question" in row ? row.question.question : "May the retained work or resource be removed?",
     },
-    read_reply: {
-      command: `operator message close ${target} --key ${row.message?.key}`,
-      why: "Read the recorded reply and act on it before closing the message.",
-    },
+    worker_attention: steering,
+    owner_attention: steering,
+    resume_worker: steering,
     prune_source: {
-      command: `operator source prune ${source}`,
+      command: "operator source prune",
       why: "The source retention period has elapsed.",
     },
     source_ended: { why: "No assignment work remains." },
@@ -67,10 +76,5 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
       why: "Wait for the recorded blockers to change.",
     },
   };
-  return (
-    steps[row.action] ?? {
-      decider: "super-agent",
-      question: `What steering does the worker need for ${row.reason}?`,
-    }
-  );
+  return steps[row.action];
 }

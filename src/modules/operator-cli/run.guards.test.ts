@@ -9,7 +9,7 @@ const source = new URL("../../../", import.meta.url).pathname;
 let root = "";
 beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-registration-guards-"));
-  for (const file of ["src", "tools", "package.json", "bunfig.toml"])
+  for (const file of ["src", "tools", "skills", "package.json", "bunfig.toml"])
     await cp(`${source}/${file}`, `${root}/${file}`, { recursive: true });
   await symlink(`${source}/node_modules`, `${root}/node_modules`);
 });
@@ -18,6 +18,24 @@ afterAll(async () => {
 });
 
 test.each([
+  {
+    name: "shell argument preservation",
+    file: "src/modules/operator-cli/next.ts",
+    before: "argument(row.assignment)",
+    after: "row.assignment",
+    testFile: "src/modules/operator-cli/run.next-commands.test.ts",
+    pattern: "next emits a runnable command preserving assignment key",
+    diagnostic: "error: Usage:",
+  },
+  {
+    name: "supported prune command",
+    file: "src/modules/operator-cli/next.ts",
+    before: 'command: "operator source prune",',
+    after: `command: \`operator source prune \${source}\`,`,
+    testFile: "src/modules/operator-cli/run.next-commands.test.ts",
+    pattern: "the prune row command runs through the supported CLI",
+    diagnostic: "error: Usage:",
+  },
   {
     name: "next metadata transport",
     file: "src/modules/operator-cli/output.ts",
@@ -178,6 +196,8 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.diagnostic !== undefined)
+        expect(`${stdout}${stderr}`).toContain(change.diagnostic);
     } finally {
       await Bun.write(file, original);
     }

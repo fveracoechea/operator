@@ -19,7 +19,10 @@ Worker results add the kind and the phase.
 
 Skills drop refusal sections and step lists.
 A new command or refusal must state its `next`.
+This costs an explicit next-step decision for each command and refusal.
 
 ## Alternatives considered
 
-Prose steps in `detail` only, RFC 9457 field names, and a separate status command.
+- Prose steps in `detail` only leave agents to extract commands and choices from free text.
+- RFC 9457 field names describe problems but do not name the next workflow step.
+- A separate status command adds another read before an agent can act on the result it already has.
