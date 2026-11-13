@@ -11,7 +11,13 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { migrationsFolder } from "./database.ts";
 import { registerProject } from "./projects.ts";
-import { registerSource, readSources, resetSource, pruneSource } from "./sources.ts";
+import {
+  registerSource,
+  readSources,
+  resetSource,
+  pruneSource,
+  endAssignments,
+} from "./sources.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
 
 // Root ignores file modes, so a test of a denied access cannot run as root.
@@ -89,6 +95,102 @@ function endedDatabase() {
   return db;
 }
 const target = { repository: project.repository, checkout: project.checkout, sourceId: "one" };
+
+test("ending selected assignments checks ownership, scopes every write, and preserves source and PR records", () => {
+  using db = endedDatabase();
+  expect(
+    registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, [
+      { sourceId: "two", key: "open", completion: "pr", state: "running" },
+    ]).tag,
+  ).toBe("Ok");
+  for (const [id, sourceId, state, attempt] of [
+    ["missing", "one", "running", 1],
+    ["other", "one", "running", 2],
+    ["starting", "one", "starting", 3],
+    ["foreign", "two", "running", 1],
+  ] as const)
+    insertRow(db, "launches", { id, source_id: sourceId, assignment: "open", state, attempt });
+  insertRow(db, "pull_requests", {
+    source_id: "one",
+    assignment: "open",
+    number: 7,
+    url: "https://github.com/owner/one/pull/7",
+    branch: "task/open",
+    associated_at: "now",
+  });
+  const before = db.serialize();
+  for (const [selection, reason] of [
+    [{ ...target, checkout: "/other" }, "controller_mismatch"],
+    [{ ...target, sourceId: "missing" }, "source_not_found"],
+    [{ ...target, repository: "owner/two" }, "controller_mismatch"],
+  ] as const) {
+    expect(
+      endAssignments(db, selection, () => Ok({ abandon: ["open"], interrupted: ["missing"] })),
+    ).toMatchObject({ tag: "Err", error: { reason } });
+    expect(db.serialize()).toEqual(before);
+  }
+  expect(endAssignments(db, target, () => Err({ reason: "refused", detail: "no" }))).toMatchObject({
+    tag: "Err",
+    error: { reason: "refused" },
+  });
+  expect(db.serialize()).toEqual(before);
+  expect(
+    endAssignments(db, target, () =>
+      Ok({ abandon: ["open"], interrupted: ["missing", "starting", "foreign"] }),
+    ),
+  ).toMatchObject({
+    tag: "Ok",
+    value: {
+      ended: ["open"],
+      retained: [
+        {
+          assignment: "open",
+          pullRequest: "https://github.com/owner/one/pull/7",
+          worktreePath: null,
+        },
+      ],
+    },
+  });
+  expect(
+    db.query("SELECT source_id, key, state FROM assignments ORDER BY source_id, key").all(),
+  ).toEqual([
+    { source_id: "one", key: "done", state: "completed" },
+    { source_id: "one", key: "open", state: "abandoned" },
+    { source_id: "two", key: "open", state: "running" },
+  ]);
+  expect(db.query("SELECT id, state FROM launches ORDER BY id").all()).toEqual([
+    { id: "foreign", state: "running" },
+    { id: "missing", state: "interrupted" },
+    { id: "other", state: "running" },
+    { id: "starting", state: "starting" },
+  ]);
+  expect(db.query("SELECT state, ended_at FROM sources WHERE id='one'").get()).toEqual({
+    state: "open",
+    ended_at: null,
+  });
+  expect(db.query("SELECT url, merged_at FROM pull_requests").all()).toEqual([
+    { url: "https://github.com/owner/one/pull/7", merged_at: null },
+  ]);
+});
+
+test("a failed assignment end rolls back its preceding worker interruption", () => {
+  using db = endedDatabase();
+  insertRow(db, "launches", {
+    id: "missing",
+    source_id: "one",
+    assignment: "open",
+    attempt: 1,
+    state: "running",
+  });
+  db.exec(
+    "CREATE TRIGGER refuse_end BEFORE UPDATE ON assignments BEGIN SELECT RAISE(ABORT, 'end refused'); END",
+  );
+  const before = db.serialize();
+  expect(
+    endAssignments(db, target, () => Ok({ abandon: ["open"], interrupted: ["missing"] })).tag,
+  ).not.toBe("Ok");
+  expect(db.serialize()).toEqual(before);
+});
 
 test("reset checks source ownership inside its transaction", () => {
   using db = endedDatabase();
