@@ -60,8 +60,14 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     });
   }
 
-  async function exec(args: string[], cwd: string, env = environment()) {
-    const child = Bun.spawn(args, { cwd, env, stdout: "pipe", stderr: "pipe" });
+  async function exec(args: string[], cwd: string, env = environment(), stdin?: string) {
+    const child = Bun.spawn(args, {
+      cwd,
+      env,
+      stdin: stdin === undefined ? null : new Blob([stdin]),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const [code, stdout, stderr] = await Promise.all([
       child.exited,
       new Response(child.stdout).text(),
@@ -138,12 +144,13 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   /** Run the public CLI as the SuperAgent, or in a worker pane when `pane` is set. */
   async function run(
     args: string[],
-    options: { cwd?: string; pane?: string; socket?: string } = {},
+    options: { cwd?: string; pane?: string; socket?: string; stdin?: string } = {},
   ) {
     const result = await exec(
       [...command.argv, ...args, "--json"],
       options.cwd ?? main,
       environment(options.pane, options.socket),
+      options.stdin,
     );
     return {
       code: result.code,

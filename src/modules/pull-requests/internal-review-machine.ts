@@ -185,7 +185,7 @@ const readyRules: Rule<ReadyFacts>[] = [
     refuse: () =>
       refused(
         "internal_review_round_missing",
-        `Record at least one round with operator pr round --file <findings.json> --json. ${unchanged}`,
+        `Record at least one round with operator pr round --file <findings.md> --json. ${unchanged}`,
       ),
   },
   {

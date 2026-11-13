@@ -209,7 +209,7 @@ export function handoff(request: HandoffRequest) {
 }
 
 function readFindings(file: string) {
-  return fromPromise(() => Bun.file(file).text(), qualify);
+  return fromPromise(() => (file === "-" ? Bun.stdin.text() : Bun.file(file).text()), qualify);
 }
 
 /**

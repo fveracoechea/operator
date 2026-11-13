@@ -35,8 +35,14 @@ function environment() {
   });
 }
 
-async function exec(args: string[], cwd = checkout) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+async function exec(args: string[], cwd = checkout, stdin?: string) {
+  const child = Bun.spawn(args, {
+    cwd,
+    env: environment(),
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
+  });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -45,8 +51,8 @@ async function exec(args: string[], cwd = checkout) {
   return { code, stdout, stderr };
 }
 
-async function run(args: string[], cwd = checkout) {
-  const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
+async function run(args: string[], cwd = checkout, stdin?: string) {
+  const result = await exec([process.execPath, cli, ...args, "--json"], cwd, stdin);
   return { code: result.code, output: JSON.parse(result.stdout) as unknown, stderr: result.stderr };
 }
 
@@ -247,9 +253,14 @@ async function commit(worktree: string, file: string) {
   return git(worktree, "rev-parse", "HEAD");
 }
 
-async function findings(items: object[]) {
-  const file = `${root}/findings.json`;
-  await Bun.write(file, JSON.stringify({ findings: items }));
+async function findings(
+  items: { severity: string; axis: string; location: string; claim: string }[],
+) {
+  const file = `${root}/findings.md`;
+  await Bun.write(
+    file,
+    `## Findings\n${items.map((item) => `- ${item.severity}, ${item.axis}, ${item.location}: ${item.claim}`).join("\n")}\n`,
+  );
   return file;
 }
 
@@ -262,9 +273,15 @@ const blocker = {
 
 const nit = { axis: "Skills", severity: "nice-to-have", location: "b.ts", claim: "Name it." };
 
-async function summary(overview: string, dispositions: object[]) {
-  const file = `${root}/summary.json`;
-  await Bun.write(file, JSON.stringify({ overview, dispositions }));
+async function summary(
+  overview: string,
+  dispositions: { round: number; finding: number; disposition: string; reason?: string }[],
+) {
+  const file = `${root}/summary.md`;
+  await Bun.write(
+    file,
+    `## Overview\n${overview}\n\n## Dispositions\n${dispositions.map((item) => `- ${item.round}.${item.finding} ${item.disposition}${item.disposition === "declined" ? `: ${item.reason ?? ""}` : ""}`).join("\n")}\n`,
+  );
   return file;
 }
 
@@ -320,7 +337,11 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
     await run(["pr", "ready", "--file", await summary("Looks fine.", [])], reviewer),
   ).toMatchObject({ code: 3, output: { reason: "internal_review_round_missing" } });
   expect(
-    await run(["pr", "round", "--file", await findings([blocker, nit])], reviewer),
+    await run(
+      ["pr", "round", "--file", "-"],
+      reviewer,
+      await Bun.file(await findings([blocker, nit])).text(),
+    ),
   ).toMatchObject({ code: 0 });
 
   await Bun.write(`${root}/summary.json`, '{"overview": "x", "dispositions": [{"round": 1}]}');
@@ -329,9 +350,18 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
     output: { reason: "internal_review_summary_invalid" },
   });
   const declinedWithoutReason = { round: 1, finding: 2, disposition: "declined" };
-  expect(
-    await run(["pr", "ready", "--file", await summary("x", [declinedWithoutReason])], reviewer),
-  ).toMatchObject({ code: 3, output: { reason: "internal_review_summary_invalid" } });
+  const malformed = await run(
+    ["pr", "ready", "--file", await summary("x", [declinedWithoutReason])],
+    reviewer,
+  );
+  expect(malformed).toMatchObject({
+    code: 3,
+    output: {
+      reason: "internal_review_summary_invalid",
+      next: { command: "operator pr ready --file <path|->" },
+    },
+  });
+  expect(malformed.stderr).toContain("Line 5");
   const applied = { round: 1, finding: 1, disposition: "applied" };
   const declined = { ...declinedWithoutReason, reason: "The name follows the module." };
   const incomplete = await run(["pr", "ready", "--file", await summary("x", [applied])], reviewer);
@@ -373,7 +403,7 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
     },
   });
 
-  const overview = "The change does what the issue asks.";
+  const overview = "The change does what the issue asks.\n\nThe review retained both decisions.";
   const file = await summary(overview, [applied, declined]);
   await Bun.write(`${reviewer}/notes.txt`, "unlanded\n");
   expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
@@ -394,7 +424,9 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
     checks: [{ name: "ci", conclusion: "SUCCESS" }],
   });
 
-  expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
+  expect(
+    await run(["pr", "ready", "--file", "-"], reviewer, await Bun.file(file).text()),
+  ).toMatchObject({
     code: 0,
     output: {
       reason: "pr_ready",
@@ -475,6 +507,102 @@ ${overview}
   const owner = await Bun.file(brief).text();
   expect(owner).toContain(`The internal review of PR #7 ended ready at \`${third}\`.`);
   expect(owner).not.toContain("You are the internal reviewer");
+}, 180000);
+
+test("review input refuses malformed markdown and JSON before recording or publishing", async () => {
+  const source = await setup("opencode");
+  const { reviewer } = await reviewing(source);
+  const invalidFindings: [string, number][] = [
+    ['{"findings":[]}', 1],
+    ["", 1],
+    ["## Other\n", 1],
+    ["## Findings\n## Findings\n", 2],
+    ["## Findings\n- blocker, Security, a.ts:1: Claim.\n", 2],
+    ["## Findings\n- blocker, Spec, : Claim.\n", 2],
+    ["## Findings\n- blocker, Spec, a.ts:1:   \n", 2],
+    ["## Findings\n- blocker, Spec, a.ts:1: Claim.\nextra\n", 3],
+  ];
+  for (const [text, line] of invalidFindings) {
+    const result = await run(["pr", "round", "--file", "-"], reviewer, text);
+    expect(result).toMatchObject({
+      code: 3,
+      output: {
+        reason: "internal_review_findings_invalid",
+        next: { command: "operator pr round --file <path|->" },
+      },
+    });
+    expect(result.stderr).toContain(`Line ${line}:`);
+  }
+  expect(await entry(source)).toMatchObject({ internalReview: { rounds: [] } });
+  expect(await run(["pr", "round", "--file", "-"], reviewer, "\r\n## Findings\r\n")).toMatchObject({
+    code: 0,
+    output: { data: { round: 1, findings: 0 } },
+  });
+  const invalidSummaries: [string, number][] = [
+    ['{"overview":"fine","dispositions":[]}', 1],
+    ["", 1],
+    ["## Overview\nfine\n", 1],
+    ["## Overview\n\n## Dispositions\n", 3],
+    ["## Dispositions\n## Overview\nfine", 1],
+    ["## Overview\nfine\n## Unknown\n", 3],
+    ["## Overview\nfine\n## Overview\n", 3],
+    ["## Overview\nfine\n## Dispositions\n## Dispositions\n", 4],
+    ["## Overview\nfine\n## Dispositions\n- 0.1 applied\n", 4],
+    ["## Overview\nfine\n## Dispositions\n- 1.0 applied\n", 4],
+    ["## Overview\nfine\n## Dispositions\n- 9007199254740992.1 applied\n", 4],
+    ["## Overview\nfine\n## Dispositions\n- 1.1 declined:   \n", 4],
+    ["## Overview\nfine\n## Dispositions\n- 1.1 applied: extra\n", 4],
+    ["## Overview\nfine\n## Dispositions\n- 1.1 ignored\n", 4],
+  ];
+  for (const [text, line] of invalidSummaries) {
+    const result = await run(["pr", "ready", "--file", "-"], reviewer, text);
+    expect(result).toMatchObject({
+      code: 3,
+      output: {
+        reason: "internal_review_summary_invalid",
+        next: { command: "operator pr ready --file <path|->" },
+      },
+    });
+    expect(result.stderr).toContain(`Line ${line}:`);
+  }
+  const state = await githubState();
+  expect([state.commented, state.readied, state.updated]).toEqual([
+    undefined,
+    undefined,
+    undefined,
+  ]);
+  expect(await entry(source)).toMatchObject({
+    internalReview: { state: "reviewing", rounds: [{ number: 1, findings: 0 }] },
+  });
+  expect(
+    await run(
+      ["pr", "ready", "--file", "-"],
+      reviewer,
+      "## Overview\r\nfine\r\n\r\n## Dispositions\r\n",
+    ),
+  ).toMatchObject({ code: 0, output: { reason: "pr_ready" } });
+}, 180000);
+
+test("the README round and ready stdin examples complete an isolated internal review", async () => {
+  const source = await setup("opencode");
+  const { reviewer } = await reviewing(source);
+  const readme = await Bun.file(new URL("../../../README.md", import.meta.url)).text();
+  const roundExample =
+    /operator pr round --file - --json <<'EOF'\n[\s\S]*?\nEOF/.exec(readme)?.[0] ?? "";
+  const readyExample =
+    /operator pr ready --file - --json <<'EOF'\n[\s\S]*?\nEOF/.exec(readme)?.[0] ?? "";
+  expect(roundExample).toContain("## Findings");
+  expect(readyExample).toContain("## Overview");
+  const round = await exec(["bash", "-c", roundExample], reviewer);
+  expect(round.code, round.stderr).toBe(0);
+  expect(JSON.parse(round.stdout) as unknown).toMatchObject({
+    reason: "pr_round_recorded",
+    data: { round: 1, findings: 0 },
+  });
+  const ready = await exec(["bash", "-c", readyExample], reviewer);
+  expect(ready.code, ready.stderr).toBe(0);
+  expect(JSON.parse(ready.stdout) as unknown).toMatchObject({ reason: "pr_ready" });
+  expect((await githubState()).commented?.[0]?.body).toContain("The review found no issues.");
 }, 180000);
 
 test("a retry after a lost comment or ready answer posts one comment and records the end", async () => {

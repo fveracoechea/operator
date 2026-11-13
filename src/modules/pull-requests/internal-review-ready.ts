@@ -1,12 +1,4 @@
-import {
-  ErrAsync,
-  OkAsync,
-  fromPromise,
-  fromThrowable,
-  type AsyncOkOf,
-  type AsyncResult,
-} from "unthrown";
-import { z } from "zod";
+import { ErrAsync, OkAsync, type AsyncOkOf, type AsyncResult } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -14,40 +6,12 @@ import { WorkSources } from "../work-sources/main.ts";
 import { markReady, postComment, readyFacts, updateComment } from "./github.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
 import { worktreeFacts } from "./internal-review.ts";
-import { qualify, resolveOwner, type Paths } from "./owner.ts";
+import { readSummary, type Disposition } from "./internal-review-summary.ts";
+import { resolveOwner, type Paths } from "./owner.ts";
 
 type Failure = { reason: string; detail: string };
 type Source = NonNullable<AsyncOkOf<ReturnType<typeof WorkSources.show>>>;
 type Finding = Source["internalReviewRounds"][number]["findings"][number];
-type Disposition = z.infer<typeof dispositionSchema>;
-
-const place = { round: z.number().int().positive(), finding: z.number().int().positive() };
-const dispositionSchema = z.discriminatedUnion("disposition", [
-  z.strictObject({ ...place, disposition: z.literal("applied") }),
-  z.strictObject({
-    ...place,
-    disposition: z.literal("declined"),
-    reason: z.string().trim().min(1),
-  }),
-]);
-const summarySchema = z.strictObject({
-  overview: z.string().trim().min(1),
-  dispositions: z.array(dispositionSchema),
-});
-
-/** Validates the reviewer's summary: a short overview and one disposition for each finding. */
-function parseSummary(text: string) {
-  return fromThrowable(
-    () => summarySchema.parse(JSON.parse(text)),
-    (cause, defect) =>
-      cause instanceof z.ZodError || cause instanceof SyntaxError
-        ? {
-            reason: "internal_review_summary_invalid",
-            detail: `The summary file must hold JSON {"overview": "...", "dispositions": [...]}, where each disposition has round, finding, and disposition applied, or disposition declined with a reason. ${cause instanceof z.ZodError ? z.prettifyError(cause).replaceAll("\n", " ") : cause.message} Nothing was changed.`,
-          }
-        : defect(cause),
-  )();
-}
 
 /** The hidden line that finds this review's comment again after a lost answer. */
 function commentMarker(sourceId: string, assignment: string) {
@@ -104,12 +68,6 @@ ${section("declined")}
 
 ${input.marker}
 `;
-}
-
-function readSummary(file: string) {
-  return fromPromise(() => Bun.file(file).text(), qualify).flatMap((text) =>
-    parseSummary(text).toAsync(),
-  );
 }
 
 function reviewOf(source: Source | undefined, assignment: string) {
