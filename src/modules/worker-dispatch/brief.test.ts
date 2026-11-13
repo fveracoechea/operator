@@ -68,6 +68,24 @@ test("kind guides honor pane overrides and require the conflict-resolution skill
   expect(feedback).toContain("Load `resolving-merge-conflicts`");
 });
 
+test("a skill-path fallback retains the guide's condition and permits an absent optional file", () => {
+  const brief = renderBrief({
+    ...input,
+    kind: {
+      ...WorkerKinds.resolve("answer"),
+      guide: "/owned/worker-agent/kinds/answer.md",
+      skillsToRead: ["/upstream/show-me/SKILL.md"],
+    },
+  });
+  expect(brief).toContain(
+    "When the guide calls for it and the file exists, read skill by path: `/upstream/show-me/SKILL.md`.",
+  );
+  expect(brief).not.toContain("\nRead skill by path:");
+  expect(renderBrief({ ...input, kind: WorkerKinds.resolve("research") })).not.toContain(
+    "read skill by path:",
+  );
+});
+
 test("read-only work forbids project changes, and the brief names no runtime agent", () => {
   const brief = renderBrief({
     ...input,

@@ -289,7 +289,7 @@ Work that needs its own scheduling, dependencies, or acceptance needs a separate
 ## Skills
 
 Load the \`worker-agent\` skill.
-Load each other skill that the task instructions name.${input.kind?.skillsToRead.map((file) => `\nRead skill by path: \`${file}\`.`).join("") ?? ""}
+Load each other skill that the task instructions name.${input.kind?.skillsToRead.map((file) => `\nWhen the guide calls for it and the file exists, read skill by path: \`${file}\`.`).join("") ?? ""}
 
 ## Resources
 

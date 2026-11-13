@@ -309,7 +309,9 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
   expect(brief).toContain(`Read \`${expected.guide}\``);
   expect(await Bun.file(expected.guide).exists()).toBe(true);
   expect(await Bun.file(`${root}/config/opencode/skills/show-me/SKILL.md`).exists()).toBe(false);
-  expect(brief).toContain(`Read skill by path: \`${root}/home/.agents/skills/show-me/SKILL.md\``);
+  expect(brief).toContain(
+    `When the guide calls for it and the file exists, read skill by path: \`${root}/home/.agents/skills/show-me/SKILL.md\``,
+  );
   await Bun.write(
     `${root}/config/operator/config.json`,
     JSON.stringify({
