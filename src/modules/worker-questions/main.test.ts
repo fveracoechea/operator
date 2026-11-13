@@ -18,12 +18,9 @@ afterEach(async () => {
 async function asked(key = "scope") {
   const sourceId = await device.source();
   const launchId = device.launch(sourceId);
-  const file = await device.write(
-    `${key}.json`,
-    JSON.stringify({ key, question: "Is b.ts in scope?" }),
-  );
+  const file = await device.write(`${key}.json`, "Is b.ts in scope?");
   const pane = device.inPane(workerPane);
-  const result = await WorkerQuestions.ask({ paths: device.paths, file });
+  const result = await WorkerQuestions.ask({ paths: device.paths, key, file });
   pane.mockRestore();
   const askedAt = result.tag === "Ok" ? result.value.data.askedAt : "";
   return { sourceId, launchId, result, askedAt };
@@ -36,7 +33,7 @@ function selector(sourceId: string, key = "scope") {
 async function answer(sourceId: string, by: "super-agent" | "person", text = "No, only a.ts.") {
   const file = await device.write("answer.md", `${text}\n`);
   device.inPane(superPane);
-  const result = await WorkerQuestions.answer({ ...selector(sourceId), by, file, text: null });
+  const result = await WorkerQuestions.answer({ ...selector(sourceId), by, file });
   mock.restore();
   return result;
 }
@@ -193,9 +190,9 @@ test("a reset abandons the open question, which then takes no answer", async () 
 
 test("only the worker's pane asks, and only another pane answers or moves the question", async () => {
   const sourceId = await device.source();
-  const file = await device.write("q.json", JSON.stringify({ key: "scope", question: "Which?" }));
+  const file = await device.write("q.md", "Which?");
   device.inPane(null);
-  expect(await WorkerQuestions.ask({ paths: device.paths, file })).toMatchObject({
+  expect(await WorkerQuestions.ask({ paths: device.paths, key: "scope", file })).toMatchObject({
     error: { reason: "worker_pane_required" },
   });
   expect(
@@ -206,12 +203,12 @@ test("only the worker's pane asks, and only another pane answers or moves the qu
   });
   mock.restore();
   device.inPane(workerPane);
-  expect(await WorkerQuestions.ask({ paths: device.paths, file })).toMatchObject({
+  expect(await WorkerQuestions.ask({ paths: device.paths, key: "scope", file })).toMatchObject({
     error: { reason: "worker_launch_not_found" },
   });
   device.launch(sourceId);
-  okValue(await WorkerQuestions.ask({ paths: device.paths, file }));
-  expect(await WorkerQuestions.ask({ paths: device.paths, file })).toMatchObject({
+  okValue(await WorkerQuestions.ask({ paths: device.paths, key: "scope", file }));
+  expect(await WorkerQuestions.ask({ paths: device.paths, key: "scope", file })).toMatchObject({
     error: { reason: "question_key_taken" },
   });
   const text = await device.write("answer.md", "Mine.");
@@ -220,7 +217,6 @@ test("only the worker's pane asks, and only another pane answers or moves the qu
       ...selector(sourceId),
       by: "super-agent",
       file: text,
-      text: null,
     }),
   ).toMatchObject({ error: { reason: "self_decision_refused" } });
   expect(await WorkerQuestions.escalate(selector(sourceId))).toMatchObject({
@@ -240,17 +236,21 @@ test("an invalid draft or a missing file refuses and records nothing", async () 
   const sourceId = await device.source();
   device.launch(sourceId);
   device.inPane(workerPane);
-  for (const content of ["{", JSON.stringify({ key: "Bad Key", question: "Which?" })]) {
+  for (const content of ["", JSON.stringify({ key: "Bad Key", question: "Which?" })]) {
     const file = await device.write("bad.json", content);
-    expect(await WorkerQuestions.ask({ paths: device.paths, file })).toMatchObject({
+    expect(await WorkerQuestions.ask({ paths: device.paths, key: "Bad Key", file })).toMatchObject({
       error: { reason: "invalid_question_input" },
     });
   }
   expect(
-    await WorkerQuestions.ask({ paths: device.paths, file: `${device.root}/missing.json` }),
+    await WorkerQuestions.ask({
+      paths: device.paths,
+      key: "scope",
+      file: `${device.root}/missing.json`,
+    }),
   ).toMatchObject({ error: { reason: "question_io_failed" } });
-  const file = await device.write("q.json", JSON.stringify({ key: "scope", question: "Which?" }));
-  okValue(await WorkerQuestions.ask({ paths: device.paths, file }));
+  const file = await device.write("q.md", "Which?");
+  okValue(await WorkerQuestions.ask({ paths: device.paths, key: "scope", file }));
   mock.restore();
   const empty = await device.write("empty.md", "  \n");
   device.inPane(superPane);
@@ -259,16 +259,6 @@ test("an invalid draft or a missing file refuses and records nothing", async () 
       ...selector(sourceId),
       by: "super-agent",
       file: empty,
-      text: null,
-    }),
-  ).toMatchObject({ error: { reason: "invalid_question_input" } });
-  // Text in place of a file passes the same check, and the file is not read.
-  expect(
-    await WorkerQuestions.answer({
-      ...selector(sourceId),
-      by: "super-agent",
-      file: `${device.root}/missing.md`,
-      text: " ",
     }),
   ).toMatchObject({ error: { reason: "invalid_question_input" } });
   expect((await device.actions())[0]).toMatchObject({ action: "answer_question" });

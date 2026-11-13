@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { renderReport, submissionSchema } from "./content.ts";
+import { parseSubmission, renderReport, submissionSchema } from "./content.ts";
 
 const submission = {
   conclusion: "Two gaps.",
@@ -75,4 +75,132 @@ test("each list item is its own line", () => {
   });
   expect(text).toContain("## Evidence\n\n- a.ts:1\n- b.ts:2\n");
   expect(text).toContain("## Supporting files\n\n- None.\n");
+});
+
+const markdown = `## Conclusion
+Two gaps.
+
+## Evidence
+- a.ts:10
+
+## Unresolved points
+- None.
+
+## Supporting files
+- \`/drafts/notes.md\`
+
+## Human answers
+- Scope? Answer: a.ts only
+
+## SuperAgent decisions
+- Name? Answer: reader
+`;
+
+test("Markdown reports parse the rendered headings and authority sections", () => {
+  const expected = {
+    conclusion: "Two gaps.",
+    evidence: ["a.ts:10"],
+    unresolved: [],
+    files: ["/drafts/notes.md"],
+    decisions: [
+      { question: "Scope?", answer: "a.ts only", by: "person" as const },
+      { question: "Name?", answer: "reader", by: "super-agent" as const },
+    ],
+  };
+  expect(parseSubmission(markdown)).toEqual(expected);
+  expect(parseSubmission(markdown.replaceAll("\n", "\r\n"))).toEqual(expected);
+  expect(
+    parseSubmission(
+      renderReport({
+        number: 1,
+        assignment: "read",
+        submission: submissionSchema.parse(submission),
+        files: submission.files,
+      }),
+    ),
+  ).toEqual(expected);
+  expect(parseSubmission(markdown.replace("`/drafts/notes.md`", "/drafts/notes.md")).files).toEqual(
+    ["/drafts/notes.md"],
+  );
+});
+
+test("Markdown report format errors never discard unknown content", () => {
+  for (const invalid of [
+    markdown.replace("## Evidence", "## Proof"),
+    markdown.replace("## Evidence\n- a.ts:10\n", ""),
+    `${markdown}\n## Conclusion\nReplacement`,
+    `Unheaded prose\n${markdown}`,
+    markdown.replace("- a.ts:10", "a.ts:10"),
+    markdown.replace("Scope? Answer: a.ts only", "Scope? a.ts only"),
+    markdown.replace("/drafts/notes.md", "notes.md"),
+    markdown.replace("- a.ts:10", "- None."),
+    JSON.stringify(submission),
+  ])
+    expect(() => parseSubmission(invalid)).toThrow();
+});
+
+test("report diagnostics identify missing, duplicate, and unknown sections", () => {
+  expect(() => parseSubmission(`${markdown}\n## Extras\n- Hidden.`)).toThrow(
+    "Unknown report heading: Extras.",
+  );
+  expect(() => parseSubmission(markdown.replace("## Unresolved points\n- None.\n", ""))).toThrow(
+    "Missing report heading: Unresolved points.",
+  );
+  expect(() => parseSubmission(`${markdown}\n## Conclusion\nReplacement`)).toThrow(
+    "Duplicate report heading: Conclusion.",
+  );
+  expect(() => parseSubmission(`Unheaded text\n${markdown}`)).toThrow(
+    "Start the report with ## Conclusion.",
+  );
+  expect(() => parseSubmission(markdown.replace("- a.ts:10", "a.ts:10"))).toThrow(
+    "Use - bullets in ## Evidence.",
+  );
+  expect(() =>
+    parseSubmission(markdown.replace("Scope? Answer: a.ts only", "Scope? a.ts only")),
+  ).toThrow("Use <question> Answer: <answer> in ## Human answers.");
+});
+
+test("the rendered authority explanation is accepted only in SuperAgent decisions", () => {
+  expect(() =>
+    parseSubmission(
+      markdown.replace(
+        "## Unresolved points\n- None.",
+        "## Unresolved points\nA SuperAgent decision is not a human answer.",
+      ),
+    ),
+  ).toThrow("Use - bullets in ## Unresolved points.");
+});
+
+test("reports keep unresolved points and trim list items without losing entries", () => {
+  expect(parseSubmission(`  \n${markdown}`)).toMatchObject({ conclusion: "Two gaps." });
+  expect(
+    parseSubmission(
+      markdown.replace(
+        "## Unresolved points\n- None.",
+        "## Unresolved points\n- Decide the scope.\n  ",
+      ),
+    ).unresolved,
+  ).toEqual(["Decide the scope."]);
+  expect(
+    parseSubmission(markdown.replace("- `/drafts/notes.md`", "-   /drafts/notes.md  ")).files,
+  ).toEqual(["/drafts/notes.md"]);
+  expect(
+    parseSubmission(
+      markdown.replace(
+        "## Unresolved points\n- None.",
+        "## Unresolved points\n- None.\n- A real point.",
+      ),
+    ).unresolved,
+  ).toEqual(["None.", "A real point."]);
+  expect(
+    parseSubmission(
+      markdown.replace("Two gaps.", "Two gaps.\nA ## marker inside prose stays prose."),
+    ).conclusion,
+  ).toBe("Two gaps.\nA ## marker inside prose stays prose.");
+  expect(() =>
+    parseSubmission(markdown.replace("`/drafts/notes.md`", "`/drafts/notes.md")),
+  ).toThrow("Use absolute file paths.");
+  expect(
+    parseSubmission(markdown.replace("`/drafts/notes.md`", "/drafts/notes.md`")).files,
+  ).toEqual(["/drafts/notes.md`"]);
 });

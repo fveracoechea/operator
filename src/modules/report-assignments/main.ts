@@ -12,7 +12,8 @@ import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { WorkerQuestions } from "../worker-questions/main.ts";
 import { realPathOrNull } from "../../lib/real-path.ts";
-import { renderReport, submissionSchema, type Submission } from "./content.ts";
+import { renderReport, parseSubmission, type Submission } from "./content.ts";
+import { readTextInput } from "../../lib/read-text-input.ts";
 import { qualify } from "./failures.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
@@ -187,7 +188,7 @@ function submit(input: { paths: Paths; file: string }) {
       const target = workerPane();
       if (target.tag !== "Ok") return stop(target);
       const decision = { paths: input.paths, target: target.value, command: "submit" as const };
-      const submission = submissionSchema.parse(JSON.parse(await Bun.file(input.file).text()));
+      const submission = parseSubmission(await readTextInput(input.file));
       const before = read(decision);
       if (before.tag !== "Ok") return stop(before);
       const { facts, decided } = before.value;
@@ -239,7 +240,15 @@ function submit(input: { paths: Paths; file: string }) {
         },
       });
     },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    (cause, defect) =>
+      cause instanceof Error
+        ? qualify(cause, defect, {
+            next: {
+              command: "operator report submit --file <path|->",
+              why: "Correct the report headings and content, then submit it again.",
+            },
+          })
+        : defect(cause),
   ).flatMap((result) => result);
 }
 

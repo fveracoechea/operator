@@ -129,7 +129,7 @@ test("a report brief names the submission, resume, and authority rules", () => {
   for (const text of [
     "`operator report submit --file <path> --json`",
     "`operator report resume --json`",
-    "Use `person` only for an answer that the person gave.",
+    "Human answers record only the person's own answers.",
     "Submission does not complete the assignment.",
     "when a question is outside its delegated authority, or when that authority is unclear",
     "A SuperAgent answer is a SuperAgent decision, not a human answer",
@@ -296,9 +296,9 @@ ${authority}
 ## Results and reporting
 
 - Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
-- Write a JSON report outside the project checkout with \`conclusion\`, \`evidence\`, \`unresolved\`, and optional \`decisions\` and \`files\`.
-- \`evidence\` and \`unresolved\` are lists of short text. \`files\` lists absolute paths of detailed supporting files.
-- Each decision has \`question\`, \`answer\`, and \`by\`. Use \`person\` only for an answer that the person gave. Use \`super-agent\` for a SuperAgent decision.
+- Write a Markdown report outside the checkout with headings \`## Conclusion\`, \`## Evidence\`, \`## Unresolved points\`, \`## Supporting files\`, \`## Human answers\`, and \`## SuperAgent decisions\`.
+- Write the conclusion as prose. Other sections use \`- \` bullets, or \`- None.\` when empty. Supporting files use absolute paths.
+- Decision bullets read \`<question> Answer: <answer>\`. Human answers record only the person's own answers. SuperAgent decisions stay in their own section.
 - Submit it from this pane with \`operator report submit --file <path> --json\`. Your SuperAgent's coordination wait returns it, so send no message.
 - Operator stores the report and copies of the supporting files in \`/state/reports\`.
 - Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.

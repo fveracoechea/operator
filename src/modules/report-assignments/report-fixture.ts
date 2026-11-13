@@ -9,6 +9,7 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { renderReport, type Submission } from "./content.ts";
 
 export const socket = "/fixture/herdr.sock";
 export const workerPane = "w1:p1";
@@ -126,6 +127,27 @@ export async function reportDevice() {
     return file;
   }
 
+  async function writeReport(
+    name: string,
+    value: Omit<Submission, "files" | "decisions"> & {
+      files?: string[];
+      decisions?: Submission["decisions"];
+    },
+  ) {
+    const file = `${root}/drafts/${name}`;
+    await Bun.write(
+      file,
+      renderReport({
+        number: 1,
+        assignment: "read",
+        submission: { ...value, files: value.files ?? [], decisions: value.decisions ?? [] },
+        files: value.files ?? [],
+      }),
+      { createPath: true },
+    );
+    return file;
+  }
+
   /** Every file below a folder, relative to it. */
   async function files(directory: string) {
     const found: string[] = [];
@@ -162,6 +184,7 @@ export async function reportDevice() {
     show,
     states,
     writeJson,
+    writeReport,
     files,
     assignmentFiles,
   };

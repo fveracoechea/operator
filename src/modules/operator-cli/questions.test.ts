@@ -41,7 +41,6 @@ function spies() {
 
 const none = {
   file: "",
-  text: null,
   key: "",
   sourceId: "",
   assignment: "",
@@ -51,10 +50,11 @@ const none = {
 const selector = ["--source", "s", "--assignment", "a", "--key", "k"];
 
 test("worker commands take no assignment selector, and SuperAgent commands name one", () => {
-  expect(questionArgs(["question", "ask", "--file", "q.json", "--json"])).toEqual({
+  expect(questionArgs(["question", "ask", "--key", "k", "--file", "q.md", "--json"])).toEqual({
     ...none,
     command: "ask",
-    file: "q.json",
+    file: "q.md",
+    key: "k",
   });
   expect(questionArgs(["question", "wait", "--key", "k"])).toEqual({
     ...none,
@@ -88,13 +88,13 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
   });
   expect(
     questionArgs(["question", "answer", ...selector, "--by", "person", "--text", "No."]),
-  ).toMatchObject({ file: "", text: "No." });
+  ).toBeNull();
   for (const args of [
     ["question"],
     ["question", "ask"],
     ["question", "list"],
     ["other", "ask", "--file", "q.json"],
-    ["question", "ask", "--file", "q.json", "--key", "k"],
+    ["question", "ask", "--file", "q.md"],
     ["question", "ask", "--file", "--json"],
     ["question", "wait"],
     ["question", "wait", "--key", "k", "--timeout", "-1"],
@@ -130,7 +130,7 @@ test("passes each command to the matching question operation", async () => {
   const { log } = quiet();
   const cwd = process.cwd();
   const commands = [
-    ["ask", "--file", "q.json"],
+    ["ask", "--key", "k", "--file", "q.md"],
     ["wait", "--key", "k", "--timeout", "5"],
     ["withdraw", "--key", "k"],
     ["escalate", ...selector],
@@ -143,7 +143,14 @@ test("passes each command to the matching question operation", async () => {
       outcome: "completed",
     });
   }
-  expect(called.ask).toHaveBeenCalledWith({ paths, cwd, ...none, command: "ask", file: "q.json" });
+  expect(called.ask).toHaveBeenCalledWith({
+    paths,
+    cwd,
+    ...none,
+    command: "ask",
+    key: "k",
+    file: "q.md",
+  });
   expect(called.wait).toHaveBeenCalledWith({
     paths,
     cwd,
@@ -177,7 +184,7 @@ test.each([
 ])("a %s refusal exits %d", async (reason, code) => {
   spyOn(WorkerQuestions, "ask").mockReturnValue(ErrAsync({ reason, detail: "Refused." }) as never);
   const { log } = quiet();
-  await runQuestions(["question", "ask", "--file", "q.json"], paths, true);
+  await runQuestions(["question", "ask", "--key", "k", "--file", "q.md"], paths, true);
   expect(process.exitCode).toBe(code);
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "question_ask",

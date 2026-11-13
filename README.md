@@ -331,7 +331,7 @@ Herdr's OpenCode terminal integration must be enabled to report their activity; 
 ### Reports
 
 ```sh
-operator report submit --file <report.json> --json
+operator report submit --file <report.md> --json
 operator report resume --json
 operator report accept --source <source-id> --assignment <key> --json
 operator report accept --source <source-id> --assignment <key> --promote <promotion.json> --json
@@ -340,34 +340,39 @@ operator report return --source <source-id> --assignment <key> --file <follow-up
 
 The WorkerAgent submits and resumes from its own pane.
 Only the SuperAgent accepts or returns a report.
+Reports use `## Conclusion`, `## Evidence`, `## Unresolved points`, `## Supporting files`, `## Human answers`, and `## SuperAgent decisions`.
+The conclusion is prose; other sections use `- ` bullets, or `- None.` when empty.
+Decision bullets read `<question> Answer: <answer>`; supporting files use absolute paths.
+Questions, answers, messages, replies, and report submissions accept `--file -` for stdin or a file path.
+Use a quoted heredoc with stdin to preserve shell punctuation, as ADR-0032 requires.
 `--promote` accepts a report whose worker had a worktree, and adds the PR assignment that the file describes.
 
 ### Worker questions
 
 ```sh
-operator question ask --file <question.json> --json
+operator question ask --key <key> --file <question.md> --json
 operator question wait --key <key> --timeout 300 --json
 operator question withdraw --key <key> --json
 operator question escalate --source <source-id> --assignment <key> --key <question> --json
-operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --text <answer> --json
+operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json
 ```
 
 The WorkerAgent asks, waits for the answer, and withdraws from its own pane.
 `next` shows an open question as `answer_question`, and a question that the SuperAgent escalates to the person as `person_decision`.
 Only the SuperAgent answers, and `--by person` records an answer that the person gave.
-`--file <answer.md>` in place of `--text` reads the answer from a file.
+Questions and answers are plain text, not JSON envelopes.
 
 ### Steering messages
 
 ```sh
-operator message send --source <source-id> --assignment <key> --key <message> --text <text> --json
+operator message send --source <source-id> --assignment <key> --key <message> --file <message.md> --json
 operator message ring --source <source-id> --assignment <key> --key <message> --json
 operator message close --source <source-id> --assignment <key> --key <message> --json
 operator message read --key <message> --json
 operator message ack --key <message> [--file <reply.md>] --json
 ```
 
-`--file <message.json>`, with `key` and `message` fields, can replace `--key` and `--text`.
+Messages and optional replies are plain text, not JSON envelopes.
 The SuperAgent records a keyed message for a running WorkerAgent, and the CLI types a fixed doorbell line that names the key into the worker's pane.
 The WorkerAgent reads and acknowledges the message from its own pane, with an optional reply.
 `next` shows a reply as `read_reply` until the SuperAgent closes the message, and a message whose doorbell failed or that stays pending for 15 minutes as `worker_attention`.
