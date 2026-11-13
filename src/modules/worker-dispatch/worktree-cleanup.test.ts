@@ -93,11 +93,6 @@ test.each([
     reason: "changed or untracked .gitignore",
   },
   {
-    name: "an ignored build file",
-    change: () => Bun.write(`${worktree}/dist/out.js`, "x\n", { createPath: true }),
-    reason: "ignored dist",
-  },
-  {
     name: "a changed environment file",
     change: () => Bun.write(`${worktree}/.env.local`, "TOKEN=2\n"),
     reason: "ignored .env.local",
@@ -131,25 +126,23 @@ test.each([
   expect(git(checkout, "branch", "--list", "task/read")).toContain("task/read");
 });
 
-test("dependencies that preparation did not install are kept", async () => {
+test("cleanup ignores ignored entries even when preparation did not install them", async () => {
   const old = `${root}/old`;
   // The first commit tracks no Bun lockfile, so preparation installed nothing there.
   git(checkout, "worktree", "add", "-q", "--detach", old, "main~1");
   prepared(old);
   await Bun.write(`${old}/node_modules/pkg/index.js`, "x\n", { createPath: true });
   const outcome = await cleanWorktree({ paths, checkout, worktree: old, branch: null });
-  expect(outcome).toMatchObject({ state: "kept" });
-  expect(outcome.detail).toContain("ignored node_modules");
-  expect(await Bun.file(`${old}/node_modules/pkg/index.js`).exists()).toBe(true);
+  expect(outcome).toMatchObject({ state: "removed" });
+  expect(await Bun.file(`${old}/node_modules/pkg/index.js`).exists()).toBe(false);
 });
 
-test("an unprepared worktree keeps its ignored files", async () => {
+test("an unprepared worktree ignores build and dependency output", async () => {
   const plain = `${root}/plain-worktree`;
   git(checkout, "worktree", "add", "-q", "--detach", plain, "main");
   await Bun.write(`${plain}/node_modules/pkg/index.js`, "x\n", { createPath: true });
   const outcome = await cleanWorktree({ paths, checkout, worktree: plain, branch: null });
-  expect(outcome).toMatchObject({ state: "kept" });
-  expect(outcome.detail).toContain("ignored node_modules");
+  expect(outcome).toMatchObject({ state: "removed" });
 });
 
 function detached() {
@@ -203,7 +196,7 @@ test("a recorded branch that is already gone is not inspected, and its deletion 
   expect(await Bun.file(`${worktree}/.gitignore`).exists()).toBe(false);
 });
 
-test("ignored files are prepared inputs only as unchanged local environment copies", async () => {
+test("ignored files stay only when environment content differs from the controller", async () => {
   for (const file of [".env.development.local", ".env.local.bak", "x.env.local", "build.log"]) {
     await Bun.write(`${checkout}/${file}`, "same\n");
     await Bun.write(`${worktree}/${file}`, "same\n");
@@ -216,7 +209,7 @@ test("ignored files are prepared inputs only as unchanged local environment copi
   await Bun.write(`${worktree}/pkg/dist/out.js`, "x\n", { createPath: true });
   expect(await cleanWorktree({ paths, checkout, worktree, branch: "task/read" })).toEqual({
     state: "kept",
-    detail: `Kept worktree ${worktree}, because it holds ignored .env.local.bak, ignored .env.test.local, ignored build.log, ignored pkg/dist, ignored x.env.local. Only the person can authorize its deletion.`,
+    detail: `Kept worktree ${worktree}, because it holds ignored .env.test.local. Only the person can authorize its deletion.`,
   });
 });
 

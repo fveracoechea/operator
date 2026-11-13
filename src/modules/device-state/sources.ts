@@ -261,6 +261,8 @@ export type EndFacts = {
     abandoned: boolean;
     paneId: string | null;
     herdrSocket: string | null;
+    resources: string;
+    worktreePath: string | null;
   }[];
   cleanups: { state: string }[];
   reports: { decision: string | null; cleanupState: string | null }[];
@@ -275,6 +277,7 @@ function endFacts(db: Db, source: SourceRow): EndFacts {
       .select()
       .from(launches)
       .where(eq(launches.sourceId, source.id))
+      .orderBy(asc(launches.attempt))
       .all()
       .map((launch) => ({
         id: launch.id,
@@ -284,6 +287,8 @@ function endFacts(db: Db, source: SourceRow): EndFacts {
         abandoned: launch.state === "starting" && ownerGone(launch, now),
         paneId: launch.paneId,
         herdrSocket: launch.herdrSocket,
+        resources: launch.resources,
+        worktreePath: launch.worktreePath,
       })),
     cleanups: db
       .select({ state: cleanups.state })
@@ -304,6 +309,50 @@ export type RetainedResource = {
   branch: string | null;
   pullRequest: string | null;
 };
+
+/** Apply lifecycle observations under the same writer reservation as dispatch and reset. */
+export function endAssignments<E extends { reason: string; detail: string }>(
+  client: Database,
+  target: ControlledSource,
+  decide: (facts: EndFacts) => Result<{ abandon: string[]; interrupted: string[] }, E>,
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      controlledSource(db, target).flatMap((source) =>
+        decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
+          const endedAt = new Date().toISOString();
+          db.update(launches)
+            .set({
+              state: "interrupted",
+              endedAt,
+              failureReason: "pane_missing",
+              failureDetail:
+                "Herdr confirmed that the worker pane and named agent no longer exist.",
+            })
+            .where(
+              and(
+                eq(launches.sourceId, source.id),
+                eq(launches.state, "running"),
+                inArray(launches.id, interrupted),
+              ),
+            )
+            .run();
+          db.update(assignments)
+            .set({ state: "abandoned" })
+            .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
+            .run();
+          abandonConversations(db, source.id, abandon);
+          return {
+            ended: abandon,
+            retained: retainedResources(db, source.id).filter((row) =>
+              abandon.includes(row.assignment),
+            ),
+          };
+        }),
+      ),
+    ),
+  );
+}
 
 /**
  * The project work that ending a source leaves: each recorded worktree that still exists, and each

@@ -1,6 +1,6 @@
 import { isCodedError, type CodedError } from "../../lib/coded-error.ts";
-// Bun has no realpath API.
-import { realpath } from "node:fs/promises";
+// Bun has no realpath or file metadata API.
+import { lstat, realpath } from "node:fs/promises";
 import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
@@ -164,6 +164,11 @@ function prepareProject(
 }
 
 async function sameFile(first: string, second: string) {
+  const [firstInfo, secondInfo] = await Promise.all([
+    lstat(first).catch(() => null),
+    lstat(second).catch(() => null),
+  ]);
+  if (!firstInfo?.isFile() || !secondInfo?.isFile()) return false;
   const [a, b] = [Bun.file(first), Bun.file(second)];
   if (!(await a.exists()) || !(await b.exists())) return false;
   return Bun.deepEquals(await a.bytes(), await b.bytes());
@@ -212,6 +217,33 @@ function classify(input: {
 
 /** Prepares every new worktree of a registered project, whoever created it. */
 export const WorktreePreparation = {
+  /** Ignored output is disposable; only environment files differing from the controller stay. */
+  changedIgnoredEnvironment(input: { worktree: string; controller: string }) {
+    return fromPromise(
+      async () => {
+        const listed = await git(input.worktree, [
+          "ls-files",
+          "--others",
+          "--ignored",
+          "--exclude-standard",
+          "-z",
+          "--",
+          ":(glob)**/.env",
+          ":(glob)**/.env.*",
+          ":(glob)**/*.env",
+          ":(glob)**/*.env.*",
+        ]);
+        if (listed === null) return null;
+        const changed: string[] = [];
+        for (const file of listed.split("\0").filter((file) => file !== "")) {
+          if (!(await sameFile(`${input.worktree}/${file}`, `${input.controller}/${file}`)))
+            changed.push(file);
+        }
+        return changed;
+      },
+      (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
+    );
+  },
   prepare(input: { paths: Paths; worktree: string }) {
     return DoAsync()
       .bind("worktree", () =>

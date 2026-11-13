@@ -158,11 +158,7 @@ async function recordedCheckout(real: string, checkout: string) {
 }
 
 /** Identity first, then every change, untracked file, ignored entry, and unlanded commit. */
-async function inspect(
-  paths: Paths,
-  facts: Claimed,
-  personInstructed: boolean,
-): Promise<Inspection> {
+async function inspect(facts: Claimed, personInstructed: boolean): Promise<Inspection> {
   const { launch, pullRequest, checkout } = facts;
   const base = {
     path: launch.worktreePath,
@@ -215,14 +211,14 @@ async function inspect(
       },
     };
   const entries = statusEntries(status.stdout);
-  const ignored = entries.filter((entry) => entry.code === "!!").map((entry) => entry.path);
-  const classified = await WorktreePreparation.classifyIgnored({
-    paths,
+  const classified = await WorktreePreparation.changedIgnoredEnvironment({
     worktree: real,
     controller: checkout,
-    ignored,
   });
-  const unknownIgnored = classified.tag === "Ok" ? classified.value.unknown : ignored;
+  const unknownIgnored =
+    classified.tag === "Ok" && classified.value !== null
+      ? classified.value
+      : ["environment files could not be inspected"];
   return {
     real,
     head,
@@ -289,12 +285,8 @@ async function forgetWorktree(facts: Claimed) {
   return deleted ? "absent" : "absent, local branch kept";
 }
 
-async function worktreeStep(
-  paths: Paths,
-  facts: Claimed,
-  personInstructed: boolean,
-): Promise<StepResult> {
-  const inspection = await inspect(paths, facts, personInstructed);
+async function worktreeStep(facts: Claimed, personInstructed: boolean): Promise<StepResult> {
+  const inspection = await inspect(facts, personInstructed);
   // Stryker disable next-line ConditionalExpression: equivalent: only a skip decision has an outcome, so the outcome check alone selects the same decisions
   if (inspection.decision.action === "skip" && inspection.decision.outcome === "absent")
     return { done: true, outcome: await forgetWorktree(facts) };
@@ -316,10 +308,10 @@ async function worktreeStep(
   return { done: true, outcome: deleted ? "removed" : "removed, local branch kept" };
 }
 
-function runStep(step: CleanupStep, paths: Paths, facts: Claimed, personInstructed: boolean) {
+function runStep(step: CleanupStep, facts: Claimed, personInstructed: boolean) {
   if (step === "remote_branch") return remoteStep(facts, personInstructed);
   if (step === "pane") return paneStep(facts);
-  return worktreeStep(paths, facts, personInstructed);
+  return worktreeStep(facts, personInstructed);
 }
 
 /** Runs the remaining steps in the declared order and stops at the first failure. */
@@ -330,12 +322,7 @@ async function steps(request: Request, facts: Claimed) {
   const authorized = facts.cleanup.state === "blocked" ? facts.cleanup.step : null;
   // A cleanup without a recorded step has nothing left to run.
   for (const step of first === -1 ? [] : cleanupSteps.slice(first)) {
-    const result = await runStep(
-      step,
-      request.paths,
-      facts,
-      request.personInstructed && step === authorized,
-    );
+    const result = await runStep(step, facts, request.personInstructed && step === authorized);
     if (!result.done) {
       return DeviceState.advanceCleanup(request.paths, request.sourceId, request.assignment, {
         step,

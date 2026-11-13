@@ -17,6 +17,7 @@ import {
   registerSource,
   readSources,
   resetSource,
+  endAssignments,
   pruneSource,
   type StoredSource,
   type Supervisor,
@@ -438,6 +439,14 @@ export const DeviceState = {
     decide: Parameters<typeof resetSource<E>>[2],
   ) {
     return writing(paths, (client) => resetSource(client, target, decide));
+  },
+  /** Delete one ended source's files and records when the caller's rule permits it. */
+  endAssignments<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: Parameters<typeof endAssignments>[1],
+    decide: Parameters<typeof endAssignments<E>>[2],
+  ) {
+    return writing(paths, (client) => endAssignments(client, target, decide));
   },
   /** Delete one ended source's files and records when the caller's rule permits it. */
   pruneSource(

@@ -444,7 +444,7 @@ test("unlanded work blocks the removal until the person instructs a forced remov
   git(owner.worktree, "mv", "README.md", "moved.md");
   await Bun.write(`${device.checkout}/.git/info/exclude`, "*.log\n");
   await Bun.write(`${owner.worktree}/debug.log`, "log\n");
-  const detail = `${owner.worktree} holds commits that are not in the merged head; changed or untracked moved.md, a; ignored content that preparation did not write: debug.log. ${person}`;
+  const detail = `${owner.worktree} holds commits that are not in the merged head; changed or untracked moved.md, a. ${person}`;
   expect<unknown>(await cleanup(owner.request)).toEqual(
     blocked(device, "cleanup_unlanded_work", detail),
   );
@@ -457,28 +457,15 @@ test("unlanded work blocks the removal until the person instructs a forced remov
   expect(branches(device)).toBe("");
 });
 
-test("ignored preparation output does not block the removal", async () => {
+test("ignored output does not block the removal without preparation evidence", async () => {
   const owner = await mergedOwner();
   await using device = owner.device;
   await Bun.write(`${device.checkout}/.git/info/exclude`, "*.log\n");
   await Bun.write(`${owner.worktree}/debug.log`, "log\n");
-  const classify = spyOn(WorktreePreparation, "classifyIgnored").mockReturnValue(
-    OkAsync({ generated: ["debug.log"], unknown: [] }),
-  );
   expect<unknown>(await cleanup(owner.request)).toMatchObject({
     tag: "Ok",
     value: { data: data(device, allSteps) },
   });
-  expect(classify.mock.calls).toEqual([
-    [
-      {
-        paths: device.paths,
-        worktree: owner.worktree,
-        controller: device.checkout,
-        ignored: ["debug.log"],
-      },
-    ],
-  ]);
 });
 
 /**
@@ -523,33 +510,30 @@ test("ignored files that the preparation install wrote do not block the removal"
   expect<unknown>(await Bun.file(`${owner.worktree}/.husky/_/h`).exists()).toBe(false);
 });
 
-test("a changed or new file beside the install output blocks the removal", async () => {
+test("changed and new ignored install output does not block removal", async () => {
   const owner = await hookOwner();
   await using device = owner.device;
   await Bun.write(`${owner.worktree}/.husky/_/h`, "changed\n");
   await Bun.write(`${owner.worktree}/.husky/_/notes`, "mine\n");
-  expect<unknown>(await cleanup(owner.request)).toEqual(
-    blocked(
-      device,
-      "cleanup_unlanded_work",
-      `${owner.worktree} holds ignored content that preparation did not write: .husky/_/h, .husky/_/notes. ${person}`,
-    ),
-  );
+  expect<unknown>(await cleanup(owner.request)).toMatchObject({
+    tag: "Ok",
+    value: { data: data(device, allSteps) },
+  });
 });
 
-test("an ignored entry that preparation cannot classify is unknown", async () => {
+test("an environment inspection failure blocks cleanup", async () => {
   const owner = await mergedOwner();
   await using device = owner.device;
   await Bun.write(`${device.checkout}/.git/info/exclude`, "*.log\n");
   await Bun.write(`${owner.worktree}/debug.log`, "log\n");
-  spyOn(WorktreePreparation, "classifyIgnored").mockReturnValue(
-    ErrAsync({ reason: "state_busy" as const, detail: "busy" }),
+  spyOn(WorktreePreparation, "changedIgnoredEnvironment").mockReturnValue(
+    ErrAsync({ reason: "preparation_io_failed" as const, detail: "busy" }),
   );
   expect<unknown>(await cleanup(owner.request)).toEqual(
     blocked(
       device,
       "cleanup_unlanded_work",
-      `${owner.worktree} holds ignored content that preparation did not write: debug.log. ${person}`,
+      `${owner.worktree} holds ignored content that preparation did not write: environment files could not be inspected. ${person}`,
     ),
   );
 });

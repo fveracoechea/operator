@@ -1,6 +1,7 @@
 import {
   all,
   fromPromise,
+  fromSafePromise,
   fromThrowable,
   Ok,
   Err,
@@ -43,6 +44,9 @@ import {
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 import { missingWorkers } from "./missing-workers.ts";
+// Bun has no synchronous directory metadata API.
+import { lstatSync } from "node:fs";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
@@ -151,22 +155,87 @@ function readProject(input: Input & { sourceId?: string }) {
 }
 
 function readSources(input: Input & { sourceId?: string }, repository: string) {
-  return DeviceState.readSources(input.paths, repository, input.sourceId).flatMap((rows) =>
-    fromThrowable(
-      () => rows.map(decodeSource),
-      (cause, defect) =>
-        cause instanceof z.ZodError || cause instanceof SyntaxError
-          ? {
-              reason: "state_corrupt" as const,
-              detail: "Stored source records are invalid. They were not repaired.",
-            }
-          : defect(cause),
-    )(),
-  );
+  return DeviceState.readSources(input.paths, repository, input.sourceId).flatMap(decodeRows);
+}
+
+function decodeRows(rows: import("unthrown").OkOf<ReturnType<typeof DeviceState.readSources>>) {
+  return fromThrowable(
+    () => rows.map(decodeSource),
+    (cause, defect) =>
+      cause instanceof z.ZodError || cause instanceof SyntaxError
+        ? {
+            reason: "state_corrupt" as const,
+            detail: "Stored source records are invalid. They were not repaired.",
+          }
+        : defect(cause),
+  )();
 }
 
 function read(input: Input & { sourceId?: string }) {
   return readProject(input).map(({ sources }) => sources);
+}
+
+function observedSources(input: Input & { sourceId?: string }, repository: string) {
+  return DeviceState.readSources(input.paths, repository, input.sourceId)
+    .flatMap((rows) => decodeRows(rows).map((decoded) => ({ rows, decoded })))
+    .toAsync()
+    .flatMap(({ rows, decoded }) =>
+      missingWorkers(
+        rows.flatMap((row) =>
+          row.launches.filter((launch) =>
+            row.assignments.some(
+              (assignment) =>
+                assignment.key === launch.assignment &&
+                !["ready", "merged", "completed", "abandoned"].includes(assignment.state),
+            ),
+          ),
+        ),
+        true,
+      ).flatMap((isMissing) => {
+        const changed = rows.filter((row) => row.launches.some(isMissing));
+        if (changed.length === 0) return Ok(decoded);
+        return DeviceState.listProjects(input.paths)
+          .flatMap(({ projects }) =>
+            all(
+              changed.map(({ source }) =>
+                DeviceState.endAssignments(
+                  input.paths,
+                  {
+                    repository,
+                    checkout:
+                      projects.find((project) => project.repository === repository)?.checkout ?? "",
+                    sourceId: source.id,
+                  },
+                  (facts) => {
+                    const interrupted = facts.launches
+                      .filter((launch) => launch.state === "running" && isMissing(launch))
+                      .map((launch) => launch.id);
+                    const abandon = facts.assignments
+                      .filter((assignment) => {
+                        if (
+                          ["ready", "merged", "completed", "abandoned"].includes(assignment.state)
+                        )
+                          return false;
+                        const launch = facts.launches.findLast(
+                          (row) => row.assignment === assignment.key,
+                        );
+                        if (launch === undefined || !isMissing(launch)) return false;
+                        return (
+                          (launch.resources === "pane" && isMissing(launch)) ||
+                          (launch.worktreePath !== null &&
+                            lstatSync(launch.worktreePath, { throwIfNoEntry: false }) === undefined)
+                        );
+                      })
+                      .map((assignment) => assignment.key);
+                    return Ok({ abandon, interrupted });
+                  },
+                ),
+              ),
+            ),
+          )
+          .flatMap(() => readSources(input, repository));
+      }),
+    );
 }
 
 // A start whose dispatching process stopped is abandoned, so it holds nothing.
@@ -258,6 +327,53 @@ function registerPlan(input: Input, supply: () => Promise<object>) {
 
 /** Plans are supplied by the SuperAgent. No operation reads or updates a tracker. */
 export const WorkSources = {
+  /** End one assignment without deleting a resource or closing its PR. */
+  abandon(input: Input & { sourceId: string; assignment: string }) {
+    return Projects.current(input).flatMap(({ data: project }) =>
+      DeviceState.endAssignments(
+        input.paths,
+        {
+          repository: project.repository,
+          checkout: project.checkout,
+          sourceId: input.sourceId,
+        },
+        (
+          facts,
+        ): Result<
+          { abandon: string[]; interrupted: string[] },
+          ResultContext & { reason: "assignment_not_found" | "assignment_ended"; detail: string }
+        > => {
+          const current = facts.assignments.find((row) => row.key === input.assignment);
+          if (current === undefined)
+            return Err({
+              reason: "assignment_not_found" as const,
+              detail: "The assignment does not exist in this source. Nothing changed.",
+              next: {
+                command: `operator source show --source ${input.sourceId}`,
+                why: "Read the registered assignments.",
+              },
+              state: { assignment: input.assignment },
+            });
+          if (["merged", "completed", "abandoned"].includes(current.state))
+            return Err({
+              reason: "assignment_ended" as const,
+              detail: "The assignment already ended. Nothing changed.",
+              next: { why: "Nothing is left to abandon." },
+              state: { found: current.state },
+            });
+          return Ok({ abandon: [input.assignment], interrupted: [] });
+        },
+      ).map((result) => ({
+        sourceId: input.sourceId,
+        assignment: input.assignment,
+        ...result,
+        next: {
+          command: `operator next --source ${input.sourceId}`,
+          why: "Read the remaining work and retained resources.",
+        },
+      })),
+    );
+  },
   register(input: Input & { file: string }) {
     return registerPlan(input, () => Bun.file(input.file).json());
   },
@@ -452,10 +568,12 @@ export const WorkSources = {
   },
   /** The next answer. Without `all`, an ended source shows only what it still needs. */
   next(input: Input & { sourceId?: string; all?: boolean }) {
-    return read(input).map((sources) => {
-      const answer = nextAnswer(input, sources);
-      return input.all === true ? answer : withoutEnded(answer);
-    });
+    return Projects.current(input)
+      .flatMap(({ data: project }) => observedSources(input, project.repository))
+      .map((sources) => {
+        const answer = nextAnswer(input, sources);
+        return input.all === true ? answer : withoutEnded(answer);
+      });
   },
   /**
    * Block until an action appears that the scope's waits have not returned, or until the timeout
@@ -590,6 +708,7 @@ type CoordinationScope = Parameters<typeof DeviceState.startCoordinationWait>[1]
 // The watch recurses, so it names the closed failures of the reads and the records it repeats.
 type WatchFailure =
   | ErrOf<ReturnType<typeof readSources>>
+  | import("unthrown").AsyncErrOf<ReturnType<typeof observedSources>>
   | ErrOf<ReturnType<typeof DeviceState.finishCoordinationWait>>;
 type Answer = { sources: (ReturnType<typeof nextActions> & { repository: string })[] };
 type WatchOutcome = {
@@ -670,17 +789,21 @@ function scopeAnswer(
             ),
           })),
         );
-  return projects.flatMap((list) =>
-    all(
-      list.map((project) =>
-        readSources(input, project.repository).map((sources) =>
-          nextAnswer(
-            input,
-            sources.filter((source) => project.ids?.has(source.id) ?? true),
-          ).sources.map((source) => ({ ...source, repository: project.repository })),
+  return projects.toAsync().flatMap((list) =>
+    fromSafePromise(
+      Promise.all(
+        list.map((project) =>
+          observedSources(input, project.repository).map((sources) =>
+            nextAnswer(
+              input,
+              sources.filter((source) => project.ids?.has(source.id) ?? true),
+            ).sources.map((source) => ({ ...source, repository: project.repository })),
+          ),
         ),
       ),
-    ).map((lists) => ({ sources: lists.flat() })),
+    )
+      .flatMap((results) => all(results))
+      .map((lists) => ({ sources: lists.flat() })),
   );
 }
 
@@ -696,19 +819,21 @@ function watchActions(
   deadline: number,
 ): AsyncResult<WatchOutcome, WatchFailure> {
   // The stored set is read before the actions, so an acknowledged change is already visible.
-  const read = DeviceState.readCoordinationWait(input.paths, target).flatMap((stored) =>
-    scopeAnswer(input, target.repository).flatMap((answer) => {
-      const set = parseSet(stored);
-      const current = actionKeys(answer);
-      const removed = [...(set ?? [])].filter((key) => !current.has(key));
-      const dropped =
-        removed.length === 0
-          ? Ok(undefined)
-          : DeviceState.changeCoordinationWait(input.paths, target, dropKeys(removed)).discard();
-      return dropped.map(() => ({ stored: set, answer, current }));
-    }),
-  );
-  return read.toAsync().flatMap(({ stored, answer, current }) => {
+  const read = DeviceState.readCoordinationWait(input.paths, target)
+    .toAsync()
+    .flatMap((stored) =>
+      scopeAnswer(input, target.repository).flatMap((answer) => {
+        const set = parseSet(stored);
+        const current = actionKeys(answer);
+        const removed = [...(set ?? [])].filter((key) => !current.has(key));
+        const dropped =
+          removed.length === 0
+            ? Ok(undefined)
+            : DeviceState.changeCoordinationWait(input.paths, target, dropKeys(removed)).discard();
+        return dropped.map(() => ({ stored: set, answer, current }));
+      }),
+    );
+  return read.flatMap(({ stored, answer, current }) => {
     const now = Date.now();
     // A scope that never returned a set returns at once with every action. It records the end of
     // each ended source without returning it, so a first session wait carries no old ends.
@@ -873,22 +998,33 @@ function decideAssignmentRow(
   const report = source.reports.findLast((row) => row.assignment === assignment.key);
   const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
   const review = source.internalReviews.find((row) => row.assignment === assignment.key);
-  const decision = decideAssignment({
-    assignment: current,
-    dependencies,
-    // A start whose dispatching process stopped can be replaced.
-    launch: launch?.abandoned === true ? "abandoned" : launch?.state,
-    ...pullRequestFacts(pullRequest),
-    activity: launch?.activity,
-    report:
-      report === undefined
-        ? undefined
-        : { decision: report.decision, cleanup: report.cleanupState },
-    cleanup: cleanupFact(cleanup),
-    handoff: handoffFact(review),
-    reviewing: review?.state === "reviewing",
-    capReached: maxRunning !== undefined && running >= maxRunning,
-  });
+  const retained =
+    current.state === "abandoned" &&
+    source.state === "open" &&
+    source.launches.some(
+      (row) =>
+        row.assignment === assignment.key &&
+        row.worktreePath !== null &&
+        lstatSync(row.worktreePath, { throwIfNoEntry: false }) !== undefined,
+    );
+  const decision = retained
+    ? { action: "person_decision" as const, reason: "cleanup_unlanded_work" as const, blockers: [] }
+    : decideAssignment({
+        assignment: current,
+        dependencies,
+        // A start whose dispatching process stopped can be replaced.
+        launch: launch?.abandoned === true ? "abandoned" : launch?.state,
+        ...pullRequestFacts(pullRequest),
+        activity: launch?.activity,
+        report:
+          report === undefined
+            ? undefined
+            : { decision: report.decision, cleanup: report.cleanupState },
+        cleanup: cleanupFact(cleanup),
+        handoff: handoffFact(review),
+        reviewing: review?.state === "reviewing",
+        capReached: maxRunning !== undefined && running >= maxRunning,
+      });
   const cap =
     decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
   return described(
@@ -978,7 +1114,12 @@ function nextActions(input: Input, source: Source, now: number) {
     id: source.id,
     state: source.state,
     actions: decisions.filter(
-      (decision) => decision.action !== "wait" && decision.action !== "ended",
+      (decision) =>
+        decision.action !== "wait" &&
+        (decision.action !== "ended" ||
+          source.assignments.some(
+            (row) => row.key === decision.assignment && row.state === "abandoned",
+          )),
     ),
     waits: decisions.filter((decision) => decision.action === "wait"),
     owed: owed(source.obligations),
