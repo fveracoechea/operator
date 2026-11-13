@@ -211,28 +211,49 @@ test.each([
   30000,
 );
 
-test("a deliberate widening of the readiness failure contract fails typechecking", async () => {
-  const file = `${root}/src/modules/readiness/main.ts`;
-  const original = await Bun.file(file).text();
-  const before = 'reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";';
-  expect(original).toContain(before);
-  try {
-    await Bun.write(file, original.replace(before, "reason: string;"));
-    const child = Bun.spawn([process.execPath, "run", "typecheck"], {
-      cwd: root,
-      env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [code, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-    expect(code, `${stdout}${stderr}`).toBe(1);
-    expect(`${stdout}${stderr}`).toContain("src/modules/readiness/main.test.ts");
-    expect(`${stdout}${stderr}`).toContain("TS2554");
-  } finally {
-    await Bun.write(file, original);
-  }
-}, 30000);
+test.each([false, true])(
+  "a deliberate widening of the readiness failure contract fails typechecking (outer Stryker preamble: %p)",
+  async (outerStrykerPreamble) => {
+    const file = `${root}/src/modules/readiness/main.ts`;
+    const original = await Bun.file(file).text();
+    const assertions = `${root}/src/modules/readiness/main.test.ts`;
+    const originalAssertions = await Bun.file(assertions).text();
+    const preamble = "// @ts-nocheck\n";
+    const before =
+      'reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";';
+    expect(original).toContain(before);
+    async function typecheck() {
+      const child = Bun.spawn([process.execPath, "run", "typecheck"], {
+        cwd: root,
+        env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      return { code, diagnostic: `${stdout}${stderr}` };
+    }
+    try {
+      if (outerStrykerPreamble && !originalAssertions.startsWith(preamble))
+        await Bun.write(assertions, `${preamble}${originalAssertions}`);
+      // The nested proof must typecheck its assertion file, even in an outer Stryker copy.
+      const copiedAssertions = await Bun.file(assertions).text();
+      if (copiedAssertions.startsWith(preamble))
+        await Bun.write(assertions, copiedAssertions.slice(preamble.length));
+      const baseline = await typecheck();
+      expect(baseline.code, baseline.diagnostic).toBe(0);
+      await Bun.write(file, original.replace(before, "reason: string;"));
+      const widened = await typecheck();
+      expect(widened.code, widened.diagnostic).toBe(1);
+      expect(widened.diagnostic).toContain("src/modules/readiness/main.test.ts");
+      expect(widened.diagnostic).toContain("TS2554");
+    } finally {
+      await Bun.write(file, original);
+      await Bun.write(assertions, originalAssertions);
+    }
+  },
+  30000,
+);
