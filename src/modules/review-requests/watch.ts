@@ -37,7 +37,10 @@ export function rows(paths: Paths, listed: Snapshot[]) {
     const request = row.request;
     if (request === null) return [];
     const step = reviewAction(request, row.ownerActive);
-    const commands: Record<string, string> = {
+    const commands: Record<
+      Extract<ReturnType<typeof reviewAction>, { kind: "action" }>["action"],
+      string
+    > = {
       start_reviewer: `operator review start ${request.url}`,
       replace_reviewer: `operator review start ${request.url}`,
       post_review: `operator review post ${request.url}`,
@@ -46,7 +49,7 @@ export function rows(paths: Paths, listed: Snapshot[]) {
     };
     const next: NextStep =
       step.kind === "action"
-        ? { command: commands[step.action] ?? "operator review next", why: step.reason }
+        ? { command: commands[step.action], why: step.reason }
         : step.kind === "attention"
           ? {
               decider: step.reason === "reviewer_work_kept" ? "person" : "super-agent",
