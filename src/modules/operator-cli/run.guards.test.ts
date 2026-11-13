@@ -19,6 +19,38 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "next metadata transport",
+    file: "src/modules/operator-cli/output.ts",
+    before: "next: context.next,",
+    after: "next: undefined,",
+    testFile: "src/modules/operator-cli/run.sources.test.ts",
+    pattern: "every refusal carries reason",
+  },
+  {
+    name: "checked-state transport",
+    file: "src/modules/operator-cli/output.ts",
+    before: "state: context.state,",
+    after: "state: undefined,",
+    testFile: "src/modules/operator-cli/run.sources.test.ts",
+    pattern: "every refusal carries reason",
+  },
+  {
+    name: "three-line refusal output",
+    file: "src/modules/operator-cli/output.ts",
+    before: 'return text.replaceAll(/[\\r\\n\\u2028\\u2029]+/g, " ");',
+    after: "return text;",
+    testFile: "src/modules/operator-cli/run.result-context.test.ts",
+    pattern: "CLI renders a refusal next step",
+  },
+  {
+    name: "row command agreement",
+    file: "src/modules/operator-cli/next.ts",
+    before: "described.command = next.command;",
+    after: 'described.command = "operator incorrect";',
+    testFile: "src/modules/operator-cli/run.sources.test.ts",
+    pattern: "every next-action row carries next",
+  },
+  {
     name: "immediate writer",
     file: "src/modules/device-state/database.ts",
     before: 'client.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");',
