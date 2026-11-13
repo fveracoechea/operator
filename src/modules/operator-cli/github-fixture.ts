@@ -19,6 +19,7 @@
  */
 export function fakeGithubScript(root: string) {
   return `#!${process.execPath}
+import { writeFile } from ${JSON.stringify(Bun.fileURLToPath(new URL("../../lib/write-file.ts", import.meta.url)))};
 const root = ${JSON.stringify(root)};
 const stateFile = root + "/github.json";
 const args = process.argv.slice(2);
@@ -26,6 +27,8 @@ const log = root + "/gh-calls.jsonl";
 await Bun.write(log, (await Bun.file(log).exists() ? await Bun.file(log).text() : "") + JSON.stringify(args) + "\\n");
 if (args[0] === "auth") process.exit(0);
 const state = await Bun.file(stateFile).exists() ? await Bun.file(stateFile).json() : {};
+// Publish a whole fixture snapshot so concurrent commands never parse a truncated JSON file.
+const save = () => writeFile(stateFile, new TextEncoder().encode(JSON.stringify(state)));
 state.pulls ??= []; state.queue ??= [];
 const field = (name) => { const entry = args.find((arg, index) => ["-f", "-F"].includes(args[index - 1]) && arg.startsWith(name + "=")); return entry?.slice(name.length + 1); };
 const answer = (body) => { console.log("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n" + JSON.stringify(body)); };
@@ -61,7 +64,7 @@ if (path?.includes("/merge-async")) {
       status(200, "OK", merged(pr));
     }
   }
-  await Bun.write(stateFile, JSON.stringify(state));
+  await save();
   process.exit(0);
 }
 if (path?.includes("/pulls/") && method === "PUT") {
@@ -75,7 +78,7 @@ if (path?.includes("/pulls/") && method === "PUT") {
     if (state.mergeLost) status(502, "Bad Gateway", { message: "upstream fault" });
     else status(200, "OK", { merged: true, sha: pr.mergeCommit });
   }
-  await Bun.write(stateFile, JSON.stringify(state));
+  await save();
   process.exit(0);
 }
 if (path?.includes("/git/ref")) {
@@ -88,7 +91,7 @@ if (path?.includes("/git/ref")) {
     else { delete state.branches[branch]; status(204, "No Content"); }
   } else if (state.branches[branch] === undefined) status(404, "Not Found", { message: "Not Found" });
   else status(200, "OK", { ref: "refs/heads/" + branch, object: { sha: state.branches[branch] } });
-  await Bun.write(stateFile, JSON.stringify(state));
+  await save();
   process.exit(0);
 }
 const query = field("query") ?? "";
@@ -101,12 +104,12 @@ if (reviewsPath) {
   const payload = JSON.parse(await Bun.stdin.text());
   const pr = state.pulls.find((row) => row.number === Number(reviewsPath.split("/")[4]));
   state.posted ??= [];
-  if (state.postFail) { await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 422 Unprocessable Entity\\r\\n\\r\\n" + JSON.stringify({ message: state.postFail })); process.exit(1); }
+  if (state.postFail) { await save(); console.log("HTTP/2.0 422 Unprocessable Entity\\r\\n\\r\\n" + JSON.stringify({ message: state.postFail })); process.exit(1); }
   const id = "review-" + (state.posted.length + 1);
   state.posted.push({ id, number: pr.number, ...payload });
   pr.reviews = [...(pr.reviews ?? []), { id, state: payload.event, body: payload.body, author: state.viewer ?? "owner" }];
-  await Bun.write(stateFile, JSON.stringify(state));
-  if (state.postUncertain) { state.postUncertain = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  await save();
+  if (state.postUncertain) { state.postUncertain = false; await save(); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
   // A failed test removes its root, which also ends the hold.
   if (state.postHold) { await Bun.write(root + "/post-held", ""); while (!(await Bun.file(root + "/post-release").exists()) && (await Bun.file(stateFile).exists())) await Bun.sleep(20); }
   answer({ node_id: id, html_url: "https://github.com/r/" + id, state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[payload.event], commit_id: payload.commit_id });
@@ -121,8 +124,8 @@ if (commentsPath) {
   const id = "comment-" + (state.commented.length + 1);
   state.commented.push({ id, number: pr.number, body: payload.body });
   pr.comments = [...(pr.comments ?? []), { id, body: payload.body, author: state.viewer ?? "owner" }];
-  await Bun.write(stateFile, JSON.stringify(state));
-  if (state.commentLost) { state.commentLost = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  await save();
+  if (state.commentLost) { state.commentLost = false; await save(); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
   answer({ node_id: id, html_url: "https://github.com/c/" + id });
   process.exit(0);
 }
@@ -130,11 +133,11 @@ if (query.includes("addPullRequestReviewThreadReply") || query.includes("unresol
   // Thread writes: a reply appends a comment, and an unresolve reopens the thread.
   const thread = state.pulls.flatMap((row) => row.threads ?? []).find((row) => row.id === field("thread"));
   (state.threadCalls ??= []).push({ kind: query.includes("unresolve") ? "unresolve" : "reply", thread: field("thread"), body: field("body") });
-  if (state.threadFail || !thread) { await Bun.write(stateFile, JSON.stringify(state)); answer({ data: null, errors: [{ message: state.threadFail ?? "Could not resolve to a node." }] }); process.exit(0); }
+  if (state.threadFail || !thread) { await save(); answer({ data: null, errors: [{ message: state.threadFail ?? "Could not resolve to a node." }] }); process.exit(0); }
   if (query.includes("unresolve")) thread.resolved = false;
   else thread.comments.push({ id: "reply-" + state.threadCalls.length, author: state.viewer ?? "owner", body: field("body"), createdAt: new Date().toISOString() });
-  await Bun.write(stateFile, JSON.stringify(state));
-  if (state.threadLost) { state.threadLost = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  await save();
+  if (state.threadLost) { state.threadLost = false; await save(); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
   answer(query.includes("unresolve") ? { data: { unresolveReviewThread: { thread: { id: thread.id, isResolved: false } } } } : { data: { addPullRequestReviewThreadReply: { comment: { id: "reply-" + state.threadCalls.length } } } });
   process.exit(0);
 }
@@ -148,7 +151,7 @@ if (query.includes("files(first")) {
   }
   // Each review read first applies the next queued change, so a test scripts what waits observe.
   const change = (state.reviewQueue ??= []).shift();
-  if (change) { const index = state.pulls.findIndex((row) => row.number === Number(field("number"))); state.pulls[index] = { ...state.pulls[index], ...change }; await Bun.write(stateFile, JSON.stringify(state)); }
+  if (change) { const index = state.pulls.findIndex((row) => row.number === Number(field("number"))); state.pulls[index] = { ...state.pulls[index], ...change }; await save(); }
   const pr = state.pulls.find((row) => row.number === Number(field("number")));
   answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { pullRequest: pr === undefined ? null : {
     state: pr.state, headRefOid: pr.head ?? "head-1", author: author(pr.author ?? "author"),
@@ -168,7 +171,7 @@ if (args.includes("PATCH")) {
   const number = Number(args.find((arg) => arg.startsWith("repos/")).split("/").at(-1));
   const pr = state.pulls.find((row) => row.number === number);
   pr.baseRefName = field("base");
-  await Bun.write(stateFile, JSON.stringify(state));
+  await save();
   answer({ number, base: { ref: pr.baseRefName } });
 } else if (query.includes("pullRequests(")) {
   const branch = field("branch");
@@ -183,21 +186,21 @@ if (args.includes("PATCH")) {
   const comment = state.pulls.flatMap((row) => row.comments ?? []).find((row) => row.id === field("id"));
   comment.body = field("body");
   (state.updated ??= []).push({ id: comment.id, body: comment.body });
-  await Bun.write(stateFile, JSON.stringify(state));
+  await save();
   answer({ data: { updateIssueComment: { issueComment: { id: comment.id } } } });
 } else if (query.includes("markPullRequestReadyForReview")) {
   const pr = state.pulls.find((row) => "PR_" + row.number === field("id"));
   (state.readied ??= []).push(pr.number);
   pr.isDraft = false;
-  await Bun.write(stateFile, JSON.stringify(state));
-  if (state.readyLost) { state.readyLost = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  await save();
+  if (state.readyLost) { state.readyLost = false; await save(); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
   answer({ data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } });
 } else if (query.includes("RelayParent")) {
   const number = Number(field("number"));
   const index = state.pulls.findIndex((pr) => pr.number === number);
   const change = (state.parentQueue ??= []).shift();
   if (change) state.pulls[index] = { ...state.pulls[index], ...change };
-  await Bun.write(stateFile, JSON.stringify(state));
+  await save();
   const pr = state.pulls[index];
   answer({ data: { repository: { pullRequest: { state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefOid: headOf(pr) } } } });
 } else {
@@ -205,7 +208,7 @@ if (args.includes("PATCH")) {
   const index = state.pulls.findIndex((pr) => pr.number === number);
   const change = state.queue.shift();
   if (change) state.pulls[index] = { ...state.pulls[index], ...change };
-  await Bun.write(stateFile, JSON.stringify(state));
+  await save();
   const pr = state.pulls[index];
   answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: {
     state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), isDraft: pr.isDraft ?? false, reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,

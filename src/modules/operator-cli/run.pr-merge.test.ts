@@ -454,7 +454,11 @@ test("a lost merge answer and a concurrent merge are verified and recorded once"
   );
   expect(reasons.filter((reason) => reason === "pr_merged")).toHaveLength(1);
   for (const reason of reasons)
-    expect(reason).toBeOneOf(["pr_merged", "pr_merge_unchanged", "pr_owner_inactive"]);
+    expect(reason, JSON.stringify(both)).toBeOneOf([
+      "pr_merged",
+      "pr_merge_unchanged",
+      "pr_owner_inactive",
+    ]);
   await held("cleanup-held");
   expect(await exists(worker.worktreePath)).toBe(true);
   await Bun.write(`${root}/cleanup-release`, "");
