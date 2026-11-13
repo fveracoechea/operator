@@ -213,6 +213,69 @@ test("an unrelated retired role skill blocks installation without adoption or re
   expect(await Bun.file(`${root}/home/.claude/skills/super-agent/SKILL.md`).exists()).toBe(false);
 });
 
+test("an upgrade retires the unchanged managed Slack workflow on both hosts once", async () => {
+  const entries: Record<string, Record<string, string>> = {};
+  const text = "retired transport instructions\n";
+  const hosts = [`${root}/config/opencode/skills`, `${root}/home/.claude/skills`];
+  for (const host of hosts) {
+    const destination = `${host}/slack-pr-review-workflow`;
+    await Bun.write(`${destination}/SKILL.md`, text, { createPath: true });
+    entries[destination] = { "/": "directory", "SKILL.md": sha256(text) };
+  }
+  const ledger = `${root}/state/operator/owned-skills.json`;
+  await Bun.write(ledger, JSON.stringify({ version: 1, entries }), { createPath: true });
+  expect(await run(["--opencode", "--claude"])).toMatchObject({
+    code: 0,
+    output: { reason: "skills_installed" },
+  });
+  for (const host of hosts)
+    expect(await Bun.file(`${host}/slack-pr-review-workflow/SKILL.md`).exists()).toBe(false);
+  expect(await Bun.file(ledger).text()).not.toContain("slack-pr-review-workflow");
+  expect(await run(["--opencode", "--claude"])).toMatchObject({
+    code: 0,
+    output: { reason: "skills_already_installed" },
+  });
+});
+
+test.each(["modified", "unowned", "linked"])(
+  "an upgrade preserves a %s retired Slack workflow without changing either host",
+  async (kind) => {
+    const destination = `${root}/home/.claude/skills/slack-pr-review-workflow`;
+    const text = "retired transport instructions\n";
+    await Bun.write(`${destination}/SKILL.md`, text, { createPath: true });
+    const ledger = `${root}/state/operator/owned-skills.json`;
+    if (kind !== "unowned")
+      await Bun.write(
+        ledger,
+        JSON.stringify({
+          version: 1,
+          entries: { [destination]: { "/": "directory", "SKILL.md": sha256(text) } },
+        }),
+        { createPath: true },
+      );
+    if (kind === "modified") await Bun.write(`${destination}/SKILL.md`, "personal edit\n");
+    if (kind === "linked") {
+      await rm(`${destination}/SKILL.md`);
+      await Bun.write(`${root}/outside`, text);
+      await symlink(`${root}/outside`, `${destination}/SKILL.md`);
+    }
+    const before = (await Bun.file(ledger).exists()) ? await Bun.file(ledger).text() : null;
+    expect(await run(["--opencode", "--claude"])).toMatchObject({
+      code: 4,
+      output: { reason: "skill_copy_conflict" },
+    });
+    expect(await Bun.file(`${destination}/SKILL.md`).text()).toBe(
+      kind === "modified" ? "personal edit\n" : text,
+    );
+    expect((await lstat(`${destination}/SKILL.md`)).isSymbolicLink()).toBe(kind === "linked");
+    expect(await Bun.file(`${root}/config/opencode/skills/super-agent/SKILL.md`).exists()).toBe(
+      false,
+    );
+    expect((await Bun.file(ledger).exists()) ? await Bun.file(ledger).text() : null).toBe(before);
+    expect(await upstreamCalls(tools)).toEqual([]);
+  },
+);
+
 test("a prototype-named file conflicts in copy and check modes without changing either host", async () => {
   expect((await run(["--claude"])).code).toBe(0);
   const extra = `${root}/home/.claude/skills/bun/__proto__`;
