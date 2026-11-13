@@ -247,9 +247,14 @@ async function commit(worktree: string, file: string) {
   return git(worktree, "rev-parse", "HEAD");
 }
 
-async function findings(items: object[]) {
-  const file = `${root}/findings.json`;
-  await Bun.write(file, JSON.stringify({ findings: items }));
+async function findings(
+  items: { severity: string; axis: string; location: string; claim: string }[],
+) {
+  const file = `${root}/findings.md`;
+  await Bun.write(
+    file,
+    `## Findings\n${items.map((item) => `- ${item.severity}, ${item.axis}, ${item.location}: ${item.claim}`).join("\n")}\n`,
+  );
   return file;
 }
 
@@ -349,9 +354,17 @@ test("the reviewer records at most two rounds, the second at a newer head", asyn
       reviewer,
     ),
   ).toMatchObject({ code: 3, output: { reason: "internal_review_findings_invalid" } });
-  expect(
-    await run(["pr", "round", "--file", await findings([{ ...blocker, note: "extra" }])], reviewer),
-  ).toMatchObject({ code: 3, output: { reason: "internal_review_findings_invalid" } });
+  await Bun.write(`${root}/malformed.md`, "## Findings\n\n- blocker, Spec, a.ts:1\n");
+  const malformed = await run(["pr", "round", "--file", `${root}/malformed.md`], reviewer);
+  expect(malformed).toMatchObject({
+    code: 3,
+    output: {
+      reason: "internal_review_findings_invalid",
+      next: { command: "operator pr round --file <path|->" },
+    },
+  });
+  expect(malformed.stderr).toContain("Line 3");
+  expect(await entry(source)).toMatchObject({ internalReview: { rounds: [] } });
 
   const nit = { axis: "Skills", severity: "nice-to-have", location: "b.ts", claim: "Name it." };
   expect(

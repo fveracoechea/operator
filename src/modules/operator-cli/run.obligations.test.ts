@@ -36,13 +36,23 @@ async function owed() {
 
 test("an obligation stays in next until the SuperAgent closes it", async () => {
   const source = await device.register(plan);
-  const file = await device.writeJson("share.json", {
-    key: "share-12",
-    kind: "pr-share",
-    summary: "Share PR #12 in the team review thread.",
-    reference: "https://github.com/example/one/pull/12",
-  });
-  const added = await device.run(["obligation", "add", "--source", source, "--file", file]);
+  const file = `${device.root}/share.txt`;
+  await Bun.write(file, "Share PR #12 in the team review thread.");
+  const add = [
+    "obligation",
+    "add",
+    "--source",
+    source,
+    "--key",
+    "share-12",
+    "--kind",
+    "pr-share",
+    "--reference",
+    "https://github.com/example/one/pull/12",
+    "--file",
+    file,
+  ];
+  const added = await device.run(add);
   expect(added.code, added.stderr).toBe(0);
   expect(added.output).toMatchObject({
     operation: "obligation_add",
@@ -62,9 +72,7 @@ test("an obligation stays in next until the SuperAgent closes it", async () => {
   ]);
 
   // A retry of the same key adds nothing.
-  expect(await device.run(["obligation", "add", "--source", source, "--file", file])).toMatchObject(
-    { code: 4, output: { reason: "obligation_exists" } },
-  );
+  expect(await device.run(add)).toMatchObject({ code: 4, output: { reason: "obligation_exists" } });
 
   const closed = await device.run(["obligation", "close", "--source", source, "--key", "share-12"]);
   expect(closed.code, closed.stderr).toBe(0);
@@ -98,7 +106,18 @@ test("the ledger refuses invalid input, unknown keys, and unknown sources", asyn
     summary: "",
   });
   expect(
-    await device.run(["obligation", "add", "--source", source, "--file", invalid]),
+    await device.run([
+      "obligation",
+      "add",
+      "--source",
+      source,
+      "--key",
+      "rule",
+      "--kind",
+      "standing-rule",
+      "--file",
+      invalid,
+    ]),
   ).toMatchObject({ code: 2, output: { outcome: "invalid", reason: "invalid_obligation_input" } });
   expect(
     await device.run([
@@ -106,6 +125,10 @@ test("the ledger refuses invalid input, unknown keys, and unknown sources", asyn
       "add",
       "--source",
       source,
+      "--key",
+      "rule",
+      "--kind",
+      "standing-rule",
       "--file",
       `${device.root}/drafts/missing.json`,
     ]),
@@ -123,5 +146,53 @@ test("the ledger refuses invalid input, unknown keys, and unknown sources", asyn
   });
   expect(await device.run(["obligation", "list", "--source", source])).toMatchObject({
     output: { data: { obligations: [] } },
+  });
+});
+
+test("obligation add reads plain text from stdin and refuses JSON without writing", async () => {
+  const source = await device.register(plan);
+  const add = [
+    "obligation",
+    "add",
+    "--source",
+    source,
+    "--key",
+    "hold",
+    "--kind",
+    "merge-hold",
+    "--file",
+    "-",
+  ];
+  const invalid = await device.run(add, { stdin: '{"summary":"Hold it."}' });
+  expect(invalid).toMatchObject({
+    code: 2,
+    output: {
+      reason: "invalid_obligation_input",
+      next: {
+        command: "operator obligation add --source <id> --key <key> --kind <kind> --file <path|->",
+      },
+    },
+  });
+  expect(await owed()).toEqual([]);
+  for (const stdin of ["  \n", "x".repeat(2001), "[]"]) {
+    expect(await device.run(add, { stdin })).toMatchObject({
+      code: 2,
+      output: { reason: "invalid_obligation_input" },
+    });
+  }
+  expect(await owed()).toEqual([]);
+  const added = await device.run(add, {
+    stdin: "  Keep `main` on hold.\nUntil the person answers.\n",
+  });
+  expect(added).toMatchObject({
+    code: 0,
+    output: {
+      data: {
+        key: "hold",
+        kind: "merge-hold",
+        summary: "Keep `main` on hold.\nUntil the person answers.",
+        reference: null,
+      },
+    },
   });
 });

@@ -294,16 +294,38 @@ export const WorkSources = {
    * location, and a claim, and nothing else. ADR-0020.
    */
   parseFindings(text: string) {
-    return fromThrowable(
-      () => z.strictObject({ findings: z.array(findingSchema) }).parse(JSON.parse(text)).findings,
-      (cause, defect) =>
-        cause instanceof z.ZodError || cause instanceof SyntaxError
-          ? {
-              reason: "internal_review_findings_invalid" as const,
-              detail: `The findings file must hold JSON {"findings": [...]}, where each finding has only axis (Spec, Standards, or Skills), severity (blocker or nice-to-have), location, and claim. ${cause instanceof z.ZodError ? z.prettifyError(cause).replaceAll("\n", " ") : cause.message} Nothing was recorded.`,
-            }
-          : defect(cause),
-    )();
+    function invalid(line: number) {
+      return Err({
+        reason: "internal_review_findings_invalid" as const,
+        detail: `Line ${line}: expected ## Findings, then bullets '- <severity>, <axis>, <location>: <claim>'. Nothing was recorded.`,
+        next: {
+          command: "operator pr round --file <path|->",
+          why: "Correct the markdown findings and record the round again.",
+        },
+      });
+    }
+    const findings: z.infer<typeof findingSchema>[] = [];
+    let heading = false;
+    for (const [index, raw] of text.split(/\r?\n/).entries()) {
+      const line = raw.trim();
+      if (line === "") continue;
+      if (!heading) {
+        if (line !== "## Findings") return invalid(index + 1);
+        heading = true;
+        continue;
+      }
+      const match = /^- (blocker|nice-to-have), (Spec|Standards|Skills), (.+?):\s+(.+)$/.exec(line);
+      if (match === null) return invalid(index + 1);
+      const parsed = findingSchema.safeParse({
+        severity: match[1],
+        axis: match[2],
+        location: match[3],
+        claim: match[4],
+      });
+      if (!parsed.success) return invalid(index + 1);
+      findings.push(parsed.data);
+    }
+    return heading ? Ok(findings) : invalid(1);
   },
   /** The source state that follows from its assignment states, for writes that end work. */
   stateAfter(assignments: { key: string; completion: string; state: string }[]) {

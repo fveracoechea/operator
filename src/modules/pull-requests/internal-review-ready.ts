@@ -2,7 +2,8 @@ import {
   ErrAsync,
   OkAsync,
   fromPromise,
-  fromThrowable,
+  Err,
+  Ok,
   type AsyncOkOf,
   type AsyncResult,
 } from "unthrown";
@@ -30,23 +31,58 @@ const dispositionSchema = z.discriminatedUnion("disposition", [
     reason: z.string().trim().min(1),
   }),
 ]);
-const summarySchema = z.strictObject({
-  overview: z.string().trim().min(1),
-  dispositions: z.array(dispositionSchema),
-});
+
+function parseDisposition(line: string) {
+  const match = /^- ([1-9]\d*)\.([1-9]\d*) (applied|declined: (.+))$/.exec(line);
+  if (match === null) return null;
+  const place = { round: Number(match[1]), finding: Number(match[2]) };
+  const value =
+    match[3] === "applied"
+      ? { ...place, disposition: "applied" }
+      : { ...place, disposition: "declined", reason: match[4] };
+  const parsed = dispositionSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 /** Validates the reviewer's summary: a short overview and one disposition for each finding. */
 function parseSummary(text: string) {
-  return fromThrowable(
-    () => summarySchema.parse(JSON.parse(text)),
-    (cause, defect) =>
-      cause instanceof z.ZodError || cause instanceof SyntaxError
-        ? {
-            reason: "internal_review_summary_invalid",
-            detail: `The summary file must hold JSON {"overview": "...", "dispositions": [...]}, where each disposition has round, finding, and disposition applied, or disposition declined with a reason. ${cause instanceof z.ZodError ? z.prettifyError(cause).replaceAll("\n", " ") : cause.message} Nothing was changed.`,
-          }
-        : defect(cause),
-  )();
+  function invalid(line: number) {
+    return Err({
+      reason: "internal_review_summary_invalid",
+      detail: `Line ${line}: expected ## Overview with prose, then ## Dispositions with bullets '- <round>.<finding> applied' or '- <round>.<finding> declined: <reason>'. Nothing was changed.`,
+      next: {
+        command: "operator pr ready --file <path|->",
+        why: "Correct the markdown summary and try ready again.",
+      },
+    });
+  }
+  let section: "" | "overview" | "dispositions" = "";
+  const overview: string[] = [];
+  const dispositions: Disposition[] = [];
+  for (const [index, raw] of text.split(/\r?\n/).entries()) {
+    const line = raw.trim();
+    if (line === "") {
+      if (section === "overview") overview.push("");
+      continue;
+    }
+    if (section === "") {
+      if (line !== "## Overview") return invalid(index + 1);
+      section = "overview";
+    } else if (section === "overview" && line === "## Dispositions") {
+      if (overview.join("\n").trim() === "") return invalid(index + 1);
+      section = "dispositions";
+    } else if (section === "overview" && !line.startsWith("#")) {
+      overview.push(raw);
+    } else {
+      if (section !== "dispositions") return invalid(index + 1);
+      const parsed = parseDisposition(line);
+      if (parsed === null) return invalid(index + 1);
+      dispositions.push(parsed);
+    }
+  }
+  return section === "dispositions"
+    ? Ok({ overview: overview.join("\n").trim(), dispositions })
+    : invalid(1);
 }
 
 /** The hidden line that finds this review's comment again after a lost answer. */
@@ -107,9 +143,10 @@ ${input.marker}
 }
 
 function readSummary(file: string) {
-  return fromPromise(() => Bun.file(file).text(), qualify).flatMap((text) =>
-    parseSummary(text).toAsync(),
-  );
+  return fromPromise(
+    () => (file === "-" ? Bun.stdin.text() : Bun.file(file).text()),
+    qualify,
+  ).flatMap((text) => parseSummary(text).toAsync());
 }
 
 function reviewOf(source: Source | undefined, assignment: string) {

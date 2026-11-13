@@ -392,12 +392,12 @@ PR #7 is already open for this assignment: https://github.com/example/one/pull/7
 You are the internal reviewer of PR #7. Operator ended the implementer's session and started you in its worktree.
 Read the \`internal-review.md\` topic of the \`worker-agent\` skill before you start.
 Do not use the PR body, the commit messages, or earlier owner messages as evidence.
-Record each round's findings with \`operator pr round --file <findings.json> --json\` before you change code.
+Record each round's markdown findings with \`operator pr round --file <findings.md> --json\` before you change code.
 Recorded rounds:
 - Round 1 at \`h1\`:
   - Spec, blocker, \`a.ts:1\`: The guard is missing.
 - Round 2 at \`h2\`: no findings.
-End the review with \`operator pr ready --file <summary.json> --json\`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.
+End the review with \`operator pr ready --file <summary.md> --json\`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.
 Then you own the PR feedback loop below.
 Read its reviews, comments, unresolved threads, and checks before you wait.
 Inspect the worktree first. Keep work that is not landed.

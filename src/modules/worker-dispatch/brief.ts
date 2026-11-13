@@ -122,9 +122,9 @@ function reviewer(number: number, review: NonNullable<BriefInput["review"]>) {
     `You are the internal reviewer of PR #${number}. Operator ended the implementer's session and started you in its worktree.`,
     "Read the `internal-review.md` topic of the `worker-agent` skill before you start.",
     "Do not use the PR body, the commit messages, or earlier owner messages as evidence.",
-    "Record each round's findings with `operator pr round --file <findings.json> --json` before you change code.",
+    "Record each round's markdown findings with `operator pr round --file <findings.md> --json` before you change code.",
     ...(rounds.length === 0 ? ["No round is recorded yet."] : ["Recorded rounds:", ...rounds]),
-    "End the review with `operator pr ready --file <summary.json> --json`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.",
+    "End the review with `operator pr ready --file <summary.md> --json`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.",
     "Then you own the PR feedback loop below.",
   ];
 }
