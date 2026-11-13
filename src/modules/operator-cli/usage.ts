@@ -1,3 +1,5 @@
+import { failure, outputContext } from "./output.ts";
+
 type Release = { version: string; commit: string | null; artifactIdentity: string | null };
 
 const usage =
@@ -24,6 +26,7 @@ export function runUsage(args: string[], release: Release, json: boolean) {
           reason: "version_reported",
           blockers: [],
           data: { operatorVersion, bunVersion: Bun.version, commit, artifactIdentity },
+          ...outputContext("version", "version_reported"),
         })
       : `operator ${operatorVersion}`,
   );
@@ -33,6 +36,19 @@ export function runUsage(args: string[], release: Release, json: boolean) {
 
 /** Reports arguments that no command accepts. */
 export function invalidArguments(json: boolean) {
+  if (outputContext("parse_arguments", "invalid_arguments").kind !== undefined) {
+    failure(
+      "parse_arguments",
+      "invalid_arguments",
+      "The arguments do not name an implemented command. Read operator --help.",
+      2,
+      json,
+      {
+        next: { command: "operator --help", why: "Read the implemented commands and their flags." },
+      },
+    );
+    return;
+  }
   if (json)
     console.log(
       JSON.stringify({

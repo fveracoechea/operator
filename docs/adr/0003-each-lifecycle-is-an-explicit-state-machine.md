@@ -3,6 +3,7 @@
 ## Status
 
 Accepted - 2026-10-24.
+Amended 2026-11-13: worker phases inside a session form one lifecycle that reads kind data (ADR-0029), decided in #373 and #383.
 Decided in #126, #199, #228, #231, and #233.
 Implemented as explicit state machines for settings changes, sources, assignments, reports, PR waits, merges, cleanup, review requests, and delivery paths, after the #236 prototypes.
 
@@ -27,6 +28,10 @@ The module that owns the record owns its transitions, and next actions read thos
 The machines describe work sources, assignments with PR or report completion, review requests and rounds, and their required cleanup or transport effects.
 Pure computations need no machine.
 Host activity remains distinct from report submission, report acceptance, and PR merge.
+
+The worker phases inside a session form one lifecycle that reads kind data.
+Code owns its guards and effects.
+This is not the rejected generic engine: sources, assignments, review requests, and other lifecycles keep their own machines.
 
 ## Consequences
 

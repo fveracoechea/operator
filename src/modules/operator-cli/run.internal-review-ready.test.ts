@@ -45,8 +45,17 @@ async function exec(args: string[], cwd = checkout) {
   return { code, stdout, stderr };
 }
 
-async function run(args: string[], cwd = checkout) {
-  const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
+async function run(args: string[], cwd = checkout, pane?: string) {
+  const result = await exec(
+    [
+      ...(pane === undefined ? [] : ["env", `HERDR_PANE_ID=${pane}`]),
+      process.execPath,
+      cli,
+      ...args,
+      "--json",
+    ],
+    cwd,
+  );
   return { code: result.code, output: JSON.parse(result.stdout) as unknown, stderr: result.stderr };
 }
 
@@ -456,9 +465,19 @@ ${overview}
     code: 3,
     output: { reason: "internal_review_ended" },
   });
-  const eligible = await run(["pr", "wait", "--timeout", "0"], reviewer);
+  const eligible = await run(
+    ["pr", "wait", "--timeout", "0"],
+    reviewer,
+    (await shown(source)).launches[1]?.paneId ?? "",
+  );
   expect(eligible).toMatchObject({
-    output: { reason: "pr_events_observed", data: { mergeConditions: { reviewEnded: true } } },
+    output: {
+      reason: "pr_events_observed",
+      kind: "review",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+      data: { mergeConditions: { reviewEnded: true } },
+    },
   });
   expect(JSON.stringify(eligible.output)).toContain(
     JSON.stringify({ kind: "merge_eligible", head: third }),
@@ -579,7 +598,21 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
     code: 3,
     output: { reason: "internal_review_ended" },
   });
-  expect(await run(["pr", "wait", "--timeout", "0"], reviewer)).toMatchObject({
-    output: { data: { mergeConditions: { reviewEnded: true } } },
+  const pane = (await shown(source)).launches[1]?.paneId ?? "";
+  expect(await run(["pr", "wait", "--timeout", "0"], reviewer, pane)).toMatchObject({
+    output: {
+      kind: "review",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+      data: { mergeConditions: { reviewEnded: true } },
+    },
+  });
+  await commit(reviewer, "after-skip.txt");
+  expect(await run(["pr", "merge"], reviewer, pane)).toMatchObject({
+    output: {
+      reason: "pr_not_ready",
+      next: { command: "operator pr wait" },
+      state: { pr_ready: false },
+    },
   });
 }, 180000);
