@@ -79,7 +79,9 @@ async function runUnit(unit: MutationUnit, counts: Counts): Promise<void> {
       testRunner: "command",
       commandRunner: {
         // The first failed test kills the mutant, so the rest of a slow suite does not run.
-        command: [process.execPath, ...test, "--bail", ...unit.tests].map(quote).join(" "),
+        // Stryker writes sandbox files with mode 0600, including the source command.
+        // Restore that sandbox entry, so readiness tests still verify the real executable identity.
+        command: `${quote(process.execPath)} -e ${quote('import { chmodSync, lstatSync, realpathSync } from "node:fs"; import { resolve } from "node:path"; const entry = "src/cli.ts"; const file = lstatSync(entry, { throwIfNoEntry: false }); if (file?.isFile() && realpathSync(entry) === resolve(entry)) chmodSync(entry, 0o755);')} && ${[process.execPath, ...test, "--bail", ...unit.tests].map(quote).join(" ")}`,
       },
       coverageAnalysis: "off",
       incremental: true,
