@@ -29,16 +29,7 @@ export function lintProject() {
   let restore: (() => Promise<void>) | undefined;
   beforeAll(async () => {
     root = await mkdtemp(path.join(tmpdir(), "operator-lint-"));
-    for (const entry of [
-      "cli.ts",
-      "modules",
-      "lib",
-      "scripts",
-      "tools",
-      "package.json",
-      "tsconfig.json",
-      ".oxlintrc.json",
-    ]) {
+    for (const entry of ["src", "tools", "package.json", "tsconfig.json", ".oxlintrc.json"]) {
       await cp(`${sourceRoot}${entry}`, `${root}/${entry}`, { recursive: true });
     }
     await symlink(`${sourceRoot}node_modules`, `${root}/node_modules`);
@@ -51,7 +42,7 @@ export function lintProject() {
     options: { path?: string; files?: Record<string, string> } = {},
   ) {
     await restore?.();
-    const probe = options.path ?? "lib/lint-probe.ts";
+    const probe = options.path ?? "src/lib/lint-probe.ts";
     const file = Bun.file(`${root}/${probe}`);
     const original = (await file.exists()) ? await file.text() : null;
     restore = async () => {

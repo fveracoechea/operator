@@ -47,6 +47,6 @@ test("follows local aliases once, across value and type bindings that share a na
       .map((finding) => Number.parseInt(finding, 10)),
   ).toEqual([1, 2, 3, 4, 7, 8]);
   expect(result.stdout).toContain(
-    "This type alias hides unknown. Keep unknown explicit at the parse boundary. See lint-fixes/parse-at-the-boundary.md.",
+    "This type alias hides unknown. Keep unknown explicit at the parse boundary. See docs/agents/lint-fixes/parse-at-the-boundary.md.",
   );
 });

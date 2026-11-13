@@ -23,6 +23,6 @@ test("the finding names the fix topic", async () => {
   expect(
     (await check("export const value: unknown = Reflect.get(String, null, [1]);")).stdout,
   ).toContain(
-    "Use typed property access. Parse external data before reading its fields. See lint-fixes/parse-at-the-boundary.md.",
+    "Use typed property access. Parse external data before reading its fields. See docs/agents/lint-fixes/parse-at-the-boundary.md.",
   );
 });

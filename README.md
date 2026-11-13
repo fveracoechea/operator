@@ -22,7 +22,7 @@ The SuperAgent registers a work source, which is a plan of assignments from the 
 Each assignment completes through a pull request or through a report.
 The CLI keeps the state of each source and assignment, and `operator next` returns the next action for each one.
 
-This diagram shows the assignment states of `modules/work-sources/assignment-machine.ts`, with the transitions that `report-machine.ts`, `source-machine.ts`, dispatch, and the PR commands record.
+This diagram shows the assignment states of `src/modules/work-sources/assignment-machine.ts`, with the transitions that `report-machine.ts`, `source-machine.ts`, dispatch, and the PR commands record.
 
 ```mermaid
 stateDiagram-v2
@@ -74,7 +74,7 @@ A source is `open` until each assignment is merged or completed, and then it is 
 
 With internal review on, `pr associate` of a draft PR records an internal review.
 It refuses a PR that is not a draft, and a worktree with changes that are not pushed.
-This diagram shows `modules/pull-requests/internal-review-machine.ts`, with the handoff states that `modules/device-state/internal-reviews.ts` records.
+This diagram shows `src/modules/pull-requests/internal-review-machine.ts`, with the handoff states that `src/modules/device-state/internal-reviews.ts` records.
 
 ```mermaid
 stateDiagram-v2

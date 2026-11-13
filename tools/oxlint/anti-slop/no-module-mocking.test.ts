@@ -21,7 +21,7 @@ test("accepts function mocks and unrelated objects", async () => {
 const rule = "anti-slop(no-module-mocking)";
 
 async function flagged(lines: string[]): Promise<number[]> {
-  const result = await check(lines.join("\n"), { path: "lib/lint-probe.test.ts" });
+  const result = await check(lines.join("\n"), { path: "src/lib/lint-probe.test.ts" });
   return result.findings
     .filter((finding) => finding.endsWith(` ${rule}`))
     .map((finding) => Number.parseInt(finding, 10));
@@ -59,6 +59,6 @@ test("only Bun's mock, by any local, quoted, or namespace name, replaces a modul
 test("the finding names the fix topic", async () => {
   const result = await check('import { mock } from "bun:test"; mock.module("./a", () => ({}));');
   expect(result.stdout).toContain(
-    "Replace dependencies at their public interface or external tool boundary, not with mock.module. See lint-fixes/test-doubles.md.",
+    "Replace dependencies at their public interface or external tool boundary, not with mock.module. See docs/agents/lint-fixes/test-doubles.md.",
   );
 });

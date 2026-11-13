@@ -44,6 +44,6 @@ test("names the fix topic", async () => {
     "export function read(text: string): unknown { return JSON.parse(text); }",
   );
   expect(result.stdout).toContain(
-    "This function gives `unknown` to its caller. Parse the value at its boundary and return a named domain type. See lint-fixes/parse-at-the-boundary.md.",
+    "This function gives `unknown` to its caller. Parse the value at its boundary and return a named domain type. See docs/agents/lint-fixes/parse-at-the-boundary.md.",
   );
 });

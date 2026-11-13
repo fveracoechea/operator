@@ -37,6 +37,6 @@ test("accepts named domain inputs and the subject of an explicit validator", asy
 test("names the parameter and the fix topic", async () => {
   const result = await check("export function read(input: unknown) { return input; }");
   expect(result.stdout).toContain(
-    "Parameter `input` leaves input unparsed. Accept a named domain type, and run the schema at the I/O boundary before the call. See lint-fixes/parse-at-the-boundary.md.",
+    "Parameter `input` leaves input unparsed. Accept a named domain type, and run the schema at the I/O boundary before the call. See docs/agents/lint-fixes/parse-at-the-boundary.md.",
   );
 });

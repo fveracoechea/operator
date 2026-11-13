@@ -37,6 +37,6 @@ test("accepts named owner types and records", async () => {
 test("names the parameter and the fix topic", async () => {
   const result = await check("export function keys(value: object) { return Object.keys(value); }");
   expect(result.stdout).toContain(
-    "Parameter `value` uses the broad `object` type. Accept a named owner type, and parse external input at its boundary before the call. See lint-fixes/parse-at-the-boundary.md.",
+    "Parameter `value` uses the broad `object` type. Accept a named owner type, and parse external input at its boundary before the call. See docs/agents/lint-fixes/parse-at-the-boundary.md.",
   );
 });

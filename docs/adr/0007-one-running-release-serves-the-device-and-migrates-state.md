@@ -8,6 +8,7 @@ Amended 2026-10-26 in #256: source delivery shares the release commit but has no
 Implemented for global JSR and source delivery, automatic migration, and global-command readiness in #245 and #256.
 Implemented for Nix delivery in #257.
 Implemented for the stable global Herdr plugin in #247.
+Amended 2026-11-13: publication requires explicit authorization rather than an ordinary main merge.
 
 ## Context
 
@@ -49,7 +50,7 @@ Readiness refuses a global command that does not run the running release.
 Its plugin manifest lives in stable device state, and its hooks call that command.
 The plugin forwards agent activity and worktree-creation events to the CLI.
 
-Publication is automatic after the version change merges and that commit passes quality checks and release smoke.
+Publication requires explicit authorization after the version change merges and that commit passes quality checks and release smoke.
 Published tags and versions are immutable, and a delivery retry supplies missing delivery only.
 The pinned official JSR client uses short-lived release credentials, with Deno confined to publication tooling rather than the Operator runtime.
 

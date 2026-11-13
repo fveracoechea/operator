@@ -1,0 +1,408 @@
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
+import { Environment } from "../environment/main.ts";
+import { registerTestDevice } from "../../../tools/device-fixture.ts";
+// Bun has no recursive directory removal, symlink, or directory metadata API.
+import { rm, stat, symlink } from "node:fs/promises";
+import { OperatorRelease } from "./main.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
+import { z } from "zod";
+import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./schemas-fixture.ts";
+
+// Most of these tests build a real artifact, which compiles the whole release. That takes far
+// longer than a default test, and longer again on a CI runner.
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 300_000) {
+  bunTest(name, run, timeoutMs);
+}
+
+const sourceRoot = new URL("../../../", import.meta.url).pathname.replace(/\/$/, "");
+const outputs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(outputs.splice(0).map((path) => rm(path, { force: true, recursive: true })));
+});
+
+function outputRoot(): string {
+  const path = `${Environment.read().TMPDIR ?? "/tmp"}/operator-release-${crypto.randomUUID()}`;
+  outputs.push(path);
+  return path;
+}
+
+const commit = "b".repeat(40);
+
+async function buildArtifact() {
+  const artifactRoot = outputRoot();
+  const result = await OperatorRelease.build({ sourceRoot, artifactRoot, commit });
+  return { artifactRoot, result };
+}
+
+describe("the release artifact", () => {
+  test("ships runnable ESM, declarations, documentation, and complete retained skills", async () => {
+    const { artifactRoot, result } = await buildArtifact();
+
+    expect(result.status).toBe("built");
+    expect(await Bun.file(`${artifactRoot}/cli.js`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/cli.d.ts`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/modules/operator-cli/main.js`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/modules/operator-cli/main.d.ts`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/skills/deep-modules/SKILL.md`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/skills/deep-modules/module-shape.md`).exists()).toBe(
+      true,
+    );
+    expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/modules/worker-dispatch/herdr-plugin.toml`).text()).toBe(
+      await Bun.file(`${sourceRoot}/src/modules/worker-dispatch/herdr-plugin.toml`).text(),
+    );
+    expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/schemas/config.schema.json`).text()).toBe(
+      DeviceSettings.editorSchema(),
+    );
+    expect(await Bun.file(`${artifactRoot}/gate.schema.json`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(
+      await Bun.file(`${sourceRoot}/docs/jsr/README.md`).text(),
+    );
+    const cli = await Bun.file(`${artifactRoot}/cli.js`).text();
+    expect(cli).toContain("@module");
+    expect(cli).toContain('import { main } from "@fveracoechea/operator/cli"');
+    expect(cli).toMatch(
+      /\/\*\*\s*\n \* Run one CLI command[\s\S]*?\*\/\s*export async function main\(/,
+    );
+    const declaration = await Bun.file(`${artifactRoot}/cli.d.ts`).text();
+    expect(declaration).toContain("@module");
+    expect(declaration).toContain("Run one CLI command");
+  });
+
+  test("leaves no production TypeScript source or test file in the artifact", async () => {
+    const { artifactRoot } = await buildArtifact();
+
+    const paths = await Array.fromAsync(
+      new Bun.Glob("**/*").scan({ cwd: artifactRoot, dot: true }),
+    );
+
+    // OpenCode loads its plugin file as written, so that one file ships as TypeScript.
+    expect(paths.filter((path) => path.endsWith(".ts") && !path.endsWith(".d.ts"))).toEqual([
+      "modules/opencode-plugin/plugin.ts",
+    ]);
+    expect(paths.filter((path) => path.includes(".test."))).toEqual([]);
+  });
+
+  test("rewrites every relative TypeScript specifier so the shipped files resolve", async () => {
+    const { artifactRoot } = await buildArtifact();
+
+    const js = await Bun.file(`${artifactRoot}/cli.js`).text();
+    const declaration = await Bun.file(`${artifactRoot}/modules/operator-release/main.d.ts`).text();
+
+    expect(js).toContain('from "./modules/operator-cli/main.js"');
+    expect(js).not.toContain('.ts"');
+    expect(declaration).not.toMatch(/from "\.[^"]*\.ts"/);
+    expect(declaration).not.toMatch(/import\("\.[^"]*\.ts"\)/);
+  });
+
+  test("keeps the executable shebang on the command entry point", async () => {
+    const { artifactRoot } = await buildArtifact();
+
+    expect(await Bun.file(`${artifactRoot}/cli.js`).text()).toStartWith("#!/usr/bin/env bun\n");
+  });
+
+  test("declares no install-time script, so retrieval needs no lifecycle trust", async () => {
+    const { artifactRoot } = await buildArtifact();
+
+    const manifest = packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json());
+
+    expect(manifest.scripts).toBeUndefined();
+    expect(manifest.bin).toEqual({ operator: "./cli.js" });
+    expect(manifest.exports?.["./cli"]).toEqual({ types: "./cli.d.ts", default: "./cli.js" });
+    expect(manifest.private).toBeUndefined();
+  });
+
+  test("declares in the registry config every package the shipped code reaches", async () => {
+    // The registry reads `jsr.json`, never the package manifest beside it. A dependency that is
+    // named only there would be missing from a published copy, and the launcher would not resolve.
+    const { artifactRoot } = await buildArtifact();
+    const transpiler = new Bun.Transpiler({ loader: "js" });
+    const reached = new Set<string>();
+
+    for await (const path of new Bun.Glob("**/*.js").scan({ cwd: artifactRoot })) {
+      const text = await Bun.file(`${artifactRoot}/${path}`).text();
+      const body = text.startsWith("#!") ? text.slice(text.indexOf("\n") + 1) : text;
+      for (const found of transpiler.scanImports(body)) {
+        if (!found.path.startsWith(".") && !/^(node|bun):/.test(found.path)) {
+          reached.add(
+            found.path
+              .split("/")
+              .slice(0, found.path.startsWith("@") ? 2 : 1)
+              .join("/"),
+          );
+        }
+      }
+    }
+
+    const config = jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json());
+    expect(reached.size).toBeGreaterThan(0);
+    expect([...reached].toSorted()).toEqual(Object.keys(config.imports ?? {}).toSorted());
+    for (const [name, specifier] of Object.entries(config.imports ?? {})) {
+      // The version is exact, so a reinstall never resolves a replacement the registry chose.
+      expect(specifier, name).toMatch(/^npm:[^@]*@?[^@]*@\d+\.\d+\.\d+$/);
+    }
+  });
+
+  test("carries the source license into both manifests it publishes", async () => {
+    // The registry refuses a package that names no license, so the build carries it forward.
+    const { artifactRoot } = await buildArtifact();
+    const source = z
+      .object({ license: z.string() })
+      .parse(await Bun.file(new URL("../../../package.json", import.meta.url)).json());
+
+    expect(source.license).toBeString();
+    expect(jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json()).license).toBe(
+      source.license,
+    );
+    expect(packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json()).license).toBe(
+      source.license,
+    );
+  });
+
+  test("records the exact commit and version the artifact was built from", async () => {
+    const { artifactRoot, result } = await buildArtifact();
+
+    const release = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
+    const manifest = packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json());
+
+    expect(release.commit).toBe(commit);
+    expect(release.version).toBe(manifest.version);
+    expect(result.artifactIdentity).toBe(release.artifactIdentity);
+  });
+
+  test("identifies the artifact by its content, so changed content is a different release", async () => {
+    const first = await buildArtifact();
+    const second = await buildArtifact();
+    expect(second.result.artifactIdentity).toBe(first.result.artifactIdentity);
+
+    await Bun.write(`${second.artifactRoot}/skills/deep-modules/SKILL.md`, "changed\n");
+    const changed = await OperatorRelease.inspect({ artifactRoot: second.artifactRoot });
+
+    expect(changed.artifactIdentity).not.toBe(first.result.artifactIdentity);
+  });
+
+  test("reports an artifact that is missing a required part", async () => {
+    const { artifactRoot } = await buildArtifact();
+    await rm(`${artifactRoot}/skills/deep-modules/SKILL.md`);
+
+    const inspection = await OperatorRelease.inspect({ artifactRoot });
+
+    expect(inspection.status).toBe("incomplete");
+    expect(inspection.missing).toContain("skills/deep-modules/SKILL.md");
+  });
+
+  test("reads the version and the commit the artifact's release record names", async () => {
+    const { artifactRoot } = await buildArtifact();
+    const recorded = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
+
+    const inspection = await OperatorRelease.inspect({ artifactRoot });
+
+    expect(inspection.version).toBe(recorded.version);
+    expect(inspection.commit).toBe(commit);
+  });
+
+  test("reads no version from the package manifest of an artifact with no release record", async () => {
+    const { artifactRoot } = await buildArtifact();
+    await rm(`${artifactRoot}/release.json`);
+
+    const inspection = await OperatorRelease.inspect({ artifactRoot });
+
+    expect(inspection.status).toBe("incomplete");
+    expect(inspection.version).toBe("0.0.0");
+    expect(inspection.commit).toBeNull();
+  });
+
+  async function refusal(artifactRoot: string): Promise<string> {
+    try {
+      await OperatorRelease.inspect({ artifactRoot });
+      return "inspected";
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  test("refuses a release record that names its version or commit as something other than text", async () => {
+    const { artifactRoot } = await buildArtifact();
+    const recorded = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
+
+    await Bun.write(`${artifactRoot}/release.json`, JSON.stringify({ ...recorded, version: 1 }));
+    expect(await refusal(artifactRoot)).toBe(
+      `The release record ${artifactRoot}/release.json names version as something other than text.`,
+    );
+
+    await Bun.write(
+      `${artifactRoot}/release.json`,
+      JSON.stringify({ ...recorded, version: 1, commit: false }),
+    );
+    expect(await refusal(artifactRoot)).toBe(
+      `The release record ${artifactRoot}/release.json names version and commit as something other than text.`,
+    );
+  });
+
+  test("runs the built command through the same importable entry point", async () => {
+    const { artifactRoot } = await buildArtifact();
+    outputs.push(`${artifactRoot}.state`);
+    await registerTestDevice(artifactRoot, `${artifactRoot}.state`);
+    // A real installation keeps its dependencies beside the package, so the fixture does too.
+    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
+
+    const child = Bun.spawn(
+      [
+        "bun",
+        "--no-install",
+        "-e",
+        `const { main } = await import(${JSON.stringify(`${artifactRoot}/cli.js`)}); await main(Bun.argv.slice(1));`,
+        "--",
+        "--version",
+        "--json",
+      ],
+      {
+        cwd: sourceRoot,
+        stderr: "pipe",
+        stdout: "pipe",
+        env: Environment.child({
+          HOME: `${artifactRoot}.home`,
+          XDG_CONFIG_HOME: `${artifactRoot}.config`,
+          XDG_STATE_HOME: `${artifactRoot}.state`,
+        }),
+      },
+    );
+    const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+
+    expect(exitCode).toBe(0);
+    expect(versionSchema.parse(JSON.parse(stdout)).data.operatorVersion).toBe(
+      releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json()).version,
+    );
+  });
+});
+
+async function runTooling(args: string[], env: Record<string, string | undefined> = {}) {
+  const child = Bun.spawn(["bun", "tools/release.ts", ...args], {
+    cwd: sourceRoot,
+    env: Environment.child({ SOURCE_DATE_EPOCH: undefined, ...env }),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [exitCode, stderr, stdout] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
+  ]);
+  return { exitCode, stderr, stdout };
+}
+
+describe("the release tooling", () => {
+  test("builds a complete artifact that records the commit time as its build time", async () => {
+    const artifactRoot = outputRoot();
+    const second = outputRoot();
+    function build(out: string) {
+      return runTooling(["build", "--out", out, "--commit", commit], {
+        SOURCE_DATE_EPOCH: "1761523200",
+      });
+    }
+
+    const { exitCode, stderr, stdout } = await build(artifactRoot);
+
+    expect(stderr).toBe("");
+    expect(exitCode).toBe(0);
+    expect(z.object({ status: z.string() }).parse(JSON.parse(stdout)).status).toBe("built");
+    expect((await OperatorRelease.inspect({ artifactRoot })).status).toBe("complete");
+    expect(releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json()).builtAt).toBe(
+      "2025-10-27T00:00:00.000Z",
+    );
+    // A second build of the same commit is byte for byte the same release record.
+    expect((await build(second)).exitCode).toBe(0);
+    expect(await Bun.file(`${second}/release.json`).text()).toBe(
+      await Bun.file(`${artifactRoot}/release.json`).text(),
+    );
+  });
+
+  test("refuses to build without one full clean commit and writes nothing", async () => {
+    for (const named of [
+      [],
+      ["--commit", "unknown"],
+      ["--commit", "b".repeat(7)],
+      ["--commit", `${commit}-dirty`],
+      ["--commit", "B".repeat(40)],
+    ]) {
+      const artifactRoot = outputRoot();
+      const { exitCode, stderr } = await runTooling(["build", "--out", artifactRoot, ...named], {
+        SOURCE_DATE_EPOCH: "1761523200",
+      });
+
+      expect(exitCode, named.join(" ")).toBe(2);
+      expect(stderr).toContain("--commit");
+      expect(await stat(artifactRoot).catch(() => null)).toBeNull();
+    }
+  });
+
+  test("refuses to build without a commit time in whole seconds and writes nothing", async () => {
+    for (const epoch of [undefined, "", "2025-10-27", "-1", "9".repeat(20)]) {
+      const artifactRoot = outputRoot();
+      const { exitCode, stderr } = await runTooling(
+        ["build", "--out", artifactRoot, "--commit", commit],
+        { SOURCE_DATE_EPOCH: epoch },
+      );
+
+      expect(exitCode, String(epoch)).toBe(2);
+      expect(stderr).toContain("SOURCE_DATE_EPOCH");
+      expect(await stat(artifactRoot).catch(() => null)).toBeNull();
+    }
+  });
+
+  test("reports a version the registry does not serve as unavailable after its attempts", async () => {
+    const asked: string[] = [];
+    const registry = Bun.serve({
+      port: 0,
+      fetch(incoming) {
+        asked.push(new URL(incoming.url).pathname);
+        return new Response("not found", { status: 404 });
+      },
+    });
+    try {
+      const result = await OperatorRelease.verifyRegistryInstall({
+        registry: `http://127.0.0.1:${registry.port}/`,
+        version: "9.9.9",
+        expected: { artifactIdentity: "a".repeat(64), commit },
+        attempts: 1,
+        pauseMs: 0,
+      });
+      expect(result).toMatchObject({ status: "unavailable" });
+      expect(result.status === "unavailable" && result.detail).toStartWith(
+        "bun add -g @fveracoechea/operator@npm:@jsr/fveracoechea__operator@9.9.9 failed 1 times",
+      );
+      expect(asked).toContain("/@jsr%2ffveracoechea__operator");
+    } finally {
+      await registry.stop(true);
+    }
+  }, 60_000);
+
+  test("writes the Nix launcher that names its install root and its Bun", async () => {
+    const { exitCode, stdout } = await runTooling([
+      "launcher",
+      "--root",
+      "/nix/store/x-operator/lib/operator",
+      "--bun",
+      "/nix/store/y-bun/bin/bun",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEndWith(
+      `PATH=\${PATH:+$PATH:}'/nix/store/y-bun/bin' exec '/nix/store/y-bun/bin/bun' '/nix/store/x-operator/lib/operator/node_modules/@fveracoechea/operator/cli.js' "$@"\n`,
+    );
+    expect((await runTooling(["launcher", "--root", "/nix/store/x"])).exitCode).toBe(2);
+    expect(
+      (await runTooling(["launcher", "--root", "/nix/store/x", "--bun", "bun"])).exitCode,
+    ).toBe(2);
+    expect(
+      (await runTooling(["launcher", "--root", "lib/operator", "--bun", "/nix/store/y/bin/bun"]))
+        .exitCode,
+    ).toBe(2);
+  });
+});

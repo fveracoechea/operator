@@ -15,7 +15,7 @@ test("the diagnostic points to guidance that explains the environment owner", as
   const result = await check("export const value = process.env.PATH;");
   expect(result.stdout).toContain("lint-fixes/environment.md");
   const topic = await Bun.file(
-    new URL("../../../.agents/skills/lint-fixes/environment.md", import.meta.url),
+    new URL("../../../docs/agents/lint-fixes/environment.md", import.meta.url),
   ).text();
   for (const term of [
     "operator/env-through-schema",
@@ -58,9 +58,9 @@ test("accepts the validated boundary and shadowed application names", async () =
 });
 
 test.each([
-  "modules/environment/main.ts",
-  "modules/release-publish/gh-fixture.ts",
-  "modules/release-publish/jsr-client-fixture.ts",
+  "src/modules/environment/main.ts",
+  "src/modules/release-publish/gh-fixture.ts",
+  "src/modules/release-publish/jsr-client-fixture.ts",
 ])("accepts only the explicit environment owner and fake-tool exemption %s", async (file) => {
   expect(
     (await check("export const probe = process.env.PATH;", { path: file })).codes,
@@ -68,7 +68,7 @@ test.each([
 });
 
 test("does not exempt a fake by basename or exempt ordinary tests", async () => {
-  for (const file of ["lib/gh-fixture.ts", "lib/environment.test.ts"]) {
+  for (const file of ["src/lib/gh-fixture.ts", "src/lib/environment.test.ts"]) {
     expect((await check("export const probe = process.env.PATH;", { path: file })).codes).toContain(
       "operator(env-through-schema)",
     );
@@ -146,6 +146,6 @@ test("finds an env import from the process module by any name", async () => {
 test("the finding names the environment owner and its guide", async () => {
   const result = await check("export const value = process.env.PATH;");
   expect(result.stdout).toContain(
-    "Read validated values from Environment. Supply child environments, never change the parent. See lint-fixes/environment.md.",
+    "Read validated values from Environment. Supply child environments, never change the parent. See docs/agents/lint-fixes/environment.md.",
   );
 });

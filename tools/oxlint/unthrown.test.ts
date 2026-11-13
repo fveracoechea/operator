@@ -61,7 +61,7 @@ test.each(
       valid: 'import { OkAsync } from "unthrown"; export const value = OkAsync(1);',
     },
   ].flatMap((scenario) =>
-    ["lib/lint-probe.ts", "lib/lint-probe.test.ts"].map((path) => ({ ...scenario, path })),
+    ["src/lib/lint-probe.ts", "src/lib/lint-probe.test.ts"].map((path) => ({ ...scenario, path })),
   ),
 )(
   "enforces unthrown/$rule in $path with no blanket test exception",

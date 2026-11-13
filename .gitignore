@@ -1,7 +1,7 @@
 node_modules/
 .mutation-*/
 module-boundary-probe-*.ts
-modules/module-boundary-probe-*
+src/modules/module-boundary-probe-*
 
 # Legacy state stays ignored until the person finishes it with the old release.
 /.operator/

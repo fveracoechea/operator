@@ -22,11 +22,11 @@ let
   bunArchives = {
     aarch64-darwin = {
       name = "bun-darwin-aarch64";
-      hash = "sha512-MXdZkP1featqxZ+/VTXWG1BVjM4OGBehVY2Q88EeUj/7L0UMeCGItmyPYTN+wxvlGJ6F66JEtzsw+GvQWewnag==";
+      hash = "sha512-zW/hxwc8sJAILGwB5eTC4i48ouGXf0V4lrxmEOk3JIE6JkYVW1TZh1E2pIempqsezgW1sckTIIDudFON8bJ2Mw==";
     };
     x86_64-linux = {
       name = "bun-linux-x64";
-      hash = "sha512-9/E/UXOTpSo3YsV5g+FhtTd/qTpiWoKuxS12cqtuYA1ssu9fRAoPQnipFgGyck3tWO63iUdxBiygq+kELFawng==";
+      hash = "sha512-CHbbkmHVM28T1GFq+6GL4Ao4ujwwYwj1CxFFwEFzLanPfNsId9AhbIP0Q4reWuWBkGimUkoQygrK7Rgjtj3vog==";
     };
   };
   archive = bunArchives.${stdenv.hostPlatform.system};
@@ -82,7 +82,7 @@ stdenv.mkDerivation {
       echo "The build runs Bun $(bun --version), not the pinned ${bunVersion}." >&2
       exit 1
     fi
-    bun scripts/release.ts build --out dist --commit ${commit}
+    bun tools/release.ts build --out dist --commit ${commit}
     # The runtime packages come from the same locked cache, without development packages.
     mkdir runtime
     cp package.json bun.lock runtime/
@@ -108,7 +108,7 @@ stdenv.mkDerivation {
     mkdir -p $out/share/opencode/plugins
     ln -s ../../../lib/operator/node_modules/@fveracoechea/operator/modules/opencode-plugin/plugin.ts \
       $out/share/opencode/plugins/operator.ts
-    bun scripts/release.ts launcher --root $root --bun ${bun}/bin/bun > $out/bin/operator
+    bun tools/release.ts launcher --root $root --bun ${bun}/bin/bun > $out/bin/operator
     chmod 755 $out/bin/operator
     runHook postInstall
   '';

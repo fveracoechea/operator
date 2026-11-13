@@ -27,9 +27,9 @@ A run of a single file records no versions.
 
 | File | Contract |
 | --- | --- |
-| `modules/herdr/main.contract.ts` | The workspace, tab, pane, worktree, agent, and plugin commands of the Herdr adapter, and the `pane_not_found` answer for a closed pane. |
-| `modules/worker-dispatch/hooks.contract.ts` | The released plugin manifest. Herdr runs each hook with the event name, the event fields, and the socket path that `operator herdr event` reads. The installed Herdr meets `min_herdr_version`. |
-| `modules/agent-hosts/main.contract.ts` | OpenCode and Claude Code return model catalogs and accept the launch flags. OpenCode preserves the `worker` agent, model, effort, and directory before full-TUI attachment. |
+| `src/modules/herdr/main.contract.ts` | The workspace, tab, pane, worktree, agent, and plugin commands of the Herdr adapter, and the `pane_not_found` answer for a closed pane. |
+| `src/modules/worker-dispatch/hooks.contract.ts` | The released plugin manifest. Herdr runs each hook with the event name, the event fields, and the socket path that `operator herdr event` reads. The installed Herdr meets `min_herdr_version`. |
+| `src/modules/agent-hosts/main.contract.ts` | OpenCode and Claude Code return model catalogs and accept the launch flags. OpenCode preserves the `worker` agent, model, effort, and directory before full-TUI attachment. |
 
 ## What they change
 

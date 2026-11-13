@@ -23,6 +23,6 @@ test("the finding names the fix topic", async () => {
   expect(
     (await check("export const value: unknown = Reflect.apply(String, null, [1]);")).stdout,
   ).toContain(
-    "Call the typed function directly instead of Reflect.apply. See lint-fixes/parse-at-the-boundary.md.",
+    "Call the typed function directly instead of Reflect.apply. See docs/agents/lint-fixes/parse-at-the-boundary.md.",
   );
 });

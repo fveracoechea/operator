@@ -31,6 +31,6 @@ test("the finding names the fix topic", async () => {
     "export const value = [1].reduce<number[]>((acc) => Array.from(acc), []);",
   );
   expect(invalid.stdout).toContain(
-    "Do not copy the reducer accumulator on every iteration; growing copies can cause quadratic work. Mutate a fresh, locally owned accumulator and return it, or use an iterator pipeline/flatMap. See lint-fixes/object-construction.md.",
+    "Do not copy the reducer accumulator on every iteration; growing copies can cause quadratic work. Mutate a fresh, locally owned accumulator and return it, or use an iterator pipeline/flatMap. See docs/agents/lint-fixes/object-construction.md.",
   );
 });
