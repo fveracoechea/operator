@@ -108,19 +108,11 @@ test.each([
     testFile: "operator-cli/run.compatibility.test.ts",
   },
   {
-    name: "active device work",
-    file: "device-state/migration-policy.ts",
-    before: "applied: 2,",
-    after: "applied: 99,",
-    pattern: "device-wide active assignments",
-    testFile: "operator-cli/run.compatibility.test.ts",
-  },
-  {
     name: "declared held records",
     file: "device-state/migration-policy.ts",
     before: "if (client.query(query).get())",
     after: "if (false)",
-    pattern: "device-wide active assignments",
+    pattern: "migration-specific held records stop startup",
     testFile: "operator-cli/run.compatibility.test.ts",
   },
   {

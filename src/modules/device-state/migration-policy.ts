@@ -21,16 +21,6 @@ function found(client: Database, query: string) {
 /** Each guard applies once the migration that adds its records has run. */
 const idleGuards: { applied: number; busy: (client: Database) => boolean; detail: string }[] = [
   {
-    applied: 2,
-    busy: (client) =>
-      found(
-        client,
-        "SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1",
-      ),
-    detail:
-      "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
-  },
-  {
     applied: 3,
     busy: (client) => found(client, "SELECT 1 FROM project_removals LIMIT 1"),
     detail: "Finish pending project file cleanup before an upgrade. No handler ran.",
