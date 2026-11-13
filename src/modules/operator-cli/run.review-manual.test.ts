@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 // Bun has no recursive removal API.
-import { rm } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { z } from "zod";
 import { Database } from "bun:sqlite";
 import { readMigrationFiles } from "drizzle-orm/migrator";
@@ -49,6 +49,51 @@ test("the migration renames the slack origin to manual", async () => {
     ).toEqual([]);
   }
   expect(await device.next()).toMatchObject([{ origin: "manual" }, { origin: "assignment" }]);
+});
+
+test("a retired channel setting remains readable without writes but cannot be configured", async () => {
+  device = await reviewDevice();
+  const file = `${device.root}/config/operator/config.json`;
+  const original = z.looseObject({}).parse(await Bun.file(file).json());
+  const settings = {
+    ...original,
+    review: { channel: "C0REVIEW", repos: ["example/one"], authors: ["author"] },
+  };
+  const text = `${JSON.stringify(settings, null, 2)}\n`;
+  await Bun.write(file, text);
+  await chmod(file, 0o444);
+  const calls = await device.herdrCalls();
+  const shown = await device.run(["config", "show"]);
+  expect(shown.code, shown.stderr).toBe(0);
+  expect(shown.output).toMatchObject({
+    data: { config: { review: { repos: ["example/one"], authors: ["author"] } } },
+  });
+  expect(JSON.stringify(shown.output)).not.toContain('"channel"');
+  expect((await device.run(["review", "add", url])).code).toBe(0);
+  for (const flags of [
+    ["--set", "review.channel=C0123"],
+    ["--unset", "review.channel"],
+  ]) {
+    expect(await device.run(["config", "apply", ...flags])).toMatchObject({
+      code: 2,
+      output: { reason: "invalid_settings_edit" },
+    });
+  }
+  expect(await device.herdrCalls()).toEqual(calls);
+  expect(await Bun.file(file).text()).toBe(text);
+  await chmod(file, 0o644);
+  for (const invalid of [
+    { ...settings, unrelated: true },
+    { ...settings, review: { ...settings.review, unknown: true } },
+    { ...settings, review: { ...settings.review, authors: 7 } },
+    { ...settings, review: { ...settings.review, channel: 7 } },
+  ]) {
+    await Bun.write(file, JSON.stringify(invalid));
+    expect(await device.run(["config", "show"])).toMatchObject({
+      code: 2,
+      output: { reason: "invalid_settings" },
+    });
+  }
 });
 
 test.each([
