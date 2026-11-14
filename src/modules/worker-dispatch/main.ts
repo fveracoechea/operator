@@ -17,6 +17,7 @@ import { handOver } from "./handover.ts";
 import { ensureWorkspace, launchSettings, preparedAgain } from "./launch-checks.ts";
 import { chooseNames, launchBase } from "./names.ts";
 import { installPlugin, observe } from "./hooks.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 import {
   gitBranches,
   listFiles,
@@ -43,9 +44,14 @@ type Placement = {
   worktreeWorkspaceId: string | null;
 };
 
-function notDispatchable(assignment: string) {
+function notDispatchable(assignment: string, state: ResultContext["state"]) {
   return Err<Failure>({
     reason: "assignment_not_dispatchable",
+    next: {
+      command: "operator next",
+      why: "Read the current assignment action before dispatching.",
+    },
+    state,
     detail: `Assignment ${assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
   });
 }
@@ -60,7 +66,9 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
       .bind("source", () =>
         WorkSources.show(input).flatMap((source) =>
           // Stryker disable next-line ConditionalExpression: equivalent: show refuses an unknown source with source_not_found, so it never answers undefined here
-          source === undefined ? notDispatchable(input.assignment) : Ok(source),
+          source === undefined
+            ? notDispatchable(input.assignment, { sourceExists: false })
+            : Ok(source),
         ),
       )
       .bind("next", () => WorkSources.next(input))
@@ -77,6 +85,11 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         if (held)
           return Err<Failure>({
             reason: "running_cap_reached",
+            next: {
+              command: "operator next --wait",
+              why: "Wait for a running assignment to finish before dispatching more work.",
+            },
+            state: { maxRunning: source.plan.maxRunning, capReached: true },
             detail: `The plan's running cap of ${source.plan.maxRunning} is reached, so ${input.assignment} waits. Read operator next after a worker ends. Nothing was launched.`,
           });
         // A running handoff and a promoted worker's brief refresh are waits in next. Dispatch
@@ -92,7 +105,10 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
           );
         // Stryker disable next-line ConditionalExpression: equivalent: next gives a dispatch action only for a planned assignment
         return planned === undefined || action === undefined
-          ? notDispatchable(input.assignment)
+          ? notDispatchable(input.assignment, {
+              assignmentPlanned: planned !== undefined,
+              dispatchActionExists: action !== undefined,
+            })
           : Ok({
               ...planned,
               intent: planned.intent ?? source.plan.intent ?? null,
@@ -198,6 +214,12 @@ function chooseResources(input: Request, facts: Facts) {
         if (facts.pullRequest !== null && reuse === null)
           return Err<Failure>({
             reason: "pr_worktree_missing",
+            next: {
+              decider: "person",
+              question:
+                "How should the missing PR worktree be recovered without losing unlanded work?",
+            },
+            state: { reusable: false },
             detail: `The recorded worktree of PR #${facts.pullRequest.number} on ${facts.pullRequest.branch} is missing. Ask the person how to recover it. Nothing was launched.`,
           });
         // A promoted assignment exists to keep the report's worktree. ADR-0023.
@@ -205,9 +227,12 @@ function chooseResources(input: Request, facts: Facts) {
           return Err<Failure>({
             reason: "promotion_worktree_missing",
             detail: `The worktree ${facts.planned.promotion.worktreePath} of promoted report ${facts.planned.promotion.report} is missing. Ask the person how to recover it. Nothing was launched.`,
-            ...WorkSources.refusal("dispatch", "promotion_worktree_missing", {
-              state: { reusable: false },
-            }),
+            next: {
+              decider: "person",
+              question:
+                "How should the missing promoted worktree be recovered without losing unlanded work?",
+            },
+            state: { reusable: false },
           });
         return Ok(reuse);
       }),
@@ -228,6 +253,11 @@ function chooseResources(input: Request, facts: Facts) {
       return names === null
         ? Err<Failure>({
             reason: "launch_name_exhausted",
+            next: {
+              decider: "super-agent",
+              question: "Which unused branch and worktree names should this assignment use?",
+            },
+            state: { namesAvailable: false },
             detail: "No free launch name or branch remains. Nothing was launched.",
           })
         : Ok({
@@ -444,6 +474,10 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
 
 const interrupted: Failure = {
   reason: "launch_interrupted",
+  next: {
+    command: "operator next",
+    why: "Read the recorded launch action before starting a replacement.",
+  },
   detail:
     "Herdr reported that the pane ended before the launch finished, so the launch is recorded as interrupted. Read operator next before a replacement.",
 };
@@ -451,7 +485,9 @@ const interrupted: Failure = {
 /** A failed or stopped launch stays visible with every resource that it recorded. */
 function recordFailure(paths: Paths, id: string, error: Failure) {
   // A pane exit observed during the start already ended the launch as interrupted.
-  if (error.reason === "launch_not_starting") return Err(interrupted);
+  if (error.reason === "launch_not_starting") return Err({ ...interrupted, state: error.state });
+  const state: NonNullable<ResultContext["state"]> = { launch: "failed" };
+  if (error.state !== undefined) state.failure = error.state;
   return DeviceState.updateLaunch(paths, id, {
     state: "failed",
     failureReason: error.reason,
@@ -459,6 +495,11 @@ function recordFailure(paths: Paths, id: string, error: Failure) {
   }).flatMap(() =>
     Err<Failure>({
       reason: "launch_failed",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state,
       detail: `${error.reason}: ${error.detail} The launch is recorded as failed. Read operator next before a replacement.`,
     }),
   );
@@ -555,7 +596,7 @@ function refreshBrief(request: Request) {
       launch.state !== "running" ||
       worktreePath === null
     )
-      return notDispatchable(request.assignment);
+      return notDispatchable(request.assignment, { briefRefreshAllowed: false });
     return writeBrief(
       request,
       { ...facts, launch: { profile: launch.profile } },

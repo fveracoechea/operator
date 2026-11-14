@@ -9,11 +9,21 @@ function defect(cause: Error) {
 test("an invalid plan is a refusal that keeps the parser message", () => {
   expect(qualify(new SyntaxError("Unexpected token"), defect)).toEqual({
     reason: "invalid_source_plan",
+    next: {
+      decider: "super-agent",
+      question: "What corrected source plan should be supplied in --file?",
+    },
+    state: { inputValid: false },
     detail: "Unexpected token",
   });
   const invalid = new z.ZodError([{ code: "custom", message: "Bad.", path: ["trackerKey"] }]);
   expect(qualify(invalid, defect)).toEqual({
     reason: "invalid_source_plan",
+    next: {
+      decider: "super-agent",
+      question: "What corrected source plan should be supplied in --file?",
+    },
+    state: { inputValid: false },
     detail: invalid.message,
   });
 });

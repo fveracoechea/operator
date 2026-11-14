@@ -14,12 +14,21 @@ afterAll(removeDevices);
 test("a failed start stays visible with its resources, and a replacement starts again", async () => {
   await using device = await dispatchDevice();
   device.herdr.prompt.mockReturnValueOnce(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent prompt exited 1: busy" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "herdr agent prompt exited 1: busy",
+      state: { promptConfirmed: false },
+    }),
   );
   expect(await WorkerDispatch.dispatch(device.request("survey"))).toMatchObject({
     tag: "Err",
     error: {
       reason: "launch_failed",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state: { launch: "failed", failure: { promptConfirmed: false } },
       detail:
         "herdr_failed: herdr agent prompt exited 1: busy The launch is recorded as failed. Read operator next before a replacement.",
     },

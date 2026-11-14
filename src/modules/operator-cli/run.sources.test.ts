@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
-import { expectWorkflowRefusal, workflowOutputSchema } from "./refusal-fixture.ts";
+import { expectWorkflowRefusal, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 import { z } from "zod";
 import { Database } from "bun:sqlite";
 
@@ -490,7 +490,14 @@ test("a held writer refuses source registration without partial records", async 
   try {
     expect(await run(cwd, ["source", "register", "--file", `${root}/plan.json`])).toMatchObject({
       code: 1,
-      output: { reason: "state_busy" },
+      output: {
+        reason: "state_busy",
+        next: {
+          decider: "super-agent",
+          question: "When has the active state operation finished so this command can be retried?",
+        },
+        state: { code: "SQLITE_BUSY" },
+      },
     });
     expect(db.query("SELECT * FROM sources").all()).toEqual([]);
     expect(db.query("SELECT * FROM assignments").all()).toEqual([]);

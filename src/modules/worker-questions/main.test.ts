@@ -147,6 +147,11 @@ test("a wait times out with the question's current state and records nothing", a
     tag: "Err",
     error: {
       reason: "question_not_found",
+      next: {
+        decider: "super-agent",
+        question: "Which recorded question key should this command target?",
+      },
+      state: { question: null },
       detail: "Assignment read has no question missing. Nothing changed.",
     },
   });

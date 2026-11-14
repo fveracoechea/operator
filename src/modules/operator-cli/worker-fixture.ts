@@ -7,7 +7,7 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
-import { expectWorkflowRefusal, workflowOutputSchema } from "./refusal-fixture.ts";
+import { expectWorkflowRefusal, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 import { fixtureCommand, writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
 
 const command = fixtureCommand();

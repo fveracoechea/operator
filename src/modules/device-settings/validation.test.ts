@@ -34,6 +34,8 @@ test("refuses an incomplete selection only where that selection names a model", 
   ])
     expect(await validateSelections(settingsSchema.parse(value), "/isolated")).toEqual({
       reason: "selection_incomplete",
+      next: { decider: "super-agent", question: "Which host and model should this launch use?" },
+      state: { hostConfigured: false, modelConfigured: true },
       detail:
         "Set a host and model in device settings or explicit launch overrides. Operator does not choose a model for you.",
     });

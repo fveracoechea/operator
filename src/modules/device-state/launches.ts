@@ -15,12 +15,13 @@ import type { StateFailure } from "./failures.ts";
 import { ownerGone } from "./leases.ts";
 import { finishHandoff, handoffDispatchable } from "./internal-reviews.ts";
 import { superviseSource, type Supervisor } from "./sources.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
 export type LaunchFailure =
   | StateFailure
-  | {
+  | (ResultContext & {
       reason:
         | "controller_mismatch"
         | "source_not_found"
@@ -29,7 +30,7 @@ export type LaunchFailure =
         | "launch_not_starting"
         | "running_cap_reached";
       detail: string;
-    };
+    });
 type LaunchResources = Partial<
   Pick<
     LaunchRow,
@@ -143,6 +144,14 @@ function startRefusal(
   )
     return {
       reason: "assignment_not_dispatchable",
+      next: {
+        command: "operator next",
+        why: "Read the current assignment action before dispatching.",
+      },
+      state:
+        source.state !== "open"
+          ? { source: source.state }
+          : { assignment: assignmentState ?? null, launch: facts.latestState ?? null },
       detail: `Assignment ${key} changed before dispatch. Read next actions again. Nothing was launched.`,
     };
   // Only ready work waits for a place. A replacement continues started work. ADR-0006.
@@ -153,6 +162,11 @@ function startRefusal(
   )
     return {
       reason: "running_cap_reached",
+      next: {
+        command: "operator next --wait",
+        why: "Wait for a running assignment to finish before dispatching more work.",
+      },
+      state: { maxRunning, capReached: true },
       detail: `The plan's running cap of ${maxRunning} is reached. Read next actions again after a worker ends. Nothing was launched.`,
     };
   return null;
@@ -180,6 +194,11 @@ export function reserveLaunch(
       if (controller?.checkout !== checkout)
         return Err({
           reason: "controller_mismatch",
+          next: {
+            command: "operator project list",
+            why: "Find the recorded controlling checkout and run the command there.",
+          },
+          state: { controllerMatches: false },
           detail: "The controlling checkout changed before dispatch. Read the project again.",
         });
       const source = db
@@ -190,6 +209,11 @@ export function reserveLaunch(
       if (source === undefined)
         return Err({
           reason: "source_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the available sources before choosing a source.",
+          },
+          state: { sourceExists: false },
           detail: "The source does not exist in this project.",
         });
       const assignment = db
@@ -219,6 +243,11 @@ export function reserveLaunch(
       if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
         return Err({
           reason: "launch_name_taken",
+          next: {
+            command: "operator next",
+            why: "Read the assignment's current launch action before retrying.",
+          },
+          state: { launchNameExists: true },
           detail: `The launch name ${launch.name} is already recorded. Nothing was launched.`,
         });
       // The latest launch has the highest attempt number.
@@ -267,6 +296,11 @@ export function updateLaunch(
       if (current?.state !== "starting")
         return Err({
           reason: "launch_not_starting",
+          next: {
+            command: "operator next",
+            why: "Read the launch's current action before retrying.",
+          },
+          state: { launch: current?.state ?? null },
           detail: "Only a starting launch can record resources or its launch outcome.",
         });
       const now = new Date().toISOString();

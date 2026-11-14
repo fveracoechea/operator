@@ -36,6 +36,8 @@ test("each fixed migration declares its held-record policy and unknown policies 
     tag: "Err",
     error: {
       reason: "state_incompatible",
+      state: { policyDeclared: false },
+      next: { decider: "person" },
       detail: "The shipped migration has no declared blocker policy. No handler ran.",
     },
   });
@@ -52,6 +54,8 @@ test("a declared held-record query blocks its migration only while it finds a re
     tag: "Err",
     error: {
       reason: "state_migration_blocked",
+      state: { heldRecord: true },
+      next: { decider: "super-agent" },
       detail: "A migration-specific held record blocks startup. No handler ran.",
     },
   });
@@ -111,7 +115,12 @@ test("each idle guard starts at the migration that adds its records and names wh
     });
     expect(idleForMigration(db, applied), `${applied}`).toMatchObject({
       tag: "Err",
-      error: { reason: "state_migration_blocked", detail },
+      error: {
+        reason: "state_migration_blocked",
+        detail,
+        state: { idle: false },
+        next: { decider: "super-agent" },
+      },
     });
     expect(idleForMigration(db, 11).tag).toBe("Err");
   }

@@ -10,15 +10,13 @@ import { herdrEventWithoutState } from "./dispatch.ts";
 import { exitCodeOf, failure } from "./output.ts";
 import { projectArgs } from "./projects.ts";
 import { workflowArguments } from "./usage.ts";
-import { WorkSources } from "../work-sources/main.ts";
+import { workflowRefusal } from "./workflow-refusal.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
 function context(args: string[], reason: string, checked: ResultContext = {}) {
-  return workflowArguments(args)
-    ? WorkSources.refusal("workflow_startup", reason, checked)
-    : checked;
+  return workflowArguments(args) ? workflowRefusal("workflow_startup", reason, checked) : checked;
 }
 
 function startupPaths(args: string[], json: boolean) {
@@ -34,7 +32,18 @@ function startupPaths(args: string[], json: boolean) {
       startup.error,
       2,
       json,
-      context(args, "invalid_environment"),
+      context(
+        args,
+        "invalid_environment",
+        workflowArguments(args)
+          ? {
+              next: {
+                decider: "super-agent",
+                question: "Which valid device environment should this command use?",
+              },
+            }
+          : {},
+      ),
     );
   else
     failure(
@@ -57,7 +66,13 @@ function supportedRuntime(args: string[], supportedBun: string, json: boolean) {
       `Bun ${supportedBun} is required; running ${Bun.version}.`,
       1,
       json,
-      context(args, "unsupported_bun", { state: { required: supportedBun, actual: Bun.version } }),
+      context(args, "unsupported_bun", {
+        next: {
+          decider: "super-agent",
+          question: "Which supported Bun runtime should run this command?",
+        },
+        state: { required: supportedBun, actual: Bun.version },
+      }),
     );
     return false;
   }

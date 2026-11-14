@@ -43,12 +43,11 @@ import {
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 import { missingWorkers } from "./missing-workers.ts";
-import { decideRefusal } from "./refusal-decision.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
-  | { reason: "state_corrupt"; detail: string };
+  | (ResultContext & { reason: "state_corrupt"; detail: string });
 type Input = { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string };
 
 // Activity is shown as an observation only. It never proves a submitted or completed result.
@@ -161,6 +160,12 @@ function readSources(input: Input & { sourceId?: string }, repository: string) {
           ? {
               reason: "state_corrupt" as const,
               detail: "Stored source records are invalid. They were not repaired.",
+              next: {
+                decider: "person" as const,
+                question:
+                  "How should the damaged source records be recovered without overwriting them?",
+              },
+              state: { storedSourceValid: false },
             }
           : defect(cause),
     )(),
@@ -216,6 +221,11 @@ function registerPlan(input: Input, supply: () => Promise<object>) {
         if (missing)
           return Err({
             reason: "source_profile_missing" as const,
+            next: {
+              command: "operator config show",
+              why: "Read the configured start profiles before correcting the plan.",
+            },
+            state: { profile: missing.profile, exists: false },
             detail: `The profile ${missing.profile} for ${missing.key} does not exist. No source was written.`,
           });
         return Ok(plan);
@@ -260,10 +270,6 @@ function registerPlan(input: Input, supply: () => Promise<object>) {
 
 /** Plans are supplied by the SuperAgent. No operation reads or updates a tracker. */
 export const WorkSources = {
-  /** Recovery advice for workflow refusals; never changes a source or grants authority. */
-  refusal(operation: string, reason: string, context: ResultContext) {
-    return decideRefusal(operation, reason, context);
-  },
   register(input: Input & { file: string }) {
     return registerPlan(input, () => Bun.file(input.file).json());
   },
@@ -361,6 +367,12 @@ export const WorkSources = {
               if (!parsed.success || plan.tag !== "Ok")
                 return Err({
                   reason: "state_corrupt" as const,
+                  next: {
+                    decider: "person",
+                    question:
+                      "How should the damaged source records be recovered without overwriting them?",
+                  },
+                  state: { storedSourceValid: false },
                   detail:
                     "The source assignments are invalid. They were not repaired. Nothing changed.",
                 });
@@ -450,7 +462,7 @@ export const WorkSources = {
         }
         if (result.tag === "Err")
           return Err({
-            reason: result.error.reason,
+            ...result.error,
             detail: `${pruned.length > 0 ? `Pruned ${pruned.map((item) => item.id).join(", ")}. ` : ""}Source ${source.id} and its records stay, so the next prune repeats it. ${result.error.detail}`,
           });
         if (result.value === null)
@@ -548,7 +560,10 @@ export const WorkSources = {
       DeviceState.readSupervisor(input.paths, project.repository, input.sourceId).flatMap(
         (
           supervisor,
-        ): Result<undefined, { reason: "source_supervised_elsewhere"; detail: string }> => {
+        ): Result<
+          undefined,
+          ResultContext & { reason: "source_supervised_elsewhere"; detail: string }
+        > => {
           const caller = Environment.caller();
           if (supervisor.session === null || supervisor.session === caller.session)
             return Ok(undefined);
@@ -556,6 +571,12 @@ export const WorkSources = {
             supervisor.pane === null ? "outside Herdr" : `in Herdr pane ${supervisor.pane}`;
           return Err({
             reason: "source_supervised_elsewhere",
+            next: {
+              decider: "super-agent",
+              question:
+                "Will the recorded supervisor continue, or should the person authorize a source take-over?",
+            },
+            state: { supervisorSession: supervisor.session, callerSession: caller.session },
             detail: `Source ${input.sourceId} is supervised by agent session ${supervisor.session} ${where}, so this session does not coordinate it. Nothing changed. Leave it to that session. Only when the person tells you to supervise it here, run operator source take-over --source ${input.sourceId} --person-instructed --json.`,
           });
         },

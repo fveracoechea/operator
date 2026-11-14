@@ -71,6 +71,12 @@ export function gitBranches(checkout: string) {
         )
       : Err<Failure>({
           reason: "git_unavailable",
+          next: {
+            decider: "super-agent",
+            question:
+              "Which working Git installation and controlling checkout should run this command?",
+          },
+          state: { gitSucceeded: false },
           detail: "Git could not list the project branches. Nothing was launched.",
         }),
   );
@@ -110,6 +116,12 @@ export function parentBase(checkout: string, branch: string) {
       return head === null
         ? Err<Failure>({
             reason: "parent_branch_unavailable",
+            next: {
+              decider: "super-agent",
+              question:
+                "Can the parent owner push its recorded branch before this dispatch is retried?",
+            },
+            state: { headResolved: false },
             detail: `Git could not fetch the pushed parent branch ${branch}. Its owner must push it with an upstream. Nothing was launched.`,
           })
         : Ok(head);
@@ -179,6 +191,11 @@ export function waitForPreparation(paths: Paths, worktree: string, since: string
     if (real === null)
       return Err<Failure>({
         reason: "worktree_missing",
+        next: {
+          decider: "super-agent",
+          question: "How should the recorded missing worktree be recovered?",
+        },
+        state: { worktreeExists: false },
         detail: `Herdr returned ${worktree}, but it does not exist.`,
       });
     const deadline = Date.now() + preparationWaitMs;
@@ -190,15 +207,35 @@ export function waitForPreparation(paths: Paths, worktree: string, since: string
       if (row !== null && row.startedAt >= since && row.abandoned)
         return Err<Failure>({
           reason: "worktree_setup_failed",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should the recorded worktree preparation failure be corrected before retrying?",
+          },
+          state: { preparationAbandoned: true },
           detail: "The Herdr worktree hook stopped before it recorded a preparation outcome.",
         });
       if (row !== null && row.startedAt >= since && row.state !== "running")
         return row.state === "prepared"
           ? Ok(row.detail)
-          : Err<Failure>({ reason: "worktree_setup_failed", detail: row.detail });
+          : Err<Failure>({
+              reason: "worktree_setup_failed",
+              detail: row.detail,
+              next: {
+                decider: "super-agent",
+                question:
+                  "How should the recorded worktree preparation failure be corrected before retrying?",
+              },
+              state: { preparation: row.state },
+            });
     }
     return Err<Failure>({
       reason: "worktree_setup_unconfirmed",
+      next: {
+        command: "operator next",
+        why: "Read the current launch action before retrying its unconfirmed preparation.",
+      },
+      state: { completionConfirmed: false },
       detail:
         "The Herdr worktree hook did not record a finished preparation. Check the Operator Herdr plugin and its log.",
     });

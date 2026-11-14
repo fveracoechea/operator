@@ -5,14 +5,15 @@ import { checkHistory, transaction } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import { cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type CleanupRow = typeof cleanups.$inferSelect;
 export type CleanupFailure =
   | StateFailure
-  | {
+  | (ResultContext & {
       reason: "source_not_found" | "cleanup_not_found" | "cleanup_running";
       detail: string;
-    };
+    });
 type Claimed = {
   cleanup: CleanupRow;
   pullRequest: typeof pullRequests.$inferSelect;
@@ -45,6 +46,11 @@ export function claimCleanup(
       if (source === undefined)
         return Err({
           reason: "source_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the available sources before choosing a source.",
+          },
+          state: { sourceExists: false },
           detail: "The source does not exist in this project.",
         });
       const recorded = db
@@ -62,6 +68,11 @@ export function claimCleanup(
       if (recorded === undefined || pullRequest === undefined || project === undefined)
         return Err({
           reason: "cleanup_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the assignment's completion action before requesting cleanup.",
+          },
+          state: { requiredRecordsPresent: false },
           detail: `Assignment ${assignment} has no cleanup. Only a verified merge records one. Nothing was changed.`,
         });
       const { cleanup, launch } = recorded;
@@ -76,6 +87,11 @@ export function claimCleanup(
       )
         return Err({
           reason: "cleanup_running",
+          next: {
+            command: "operator next",
+            why: "Read the current cleanup action after its active process finishes.",
+          },
+          state: { cleanupRunning: true },
           detail: `Process ${cleanup.ownerPid} is still cleaning up assignment ${assignment}. Read operator next later. Nothing was changed.`,
         });
       const now = new Date().toISOString();

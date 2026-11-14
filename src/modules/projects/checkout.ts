@@ -22,6 +22,11 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
   if (bare.text === "true")
     return {
       reason: "bare_repository" as const,
+      next: {
+        decider: "super-agent",
+        question: "Which non-bare controlling checkout should run this command?",
+      },
+      state: { bare: true },
       detail: "A bare repository cannot be a controlling checkout. Use its main non-bare checkout.",
     };
   const top = await git(cwd, ["rev-parse", "--show-toplevel"]);
@@ -32,6 +37,11 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
     await lstat(`${checkout}/.operator`);
     return {
       reason: "legacy_project_state" as const,
+      next: {
+        decider: "person",
+        question: "How should the legacy checkout be retired with its old release?",
+      },
+      state: { legacyStatePresent: true },
       detail:
         "This checkout has legacy .operator state. Finish old work with the old release. Then the person must remove that folder before using this release. Operator does not migrate, delete, or repair it.",
     };

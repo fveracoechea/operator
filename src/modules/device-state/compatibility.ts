@@ -50,6 +50,11 @@ export function compatibility(paths: Paths, firstRegistration = false) {
           ? Ok(undefined)
           : Err<StateFailure>({
               reason: "state_missing",
+              next: {
+                command: "operator project register",
+                why: "Register a project explicitly to initialize device state.",
+              },
+              state: { databaseExists: false },
               detail:
                 "The device database is missing. Run operator project register explicitly in the controlling checkout before any other command.",
             });

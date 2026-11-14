@@ -7,7 +7,15 @@ import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorktreePreparation } from "../worktree-preparation/main.ts";
-import { cleanup } from "./cleanup.ts";
+import { cleanup as cleanupWorkflow } from "./cleanup.ts";
+import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
+
+async function cleanup(...args: Parameters<typeof cleanupWorkflow>) {
+  const result = await cleanupWorkflow(...args);
+  if (result.tag === "Err" && result.error.reason.startsWith("cleanup_"))
+    expectRefusalContext(result.error);
+  return result;
+}
 import {
   commit,
   failed,
@@ -25,6 +33,10 @@ afterEach(() => {
 
 const person =
   "Only the person can authorize its deletion: repeat operator cleanup with --person-instructed on the person's instruction.";
+const cleanupDecision = {
+  decider: "super-agent",
+  question: "How should this cleanup failure be corrected without repeating an uncertain effect?",
+};
 const allSteps = [
   { step: "remote_branch", outcome: "deleted" },
   { step: "pane", outcome: "closed" },
@@ -160,7 +172,12 @@ test("a moved remote branch blocks until the person instructs its deletion", asy
   // The instruction covers only a blocked step whose detail the person read.
   expect<unknown>(await cleanup({ ...owner.request, personInstructed: true })).toEqual({
     tag: "Err",
-    error: { reason: "cleanup_unlanded_work", detail: `remote_branch: ${detail}` },
+    error: {
+      reason: "cleanup_unlanded_work",
+      detail: `remote_branch: ${detail}`,
+      next: { decider: "person", question: "May the retained unlanded work be removed?" },
+      state: { found: "moved", expected: owner.head, personInstructed: false },
+    },
   });
   expect<unknown>(recorded(device)).toMatchObject({
     step: "remote_branch",
@@ -182,7 +199,11 @@ test("a moved remote branch blocks until the person instructs its deletion", asy
 test("an unreadable or undeleted remote branch fails the step and stops the order", async () => {
   const owner = await mergedOwner();
   await using device = owner.device;
-  const cases: [(args: string[]) => ReturnType<typeof succeeded>, string][] = [
+  const cases: [
+    (args: string[]) => ReturnType<typeof succeeded>,
+    string,
+    Record<string, unknown>?,
+  ][] = [
     [() => failed("Server Error", 500), "github_failed: github_refused: Server Error"],
     [() => uncertain("gh ended"), "github_uncertain: gh ended"],
     [
@@ -195,6 +216,7 @@ test("an unreadable or undeleted remote branch fails the step and stops the orde
           ? succeeded(null, 204)
           : succeeded({ object: { sha: owner.head } }),
       "github_failed: The branch task/other still exists after the deletion request.",
+      { remoteBranchExists: true },
     ],
     [
       (args) =>
@@ -202,13 +224,23 @@ test("an unreadable or undeleted remote branch fails the step and stops the orde
           ? failed("Reference is protected", 422)
           : succeeded({ object: { sha: owner.head } }),
       "github_failed: The branch task/other still exists after the deletion request. github_refused: Reference is protected",
+      { remoteBranchExists: true },
     ],
   ];
-  for (const [answer, detail] of cases) {
+  for (const [answer, detail, state] of cases) {
     device.answer(answer);
     expect<unknown>(await cleanup(owner.request)).toEqual({
       tag: "Err",
-      error: { reason: "cleanup_failed", detail: `remote_branch: ${detail}` },
+      error: {
+        reason: "cleanup_failed",
+        detail: `remote_branch: ${detail}`,
+        state,
+        next: {
+          decider: "super-agent",
+          question:
+            "How should this cleanup failure be corrected without repeating an uncertain effect?",
+        },
+      },
     });
     expect<unknown>(recorded(device)).toMatchObject({
       step: "remote_branch",
@@ -233,6 +265,8 @@ test("a deletion request that throws is kept in the failure detail", async () =>
       reason: "cleanup_failed",
       detail:
         "remote_branch: github_failed: The branch task/other still exists after the deletion request. Error: boom",
+      next: cleanupDecision,
+      state: { remoteBranchExists: true },
     },
   });
   device.answer((args) => {
@@ -241,7 +275,12 @@ test("a deletion request that throws is kept in the failure detail", async () =>
   });
   expect<unknown>(await cleanup(owner.request)).toEqual({
     tag: "Err",
-    error: { reason: "cleanup_failed", detail: "remote_branch: cleanup_defect: Error: read boom" },
+    error: {
+      reason: "cleanup_failed",
+      detail: "remote_branch: cleanup_defect: Error: read boom",
+      next: cleanupDecision,
+      state: undefined,
+    },
   });
 });
 
@@ -259,6 +298,11 @@ test("only the recorded pane in the recorded Herdr session closes", async () => 
       reason: "cleanup_failed",
       detail:
         "pane: herdr_session_mismatch: Run operator cleanup in a pane of the Herdr session that started the worker.",
+      next: {
+        decider: "super-agent",
+        question: "Which recorded Herdr server must run this command?",
+      },
+      state: { serverMatches: false },
     },
   });
   expect(owner.herdr.pane).not.toHaveBeenCalled();
@@ -290,13 +334,23 @@ test("a gone pane is absent and a Herdr failure fails the pane step", async () =
   owner.herdr.pane.mockReturnValue(ErrAsync(failure));
   expect<unknown>(await cleanup(owner.request)).toEqual({
     tag: "Err",
-    error: { reason: "cleanup_failed", detail: "pane: herdr_failed: herdr exited 1" },
+    error: {
+      reason: "cleanup_failed",
+      detail: "pane: herdr_failed: herdr exited 1",
+      next: cleanupDecision,
+      state: undefined,
+    },
   });
   owner.herdr.pane.mockReturnValue(OkAsync({ tabId: "t1", workspaceId: "w1" }));
   owner.herdr.closePane.mockReturnValue(ErrAsync(failure));
   expect<unknown>(await cleanup(owner.request)).toEqual({
     tag: "Err",
-    error: { reason: "cleanup_failed", detail: "pane: herdr_failed: herdr exited 1" },
+    error: {
+      reason: "cleanup_failed",
+      detail: "pane: herdr_failed: herdr exited 1",
+      next: cleanupDecision,
+      state: undefined,
+    },
   });
   owner.herdr.pane.mockReturnValue(OkAsync(null));
   expect<unknown>(await cleanup(owner.request)).toMatchObject({
@@ -372,14 +426,23 @@ test("an already removed worktree without its local branch is absent", async () 
   });
 });
 
-function blocked(device: Awaited<ReturnType<typeof prDevice>>, reason: string, detail: string) {
+function blocked(
+  device: Awaited<ReturnType<typeof prDevice>>,
+  reason: string,
+  detail: string,
+  state: Record<string, unknown>,
+  question = "May the retained unlanded work be removed?",
+) {
   expect<unknown>(recorded(device)).toMatchObject({
     step: "worktree",
     state: "blocked",
     reason,
     detail,
   });
-  return { tag: "Err", error: { reason, detail: `worktree: ${detail}` } };
+  return {
+    tag: "Err",
+    error: { reason, detail: `worktree: ${detail}`, state, next: { decider: "person", question } },
+  };
 }
 
 test("a foreign checkout or another branch at the recorded path is never removed", async () => {
@@ -388,13 +451,27 @@ test("a foreign checkout or another branch at the recorded path is never removed
   git(owner.worktree, "switch", "-q", "-c", "elsewhere");
   const detail = `${owner.worktree} is no longer the recorded worktree on task/other. Operator never removes another checkout. Move it away, then repeat operator cleanup.`;
   const result = await cleanup({ ...owner.request, personInstructed: true });
-  expect<unknown>(result).toEqual(blocked(device, "cleanup_resource_mismatch", detail));
+  expect<unknown>(result).toEqual(
+    blocked(
+      device,
+      "cleanup_resource_mismatch",
+      detail,
+      { branch: "elsewhere", expectedBranch: "task/other" },
+      "How should the resource that differs from its recorded identity be handled?",
+    ),
+  );
   git(owner.worktree, "switch", "-q", "task/other");
   git(device.checkout, "worktree", "remove", "--force", owner.worktree);
   await Bun.write(`${owner.worktree}/README.md`, "foreign\n", { createPath: true });
   git(owner.worktree, "init", "-q", "-b", "task/other");
   expect<unknown>(await cleanup({ ...owner.request, personInstructed: true })).toEqual(
-    blocked(device, "cleanup_resource_mismatch", detail),
+    blocked(
+      device,
+      "cleanup_resource_mismatch",
+      detail,
+      { sameRepository: false },
+      "How should the resource that differs from its recorded identity be handled?",
+    ),
   );
   expect<unknown>(await Bun.file(`${owner.worktree}/README.md`).text()).toBe("foreign\n");
 });
@@ -446,7 +523,12 @@ test("unlanded work blocks the removal until the person instructs a forced remov
   await Bun.write(`${owner.worktree}/debug.log`, "log\n");
   const detail = `${owner.worktree} holds commits that are not in the merged head; changed or untracked moved.md, a; ignored content that preparation did not write: debug.log. ${person}`;
   expect<unknown>(await cleanup(owner.request)).toEqual(
-    blocked(device, "cleanup_unlanded_work", detail),
+    blocked(device, "cleanup_unlanded_work", detail, {
+      landed: false,
+      changedFiles: 2,
+      unknownIgnoredFiles: 1,
+      personInstructed: false,
+    }),
   );
   expect<unknown>(await Bun.file(`${owner.worktree}/a`).exists()).toBe(true);
   expect<unknown>(await cleanup({ ...owner.request, personInstructed: true })).toMatchObject({
@@ -533,6 +615,7 @@ test("a changed or new file beside the install output blocks the removal", async
       device,
       "cleanup_unlanded_work",
       `${owner.worktree} holds ignored content that preparation did not write: .husky/_/h, .husky/_/notes. ${person}`,
+      { landed: true, changedFiles: 0, unknownIgnoredFiles: 2, personInstructed: false },
     ),
   );
 });
@@ -550,6 +633,7 @@ test("an ignored entry that preparation cannot classify is unknown", async () =>
       device,
       "cleanup_unlanded_work",
       `${owner.worktree} holds ignored content that preparation did not write: debug.log. ${person}`,
+      { landed: true, changedFiles: 0, unknownIgnoredFiles: 1, personInstructed: false },
     ),
   );
 });
@@ -564,6 +648,8 @@ test("a worktree that Git cannot inspect is not proven landed", async () => {
       device,
       "cleanup_unlanded_work",
       `Git could not inspect ${owner.worktree}, so its work is not proven landed. Repeat operator cleanup after the Git failure is resolved.`,
+      { gitStatusSucceeded: false },
+      "How should the unverified worktree be recovered without losing unlanded work?",
     ),
   );
 });
@@ -596,7 +682,12 @@ test("a failed worktree removal fails the step", async () => {
   owner.herdr.workspaces.mockReturnValue(ErrAsync(failure));
   expect<unknown>(await cleanup(owner.request)).toEqual({
     tag: "Err",
-    error: { reason: "cleanup_failed", detail: "worktree: herdr_failed: herdr exited 1" },
+    error: {
+      reason: "cleanup_failed",
+      detail: "worktree: herdr_failed: herdr exited 1",
+      next: cleanupDecision,
+      state: undefined,
+    },
   });
   owner.herdr.workspaces.mockReturnValue(
     OkAsync([{ workspaceId: "w3", label: "other", checkout: owner.worktree, linked: true }]),
@@ -604,7 +695,12 @@ test("a failed worktree removal fails the step", async () => {
   owner.herdr.removeWorktree.mockReturnValue(ErrAsync(failure));
   expect<unknown>(await cleanup(owner.request)).toEqual({
     tag: "Err",
-    error: { reason: "cleanup_failed", detail: "worktree: herdr_failed: herdr exited 1" },
+    error: {
+      reason: "cleanup_failed",
+      detail: "worktree: herdr_failed: herdr exited 1",
+      next: cleanupDecision,
+      state: undefined,
+    },
   });
   owner.herdr.workspaces.mockReturnValue(OkAsync([]));
   git(device.checkout, "worktree", "lock", owner.worktree);
@@ -664,6 +760,8 @@ test("a Git command without an answer never proves the worktree landed or remove
     error: {
       reason: "cleanup_failed",
       detail: "worktree: git_failed: git worktree remove failed: Git did not answer.",
+      next: cleanupDecision,
+      state: { removalConfirmed: false },
     },
   });
   expect(recorded(device)).toMatchObject({ step: "worktree", state: "failed" });
@@ -683,6 +781,8 @@ test("a branch read that fails after the deletion fails the step", async () => {
     error: {
       reason: "cleanup_failed",
       detail: "remote_branch: github_failed: github_refused: Server Error",
+      next: cleanupDecision,
+      state: undefined,
     },
   });
 });

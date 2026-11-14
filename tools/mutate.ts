@@ -2,7 +2,7 @@
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { parseMutationArgs, selectMutationUnits, type MutationUnit } from "./mutation-selection.ts";
-import { mutationGuidance, mutationExecutionBudget } from "./mutation-policy.ts";
+import { mutationGuidance } from "./mutation-policy.ts";
 import { z } from "zod";
 
 const usage = "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...]";
@@ -89,7 +89,11 @@ async function runUnit(unit: MutationUnit, counts: Counts): Promise<void> {
         unit,
         ownRunner ? [...unit.tests, runner] : unit.tests,
       ),
-      ...mutationExecutionBudget,
+      // The full CLI baseline exceeds Stryker's five-minute default.
+      dryRunTimeoutMinutes: 30,
+      timeoutFactor: 1.5,
+      timeoutMS: 2000,
+      concurrency: 1,
       // Stryker disable next-line ArrayDeclaration: equivalent: Stryker skips an unknown reporter name with a warning that the error log level hides
       reporters: [],
       plugins: [],

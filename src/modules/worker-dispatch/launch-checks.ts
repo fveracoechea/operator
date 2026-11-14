@@ -18,26 +18,30 @@ function pluginReady(paths: Paths) {
       async () => {
         const installed = plugins.find((plugin) => plugin.id === pluginId);
         const expected = await realPathOrNull(paths.herdrPlugin);
-        if (
-          installed === undefined ||
-          expected === null ||
-          (await realPathOrNull(installed.root)) !== expected
-        )
-          return "herdr_plugin_missing";
+        if (installed === undefined)
+          return { reason: "herdr_plugin_missing", state: { pluginLinked: false } };
+        if (expected === null)
+          return { reason: "herdr_plugin_missing", state: { devicePluginExists: false } };
+        if ((await realPathOrNull(installed.root)) !== expected)
+          return { reason: "herdr_plugin_missing", state: { pluginRootMatches: false } };
         const linked = Bun.file(`${paths.herdrPlugin}/herdr-plugin.toml`);
         const released = await Bun.file(pluginManifestFile).text();
         return (await linked.exists()) && (await linked.text()) === released
           ? null
-          : "herdr_plugin_outdated";
+          : { reason: "herdr_plugin_outdated", state: { manifestCurrent: false } };
       },
       (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-    ).flatMap((reason) =>
-      reason === null
+    ).flatMap((failure) =>
+      failure === null
         ? Ok(undefined)
         : Err<Failure>({
-            reason,
+            ...failure,
+            next: {
+              command: "operator herdr install",
+              why: "Install the current release's Herdr plugin before dispatching.",
+            },
             detail:
-              reason === "herdr_plugin_missing"
+              failure.reason === "herdr_plugin_missing"
                 ? "Run operator herdr install so new worktrees are prepared. Nothing was launched."
                 : "The linked Herdr plugin is not the manifest of this release. Run operator herdr install. Nothing was launched.",
           }),
@@ -51,6 +55,8 @@ function herdrSession() {
   return socket === undefined
     ? Err<Failure>({
         reason: "herdr_session_required",
+        next: { decider: "super-agent", question: "Which Herdr session should run this command?" },
+        state: { herdrSessionPresent: false },
         detail:
           "Run this command in a pane of the Herdr session that holds the project workspace. Nothing was launched.",
       })
@@ -70,6 +76,11 @@ export function launchSettings(paths: Paths, checkout: string, profile: string |
           ? Ok(undefined)
           : Err<Failure>({
               reason: "worker_not_ready",
+              next: {
+                command: "operator ready",
+                why: "Read and correct the device readiness blockers.",
+              },
+              state: { ready: false },
               detail: `Static readiness failed: ${blockers.map((blocker) => blocker.reason).join(", ")}. Run operator ready. Nothing was launched.`,
             }),
       ),
@@ -114,6 +125,11 @@ export function preparedAgain(paths: Paths, worktree: string) {
     if (real === null)
       return Err<Failure>({
         reason: "worktree_missing",
+        next: {
+          decider: "super-agent",
+          question: "How should the recorded missing worktree be recovered?",
+        },
+        state: { worktreeExists: false },
         detail: `The recorded worktree ${worktree} no longer exists.`,
       });
     const read = DeviceState.readPreparation(paths, real);
@@ -121,7 +137,16 @@ export function preparedAgain(paths: Paths, worktree: string) {
     if (read.value?.state === "prepared") return Ok(read.value.detail);
     const prepared = await WorktreePreparation.prepare({ paths, worktree: real });
     if (prepared.tag === "Err")
-      return Err<Failure>({ reason: "worktree_setup_failed", detail: prepared.error.detail });
+      return Err<Failure>({
+        reason: "worktree_setup_failed",
+        detail: prepared.error.detail,
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the recorded worktree preparation failure be corrected before retrying?",
+        },
+        state: { preparationSucceeded: false },
+      });
     return prepared.map((done) => ("detail" in done.data ? String(done.data.detail) : done.reason));
   }).flatMap((result) => result);
 }

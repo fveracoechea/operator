@@ -1,5 +1,16 @@
 import { expect, test } from "bun:test";
-import { decideQuestion, decideQuestionWait, type QuestionState } from "./question-machine.ts";
+import {
+  decideQuestion as questionDecision,
+  decideQuestionWait,
+  type QuestionState,
+} from "./question-machine.ts";
+import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
+
+function decideQuestion(...args: Parameters<typeof questionDecision>) {
+  const result = questionDecision(...args);
+  if (result.tag === "Err") expectRefusalContext(result.error);
+  return result;
+}
 
 const workerPane = { socket: "/herdr.sock", paneId: "w1:p1" };
 const superPane = { socket: "/herdr.sock", paneId: "super:p0" };
@@ -32,6 +43,8 @@ test("a running worker asks a new key once for the whole assignment", () => {
       tag: "Err",
       error: {
         reason: "question_key_taken",
+        next: { decider: "super-agent", question: "Which new key should identify this question?" },
+        state: { questionExists: true },
         detail:
           "Assignment read already asked question scope. Ask with a new key. Nothing changed.",
       },
@@ -46,7 +59,14 @@ test("an ask needs a running launch of an assignment that has not ended", () => 
       detail: "Assignment read has no running worker launch. Nothing changed.",
     },
   };
-  expect(decideQuestion(facts("ask", { launch: null }))).toMatchObject(refused);
+  expect(decideQuestion(facts("ask", { launch: null }))).toMatchObject({
+    ...refused,
+    error: {
+      ...refused.error,
+      state: { assignment: "running", launch: null },
+      next: { command: "operator next" },
+    },
+  });
   expect(
     decideQuestion(
       facts("ask", {
@@ -76,6 +96,8 @@ test("the SuperAgent answers an open question or one that waits on the person", 
       tag: "Err",
       error: {
         reason: "question_not_open",
+        next: { command: "operator next" },
+        state: { question: state },
         detail: `Question scope of read is ${state}. Nothing changed.`,
       },
     });
@@ -112,6 +134,11 @@ test("a command on a key that was never asked names the missing question", () =>
       tag: "Err",
       error: {
         reason: "question_not_found",
+        next: {
+          decider: "super-agent",
+          question: "Which recorded question key should this command target?",
+        },
+        state: { question: null },
         detail: "Assignment read has no question with this key. Nothing changed.",
       },
     });
@@ -122,6 +149,11 @@ test("the worker's own pane cannot answer or escalate, also on another server's 
     tag: "Err",
     error: {
       reason: "self_decision_refused",
+      next: {
+        decider: "super-agent",
+        question: "What is your decision from your own supervising pane?",
+      },
+      state: { samePane: true, sameServer: true },
       detail:
         "A WorkerAgent cannot answer its own question. The supervising SuperAgent decides from its own pane. Nothing changed.",
     },

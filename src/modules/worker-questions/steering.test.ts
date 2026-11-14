@@ -252,6 +252,11 @@ test("only the SuperAgent's pane steers, and only the worker's pane reads and ac
   expect(await WorkerQuestions.read({ paths: device.paths, key: "other" })).toMatchObject({
     error: {
       reason: "message_not_found",
+      next: {
+        decider: "super-agent",
+        question: "Which recorded message key should this command target?",
+      },
+      state: { message: null },
       detail: "Assignment read has no steering message other. Nothing changed.",
     },
   });

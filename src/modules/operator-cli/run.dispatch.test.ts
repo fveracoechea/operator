@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { expectWorkflowRefusal, workflowOutputSchema } from "./refusal-fixture.ts";
+import { expectWorkflowRefusal, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 import { writeOpenCodePlugin } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 
@@ -504,6 +504,56 @@ test("refusals before reservation make no Herdr effect and no state change", asy
     [],
   );
 });
+
+test.each([
+  {
+    config: { superAgent: { host: "opencode", model: "test/reasoner" } },
+    reason: "profile_missing",
+    state: { profile: "careful", exists: false },
+    next: { command: "operator config show" },
+  },
+  {
+    config: { profiles: { careful: {} } },
+    reason: "selection_incomplete",
+    state: { hostConfigured: false, modelConfigured: false },
+    next: { decider: "super-agent", question: "Which host and model should this launch use?" },
+  },
+  {
+    config: { superAgent: { host: "opencode", model: "test/missing" }, profiles: { careful: {} } },
+    reason: "unsupported_model",
+    state: { model: "test/missing", modelAdvertised: false },
+    next: { command: "operator host models --host opencode" },
+  },
+  {
+    config: {
+      superAgent: { host: "opencode", model: "test/writer" },
+      profiles: { careful: { reasoningEffort: "high" } },
+    },
+    reason: "unsupported_effort",
+    state: { model: "test/writer", effort: "high", effortAdvertised: false },
+    next: { command: "operator host models --host opencode" },
+  },
+])(
+  "dispatch reports $reason before reservation or external launch effects",
+  async ({ config, reason, state, next }) => {
+    const source = await register();
+    const database = `${root}/state/operator/operator.sqlite`;
+    const before = await Bun.file(database).arrayBuffer();
+    const files = await checkoutFiles();
+    await Bun.write(`${root}/config/operator/config.json`, JSON.stringify(config));
+    expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+      code: 3,
+      output: { outcome: "refused", reason, state, next },
+    });
+    expect(await herdrCalls()).toEqual([]);
+    expect(await Bun.file(`${root}/session.json`).exists()).toBe(false);
+    expect(await checkoutFiles()).toEqual(files);
+    expect(await Bun.file(database).arrayBuffer()).toEqual(before);
+    expect(
+      await Array.fromAsync(new Bun.Glob("**/brief.md").scan({ cwd: `${root}/state` })),
+    ).toEqual([]);
+  },
+);
 
 test("a failed launch stays visible, and a replacement resolves current settings", async () => {
   expect((await run(["herdr", "install"])).code).toBe(0);

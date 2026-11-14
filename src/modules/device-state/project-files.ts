@@ -28,6 +28,12 @@ function checkDirectory<R extends string>(root: string, directory: string, reaso
             return Err({
               reason,
               detail: `The state path is not a real directory: ${current}. Preserve external content and resolve this path before repeating the command.`,
+              next: {
+                decider: "super-agent" as const,
+                question:
+                  "How should this state path be corrected while preserving external content?",
+              },
+              state: { realDirectory: false },
             });
         } catch (cause) {
           if (isCodedError(cause) && cause.code === "ENOENT") return Ok(undefined);

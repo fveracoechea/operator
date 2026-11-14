@@ -25,17 +25,21 @@ test("a worker command outside a Herdr pane refuses", () => {
     tag: "Err",
     error: {
       reason: "worker_pane_required",
+      next: {
+        decider: "super-agent",
+        question: "Which dispatched worker pane must run this command?",
+      },
       detail:
         "Run this command in the Herdr pane that Operator dispatched for the assignment. Nothing changed.",
     },
   };
-  for (const env of [
-    { HERDR_PANE_ID: undefined, HERDR_SOCKET_PATH: "/herdr.sock" },
-    { HERDR_PANE_ID: "w1:p1", HERDR_SOCKET_PATH: undefined },
-  ]) {
+  for (const [env, state] of [
+    [{ HERDR_PANE_ID: undefined, HERDR_SOCKET_PATH: "/herdr.sock" }, { panePresent: false }],
+    [{ HERDR_PANE_ID: "w1:p1", HERDR_SOCKET_PATH: undefined }, { serverPresent: false }],
+  ] as const) {
     inPane(env);
     expect(caller()).toMatchObject({ [env.HERDR_PANE_ID ? "socket" : "paneId"]: null });
-    expect(workerPane()).toMatchObject(refused);
+    expect(workerPane()).toMatchObject({ ...refused, error: { ...refused.error, state } });
     mock.restore();
   }
 });

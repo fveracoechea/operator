@@ -5,6 +5,7 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { launches, assignments, sources, workerQuestions } from "./schema.ts";
 import { locate, type ReportTarget } from "./reports.ts";
 import type { StateFailure } from "./failures.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 import { applyMessage, type MessageRow } from "./messages.ts";
 
 export type QuestionRow = typeof workerQuestions.$inferSelect;
@@ -23,7 +24,7 @@ export type QuestionChange = {
   message?: MessageRow;
 };
 
-type TargetFailure = StateFailure | { reason: string; detail: string };
+type TargetFailure = StateFailure | (ResultContext & { reason: string; detail: string });
 
 function readFacts(db: Db, target: ReportTarget, key: string) {
   return locate(db, target).flatMap(
@@ -38,6 +39,11 @@ function readFacts(db: Db, target: ReportTarget, key: string) {
       if (source === undefined || assignment === undefined)
         return Err({
           reason: "assignment_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the available assignments before choosing a target.",
+          },
+          state: { sourceExists: source !== undefined, assignmentExists: assignment !== undefined },
           detail: `Assignment ${name} does not exist in this source. Nothing changed.`,
         });
       const launch = db

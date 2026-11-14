@@ -252,7 +252,7 @@ test("passes a wait to the coordination wait, which names its own result", async
   });
   expect(error.mock.calls.map(([line]) => String(line))).toEqual([
     "operator: state_busy: busy",
-    "next: super-agent decides: When has the active state operation finished so this command can be retried?",
+    "next: super-agent decides: How should state_busy be corrected before retrying next_wait?",
   ]);
   expect(process.exitCode).toBe(1);
   expect(called.next).not.toHaveBeenCalled();
