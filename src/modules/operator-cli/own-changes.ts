@@ -6,6 +6,7 @@ import type { OperatorHome } from "../operator-home/main.ts";
 // returns for their changes. A worker's commands and the waits themselves are not here.
 const supervisorCommands = new Set([
   "dispatch",
+  "abandon",
   "cleanup",
   "handoff",
   "source register",

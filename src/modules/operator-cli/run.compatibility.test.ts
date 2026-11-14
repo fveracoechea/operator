@@ -318,7 +318,24 @@ test("a failed migration rolls back all pending changes and retains its verified
   );
 });
 
-test("device-wide active assignments and migration-specific held records stop startup until cleared", async () => {
+test.each(["running", "pr-open", "reported"])(
+  "a migration runs with a %s assignment and no live process",
+  async (state) => {
+    await oldDatabase();
+    expect((await run(["--version"])).code).toBe(0);
+    const entry = await extendedRelease("CREATE TABLE later (value TEXT)");
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    db.exec(
+      "INSERT INTO sources VALUES ('other', 'example/one', 'tracker:2', 'open', '2026-10-26', NULL, '{}', NULL, NULL)",
+    );
+    db.query("INSERT INTO assignments VALUES ('other', 'worker', 'pr', ?)").run(state);
+    expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
+    expect(db.query("SELECT state FROM assignments").all()).toEqual([{ state }]);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
+  },
+);
+
+test("migration-specific held records stop startup but assignment state does not", async () => {
   await oldDatabase();
   expect((await run(["--version"])).code).toBe(0);
   const entry = await extendedRelease(
@@ -337,7 +354,7 @@ test("device-wide active assignments and migration-specific held records stop st
       code: 3,
       output: { reason: "state_migration_blocked" },
     });
-    expect(refusal.stderr).toContain("active assignments across all registered projects");
+    expect(refusal.stderr).toContain("migration-specific held record");
   }
   db.exec("UPDATE assignments SET state = 'ready'");
   expect(await run(["--version"], entry)).toMatchObject({

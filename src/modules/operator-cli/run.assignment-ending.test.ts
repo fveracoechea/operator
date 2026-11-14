@@ -1,0 +1,727 @@
+import { afterEach, expect, test } from "bun:test";
+// Bun has no recursive removal API.
+import { chmod, rm, symlink } from "node:fs/promises";
+import path from "node:path";
+import { workerDevice } from "./worker-fixture.ts";
+import { z } from "zod";
+import { Database } from "bun:sqlite";
+
+let device: Awaited<ReturnType<typeof workerDevice>>;
+const asRoot = process.getuid?.() === 0;
+afterEach(async () => {
+  await rm(device.root, { recursive: true, force: true });
+});
+
+function assignment(key: string, resources: "pane" | "worktree") {
+  const planned: {
+    key: string;
+    trackerKey: string;
+    instructions: string;
+    completion: string;
+    resources: string;
+    dependencies: string[];
+    branch?: string;
+  } = {
+    key,
+    trackerKey: `APP-${key}`,
+    instructions: "Investigate and report.",
+    completion: "report",
+    resources,
+    dependencies: [],
+  };
+  if (resources === "worktree") planned.branch = `task/${key}`;
+  return planned;
+}
+
+test("an assignment whose worker and worktree are gone ends, and next actions read the live pane from Herdr", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-1",
+    assignments: [assignment("read", "worktree"), assignment("pane", "pane")],
+  });
+  const worker = await device.dispatch(source, "read");
+  const pane = await device.dispatch(source, "pane");
+  // Lose the resources without delivering the plugin event. The launch still says running.
+  await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
+  expect(await device.next("read")).toMatchObject([
+    { action: "replace_worker", reason: "worker_interrupted" },
+  ]);
+  expect(await device.next("pane")).toMatchObject([
+    { action: "ended", reason: "assignment_ended", launch: { paneId: pane.paneId } },
+  ]);
+  await rm(worker.worktreePath ?? "", { recursive: true, force: true });
+  expect(await device.next("read")).toMatchObject([
+    { action: "ended", reason: "assignment_ended" },
+  ]);
+  const shown = await device.run(["source", "show", "--source", source]);
+  expect(shown.output).toMatchObject({
+    data: {
+      assignments: [
+        { key: "read", state: "abandoned" },
+        { key: "pane", state: "abandoned" },
+      ],
+    },
+  });
+  expect(await device.herdrCalls()).toContain("pane get");
+}, 60000);
+
+test("cleanup ignores ignored entries except changed env files", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-3",
+    assignments: [assignment("build", "worktree")],
+  });
+  const worker = await device.dispatch(source, "build");
+  const worktree = worker.worktreePath ?? "";
+  // Ignore an entire folder: status must not hide its changed env file.
+  const exclude = await device.exec(["git", "rev-parse", "--git-path", "info/exclude"], worktree);
+  await Bun.write(exclude.stdout.trim(), "build/\n");
+  await Bun.write(`${worktree}/build/out.js`, "generated\n", { createPath: true });
+  await Bun.write(`${worktree}/build/.env.production`, "SECRET=changed\n");
+  const report = await device.writeJson("report.json", {
+    conclusion: "Done",
+    evidence: ["Inspected the generated output."],
+    unresolved: [],
+  });
+  expect(
+    (await device.run(["report", "submit", "--file", report], { pane: worker.paneId })).code,
+  ).toBe(0);
+  const args = ["report", "accept", "--source", source, "--assignment", "build"];
+  expect(await device.run(args)).toMatchObject({
+    code: 0,
+    output: { data: { cleanup: { state: "kept" } } },
+  });
+  expect(await Bun.file(`${worktree}/build/.env.production`).text()).toBe("SECRET=changed\n");
+  await rm(`${worktree}/build/.env.production`);
+  expect(await device.run(args)).toMatchObject({
+    code: 0,
+    output: { data: { cleanup: { state: "done" } } },
+  });
+  expect(await Bun.file(`${worktree}/package.json`).exists()).toBe(false);
+}, 60000);
+
+test("abandon ends one assignment and deletes nothing", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-2",
+    assignments: [assignment("read", "worktree"), assignment("other", "pane")],
+  });
+  const worker = await device.dispatch(source, "read");
+  const file = `${worker.worktreePath}/notes.md`;
+  await Bun.write(file, "unlanded notes\n");
+  const before = await device.herdrCalls();
+  const abandoned = await device.run(["abandon", "--source", source, "--assignment", "read"]);
+  expect(abandoned).toMatchObject({
+    code: 0,
+    output: {
+      reason: "assignment_abandoned",
+      data: {
+        assignment: "read",
+        retained: [{ assignment: "read", worktreePath: worker.worktreePath }],
+      },
+    },
+  });
+  expect(await device.herdrCalls()).toEqual(before);
+  expect(await Bun.file(file).text()).toBe("unlanded notes\n");
+  expect(await device.next("other")).toMatchObject([{ action: "ready_assignment" }]);
+  expect(await device.next("read")).toMatchObject([
+    { action: "person_decision", reason: "cleanup_unlanded_work" },
+  ]);
+  expect(await device.run(["dispatch", "--source", source, "--assignment", "read"])).toMatchObject({
+    code: 4,
+    output: { reason: "assignment_not_dispatchable" },
+  });
+}, 60000);
+
+test("cleanup ignores an ignored generated repository with no environment files", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-generated-repository",
+    assignments: [assignment("build", "worktree")],
+  });
+  const worker = await device.dispatch(source, "build");
+  const worktree = worker.worktreePath ?? "";
+  const exclude = await device.exec(["git", "rev-parse", "--git-path", "info/exclude"], worktree);
+  await Bun.write(exclude.stdout.trim(), "build/\n");
+  await Bun.write(`${worktree}/build/output.js`, "generated\n", { createPath: true });
+  expect((await device.exec(["git", "init", "-q", `${worktree}/build`], worktree)).code).toBe(0);
+  const report = await device.writeJson("report.json", {
+    conclusion: "Done",
+    evidence: ["Built output."],
+    unresolved: [],
+  });
+  expect(
+    (await device.run(["report", "submit", "--file", report], { pane: worker.paneId })).code,
+  ).toBe(0);
+  expect(
+    await device.run(["report", "accept", "--source", source, "--assignment", "build"]),
+  ).toMatchObject({
+    code: 0,
+    output: { data: { cleanup: { state: "done" } } },
+  });
+  expect(await Bun.file(`${worktree}/build/output.js`).exists()).toBe(false);
+}, 60000);
+
+test.each(["changed", "unchanged", "linked"])(
+  "cleanup inspects %s environment files inside ignored repositories before removing anything",
+  async (mode) => {
+    device = await workerDevice();
+    const source = await device.register({
+      trackerKey: `APP-repository-env-${mode}`,
+      assignments: [assignment("build", "worktree")],
+    });
+    const worker = await device.dispatch(source, "build");
+    const worktree = worker.worktreePath ?? "";
+    const exclude = await device.exec(["git", "rev-parse", "--git-path", "info/exclude"], worktree);
+    await Bun.write(exclude.stdout.trim(), "build/\n");
+    await Bun.write(`${worktree}/build/output.js`, "generated\n", { createPath: true });
+    expect((await device.exec(["git", "init", "-q", `${worktree}/build`], worktree)).code).toBe(0);
+    await Bun.write(`${device.main}/build/.env`, "TOKEN=original\n", { createPath: true });
+    const outside = `${device.root}/secret.env`;
+    await Bun.write(outside, "TOKEN=original\n");
+    await (mode === "linked"
+      ? symlink(outside, `${worktree}/build/.env`)
+      : Bun.write(
+          `${worktree}/build/.env`,
+          mode === "changed" ? "TOKEN=changed\n" : "TOKEN=original\n",
+        ));
+    const report = await device.writeJson("report.json", {
+      conclusion: "Done",
+      evidence: ["Built output."],
+      unresolved: [],
+    });
+    expect(
+      (await device.run(["report", "submit", "--file", report], { pane: worker.paneId })).code,
+    ).toBe(0);
+    const accepted = await device.run([
+      "report",
+      "accept",
+      "--source",
+      source,
+      "--assignment",
+      "build",
+    ]);
+    expect(accepted).toMatchObject({
+      code: 0,
+      output: { data: { cleanup: { state: mode === "unchanged" ? "done" : "kept" } } },
+    });
+    if (mode !== "unchanged") {
+      expect(JSON.stringify(accepted.output)).toContain("ignored build/.env");
+      expect(await Bun.file(`${worktree}/build/output.js`).text()).toBe("generated\n");
+      expect(await Bun.file(`${worktree}/build/.env`).text()).toBe(
+        mode === "changed" ? "TOKEN=changed\n" : "TOKEN=original\n",
+      );
+    }
+    expect(await Bun.file(outside).text()).toBe("TOKEN=original\n");
+  },
+  60000,
+);
+
+test.skipIf(asRoot)(
+  "an unreadable resource refuses next without ending work or changing state",
+  async () => {
+    device = await workerDevice();
+    const source = await device.register({
+      trackerKey: "APP-unreadable",
+      assignments: [assignment("read", "worktree")],
+    });
+    const worker = await device.dispatch(source, "read");
+    const worktree = worker.worktreePath ?? "";
+    const parent = path.dirname(worktree);
+    const before = await Bun.file(`${device.root}/state/operator/operator.sqlite`).bytes();
+    await chmod(parent, 0);
+    try {
+      expect(await device.run(["next"])).toMatchObject({
+        code: 1,
+        output: {
+          reason: "source_io_failed",
+          next: { decider: "person" },
+          state: { operation: "resource_metadata" },
+        },
+      });
+      expect(await Bun.file(`${device.root}/state/operator/operator.sqlite`).bytes()).toEqual(
+        before,
+      );
+    } finally {
+      await chmod(parent, 0o755);
+    }
+    expect(await Bun.file(`${worktree}/package.json`).exists()).toBe(true);
+    expect((await device.run(["source", "show", "--source", source])).output).toMatchObject({
+      data: { assignments: [{ state: "running" }], launches: [{ state: "running" }] },
+    });
+  },
+  60000,
+);
+
+test.skipIf(asRoot)(
+  "abandon keeps its committed success when acknowledgement cannot inspect a retained path",
+  async () => {
+    device = await workerDevice();
+    const source = await device.register({
+      trackerKey: "APP-ack-unreadable",
+      assignments: [assignment("read", "worktree")],
+    });
+    const worker = await device.dispatch(source, "read");
+    {
+      using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+      db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_review", source);
+    }
+    const parent = path.dirname(worker.worktreePath ?? "");
+    await chmod(parent, 0);
+    try {
+      const abandoned = await device.exec(
+        [
+          "env",
+          "OPENCODE_SESSION_ID=ses_review",
+          "CLAUDE_CODE_SESSION_ID=",
+          "operator",
+          "abandon",
+          "--source",
+          source,
+          "--assignment",
+          "read",
+          "--json",
+        ],
+        device.main,
+      );
+      expect(JSON.parse(abandoned.stdout)).toMatchObject({ reason: "assignment_abandoned" });
+      expect(abandoned.code, abandoned.stderr).toBe(0);
+      expect(abandoned.stderr).toBe("");
+    } finally {
+      await chmod(parent, 0o755);
+    }
+    expect((await device.run(["source", "show", "--source", source])).output).toMatchObject({
+      data: { assignments: [{ state: "abandoned" }] },
+    });
+    expect(await Bun.file(`${worker.worktreePath}/package.json`).exists()).toBe(true);
+  },
+  60000,
+);
+
+const sessionWait = [
+  "env",
+  "OPENCODE_SESSION_ID=ses_cross",
+  "CLAUDE_CODE_SESSION_ID=",
+  "operator",
+  "next",
+  "--wait",
+  "--timeout",
+  "0",
+];
+
+async function supervisedProjects(secondResources: "pane" | "worktree") {
+  device = await workerDevice();
+  const other = await device.checkout("other", "example/two");
+  expect((await device.run(["project", "register"], { cwd: other })).code).toBe(0);
+  const first = await device.register({
+    trackerKey: "APP-pane-scope",
+    assignments: [assignment("pane", "pane")],
+  });
+  const second = await device.register(
+    { trackerKey: "APP-blocked-scope", assignments: [assignment("blocked", secondResources)] },
+    other,
+  );
+  const pane = await device.dispatch(first, "pane");
+  const blocked = await device.dispatch(second, "blocked", other);
+  const groups = [
+    { source: first, cwd: device.main, key: "pane", worker: pane },
+    { source: second, cwd: other, key: "blocked", worker: blocked },
+  ];
+  for (const group of groups) {
+    const question = await device.writeJson(`${group.key}-question.json`, {
+      key: "scope",
+      question: "Which output is required?",
+    });
+    expect(
+      (
+        await device.run(["question", "ask", "--file", question], {
+          pane: group.worker.paneId,
+          cwd: group.worker.worktreePath ?? group.cwd,
+        })
+      ).code,
+    ).toBe(0);
+    const message = await device.writeJson(`${group.key}-message.json`, {
+      key: "focus",
+      message: "Keep the notes until review.",
+    });
+    expect(
+      (
+        await device.run(
+          [
+            "message",
+            "send",
+            "--source",
+            group.source,
+            "--assignment",
+            group.key,
+            "--file",
+            message,
+          ],
+          { cwd: group.cwd },
+        )
+      ).code,
+    ).toBe(0);
+    await Bun.write(`${group.worker.worktreePath ?? group.cwd}/retained.md`, "keep\n");
+  }
+  {
+    using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+    db.query("UPDATE sources SET supervising_session = ?").run("ses_cross");
+  }
+  const primed = await device.exec([...sessionWait, "--json"], device.main);
+  expect(primed.code, primed.stderr).toBe(0);
+  expect(JSON.parse(primed.stdout)).toMatchObject({ reason: "next_actions_changed" });
+  const board = z
+    .object({
+      data: z.object({
+        sources: z.array(
+          z.object({
+            id: z.string(),
+            actions: z.array(z.looseObject({ question: z.object({ key: z.string() }).optional() })),
+          }),
+        ),
+      }),
+    })
+    .parse(JSON.parse(primed.stdout)).data.sources;
+  expect(board.map((source) => source.id).toSorted()).toEqual([first, second].toSorted());
+  for (const source of board)
+    expect(source.actions.some((row) => row.question?.key === "scope")).toBe(true);
+  const snapshots = await Promise.all(
+    groups.map(
+      async (group) =>
+        (await device.run(["source", "show", "--source", group.source], { cwd: group.cwd })).output,
+    ),
+  );
+  for (const snapshot of snapshots)
+    expect(snapshot).toMatchObject({
+      data: {
+        questions: [{ key: "scope", state: "open" }],
+        messages: [{ key: "focus", state: "pending" }],
+      },
+    });
+  const liveHerdr = z
+    .looseObject({})
+    .parse(await Bun.file(`${device.root}/herdr-state.json`).json());
+  return { groups, snapshots, liveHerdr };
+}
+
+test.skipIf(asRoot).each(["resource", "Herdr"])(
+  "a %s session refusal preserves both projects, conversations, frontier and resources in JSON and text",
+  async (failure) => {
+    const { groups, snapshots, liveHerdr } = await supervisedProjects("worktree");
+    const parent = path.dirname(z.string().min(1).parse(groups[1]?.worker.worktreePath));
+    const calls = await device.herdrCalls();
+    await device.setHerdr({
+      tabs: [],
+      agents: [],
+      skipHooks: true,
+      fail: failure === "Herdr" ? { "pane get": "Herdr unavailable" } : {},
+    });
+    if (failure === "resource") await chmod(parent, 0);
+    try {
+      for (const json of [true, false]) {
+        const waited = await device.exec(
+          [...sessionWait, ...(json ? ["--json"] : [])],
+          device.main,
+        );
+        expect(waited.code).toBe(failure === "resource" ? 1 : 3);
+        expect(waited.stderr).toContain(failure === "resource" ? "EACCES" : "Herdr unavailable");
+        if (json)
+          expect(JSON.parse(waited.stdout)).toMatchObject({
+            outcome: "refused",
+            reason: failure === "resource" ? "source_io_failed" : "herdr_failed",
+          });
+        else expect(waited.stdout).toBe("");
+        for (const [index, group] of groups.entries())
+          expect(
+            (await device.run(["source", "show", "--source", group.source], { cwd: group.cwd }))
+              .output,
+          ).toEqual(z.looseObject({}).parse(snapshots[index]));
+      }
+    } finally {
+      if (failure === "resource") await chmod(parent, 0o755);
+      await device.setHerdr(liveHerdr);
+    }
+    for (const group of groups)
+      expect(await Bun.file(`${group.worker.worktreePath ?? group.cwd}/retained.md`).text()).toBe(
+        "keep\n",
+      );
+    const repeated = await device.exec([...sessionWait, "--json"], device.main);
+    expect(repeated.code, repeated.stderr).toBe(0);
+    expect(JSON.parse(repeated.stdout)).toMatchObject({
+      reason: "next_wait_timed_out",
+      data: { sources: [] },
+    });
+    expect((await device.herdrCalls()).slice(calls.length)).not.toContain("pane exit");
+    expect((await device.herdrCalls()).slice(calls.length)).not.toContain("worktree remove");
+  },
+  60000,
+);
+
+test("a successful session wait ends two real project assignments and consumes their new frontier once", async () => {
+  const { groups } = await supervisedProjects("pane");
+  await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
+  const ended = await device.exec([...sessionWait, "--json"], device.main);
+  expect(ended.code, ended.stderr).toBe(0);
+  expect(ended.stderr).toBe("");
+  const board = z
+    .object({
+      data: z.object({
+        sources: z.array(
+          z.object({
+            id: z.string(),
+            actions: z.array(z.object({ assignment: z.string(), action: z.string() })),
+          }),
+        ),
+      }),
+    })
+    .parse(JSON.parse(ended.stdout)).data.sources;
+  expect(board.map((source) => source.id).toSorted()).toEqual(
+    groups.map((group) => group.source).toSorted(),
+  );
+  const keys = new Map(groups.map((group) => [group.source, group.key]));
+  for (const source of board)
+    expect(source.actions).toEqual([
+      { assignment: z.string().parse(keys.get(source.id)), action: "ended" },
+    ]);
+  for (const group of groups) {
+    expect(
+      (await device.run(["source", "show", "--source", group.source], { cwd: group.cwd })).output,
+    ).toMatchObject({
+      data: {
+        assignments: [{ state: "abandoned" }],
+        launches: [{ state: "interrupted" }],
+        questions: [{ key: "scope", state: "abandoned" }],
+        messages: [{ key: "focus", state: "abandoned" }],
+      },
+    });
+    expect(await Bun.file(`${group.cwd}/retained.md`).text()).toBe("keep\n");
+  }
+  const repeated = await device.exec([...sessionWait, "--json"], device.main);
+  expect(repeated.code, repeated.stderr).toBe(0);
+  expect(JSON.parse(repeated.stdout)).toMatchObject({
+    reason: "next_wait_timed_out",
+    data: { sources: [] },
+  });
+}, 60000);
+
+test.each(["missing resources", "abandon"])(
+  "an ended pr-open assignment names its open PR without closing it after %s",
+  async (ending) => {
+    device = await workerDevice({ github: true });
+    const source = await device.register({
+      trackerKey: "APP-4",
+      assignments: [{ ...assignment("implement", "worktree"), completion: "pr" }],
+    });
+    const worker = await device.dispatch(source, "implement");
+    const worktree = worker.worktreePath ?? "";
+    const head = await device.exec(["git", "rev-parse", "HEAD"], worktree);
+    const url = "https://github.com/example/one/pull/7";
+    await Bun.write(
+      `${device.root}/github.json`,
+      JSON.stringify({
+        pulls: [
+          {
+            number: 7,
+            url,
+            headRefName: "task/implement",
+            headRepository: "example/one",
+            state: "OPEN",
+            head: head.stdout.trim(),
+          },
+        ],
+        branches: { "task/implement": head.stdout.trim() },
+      }),
+    );
+    expect((await device.run(["pr", "associate"], { cwd: worktree })).code).toBe(0);
+    const calls = Bun.file(`${device.root}/gh-calls.jsonl`);
+    const before = await calls.text();
+    if (ending === "abandon") {
+      expect(
+        await device.run(["abandon", "--source", source, "--assignment", "implement"]),
+      ).toMatchObject({
+        code: 0,
+        output: { data: { retained: [{ pullRequest: url, worktreePath: worktree }] } },
+      });
+      // No unlanded file is deleted, and the live pane remains untouched.
+      expect(await Bun.file(`${worktree}/package.json`).exists()).toBe(true);
+    } else {
+      await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
+      await rm(worktree, { recursive: true, force: true });
+    }
+    expect(await device.next("implement")).toMatchObject([
+      {
+        action: ending === "abandon" ? "person_decision" : "ended",
+        pullRequest: { url, number: 7 },
+      },
+    ]);
+    expect(await calls.text()).toBe(before);
+    const shown = await device.run(["source", "show", "--source", source]);
+    expect(shown.output).toMatchObject({
+      data: { assignments: [{ state: "abandoned" }], pullRequests: [{ url, mergedAt: null }] },
+    });
+  },
+  60000,
+);
+
+test("live panes, moved named agents, and another Herdr session do not end assignments", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-5",
+    assignments: [assignment("read", "worktree")],
+  });
+  const worker = await device.dispatch(source, "read");
+  await rm(worker.worktreePath ?? "", { recursive: true, force: true });
+  expect(await device.next("read")).toMatchObject([{ action: "wait" }]);
+  await device.setHerdr({ tabs: [] });
+  // A named agent moved elsewhere still owns the work.
+  expect(await device.next("read")).toMatchObject([{ action: "wait" }]);
+  await device.setHerdr({ agents: [] });
+  const foreign = await device.run(["next"], { socket: `${device.root}/other.sock` });
+  const row = z
+    .object({
+      data: z.object({
+        sources: z.array(z.object({ waits: z.array(z.object({ action: z.string() })) })),
+      }),
+    })
+    .parse(foreign.output);
+  expect(row.data.sources[0]?.waits[0]?.action).toBe("wait");
+  expect(await device.next("read")).toMatchObject([{ action: "ended" }]);
+}, 60000);
+
+test("a failed lifecycle probe leaves assignments and launches unchanged", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-6",
+    assignments: [assignment("read", "pane")],
+  });
+  await device.dispatch(source, "read");
+  const database = Bun.file(`${device.root}/state/operator/operator.sqlite`);
+  const before = await database.bytes();
+  await device.setHerdr({ fail: { "pane get": "Herdr unavailable" } });
+  expect(await device.run(["next"])).toMatchObject({
+    output: { outcome: "refused", reason: "herdr_failed" },
+  });
+  expect(await database.bytes()).toEqual(before);
+}, 60000);
+
+test("a recorded worker end and missing worktree end the assignment even while its terminal pane remains", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-7",
+    assignments: [assignment("read", "worktree")],
+  });
+  const worker = await device.dispatch(source, "read");
+  expect((await device.event("pane.exited", { pane_id: worker.paneId })).code).toBe(0);
+  await rm(worker.worktreePath ?? "", { recursive: true, force: true });
+  expect(await device.next("read")).toMatchObject([
+    { action: "ended", reason: "assignment_ended" },
+  ]);
+}, 60000);
+
+test("a session wait reconciles only its supervised sources", async () => {
+  device = await workerDevice();
+  const selected = await device.register({
+    trackerKey: "APP-8",
+    assignments: [assignment("selected", "pane")],
+  });
+  const other = await device.register({
+    trackerKey: "APP-9",
+    assignments: [assignment("other", "pane")],
+  });
+  await device.dispatch(selected, "selected");
+  await device.dispatch(other, "other");
+  {
+    using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+    db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_scope", selected);
+    db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_other", other);
+  }
+  await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
+  const waited = await device.exec(
+    [
+      "env",
+      "OPENCODE_SESSION_ID=ses_scope",
+      "CLAUDE_CODE_SESSION_ID=",
+      "operator",
+      "next",
+      "--wait",
+      "--timeout",
+      "0",
+      "--json",
+    ],
+    device.main,
+  );
+  expect(waited.code, waited.stderr).toBe(0);
+  expect(JSON.parse(waited.stdout)).toMatchObject({
+    reason: "next_actions_changed",
+    data: { sources: [{ id: selected, actions: [{ assignment: "selected", action: "ended" }] }] },
+  });
+  expect((await device.run(["source", "show", "--source", other])).output).toMatchObject({
+    data: { assignments: [{ key: "other", state: "running" }], launches: [{ state: "running" }] },
+  });
+}, 60000);
+
+test("abandon refusals leave database, resources and external tools unchanged", async () => {
+  device = await workerDevice({ github: true });
+  const source = await device.register({
+    trackerKey: "APP-10",
+    assignments: [assignment("read", "worktree")],
+  });
+  const worker = await device.dispatch(source, "read");
+  const args = ["abandon", "--source", source, "--assignment"];
+  const database = Bun.file(`${device.root}/state/operator/operator.sqlite`);
+  const before = await database.bytes();
+  const calls = await device.herdrCalls();
+  const githubCalls = Bun.file(`${device.root}/gh-calls.jsonl`);
+  const githubBefore = (await githubCalls.exists()) ? await githubCalls.text() : "";
+  expect(await device.run([...args, "missing"])).toMatchObject({
+    code: 3,
+    output: {
+      reason: "assignment_not_found",
+      next: { command: `operator source show --source ${source}` },
+      state: { assignment: "missing" },
+    },
+  });
+  expect(await database.bytes()).toEqual(before);
+  expect((await device.run([...args, "read"])).code).toBe(0);
+  const ended = await database.bytes();
+  expect(await device.run([...args, "read"])).toMatchObject({
+    code: 3,
+    output: { reason: "assignment_ended", state: { found: "abandoned" } },
+  });
+  expect(await database.bytes()).toEqual(ended);
+  expect(await device.herdrCalls()).toEqual(calls);
+  expect(await Bun.file(`${worker.worktreePath}/package.json`).exists()).toBe(true);
+  expect((await githubCalls.exists()) ? await githubCalls.text() : "").toBe(githubBefore);
+}, 60000);
+
+test("abandon preserves earlier worktrees after a failed pathless replacement and next names the person's retained work", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-11",
+    assignments: [assignment("read", "worktree")],
+  });
+  const worker = await device.dispatch(source, "read");
+  const worktree = worker.worktreePath ?? "";
+  await Bun.write(`${worktree}/notes.md`, "retained work\n");
+  expect((await device.event("pane.exited", { pane_id: worker.paneId })).code).toBe(0);
+  await device.setHerdr({ fail: { "worktree open": "Herdr refused" } });
+  expect(await device.run(["dispatch", "--source", source, "--assignment", "read"])).toMatchObject({
+    code: 1,
+    output: { reason: "launch_failed" },
+  });
+  const calls = await device.herdrCalls();
+  expect(await device.run(["abandon", "--source", source, "--assignment", "read"])).toMatchObject({
+    code: 0,
+    output: { data: { retained: [{ worktreePath: worktree }] } },
+  });
+  expect(await device.next("read")).toMatchObject([
+    {
+      action: "person_decision",
+      reason: "cleanup_unlanded_work",
+      retainedResources: [{ worktreePath: worktree, branch: "task/read" }],
+      next: { decider: "person" },
+    },
+  ]);
+  expect(await Bun.file(`${worktree}/notes.md`).text()).toBe("retained work\n");
+  expect(await device.herdrCalls()).toEqual(calls);
+}, 60000);

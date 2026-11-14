@@ -1,4 +1,5 @@
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
+import { WorkSources } from "../work-sources/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 
@@ -12,7 +13,7 @@ function herdrArgs(args: string[]) {
 
 export function dispatchArgs(args: string[]) {
   if (args[0] === "herdr") return herdrArgs(args);
-  if (args[0] !== "dispatch") return null;
+  if (args[0] !== "dispatch" && args[0] !== "abandon") return null;
   const values: Record<string, string> = {};
   const flags = args.slice(1);
   const rest = flags.values();
@@ -34,7 +35,7 @@ export function dispatchArgs(args: string[]) {
   const sourceId = values["--source"];
   const assignment = values["--assignment"];
   if (sourceId === undefined || assignment === undefined) return null;
-  return { operation: "dispatch" as const, sourceId, assignment };
+  return { operation: args[0], sourceId, assignment };
 }
 
 export const dispatchExitCodes = {
@@ -94,9 +95,16 @@ export async function runDispatch(
         sourceId: parsed.sourceId,
         assignment: parsed.assignment,
       }).map((data) => ({ reason: "worker_launched", data }))
-    : parsed.operation === "herdr_install"
-      ? WorkerDispatch.installPlugin({ paths })
-      : WorkerDispatch.observe({ paths }));
+    : parsed.operation === "abandon"
+      ? WorkSources.abandon({
+          paths,
+          cwd: process.cwd(),
+          sourceId: parsed.sourceId,
+          assignment: parsed.assignment,
+        }).map(({ next, ...data }) => ({ reason: "assignment_abandoned", data, next }))
+      : parsed.operation === "herdr_install"
+        ? WorkerDispatch.installPlugin({ paths })
+        : WorkerDispatch.observe({ paths }));
   respond({
     operation: parsed.operation,
     result,

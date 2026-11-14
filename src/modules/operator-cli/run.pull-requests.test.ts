@@ -713,13 +713,18 @@ test("a replacement after a failed replacement start continues on the PR worktre
     output: { reason: "pr_wait_timed_out", data: { number: 7, branch: "task/12-implement" } },
   });
 
-  // A missing PR worktree refuses dispatch instead of starting a new branch.
+  // A stopped worker with a missing worktree ends; a later dispatch changes nothing.
   await exec(["herdr", "pane", "exit", third.paneId, "w1"]);
   await rm(third.worktreePath, { recursive: true, force: true });
+  expect(await entry(source)).toMatchObject({
+    action: "ended",
+    reason: "assignment_ended",
+    pullRequest: { number: 7 },
+  });
   const before = await Bun.file(database()).arrayBuffer();
   expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
-    code: 3,
-    output: { reason: "pr_worktree_missing" },
+    code: 4,
+    output: { reason: "assignment_not_dispatchable" },
   });
   expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
   expect(await git(checkout, "branch", "--list", "task/12-implement-*")).toBe("");

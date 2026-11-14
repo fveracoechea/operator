@@ -129,6 +129,9 @@ A work source that `operator ask` registers from one research question, with one
 
 **Assignment**:
 One independently scheduled unit of delegated work with a brief, dependencies, a start profile, resource needs, and an explicit PR or report completion type.
+It ends when its worker and worktree are gone, or its pane is gone for pane resources.
+`operator abandon` ends one assignment without deleting resources or closing its PR.
+An ended PR-open assignment keeps its open PR reference for adoption.
 Native subagents remain within their parent WorkerAgent's assignment unless their work needs independent scheduling or acceptance.
 
 **Completion type**:
@@ -266,10 +269,12 @@ It creates no archive and removes no retained worktree or branch.
 
 **Unlanded work**:
 Project work whose safe disposal the CLI cannot establish through completion evidence and inspection.
+Ignored entries do not count, except environment files changed from the controlling checkout's copy.
 Only the person can authorize its deletion.
 
 **Cleanup**:
 The CLI's disposal of resources after verified completion, with failures kept visible in next actions.
+It ignores ignored entries except changed environment files.
 PR merge permits remote-branch deletion, pane closure, and worktree removal, while report acceptance permits pane closure but not deletion of unlanded work, and a promotion keeps both the pane and the worktree.
 
 **Canonical map**:

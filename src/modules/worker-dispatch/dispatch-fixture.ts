@@ -150,6 +150,7 @@ export async function dispatchDevice(options: { deferPreparation?: boolean } = {
       OkAsync([{ workspaceId: "w1", label: "one", checkout, linked: false }]),
     ),
     panes: spyOn(Herdr, "panes").mockReturnValue(OkAsync([])),
+    pane: spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "t2", workspaceId: "w2" })),
     renameTab: spyOn(Herdr, "renameTab").mockReturnValue(OkAsync(undefined)),
     agentNames: spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([])),
     tabLabels: spyOn(Herdr, "tabLabels").mockReturnValue(OkAsync([])),

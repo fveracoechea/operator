@@ -7,6 +7,7 @@ import { failure } from "./output.ts";
 // instruction are not listed.
 const coordination: Record<string, (args: string[]) => string | null> = {
   dispatch: () => "dispatch",
+  abandon: () => "abandon",
   next: (args) => (args.includes("--wait") ? "next_wait" : null),
   report: ([, command]) =>
     command === "accept" || command === "return" ? `report_${command}` : null,

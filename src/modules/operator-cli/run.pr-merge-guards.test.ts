@@ -77,27 +77,18 @@ test.each([
     pattern: "failed steps stop the declared order",
   },
   {
-    name: "lockfile dependency folders are preparation output",
-    file: "worktree-preparation/generated.ts",
-    replacements: [["installed && folder !== undefined &&", "false && folder !== undefined &&"]],
-    testFile: "operator-cli/run.pr-merge.test.ts",
-    pattern: "opencode: a verified merge",
-  },
-  {
     name: "changed environment copies are unlanded",
-    file: "worktree-preparation/generated.ts",
-    replacements: [
-      ["approvedEnvFile(entry) && input.copiedUnchanged.has(entry)", "approvedEnvFile(entry)"],
-    ],
+    file: "worktree-preparation/main.ts",
+    replacements: [["changed.push(file);", "void file;"]],
     testFile: "operator-cli/run.pr-merge.test.ts",
     pattern: "unlanded work and unknown ignored content",
   },
   {
-    name: "unknown ignored content",
+    name: "environment inspection failure keeps the worktree",
     file: "pull-requests/cleanup.ts",
-    replacements: [['classified.tag === "Ok" ? classified.value.unknown : ignored', "[]"]],
-    testFile: "operator-cli/run.pr-merge.test.ts",
-    pattern: "unlanded work and unknown ignored content",
+    replacements: [['["environment files could not be inspected"]', "[]"]],
+    testFile: "pull-requests/cleanup.test.ts",
+    pattern: "an environment inspection failure blocks cleanup",
   },
   {
     name: "landed commits",
@@ -184,18 +175,9 @@ test.each([
   {
     name: "person instruction covers only the blocked step",
     file: "pull-requests/cleanup.ts",
-    replacements: [
-      ["request.personInstructed && step === authorized,", "request.personInstructed,"],
-    ],
+    replacements: [["request.personInstructed && step === authorized", "request.personInstructed"]],
     testFile: "operator-cli/run.pr-merge.test.ts",
     pattern: "covers only the blocked step",
-  },
-  {
-    name: "children of a dependency folder",
-    file: "worktree-preparation/generated.ts",
-    replacements: [["node_modules\\//.exec(entry)", "node_modules\\/$/.exec(entry)"]],
-    testFile: "operator-cli/run.pr-merge.test.ts",
-    pattern: "ignore pattern still marks dependency folders",
   },
   {
     name: "absent worktree registration and branch",

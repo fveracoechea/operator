@@ -148,8 +148,8 @@ test.each([
     name: "missing PR worktree",
     file: "worker-dispatch/main.ts",
     replacements: [["facts.pullRequest !== null && reuse === null", "false"]],
-    testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "a replacement after a failed replacement start",
+    testFile: "worker-dispatch/main.replacement.test.ts",
+    pattern: "a PR on a branch that no recorded worktree holds",
   },
   {
     name: "PR branch of the waiting launch",
@@ -201,11 +201,17 @@ test.each([
     pattern: "a killed wait and an idle owner",
   },
   {
-    name: "PR open blocks migration",
+    name: "assignment state alone does not block migration",
     file: "device-state/migration-policy.ts",
-    replacements: [["'running', 'pr-open', 'reported'", "'running', 'reported'"]],
-    testFile: "device-state/migration-policy.test.ts",
-    pattern: "idle guards cover active assignments",
+    replacements: [
+      [
+        "const guard = idleGuards.find((row) => applied >= row.applied && row.busy(client));",
+        "const guard = applied >= 2 && found(client, \"SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1\") ? {detail: 'Assignment state blocks migration.'} : idleGuards.find((row) => applied >= row.applied && row.busy(client));",
+      ],
+    ],
+    testFile: "operator-cli/run.compatibility.test.ts",
+    pattern: "a migration runs with a",
+    diagnostic: "state_migration_blocked",
   },
   {
     name: "stacked start on the parent's pushed head",
@@ -399,6 +405,10 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.diagnostic !== undefined) {
+        expect(`${stdout}${stderr}`).toContain(change.diagnostic);
+        expect(`${stdout}${stderr}`).not.toContain("TypeError");
+      }
     } finally {
       await Bun.write(file, original);
     }

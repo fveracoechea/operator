@@ -17,6 +17,59 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+test("selected assignment ending runs through the device writer and persists only its selected end", () => {
+  const paths = OperatorHome.resolve(
+    Environment.parse({ HOME: `${root}/assignment-ending`, NODE_ENV: "test" }),
+  );
+  expect(
+    DeviceState.registerProject(paths, {
+      repository: "owner/one",
+      checkout: "/isolated/one",
+      registeredAt: "now",
+    }).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.registerSource(
+      paths,
+      "/isolated/one",
+      {
+        id: "one",
+        repository: "owner/one",
+        trackerKey: "APP-1",
+        state: "open",
+        registeredAt: "now",
+        endedAt: null,
+        plan: "{}",
+      },
+      [
+        { sourceId: "one", key: "read", completion: "report", state: "ready" },
+        { sourceId: "one", key: "other", completion: "report", state: "ready" },
+      ],
+    ).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.endAssignments(
+      paths,
+      { repository: "owner/one", checkout: "/isolated/one", sourceId: "one" },
+      (facts) => {
+        expect(facts.assignments.map((row) => row.key).toSorted()).toEqual(["other", "read"]);
+        return Ok({ abandon: ["read"], interrupted: [] });
+      },
+    ),
+  ).toMatchObject({ tag: "Ok", value: { ended: ["read"], retained: [] } });
+  expect(DeviceState.readSources(paths, "owner/one", "one")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        assignments: [
+          { key: "other", state: "ready" },
+          { key: "read", state: "abandoned" },
+        ],
+      },
+    ],
+  });
+});
+
 test("only registration creates state and lookup remains project-scoped", async () => {
   const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
   expect(DeviceState.checkCompatibility(paths)).toMatchObject({

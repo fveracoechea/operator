@@ -4,7 +4,7 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 import { migrationsFolder } from "./database.ts";
 import { idleForMigration, migrationBlockers } from "./migration-policy.ts";
 
-test("idle guards cover active assignments on the whole device, not ready or ended work", () => {
+test("migration runs with running, pr-open, or reported assignments without live processes", () => {
   using db = new Database(":memory:");
   expect(idleForMigration(db, 1).tag).toBe("Ok");
   db.exec("CREATE TABLE assignments (state TEXT)");
@@ -19,9 +19,7 @@ test("idle guards cover active assignments on the whole device, not ready or end
   ]) {
     db.exec("DELETE FROM assignments");
     db.query("INSERT INTO assignments VALUES (?)").run(state);
-    expect(idleForMigration(db, 2).tag).toBe(
-      ["running", "pr-open", "reported"].includes(state) ? "Err" : "Ok",
-    );
+    expect(idleForMigration(db, 2).tag).toBe("Ok");
   }
 });
 
@@ -64,11 +62,6 @@ test("each idle guard starts at the migration that adds its records and names wh
   );
   const lease = new Date().toISOString();
   const cases: [number, string, string][] = [
-    [
-      2,
-      "INSERT INTO assignments VALUES ('running')",
-      "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
-    ],
     [
       3,
       "INSERT INTO project_removals VALUES ('owner/removed')",
