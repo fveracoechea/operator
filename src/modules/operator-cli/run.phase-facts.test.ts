@@ -459,6 +459,11 @@ test("a returned report resumes only from its own assignment state", async () =>
     phase: "report",
     next: { command: "operator report resume" },
   });
+  required(source.assignments.find((row) => row.key === "report")).state = "running";
+  expect(await run()).toMatchObject({
+    phase: "report",
+    next: { command: "operator report submit --file <file>" },
+  });
 });
 
 function reviews() {
