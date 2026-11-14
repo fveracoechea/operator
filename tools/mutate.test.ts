@@ -110,6 +110,33 @@ test("source command identity", () => {
   expect(result.stdout).toContain("0 survivors, 0 untested, 0 incomplete");
 });
 
+test("valid local suppressions are ignored, not reported as killed", async () => {
+  const cwd = await fixture({
+    "src/lib/count.ts":
+      "// Stryker disable next-line ArithmeticOperator: no rule: this fixture only promises a numeric result\nexport function count(n: number) { return n + 1; }\n",
+    "src/lib/count.test.ts":
+      'import { test, expect } from "bun:test"; import { count } from "./count.ts"; test("numeric", () => { expect(typeof count(2)).toBe("number"); });\n',
+  });
+  const result = await mutate(cwd, ["src/lib/count.ts"]);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain(", 1 killed, 1 ignored");
+  const ignored = z
+    .object({
+      unit: z.literal("src/lib/count.ts"),
+      id: z.string().min(1),
+      status: z.literal("Ignored"),
+      mutatorName: z.literal("ArithmeticOperator"),
+      replacement: z.literal("n - 1"),
+      original: z.literal("n + 1"),
+      location: z.object({
+        start: z.object({ line: z.literal(2), column: z.number() }),
+        end: z.object({ line: z.literal(2), column: z.number() }),
+      }),
+    })
+    .parse(JSON.parse(result.stdout.split("\n").find((line) => line.startsWith("{")) ?? "null"));
+  expect(ignored.location.start.column).toBeLessThan(ignored.location.end.column);
+});
+
 // Early in the file, so a broken reuse fails before the slow tests run.
 test("a rerun reuses verdicts, and a changed test or an incomplete result runs again", async () => {
   const runs = path.join(root, crypto.randomUUID());
@@ -369,33 +396,6 @@ test("--since includes new untracked units, skips deletions, and refuses a bad r
   expect(result.stdout).toContain("src/lib/new.ts: untested");
   expect(result.stdout).not.toContain("src/lib/removed.ts");
   expect((await mutate(cwd, ["--since", "not-a-real-ref"])).code).toBe(1);
-});
-
-test("valid local suppressions are ignored, not reported as killed", async () => {
-  const cwd = await fixture({
-    "src/lib/count.ts":
-      "// Stryker disable next-line ArithmeticOperator: no rule: this fixture only promises a numeric result\nexport function count(n: number) { return n + 1; }\n",
-    "src/lib/count.test.ts":
-      'import { test, expect } from "bun:test"; import { count } from "./count.ts"; test("numeric", () => { expect(typeof count(2)).toBe("number"); });\n',
-  });
-  const result = await mutate(cwd, ["src/lib/count.ts"]);
-  expect(result.code).toBe(0);
-  expect(result.stdout).toContain(", 1 killed, 1 ignored");
-  const ignored = z
-    .object({
-      unit: z.literal("src/lib/count.ts"),
-      id: z.string().min(1),
-      status: z.literal("Ignored"),
-      mutatorName: z.literal("ArithmeticOperator"),
-      replacement: z.literal("n - 1"),
-      original: z.literal("n + 1"),
-      location: z.object({
-        start: z.object({ line: z.literal(2), column: z.number() }),
-        end: z.object({ line: z.literal(2), column: z.number() }),
-      }),
-    })
-    .parse(JSON.parse(result.stdout.split("\n").find((line) => line.startsWith("{")) ?? "null"));
-  expect(ignored.location.start.column).toBeLessThan(ignored.location.end.column);
 });
 
 test("case-insensitive wildcard suppressions cannot hide survivors", async () => {
