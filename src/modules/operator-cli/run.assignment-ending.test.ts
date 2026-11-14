@@ -298,6 +298,72 @@ test.skipIf(asRoot)(
   60000,
 );
 
+test.skipIf(asRoot)(
+  "a session refusal from one project does not end another project's assignment or its conversations",
+  async () => {
+    device = await workerDevice();
+    const other = await device.checkout("other", "example/two");
+    expect((await device.run(["project", "register"], { cwd: other })).code).toBe(0);
+    const first = await device.register({
+      trackerKey: "APP-pane-scope",
+      assignments: [assignment("pane", "pane")],
+    });
+    const second = await device.register(
+      { trackerKey: "APP-blocked-scope", assignments: [assignment("blocked", "worktree")] },
+      other,
+    );
+    const pane = await device.dispatch(first, "pane");
+    const blocked = await device.dispatch(second, "blocked", other);
+    const question = await device.writeJson("scope-question.json", {
+      key: "scope",
+      question: "Which output is required?",
+    });
+    expect(
+      (await device.run(["question", "ask", "--file", question], { pane: pane.paneId })).code,
+    ).toBe(0);
+    {
+      using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+      db.query("UPDATE sources SET supervising_session = ?").run("ses_cross");
+    }
+    await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
+    const parent = path.dirname(blocked.worktreePath ?? "");
+    await chmod(parent, 0);
+    try {
+      const waited = await device.exec(
+        [
+          "env",
+          "OPENCODE_SESSION_ID=ses_cross",
+          "CLAUDE_CODE_SESSION_ID=",
+          "operator",
+          "next",
+          "--wait",
+          "--timeout",
+          "0",
+          "--json",
+        ],
+        device.main,
+      );
+      expect(JSON.parse(waited.stdout)).toMatchObject({ reason: "source_io_failed" });
+      expect((await device.run(["source", "show", "--source", first])).output).toMatchObject({
+        data: {
+          assignments: [{ state: "running" }],
+          launches: [{ state: "running" }],
+          questions: [{ key: "scope", state: "open" }],
+        },
+      });
+      expect(
+        (await device.run(["source", "show", "--source", second], { cwd: other })).output,
+      ).toMatchObject({
+        data: { assignments: [{ state: "running" }], launches: [{ state: "running" }] },
+      });
+    } finally {
+      await chmod(parent, 0o755);
+    }
+    expect(await Bun.file(`${blocked.worktreePath}/package.json`).exists()).toBe(true);
+  },
+  60000,
+);
+
 test.each(["missing resources", "abandon"])(
   "an ended pr-open assignment names its open PR without closing it after %s",
   async (ending) => {
