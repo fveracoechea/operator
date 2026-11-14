@@ -480,12 +480,12 @@ export function decodeSource(input: StoredSource) {
   source.assignments = assignments.map((assignment) =>
     assignmentStateSchema.parse(input.assignments.find((row) => row.key === assignment.key)),
   );
-  const stored = new Map(input.assignments.map((row) => [row.key, row]));
+  const storedKinds = new Map(input.assignments.map((row) => [row.key, row.kind]));
   return {
     ...source,
     planned: assignments.map((assignment) => ({
       ...assignment,
-      kind: z.enum(WorkerKinds.names()).nullable().parse(stored.get(assignment.key)?.kind),
+      kind: z.enum(WorkerKinds.names()).nullable().parse(storedKinds.get(assignment.key)),
     })),
   };
 }

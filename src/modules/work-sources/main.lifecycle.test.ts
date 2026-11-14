@@ -164,6 +164,36 @@ test("an empty plan registers a finished source", async () => {
   if (result.tag === "Ok") expect(result.value.endedAt).toBe(result.value.registeredAt);
 });
 
+test.each(["review", "pr-feedback"])(
+  "next does not offer a plain start for the %s kind",
+  async (kind) => {
+    const registered = await register({
+      trackerKey: `kind:${kind}`,
+      assignments: [{ ...assignment("work", "pr"), kind }],
+    });
+    if (registered.tag !== "Ok") expect.unreachable("The transition plan was refused.");
+    expect(
+      await WorkSources.next({ paths, cwd: checkout, sourceId: registered.value.id }),
+    ).toMatchObject({
+      tag: "Ok",
+      value: {
+        sources: [
+          {
+            actions: [
+              { assignment: "work", action: "owner_attention", reason: "kind_not_dispatchable" },
+            ],
+            waits: [],
+          },
+        ],
+      },
+    });
+    expect(await shown(registered.value.id)).toMatchObject({
+      assignments: [{ key: "work", state: "ready" }],
+      launches: [],
+    });
+  },
+);
+
 test("a selected profile must exist in the device settings", async () => {
   const plan = {
     trackerKey: "APP-1",

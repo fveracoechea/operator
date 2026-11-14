@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { planSchema } from "./plan.ts";
+import { planSchema, questionPlan } from "./plan.ts";
 
 const report = {
   key: "read",
@@ -9,6 +9,20 @@ const report = {
   resources: "pane",
   dependencies: [],
 };
+
+test("a question plan selects the answer kind and preserves its selected profile", () => {
+  const plan = planSchema.parse(questionPlan("Which module owns this?\nRead only.", "careful"));
+  expect(plan.assignments).toMatchObject([
+    {
+      kind: "answer",
+      completion: "report",
+      resources: "pane",
+      profile: "careful",
+      dependencies: [],
+    },
+  ]);
+  expect(plan.assignments[0]?.instructions).toContain("> Which module owns this?\n> Read only.");
+});
 test("accepts tracker-neutral keys, arbitrary task instructions, and pane or worktree reports", () => {
   expect(
     planSchema.parse({
