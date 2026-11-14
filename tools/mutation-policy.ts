@@ -1,5 +1,14 @@
 import { parse } from "@babel/parser";
 
+/** The full CLI baseline exceeds Stryker's five-minute default; keep its initial run bounded. */
+export const mutationExecutionBudget = {
+  dryRunTimeoutMinutes: 30,
+  // Mutant deadlines still derive from the measured clean run, plus these unchanged parameters.
+  timeoutFactor: 1.5,
+  timeoutMS: 2000,
+  concurrency: 1,
+};
+
 export const mutationGuidance = "docs/agents/testing/mutation-testing.md";
 
 export function excludedUnit(name: string): boolean {
