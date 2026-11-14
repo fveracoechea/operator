@@ -204,6 +204,66 @@ test("an unknown review state asks the SuperAgent for intervention", () => {
   ]);
 });
 
+test.each(["watching", "approved"])("a posted %s row asks for one status reply", (state) => {
+  const thread = "https://example.slack.com/archives/C0123/p1234000005";
+  seedRequest(home.paths, { state, slackThread: thread });
+  DeviceState.changeReviewRequest(home.paths, target, () =>
+    Ok({ round: posted(1, new Date(start).toISOString()) }),
+  );
+  const found = rows(home.paths, listed(home.paths));
+  expect(found[0]?.next.question).toContain("review round 1 (review)");
+  expect(found[0]?.next.question).toContain("no draft");
+  expect(found[0]?.next).not.toHaveProperty("command");
+  expect(found).toMatchObject([
+    {
+      slackThread: thread,
+      review: { round: 1, url: "review" },
+      next: {
+        decider: "super-agent",
+        question: expect.stringContaining(`Reply once in ${thread}`),
+      },
+    },
+  ]);
+});
+
+test.each([
+  { state: "watching", slackThread: null, hasPost: true },
+  { state: "watching", slackThread: "https://example.slack.com/archives/C0123/p1", hasPost: false },
+  { state: "queued", slackThread: "https://example.slack.com/archives/C0123/p1", hasPost: true },
+])(
+  "a row without a posted outcome and thread waits or acts without reply guidance: %j",
+  (facts) => {
+    seedRequest(home.paths, { state: facts.state, slackThread: facts.slackThread });
+    if (facts.hasPost)
+      DeviceState.changeReviewRequest(home.paths, target, () =>
+        Ok({ round: posted(1, new Date(start).toISOString()) }),
+      );
+    const found = rows(home.paths, listed(home.paths));
+    expect(found[0]?.next).toMatchObject({
+      command: facts.state === "queued" ? `operator review start ${url}` : "operator review wait",
+      why: facts.state === "queued" ? "review_queued" : "review_watching",
+    });
+    expect(found[0]?.next).not.toHaveProperty("question");
+  },
+);
+
+test("posted reply guidance preserves an approved request's cleanup command", () => {
+  const thread = "https://example.slack.com/archives/C0123/p1234000005";
+  seedRequest(home.paths, { state: "approved", slackThread: thread, cleanupState: "failed" });
+  DeviceState.changeReviewRequest(home.paths, target, () =>
+    Ok({ round: posted(1, new Date(start).toISOString()) }),
+  );
+  expect(rows(home.paths, listed(home.paths))).toMatchObject([
+    {
+      action: "clean_reviewer",
+      next: {
+        command: `operator review cleanup ${url}`,
+        why: expect.stringContaining(`cleanup_failed. Reply once in ${thread}`),
+      },
+    },
+  ]);
+});
+
 test("a wait with nothing to observe times out at its deadline", async () => {
   expect(await waited()).toEqual({
     reason: "review_wait_timed_out",

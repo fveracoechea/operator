@@ -30,7 +30,6 @@ function add(input: { paths: Paths; url: string; slackThread?: string }) {
           (policy): AsyncResult<Outcome, Failure> => {
             if (
               !policy.repos.includes(target.repository) ||
-              pr.author === null ||
               !policy.authors.some((author) => author.toLowerCase() === pr.author?.toLowerCase())
             )
               return ErrAsync({

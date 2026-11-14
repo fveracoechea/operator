@@ -102,6 +102,59 @@ test("an add records a queued manual request once", async () => {
   });
 });
 
+test.each([
+  { repos: ["example/two"], authors: ["author"], author: { login: "author" } },
+  { repos: ["example/one"], authors: ["other"], author: { login: "author" } },
+  { repos: ["example/one"], authors: ["author"], author: null },
+])("an excluded manual request returns policy context without recording it: %j", async (policy) => {
+  spyOn(DeviceSettings, "reviewPolicy").mockReturnValue(
+    OkAsync({ repos: [...policy.repos], authors: [...policy.authors] }),
+  );
+  spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ author: policy.author })));
+  expect(await ReviewRequests.add(input())).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "review_author_excluded",
+      detail: expect.stringMatching(/\S/),
+      next: { decider: "super-agent", question: expect.stringMatching(/\S/) },
+      state: { repository: "example/one", author: policy.author?.login ?? null },
+    },
+  });
+  expect(DeviceState.readReviewRequests(home.paths)).toMatchObject({ tag: "Ok", value: [] });
+});
+
+test("any case-insensitive author match permits a manual request", async () => {
+  spyOn(DeviceSettings, "reviewPolicy").mockReturnValue(
+    OkAsync({ repos: ["example/one"], authors: ["other", "AUTHOR"] }),
+  );
+  spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ author: { login: "Author" } })));
+  expect(await ReviewRequests.add(input())).toMatchObject({
+    tag: "Ok",
+    value: { reason: "review_queued", data: { origin: "manual" } },
+  });
+});
+
+test("manual adds create, preserve, and replace their thread permalink", async () => {
+  const first = "https://example.slack.com/archives/C0123/p1234000005";
+  const second = "https://example.slack.com/archives/C0123/p1234000006";
+  expect(await ReviewRequests.add({ ...input(), slackThread: first })).toMatchObject({
+    tag: "Ok",
+    value: { data: { slackThread: first } },
+  });
+  expect(await ReviewRequests.add(input())).toMatchObject({
+    tag: "Ok",
+    value: { data: { slackThread: first } },
+  });
+  expect(await ReviewRequests.add({ ...input(), slackThread: second })).toMatchObject({
+    tag: "Ok",
+    value: { data: { slackThread: second } },
+  });
+  expect(await ReviewRequests.next(home.paths)).toMatchObject({
+    tag: "Ok",
+    value: { data: { requests: [{ slackThread: second }] } },
+  });
+});
+
 test("an add refuses a bad URL and a PR that is not open, and records nothing", async () => {
   expect(await ReviewRequests.add({ paths: home.paths, url: "nope" })).toMatchObject({
     tag: "Err",
