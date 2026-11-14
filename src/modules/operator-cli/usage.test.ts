@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { z } from "zod";
-import { invalidArguments, runUsage } from "./usage.ts";
+import { invalidArguments, runUsage, workflowArguments } from "./usage.ts";
 
 const release = { version: "9.9.9", commit: "abc", artifactIdentity: "sha256:1" };
 
@@ -81,7 +81,7 @@ test.each([
 
 test.each([true, false])("invalid arguments print the usage, json %p", (json) => {
   const output = capture();
-  invalidArguments(json);
+  invalidArguments(json, []);
   expect(
     output.log.mock.calls.map(([line]) => z.unknown().parse(JSON.parse(String(line)))),
   ).toEqual(
@@ -99,4 +99,40 @@ test.each([true, false])("invalid arguments print the usage, json %p", (json) =>
   );
   usageText(output.error.mock.calls[0]?.[0] as string | undefined);
   expect(process.exitCode).toBe(2);
+});
+
+test.each([true, false])("workflow syntax errors name help in two lines, json %p", (json) => {
+  const output = capture();
+  invalidArguments(json, ["dispatch"]);
+  expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: invalid_arguments: The command arguments are not supported.",
+    "next: operator --help",
+  ]);
+  if (json)
+    expect(JSON.parse(String(output.log.mock.calls[0]?.[0]))).toMatchObject({
+      reason: "invalid_arguments",
+      operation: "parse_arguments",
+      next: { command: "operator --help", why: "Read the supported command syntax." },
+    });
+  expect(process.exitCode).toBe(2);
+});
+
+test.each([
+  [["dispatch"], true],
+  [["source"], true],
+  [["next"], true],
+  [["report"], true],
+  [["question"], true],
+  [["message"], true],
+  [["obligation"], true],
+  [["cleanup"], true],
+  [["internal-review", "skip"], true],
+  [["internal-review", "round"], false],
+  [["pr", "skip"], false],
+  [["pr", "associate"], false],
+  [["unknown", "skip"], false],
+  [[], false],
+  [[""], false],
+] as const)("workflow argument classification for %j is %p", (args, expected) => {
+  expect(workflowArguments([...args])).toBe(expected);
 });

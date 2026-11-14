@@ -1,4 +1,5 @@
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
+import { workflowRefusal } from "./workflow-refusal.ts";
 
 // Structural, so a union of command results with different value types still fits.
 type Outcome =
@@ -35,6 +36,7 @@ export function failure(
   json: boolean,
   context: ResultContext = {},
 ) {
+  context = workflowRefusal(operation, reason, context);
   if (json)
     console.log(
       JSON.stringify({

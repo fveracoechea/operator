@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, test } from "bun:test";
-import { ErrAsync, Ok } from "unthrown";
+import { ErrAsync, Ok, OkAsync } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { dispatchDevice, git, removeDevices } from "./dispatch-fixture.ts";
@@ -11,15 +11,53 @@ afterEach(() => {
 });
 afterAll(removeDevices);
 
+test("launch failure context omits unknown nested facts and interruption names the next recorded action", async () => {
+  await using device = await dispatchDevice();
+  device.herdr.prompt.mockReturnValueOnce(
+    ErrAsync({ reason: "herdr_failed" as const, detail: "no confirmation" }),
+  );
+  const failed = await WorkerDispatch.dispatch(device.request("read"));
+  expect(failed).toMatchObject({
+    tag: "Err",
+    error: { reason: "launch_failed", state: { launch: "failed" } },
+  });
+  if (failed.tag === "Err" && "state" in failed.error)
+    expect(failed.error.state).not.toHaveProperty("failure");
+  device.herdr.prompt.mockImplementation(() => {
+    device.exited("p1");
+    return OkAsync(null);
+  });
+  expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "launch_interrupted",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state: { launch: "interrupted" },
+    },
+  });
+});
+
 test("a failed start stays visible with its resources, and a replacement starts again", async () => {
   await using device = await dispatchDevice();
   device.herdr.prompt.mockReturnValueOnce(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent prompt exited 1: busy" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "herdr agent prompt exited 1: busy",
+      state: { promptConfirmed: false },
+    }),
   );
   expect(await WorkerDispatch.dispatch(device.request("survey"))).toMatchObject({
     tag: "Err",
     error: {
       reason: "launch_failed",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state: { launch: "failed", failure: { promptConfirmed: false } },
       detail:
         "herdr_failed: herdr agent prompt exited 1: busy The launch is recorded as failed. Read operator next before a replacement.",
     },
@@ -150,6 +188,11 @@ test("a PR owner whose PR worktree is gone is refused before any record", async 
     tag: "Err",
     error: {
       reason: "pr_worktree_missing",
+      next: {
+        decider: "person",
+        question: "How should the missing PR worktree be recovered without losing unlanded work?",
+      },
+      state: { reusable: false },
       detail:
         "The recorded worktree of PR #7 on task/impl is missing. Ask the person how to recover it. Nothing was launched.",
     },
@@ -258,6 +301,12 @@ test("a promoted assignment whose worktree is gone is not started anywhere else"
     error: {
       reason: "promotion_worktree_missing",
       detail: `The worktree ${worktree} of promoted report survey is missing. Ask the person how to recover it. Nothing was launched.`,
+      next: {
+        decider: "person",
+        question:
+          "How should the missing promoted worktree be recovered without losing unlanded work?",
+      },
+      state: { reusable: false },
     },
   });
   expect(await device.launches("build")).toEqual([]);

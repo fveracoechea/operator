@@ -121,6 +121,8 @@ test("a start outside a Herdr session is refused before any other check", async 
     tag: "Err",
     error: {
       reason: "herdr_session_required",
+      next: { decider: "super-agent", question: "Which Herdr session should run this command?" },
+      state: { herdrSessionPresent: false },
       detail:
         "Run this command in a pane of the Herdr session that holds the project workspace. Nothing was launched.",
     },
@@ -141,6 +143,8 @@ test("static readiness blockers refuse the start and name each blocker", async (
     tag: "Err",
     error: {
       reason: "worker_not_ready",
+      next: { command: "operator ready", why: "Read and correct the device readiness blockers." },
+      state: { ready: false },
       detail:
         "Static readiness failed: github_auth_failed, host_unconfigured. Run operator ready. Nothing was launched.",
     },
@@ -149,32 +153,41 @@ test("static readiness blockers refuse the start and name each blocker", async (
 
 const missing = {
   reason: "herdr_plugin_missing",
+  next: {
+    command: "operator herdr install",
+    why: "Install the current release's Herdr plugin before dispatching.",
+  },
   detail: "Run operator herdr install so new worktrees are prepared. Nothing was launched.",
 };
 const outdated = {
   reason: "herdr_plugin_outdated",
+  next: {
+    command: "operator herdr install",
+    why: "Install the current release's Herdr plugin before dispatching.",
+  },
+  state: { manifestCurrent: false },
   detail:
     "The linked Herdr plugin is not the manifest of this release. Run operator herdr install. Nothing was launched.",
 };
 
 test("a plugin that Herdr does not link from the device folder is missing", async () => {
   const plugins = spyOn(Herdr, "plugins");
-  for (const listed of [
-    [{ id: "other", root: paths.herdrPlugin }],
-    [{ id: "operator", root }],
-    [{ id: "operator", root: `${root}/gone` }],
-  ]) {
+  for (const [listed, state] of [
+    [[{ id: "other", root: paths.herdrPlugin }], { pluginLinked: false }],
+    [[{ id: "operator", root }], { pluginRootMatches: false }],
+    [[{ id: "operator", root: `${root}/gone` }], { pluginRootMatches: false }],
+  ] satisfies [{ id: string; root: string }[], Record<string, unknown>][]) {
     plugins.mockReturnValue(OkAsync(listed));
     expect(await launchSettings(paths, "/checkout", undefined)).toMatchObject({
       tag: "Err",
-      error: missing,
+      error: { ...missing, state },
     });
   }
   plugins.mockReturnValue(OkAsync([{ id: "operator", root: paths.herdrPlugin }]));
   await rm(paths.herdrPlugin, { recursive: true });
   expect(await launchSettings(paths, "/checkout", undefined)).toMatchObject({
     tag: "Err",
-    error: missing,
+    error: { ...missing, state: { devicePluginExists: false } },
   });
 });
 
@@ -317,7 +330,16 @@ test("a reopened worktree with no finished preparation is prepared now", async (
   prepare.mockReturnValue(ErrAsync({ reason: "preparation_failed", detail: "install failed" }));
   expect(await preparedAgain(paths, worktree)).toMatchObject({
     tag: "Err",
-    error: { reason: "worktree_setup_failed", detail: "install failed" },
+    error: {
+      reason: "worktree_setup_failed",
+      detail: "install failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the recorded worktree preparation failure be corrected before retrying?",
+      },
+      state: { preparationSucceeded: false },
+    },
   });
 });
 
@@ -326,6 +348,11 @@ test("a missing reopened worktree or unreadable state is refused", async () => {
     tag: "Err",
     error: {
       reason: "worktree_missing",
+      next: {
+        decider: "super-agent",
+        question: "How should the recorded missing worktree be recovered?",
+      },
+      state: { worktreeExists: false },
       detail: `The recorded worktree ${root}/gone no longer exists.`,
     },
   });

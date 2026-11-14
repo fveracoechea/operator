@@ -30,10 +30,11 @@ test.each([
   {
     name: "refusal database contents",
     file: "operator-cli/run.ts",
-    before: "invalidArguments(json);",
-    after: `using broken = new (await import("bun:sqlite")).Database(started.paths.database); broken.exec("UPDATE projects SET registered_at = 'prohibited'"); invalidArguments(json);`,
+    before: "invalidArguments(json, args);",
+    after: `using broken = new (await import("bun:sqlite")).Database(paths.database); broken.exec("UPDATE projects SET registered_at = 'prohibited'"); invalidArguments(json, args);`,
     pattern: "rejects removed or invalid command.*unknown",
     testFile: "operator-cli/run.test.ts",
+    diagnostic: "A refused command must leave database bytes unchanged.",
   },
   {
     name: "missing-state refusal",
@@ -179,6 +180,11 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.diagnostic !== undefined) {
+        expect(`${stdout}${stderr}`).toContain(change.diagnostic);
+        expect(`${stdout}${stderr}`).not.toContain("ReferenceError:");
+        expect(`${stdout}${stderr}`).not.toContain("SyntaxError:");
+      }
     } finally {
       await Bun.write(file, original);
     }

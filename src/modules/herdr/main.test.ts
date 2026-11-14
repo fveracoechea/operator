@@ -299,7 +299,16 @@ test("a failed command names the first two arguments and Herdr's trimmed error o
   await answer({ stdout: "ignored", stderr: "  no server\n", exit: 3 });
   expect(await Herdr.plugins()).toMatchObject({
     tag: "Err",
-    error: { reason: "herdr_failed", detail: "herdr plugin list exited 3: no server" },
+    error: {
+      reason: "herdr_failed",
+      detail: "herdr plugin list exited 3: no server",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the failed Herdr command and any existing effect be inspected before another request?",
+      },
+      state: { exitCode: 3 },
+    },
   });
   await answer({ stdout: " only stdout\n", exit: 4 });
   expect(await Herdr.plugins()).toMatchObject({
@@ -329,6 +338,11 @@ test("an answer that is not JSON or not the expected shape is invalid", async ()
       tag: "Err",
       error: {
         reason: "herdr_invalid_response",
+        next: {
+          decider: "super-agent",
+          question: "How should the unconfirmed Herdr result be inspected before another request?",
+        },
+        state: { responseValid: false },
         detail: "herdr plugin list returned an unexpected response.",
       },
     });
@@ -352,6 +366,11 @@ test("a missing Herdr requests nothing, and a Herdr that ends with no answer sta
     tag: "Err",
     error: {
       reason: "herdr_unavailable",
+      next: {
+        decider: "super-agent",
+        question: "How should Herdr be made available before this workflow continues?",
+      },
+      state: { invocationStatus: "unavailable" },
       detail: "herdr is not on the path, so nothing was requested.",
     },
   });
@@ -363,6 +382,11 @@ test("a missing Herdr requests nothing, and a Herdr that ends with no answer sta
     tag: "Err",
     error: {
       reason: "herdr_no_answer",
+      next: {
+        decider: "super-agent",
+        question: "How should the unconfirmed Herdr result be inspected before another request?",
+      },
+      state: { invocationStatus: "no-answer" },
       detail:
         "herdr agent ended on SIGKILL with no answer. Inspect Herdr before a retry, because the effect can exist.",
     },

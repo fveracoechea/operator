@@ -14,9 +14,10 @@ import { WorkerQuestions } from "../worker-questions/main.ts";
 import { realPathOrNull } from "../../lib/real-path.ts";
 import { renderReport, submissionSchema, type Submission } from "./content.ts";
 import { qualify } from "./failures.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
-type Failure = { reason: string; detail: string };
+type Failure = ResultContext & { reason: string; detail: string };
 type Target = Parameters<typeof DeviceState.readReport>[1];
 type Facts = Extract<ReturnType<typeof DeviceState.readReport>, { tag: "Ok" }>["value"];
 type Decided = Extract<ReturnType<typeof WorkSources.decideReport>, { tag: "Ok" }>["value"];
@@ -84,6 +85,11 @@ function record(
       if (JSON.stringify(decided) !== JSON.stringify(expected))
         return Err<Failure>({
           reason: "report_changed",
+          next: {
+            command: "operator next",
+            why: "Read the current report action after its decision changed.",
+          },
+          state: { decisionChanged: true },
           detail:
             "The assignment changed during this command. Read operator next. Nothing changed.",
         });
@@ -116,6 +122,11 @@ function workerPane(): Result<Target, Failure> {
   return socket === null || paneId === null
     ? Err({
         reason: "worker_pane_required",
+        next: {
+          decider: "super-agent",
+          question: "Which dispatched worker pane must run this command?",
+        },
+        state: socket === null ? { serverPresent: false } : { panePresent: false },
         detail:
           "Run this command in the Herdr pane that Operator dispatched for the assignment. Nothing changed.",
       })
@@ -166,6 +177,11 @@ async function stageReport(input: {
       return Err<Failure>({
         reason: "invalid_report_input",
         detail: `Supporting file ${file} is not a regular file. Nothing changed.`,
+        next: {
+          decider: "super-agent",
+          question: "What corrected report input should be supplied in --file?",
+        },
+        state: { supportingFileRegular: false },
       });
   const stored: string[] = [];
   for (const file of submission.files) {
@@ -526,6 +542,12 @@ async function promotionFacts(input: PromoteInput) {
     return Err<Failure>({
       reason: "promotion_worktree_missing",
       detail: `The worktree ${worktreePath} of ${facts.assignment.key} no longer exists. Nothing changed.`,
+      next: {
+        decider: "person",
+        question:
+          "How should the missing report worktree be recovered without losing unlanded work?",
+      },
+      state: { worktree: worktreePath, exists: false },
     });
   return Ok({
     checkout: target.value.checkout,

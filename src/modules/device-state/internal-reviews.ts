@@ -15,6 +15,7 @@ import {
 import type { StateFailure } from "./failures.ts";
 import { activeOwner, type PullRequestFailure } from "./pull-requests.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type InternalReviewRow = typeof internalReviews.$inferSelect;
 export type InternalReviewRoundRow = typeof internalReviewRounds.$inferSelect;
@@ -303,9 +304,11 @@ export function recordInternalReviewRound<E extends { reason: string; detail: st
 export type ReviewEnd = Pick<InternalReviewRow, "readyHead" | "commentId" | "commentUrl"> & {
   state: "ready" | "skipped";
 };
-type EndFailure =
-  | PullRequestFailure
-  | { reason: "internal_review_not_recorded" | "internal_review_ended"; detail: string };
+type EndFailure = ResultContext &
+  (
+    | PullRequestFailure
+    | { reason: "internal_review_not_recorded" | "internal_review_ended"; detail: string }
+  );
 
 /** The SuperAgent's skip names no launch, so it checks the open PR assignment itself. */
 function openAssignment(db: Db, sourceId: string, assignment: string) {
@@ -319,6 +322,16 @@ function openAssignment(db: Db, sourceId: string, assignment: string) {
     ? Ok(undefined)
     : Err<EndFailure>({
         reason: "pr_owner_inactive",
+        next: {
+          command: "operator next",
+          why: "Read the assignment's current action before ending its review.",
+        },
+        state:
+          row === undefined
+            ? { openAssignmentFound: false }
+            : row.source !== "open"
+              ? { source: row.source }
+              : { assignment: row.assignment },
         detail: `Assignment ${assignment} has no open PR in an open source. Nothing was changed.`,
       });
 }
@@ -350,6 +363,8 @@ export function endInternalReview(
           return Err({
             reason: "internal_review_not_recorded",
             detail: `Assignment ${target.assignment} has no internal review. Nothing was changed.`,
+            next: { why: "No internal review exists to end." },
+            state: { review: null },
           });
         if (review.state === end.state && review.readyHead === end.readyHead)
           return Ok({ changed: false, review });
@@ -357,6 +372,8 @@ export function endInternalReview(
           return Err({
             reason: "internal_review_ended",
             detail: `The internal review already ended ${review.state}. Nothing was changed.`,
+            next: { why: "The internal review has already ended. No transition remains." },
+            state: { review: review.state },
           });
         const now = new Date().toISOString();
         const ended = { ...review, ...end, endedAt: now, updatedAt: now };

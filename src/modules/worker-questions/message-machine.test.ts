@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { decideMessage, type MessageState } from "./message-machine.ts";
+import { decideMessage as messageDecision, type MessageState } from "./message-machine.ts";
+import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
+
+function decideMessage(...args: Parameters<typeof messageDecision>) {
+  const result = messageDecision(...args);
+  if (result.tag === "Err") expectRefusalContext(result.error);
+  return result;
+}
 
 const workerPane = { socket: "/herdr.sock", paneId: "w1:p1" };
 const superPane = { socket: "/herdr.sock", paneId: "super:p0" };
@@ -27,6 +34,7 @@ const notRunning = {
   tag: "Err",
   error: {
     reason: "assignment_not_running",
+    next: { command: "operator next" },
     detail: "Assignment read has no running worker launch. Nothing changed.",
   },
 };
@@ -40,11 +48,19 @@ test("the SuperAgent sends a new key once to a running worker", () => {
     expect(decideMessage(facts("send", sent(state)))).toMatchObject({
       error: {
         reason: "message_key_taken",
+        next: {
+          decider: "super-agent",
+          question: "Which new key should identify this steering message?",
+        },
+        state: { messageExists: true },
         detail:
           "Assignment read already has steering message focus. Send with a new key. Nothing changed.",
       },
     });
-  expect(decideMessage(facts("send", { launch: null }))).toMatchObject(notRunning);
+  expect(decideMessage(facts("send", { launch: null }))).toMatchObject({
+    ...notRunning,
+    error: { ...notRunning.error, state: { assignment: "running", launch: null } },
+  });
   expect(
     decideMessage(
       facts("send", {
@@ -63,12 +79,29 @@ test("a ring needs a pending message of a running worker", () => {
     tag: "Ok",
     value: { insert: false, state: "pending" },
   });
-  expect(decideMessage(facts("ring", { ...sent("pending"), launch: null }))).toMatchObject(
-    notRunning,
-  );
+  expect(decideMessage(facts("ring", { ...sent("pending"), launch: null }))).toMatchObject({
+    ...notRunning,
+    error: { ...notRunning.error, state: { assignment: "running", launch: null } },
+  });
+  expect(
+    decideMessage(
+      facts("ring", {
+        ...sent("pending"),
+        launch: { id: "l1", state: "starting", paneId: null, herdrSocket: "/herdr.sock" },
+      }),
+    ),
+  ).toMatchObject({
+    ...notRunning,
+    error: { ...notRunning.error, state: { assignment: "running", launch: "starting" } },
+  });
   expect(decideMessage(facts("ring"))).toMatchObject({
     error: {
       reason: "message_not_found",
+      next: {
+        decider: "super-agent",
+        question: "Which recorded message key should this command target?",
+      },
+      state: { message: null },
       detail: "Assignment read has no steering message with this key. Nothing changed.",
     },
   });
@@ -76,6 +109,8 @@ test("a ring needs a pending message of a running worker", () => {
     expect(decideMessage(facts("ring", sent(state)))).toMatchObject({
       error: {
         reason: "message_not_open",
+        next: { command: "operator next" },
+        state: { message: state },
         detail: `Steering message focus of read is ${state}. Nothing changed.`,
       },
     });
@@ -116,6 +151,11 @@ test("the worker's own pane cannot send, ring, or close", () => {
         tag: "Err",
         error: {
           reason: "self_steering_refused",
+          next: {
+            decider: "super-agent",
+            question: "What steering should the worker receive from your own supervising pane?",
+          },
+          state: { samePane: true, sameServer: true },
           detail:
             "A WorkerAgent cannot steer its own assignment. The supervising SuperAgent sends from its own pane. Nothing changed.",
         },

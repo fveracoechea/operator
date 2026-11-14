@@ -75,6 +75,11 @@ test("cleanup refuses linked ancestors and non-directory paths without clearing 
     error: {
       reason: "project_cleanup_pending",
       detail: `The state path is not a real directory: ${paths.projects}/owner. Preserve external content and resolve this path before repeating the command.`,
+      next: {
+        decider: "super-agent",
+        question: "How should this state path be corrected while preserving external content?",
+      },
+      state: { realDirectory: false },
     },
   });
   expect(db.query("SELECT * FROM project_removals").all()).toEqual([
@@ -116,6 +121,11 @@ test("directory creation makes a private directory and refuses a linked state ro
     error: {
       reason: "project_cleanup_pending",
       detail: `The state path is not a real directory: ${paths.stateRoot}. Preserve external content and resolve this path before repeating the command.`,
+      next: {
+        decider: "super-agent",
+        question: "How should this state path be corrected while preserving external content?",
+      },
+      state: { realDirectory: false },
     },
   });
   expect(await readdir(`${root}/outside`)).toEqual([]);

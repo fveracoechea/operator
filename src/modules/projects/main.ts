@@ -6,6 +6,7 @@ import { DeviceState } from "../device-state/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { githubRemote, inspectCheckout, type CheckoutFailure } from "./checkout.ts";
 import { repositoryIdentity, selectRepository } from "./identity.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 type StateResult = ReturnType<typeof DeviceState.registerProject>;
@@ -14,7 +15,7 @@ type RegisteredProject = Extract<StateResult, { tag: "Ok" }>["value"]["data"];
 type ProjectFailure =
   | StateFailure
   | CheckoutFailure
-  | {
+  | (ResultContext & {
       reason:
         | "repository_choice_invalid"
         | "repository_choice_required"
@@ -22,7 +23,7 @@ type ProjectFailure =
         | "project_io_failed"
         | "project_not_registered";
       detail: string;
-    };
+    });
 type ProjectOutcome = {
   reason: "project_registered" | "project_unchanged" | "project_resolved";
   data: RegisteredProject;
@@ -37,7 +38,16 @@ function qualify<T>(cause: CodedError, defect: (cause: CodedError) => T) {
       cause.code,
     )
   )
-    return { reason: "project_io_failed" as const, detail: String(cause) };
+    return {
+      reason: "project_io_failed" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the controlling checkout IO failure be corrected without overwriting project state?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 
@@ -156,6 +166,12 @@ export const Projects = {
           if (!observed.repositories.includes(controller.repository))
             return Err({
               reason: "controller_identity_mismatch" as const,
+              next: {
+                decider: "super-agent",
+                question:
+                  "How should the controlling checkout's recorded GitHub remote be restored?",
+              },
+              state: { remoteMatches: false },
               detail: `The controlling checkout no longer has the recorded ${controller.repository} remote. Restore it before use.`,
             });
           return Ok({ reason: "project_resolved" as const, data: controller });
@@ -163,10 +179,20 @@ export const Projects = {
         if (matches.length > 0)
           return Err({
             reason: "controller_mismatch" as const,
+            next: {
+              command: "operator project list",
+              why: "Find the recorded controlling checkout and run the command there.",
+            },
+            state: { controllingCheckout: false, registeredClone: true },
             detail: `Use the recorded controlling checkout at ${matches.map((project) => project.checkout).join(", ")}. To change it, run operator project move from a matching main clone when no source is open.`,
           });
         return Err({
           reason: "project_not_registered" as const,
+          next: {
+            command: "operator project register",
+            why: "Register the controlling checkout explicitly before using it.",
+          },
+          state: { registered: false },
           detail: "This checkout is not registered. Run operator project register explicitly.",
         });
       });

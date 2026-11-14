@@ -60,7 +60,18 @@ test("another session, also one in the supervising pane, is refused with the sup
   ] as const) {
     caller(session, pane);
     const result = await WorkSources.checkSupervisor(input);
-    expect(result).toMatchObject({ tag: "Err", error: { reason: "source_supervised_elsewhere" } });
+    expect(result).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "source_supervised_elsewhere",
+        next: {
+          decider: "super-agent",
+          question:
+            "Will the recorded supervisor continue, or should the person authorize a source take-over?",
+        },
+        state: { supervisorSession: "ses-1", callerSession: session ?? null },
+      },
+    });
     const detail = result.tag === "Err" ? result.error.detail : "";
     expect(detail).toContain("session ses-1 in Herdr pane pane-1");
     expect(detail).toContain("operator source take-over --source s1 --person-instructed --json");
@@ -95,7 +106,11 @@ test("a take-over needs the person's instruction and makes the caller the superv
   );
   expect(await WorkSources.takeOver({ ...input, personInstructed: false })).toMatchObject({
     tag: "Err",
-    error: { reason: "person_instruction_required" },
+    error: {
+      reason: "person_instruction_required",
+      next: { decider: "person", question: "May this command run on your explicit instruction?" },
+      state: { personInstructed: false },
+    },
   });
   expect(taken).not.toHaveBeenCalled();
   expect(await WorkSources.takeOver({ ...input, personInstructed: true })).toMatchObject({

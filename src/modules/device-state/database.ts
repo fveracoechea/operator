@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { fromThrowable, Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
-import { qualifyStateFailure, type StateFailure } from "./failures.ts";
+import { qualifyStateFailure, stateFailure, type StateFailure } from "./failures.ts";
 
 /** The query builder that a state transaction hands to its action. */
 export type Db = ReturnType<typeof drizzle>;
@@ -50,25 +50,31 @@ export const historySchema = z.array(z.object({ hash: z.string(), created_at: z.
 export function readHistory(client: Database) {
   // A healthy database returns one row with "ok". Any other result names damage.
   if (client.query("PRAGMA quick_check").values().join() !== "ok")
-    return Err<StateFailure>({
-      reason: "state_corrupt",
-      detail: "The device database failed its integrity check. It was not repaired or replaced.",
-    });
+    return Err<StateFailure>(
+      stateFailure(
+        "state_corrupt",
+        "The device database failed its integrity check. It was not repaired or replaced.",
+        { integrityCheckPassed: false },
+      ),
+    );
   const exists = client
     .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'")
     .get();
   if (exists === null)
-    return Err<StateFailure>({
-      reason: "state_incompatible",
-      detail:
+    return Err<StateFailure>(
+      stateFailure(
+        "state_incompatible",
         "The device database has no Drizzle migration history. It was not adopted or repaired.",
-    });
+        { historyExists: false },
+      ),
+    );
   const columns = client.query("PRAGMA table_info('__drizzle_migrations')").values();
   if (!["id", "hash", "created_at"].every((name) => columns.some((column) => column[1] === name)))
-    return Err<StateFailure>({
-      reason: "state_incompatible",
-      detail: "The Drizzle history table has an unsupported format.",
-    });
+    return Err<StateFailure>(
+      stateFailure("state_incompatible", "The Drizzle history table has an unsupported format.", {
+        historyFormatSupported: false,
+      }),
+    );
   const recorded = historySchema.safeParse(
     client.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all(),
   );
@@ -84,11 +90,13 @@ export function readHistory(client: Database) {
         shipped[index]?.folderMillis !== migration.created_at,
     )
   )
-    return Err<StateFailure>({
-      reason: "state_incompatible",
-      detail:
+    return Err<StateFailure>(
+      stateFailure(
+        "state_incompatible",
         "The device database history is newer, conflicting, or unsupported by this running release. No handler ran.",
-    });
+        { historySupported: false },
+      ),
+    );
   return Ok({ recorded: recorded.data, shipped });
 }
 
@@ -96,10 +104,12 @@ export function checkHistory(client: Database) {
   return readHistory(client).flatMap(({ recorded, shipped }) =>
     recorded.length === shipped.length
       ? Ok(drizzle(client))
-      : Err<StateFailure>({
-          reason: "state_incompatible",
-          detail:
+      : Err<StateFailure>(
+          stateFailure(
+            "state_incompatible",
             "Startup compatibility must apply the pending shipped migrations before this operation.",
-        }),
+            { recordedMigrations: recorded.length, shippedMigrations: shipped.length },
+          ),
+        ),
   );
 }

@@ -7,9 +7,30 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
+import { expectRefusalOutput, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 import { fixtureCommand, writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
 
 const command = fixtureCommand();
+const migrated = new Set([
+  "dispatch",
+  "source",
+  "next",
+  "report",
+  "question",
+  "message",
+  "obligation",
+  "cleanup",
+]);
+
+/** Migrated command families share the protocol oracle without moving their selection into lib. */
+export function expectWorkflowRefusal(
+  args: string[],
+  output: z.infer<typeof workflowOutputSchema>,
+  stderr: string,
+) {
+  if (migrated.has(String(args[0])) || (args[0] === "internal-review" && args[1] === "skip"))
+    expectRefusalOutput(output, stderr);
+}
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
@@ -145,9 +166,11 @@ export async function workerDevice(options: { github?: boolean } = {}) {
       options.cwd ?? main,
       environment(options.pane, options.socket),
     );
+    const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
+    expectWorkflowRefusal(args, output, result.stderr);
     return {
       code: result.code,
-      output: z.looseObject({}).parse(JSON.parse(result.stdout)),
+      output,
       stderr: result.stderr,
     };
   }

@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
+import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+import { expectWorkflowRefusal } from "./worker-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 
@@ -47,7 +49,9 @@ async function exec(args: string[], cwd = checkout) {
 
 async function run(args: string[], cwd = checkout) {
   const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
-  return { code: result.code, output: JSON.parse(result.stdout) as unknown, stderr: result.stderr };
+  const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
+  expectWorkflowRefusal(args, output, result.stderr);
+  return { code: result.code, output, stderr: result.stderr };
 }
 
 async function git(cwd: string, ...args: string[]) {
@@ -548,11 +552,22 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
 
   expect(await run(skip)).toMatchObject({
     code: 3,
-    output: { reason: "person_instruction_required" },
+    output: {
+      reason: "person_instruction_required",
+      next: { decider: "person", question: "May this command run on your explicit instruction?" },
+      state: { personInstructed: false },
+    },
   });
   expect(
     await run([...skip.slice(0, 4), "--assignment", "second", "--person-instructed"]),
-  ).toMatchObject({ code: 3, output: { reason: "internal_review_not_recorded" } });
+  ).toMatchObject({
+    code: 3,
+    output: {
+      reason: "internal_review_not_recorded",
+      next: { why: "No internal review exists to skip." },
+      state: { review: null },
+    },
+  });
   expect(await calls("gh-calls.jsonl", "ReadyFacts")).toBe(0);
 
   expect(await run([...skip, "--person-instructed"])).toMatchObject({

@@ -8,6 +8,8 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
+import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+import { expectWorkflowRefusal } from "./worker-fixture.ts";
 
 let root = "";
 let checkout = "";
@@ -46,7 +48,9 @@ async function exec(args: string[], cwd = checkout) {
 
 async function run(args: string[], cwd = checkout) {
   const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
-  return { code: result.code, output: JSON.parse(result.stdout) as unknown, stderr: result.stderr };
+  const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
+  expectWorkflowRefusal(args, output, result.stderr);
+  return { code: result.code, output, stderr: result.stderr };
 }
 
 async function git(cwd: string, ...args: string[]) {
@@ -589,7 +593,14 @@ test("unlanded work and unknown ignored content stay until the person instructs 
   await git(worker.worktreePath, "add", "later.txt");
   await git(worker.worktreePath, "commit", "-q", "-m", "after merge");
   const retried = await run(["cleanup", "--source", source, "--assignment", "implement"]);
-  expect(retried).toMatchObject({ code: 3, output: { reason: "cleanup_unlanded_work" } });
+  expect(retried).toMatchObject({
+    code: 3,
+    output: {
+      reason: "cleanup_unlanded_work",
+      next: { decider: "person", question: "May the retained unlanded work be removed?" },
+      state: { landed: false, changedFiles: 0, unknownIgnoredFiles: 0, personInstructed: false },
+    },
+  });
   expect(JSON.stringify(retried.output)).toContain("commits that are not in the merged head");
   expect(await exists(`${worker.worktreePath}/later.txt`)).toBe(true);
   expect(await entry(source, "second")).toMatchObject({ action: "ready_assignment" });
@@ -633,7 +644,11 @@ test("a moved remote branch and a foreign checkout at the worktree path are neve
   await setHerdr({ fail: {} });
   expect(await run(["cleanup", "--source", source, "--assignment", "implement"])).toMatchObject({
     code: 3,
-    output: { reason: "cleanup_resource_mismatch" },
+    output: {
+      reason: "cleanup_resource_mismatch",
+      next: { decider: "person" },
+      state: { sameRepository: false },
+    },
   });
   expect(await Bun.file(`${worker.worktreePath}/keep.txt`).text()).toBe("keep\n");
   expect(await entry(source)).toMatchObject({

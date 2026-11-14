@@ -27,6 +27,26 @@ const planned = {
   branch: "task/build",
 };
 
+test("a report supporting directory carries its checked type and needs corrected input", async () => {
+  const sourceId = await device.source();
+  await device.launch(sourceId);
+  device.inPane(workerPane);
+  const file = await device.writeJson("folder-report.json", { ...draft, files: [device.root] });
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await ReportAssignments.submit({ paths: device.paths, file })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "invalid_report_input",
+      next: {
+        decider: "super-agent",
+        question: "What corrected report input should be supplied in --file?",
+      },
+      state: { supportingFileRegular: false },
+    },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+});
+
 async function git(args: string[], cwd = device.checkout) {
   const child = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   expect(await child.exited).toBe(0);
@@ -344,7 +364,15 @@ test("a removed worktree refuses the promotion before any rename", async () => {
   device.inPane(superPane);
   const called = herdr([launch.name]);
   expect(await promote(sourceId)).toMatchObject({
-    error: { reason: "promotion_worktree_missing" },
+    error: {
+      reason: "promotion_worktree_missing",
+      next: {
+        decider: "person",
+        question:
+          "How should the missing report worktree be recovered without losing unlanded work?",
+      },
+      state: { worktree, exists: false },
+    },
   });
   expect(called.agent).not.toHaveBeenCalled();
   expect((await device.show(sourceId)).reports).toMatchObject([{ decision: null }]);
@@ -360,7 +388,13 @@ test("a promotion that the database refuses restores each rename", async () => {
       decide({ ...facts, reports: facts.reports.map((row) => ({ ...row, number: 5 })) }),
     ),
   );
-  expect(await promote(sourceId)).toMatchObject({ error: { reason: "report_changed" } });
+  expect(await promote(sourceId)).toMatchObject({
+    error: {
+      reason: "report_changed",
+      next: { command: "operator next" },
+      state: { decisionChanged: true },
+    },
+  });
   expect(called.agent.mock.calls).toEqual([
     [{ paneId: workerPane, name: "pr-one-9-build" }],
     [{ paneId: workerPane, name: launch.name }],

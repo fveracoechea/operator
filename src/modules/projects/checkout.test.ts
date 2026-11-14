@@ -56,12 +56,22 @@ test("refuses bare repositories, legacy state, and linked worktrees", async () =
   await git("init", "-q", "--bare", `${root}/bare.git`);
   expect(await inspectCheckout(`${root}/bare.git`)).toEqual({
     reason: "bare_repository",
+    next: {
+      decider: "super-agent",
+      question: "Which non-bare controlling checkout should run this command?",
+    },
+    state: { bare: true },
     detail: "A bare repository cannot be a controlling checkout. Use its main non-bare checkout.",
   });
   await git("init", "-q", `${root}/legacy`);
   await symlink(`${root}/absent`, `${root}/legacy/.operator`);
   expect(await inspectCheckout(`${root}/legacy`)).toEqual({
     reason: "legacy_project_state",
+    next: {
+      decider: "person",
+      question: "How should the legacy checkout be retired with its old release?",
+    },
+    state: { legacyStatePresent: true },
     detail:
       "This checkout has legacy .operator state. Finish old work with the old release. Then the person must remove that folder before using this release. Operator does not migrate, delete, or repair it.",
   });
@@ -83,6 +93,11 @@ test("refuses bare repositories, legacy state, and linked worktrees", async () =
   expect(await inspectCheckout(`${root}/linked`)).toEqual({
     reason: "linked_checkout",
     detail: `A linked worktree cannot control a project. Use the main checkout associated with ${root}/main/.git.`,
+    next: {
+      command: `git --git-dir '${root}/main/.git' worktree list`,
+      why: "Locate the controlling checkout, then run the Operator command there.",
+    },
+    state: { gitDir: `${root}/main/.git/worktrees/linked`, commonDir: `${root}/main/.git` },
   });
 });
 
@@ -105,12 +120,49 @@ test("an unreadable legacy probe is a filesystem error, not a missing folder", a
   }
 });
 
+test("linked checkout recovery preserves an apostrophe in the controlling Git directory", async () => {
+  const controller = `${root}/owner's checkout`;
+  await git("init", "-q", controller);
+  await git(
+    "-C",
+    controller,
+    "-c",
+    "user.name=Operator",
+    "-c",
+    "user.email=operator@example.com",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "start",
+  );
+  await git("-C", controller, "worktree", "add", "-q", `${root}/quoted-linked`);
+  expect(await inspectCheckout(`${root}/quoted-linked`)).toEqual({
+    reason: "linked_checkout",
+    detail: `A linked worktree cannot control a project. Use the main checkout associated with ${controller}/.git.`,
+    next: {
+      command: `git --git-dir '${root}/owner'\\''s checkout/.git' worktree list`,
+      why: "Locate the controlling checkout, then run the Operator command there.",
+    },
+    state: {
+      gitDir: `${controller}/.git/worktrees/quoted-linked`,
+      commonDir: `${controller}/.git`,
+    },
+  });
+});
+
 test("returns the refusal of each Git observation that fails", async () => {
   const empty = `${root}/empty`;
   await mkdir(`${empty}/.git`, { recursive: true });
   const failed = { status: "completed" as const, exitCode: 128, stdout: "", stderr: "" };
   const fallback = {
     reason: "git_checkout_invalid",
+    next: {
+      decider: "super-agent",
+      question:
+        "Which valid controlling checkout should run this command after the Git failure is corrected?",
+    },
+    state: { exitCode: 128 },
     detail: "Git could not resolve this checkout.",
   } as const;
   const steps = [
@@ -128,6 +180,11 @@ test("returns the refusal of each Git observation that fails", async () => {
   const spy = answers({ status: "unavailable", tool: "git", detail: "not installed" });
   expect(await inspectCheckout(empty)).toEqual({
     reason: "git_unavailable",
+    next: {
+      decider: "super-agent",
+      question: "How should the unavailable or unanswered Git checkout observation be recovered?",
+    },
+    state: { invocationStatus: "unavailable" },
     detail: "not installed",
   });
   expect(spy).toHaveBeenCalledWith({
@@ -140,12 +197,23 @@ test("returns the refusal of each Git observation that fails", async () => {
   answers({ status: "no-answer", detail: "interrupted" });
   expect(await inspectCheckout(empty)).toEqual({
     reason: "git_unavailable",
+    next: {
+      decider: "super-agent",
+      question: "How should the unavailable or unanswered Git checkout observation be recovered?",
+    },
+    state: { invocationStatus: "no-answer" },
     detail: "interrupted",
   });
   mock.restore();
   answers({ status: "completed", exitCode: 128, stdout: "", stderr: "  not a repository\n" });
   expect(await inspectCheckout(empty)).toEqual({
     reason: "git_checkout_invalid",
+    next: {
+      decider: "super-agent",
+      question:
+        "Which valid controlling checkout should run this command after the Git failure is corrected?",
+    },
+    state: { exitCode: 128 },
     detail: "not a repository",
   });
 });
