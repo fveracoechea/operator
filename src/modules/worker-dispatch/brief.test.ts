@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { superAgentMessages } from "../../lib/superagent-messages.ts";
 import { renderBrief } from "./brief.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 const input = {
   sourceId: "source-1",
@@ -38,6 +39,38 @@ test("the brief carries the task, resources, results, and earlier history", () =
   ])
     expect(brief).toContain(text);
   expect(brief).toContain("## Follow-up instructions\n\n- None.");
+});
+
+test.each(["research", "answer", "prototype", "implementation", "review", "pr-feedback"] as const)(
+  "%s has a shipped guide and its brief links the resolved absolute path",
+  async (name) => {
+    const kind = WorkerKinds.resolve(name);
+    const guide = Bun.fileURLToPath(
+      new URL(`../../../skills/worker-agent/kinds/${name}.md`, import.meta.url),
+    );
+    expect(kind.guide).toBe(`worker-agent/kinds/${name}.md`);
+    expect(await Bun.file(guide).exists()).toBe(true);
+    expect((await Bun.file(guide).text()).trim().length).toBeGreaterThan(30);
+    const brief = renderBrief({ ...input, kind: { ...kind, guide } });
+    expect(brief).toContain(`Worker kind: \`${name}\`. Read \`${guide}\`.`);
+  },
+);
+
+test("kind guides honor pane overrides and require the conflict-resolution skill", async () => {
+  const prototype = await Bun.file(
+    new URL("../../../skills/worker-agent/kinds/prototype.md", import.meta.url),
+  ).text();
+  expect(prototype).toContain("When the brief gives a worktree");
+  expect(prototype).toContain("For pane resources, change no project files.");
+  const feedback = await Bun.file(
+    new URL("../../../skills/worker-agent/kinds/pr-feedback.md", import.meta.url),
+  ).text();
+  expect(feedback).toContain("Load `resolving-merge-conflicts`");
+});
+
+test("an explicit null kind preserves the legacy brief without a guide", () => {
+  expect(renderBrief({ ...input, kind: null })).toBe(renderBrief(input));
+  expect(renderBrief({ ...input, kind: null })).not.toContain("Worker kind:");
 });
 
 test("read-only work forbids project changes, and the brief names no runtime agent", () => {

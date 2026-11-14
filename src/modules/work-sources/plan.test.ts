@@ -5,7 +5,7 @@ const report = {
   key: "read",
   trackerKey: "LINEAR-24",
   instructions: "Read the code.",
-  completion: "report",
+  kind: "research",
   resources: "pane",
   dependencies: [],
 };
@@ -133,7 +133,7 @@ test("a PR assignment can adopt one open PR by number, once per plan", () => {
   const adopted = {
     ...report,
     key: "adopt",
-    completion: "pr",
+    kind: "implementation",
     resources: "worktree",
     branch: "feature/existing",
     adopt: 41,

@@ -12,7 +12,8 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { planSchema, promotionSchema, questionPlan } from "./plan.ts";
+import { planSchema, storedPlanSchema, promotionSchema, questionPlan } from "./plan.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
 import {
@@ -227,6 +228,7 @@ function registerPlan(input: Input, supply: () => Promise<object>) {
           sourceId: id,
           key: assignment.key,
           completion: assignment.completion,
+          kind: assignment.kind,
           state: "ready" as const,
         }));
         const state = decideSource({ state: "open", assignments });
@@ -343,7 +345,7 @@ export const WorkSources = {
               const parsed = z.array(assignmentStateSchema).safeParse(facts.assignments);
               // Any failure to read the stored plan is corruption.
               const plan = fromThrowable(
-                () => planSchema.parse(JSON.parse(facts.source.plan)),
+                () => storedPlanSchema.parse(JSON.parse(facts.source.plan)),
                 // Stryker disable next-line ArrowFunction: equivalent: every failed plan read ends as the same state_corrupt refusal
                 () => null,
               )();
@@ -876,6 +878,7 @@ function decideAssignmentRow(
   const decision = decideAssignment({
     assignment: current,
     dependencies,
+    dispatchable: assignment.kind === null || WorkerKinds.resolve(assignment.kind).dispatchable,
     // A start whose dispatching process stopped can be replaced.
     launch: launch?.abandoned === true ? "abandoned" : launch?.state,
     ...pullRequestFacts(pullRequest),

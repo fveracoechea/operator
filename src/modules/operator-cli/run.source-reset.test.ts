@@ -27,7 +27,7 @@ function reportAssignment(key: string, dependencies: string[] = []) {
     key,
     trackerKey: `github:example/one#${key}`,
     instructions: `Read the module and report about ${key}.`,
-    completion: "report",
+    kind: "research",
     resources: "pane",
     dependencies,
   };
@@ -38,7 +38,7 @@ function prAssignment(key: string) {
     key,
     trackerKey: `github:example/one#${key}`,
     instructions: `Implement ${key}.`,
-    completion: "pr",
+    kind: "implementation",
     resources: "worktree",
     branch: `task/${key}`,
     dependencies: [],

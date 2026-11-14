@@ -512,7 +512,7 @@ test("project registration uses installed migrations and ignores unrelated globa
             key: "read",
             trackerKey: "github:example/installed#2",
             instructions: "Read and report. Ask the person when authority is unclear.",
-            completion: "report",
+            kind: "research",
             resources: "pane",
             dependencies: [],
           },

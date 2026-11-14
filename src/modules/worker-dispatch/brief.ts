@@ -1,5 +1,6 @@
 import type { WorkSources } from "../work-sources/main.ts";
 import type { Adoption } from "./adoption.ts";
+import type { WorkerKinds } from "../worker-kinds/main.ts";
 
 type Finding = { axis: string; severity: string; location: string; claim: string };
 
@@ -9,6 +10,7 @@ type BriefInput = {
   assignment: string;
   trackerKey: string;
   completion: "pr" | "report";
+  kind?: ReturnType<typeof WorkerKinds.resolve> | null;
   profile: string | null;
   instructions: string;
   /** The person's own words, or null when neither the assignment nor the plan gives them. */
@@ -265,7 +267,7 @@ Read all of it before you start.
 
 - Source: \`${input.sourceId}\`, tracker key \`${input.sourceTrackerKey}\`.
 - Assignment: \`${input.assignment}\`, tracker key \`${input.trackerKey}\`.
-- Completion type: ${input.completion === "pr" ? "a merged pull request" : "a report that the SuperAgent accepts"}.
+- Completion type: ${input.completion === "pr" ? "a merged pull request" : "a report that the SuperAgent accepts"}.${input.kind === undefined || input.kind === null ? "" : `\n- Worker kind: \`${input.kind.name}\`. Read \`${input.kind.guide}\`.`}
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
 ${input.instructions}

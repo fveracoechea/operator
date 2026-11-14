@@ -1,9 +1,10 @@
 import { z } from "zod";
 import type { DeviceState } from "../device-state/main.ts";
-import { planSchema } from "./plan.ts";
+import { storedPlanSchema } from "./plan.ts";
 import { assignmentStateSchema, type AssignmentState } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
 import { Obligations } from "../obligations/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 type StoredSource = Extract<
   ReturnType<typeof DeviceState.readSources>,
@@ -29,6 +30,12 @@ const launchSchema = z.object({
     .string()
     .transform((text) =>
       z.array(z.object({ name: z.string(), identity: z.string() })).parse(JSON.parse(text)),
+    ),
+  kind: z
+    .string()
+    .nullable()
+    .transform((text) =>
+      text === null ? null : WorkerKinds.snapshotSchema().parse(JSON.parse(text)),
     ),
   workspaceId: z.string().nullable(),
   tabId: z.string().nullable(),
@@ -335,7 +342,7 @@ const promotionSchema = z.object({
   promotedAt: z.string(),
 });
 export type Promotion = z.infer<typeof promotionSchema>;
-type Plan = z.infer<typeof planSchema>;
+type Plan = z.infer<typeof storedPlanSchema>;
 
 /**
  * The registered plan stays unchanged. A promoted PR assignment joins it with the accepted
@@ -353,6 +360,7 @@ function withPromotions(plan: Plan, promotions: Promotion[]) {
       profile: plan.assignments.find((row) => row.key === promotion.report)?.profile,
       dependencies: [promotion.report],
       completion: "pr" as const,
+      kind: null,
       resources: "worktree" as const,
       branch: promotion.branch,
       internalReview: promotion.internalReview ?? undefined,
@@ -398,7 +406,7 @@ export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
     state: z.enum(["open", "finished", "reset"]).parse(input.source.state),
-    plan: planSchema.parse(JSON.parse(input.source.plan)),
+    plan: storedPlanSchema.parse(JSON.parse(input.source.plan)),
     assignments: z.array(assignmentStateSchema).parse(input.assignments),
     launches: z.array(launchSchema).parse(input.launches),
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
@@ -472,5 +480,12 @@ export function decodeSource(input: StoredSource) {
   source.assignments = assignments.map((assignment) =>
     assignmentStateSchema.parse(input.assignments.find((row) => row.key === assignment.key)),
   );
-  return { ...source, planned: assignments };
+  const stored = new Map(input.assignments.map((row) => [row.key, row]));
+  return {
+    ...source,
+    planned: assignments.map((assignment) => ({
+      ...assignment,
+      kind: z.enum(WorkerKinds.names()).nullable().parse(stored.get(assignment.key)?.kind),
+    })),
+  };
 }
