@@ -53,14 +53,32 @@ export function failure(
 }
 
 /** The compact text form, also used by readiness's existing multi-blocker envelope. */
-export function printRefusal(reason: string, detail: string, context: ResultContext) {
+export function printRefusal(
+  reason: string,
+  detail: string,
+  context: ResultContext | ResultContext[],
+) {
+  const grouped = Array.isArray(context);
+  const contexts = grouped ? context : [context];
   console.error(oneLine(`operator: ${reason}: ${detail}`));
-  console.error(oneLine(`next: ${nextText(context.next)}`));
-  if (context.state !== undefined)
+  console.error(
+    oneLine(
+      `next: ${contexts
+        .map((item, index) => `${grouped ? `[${index + 1}] ` : ""}${nextText(item.next)}`)
+        .join("; ")}`,
+    ),
+  );
+  if (contexts.some((item) => item.state !== undefined))
     console.error(
       oneLine(
-        `state: ${Object.entries(context.state)
-          .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+        `state: ${contexts
+          .flatMap((item, index) => {
+            if (item.state === undefined) return [];
+            if (grouped) return [`[${index + 1}]=${JSON.stringify(item.state)}`];
+            return Object.entries(item.state).map(
+              ([key, value]) => `${key}=${JSON.stringify(value)}`,
+            );
+          })
           .join(" ")}`,
       ),
     );

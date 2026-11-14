@@ -22,8 +22,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function run() {
-  const child = Bun.spawn([process.execPath, cli, "ready", "--json"], {
+async function run(json = true) {
+  const child = Bun.spawn([process.execPath, cli, "ready", ...(json ? ["--json"] : [])], {
     cwd: root,
     env: Environment.child({
       HOME: `${root}/home`,
@@ -40,7 +40,7 @@ async function run() {
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
-  return { code, output: JSON.parse(stdout) as unknown, stderr };
+  return { code, output: json ? (JSON.parse(stdout) as unknown) : null, stdout, stderr };
 }
 
 test("reports missing tools and configured host without creating state or launching a probe", async () => {
@@ -168,6 +168,32 @@ test("ready blocks on a guide that names an unresolved skill and warns on the sh
     databaseBefore,
   );
 });
+test.each(["gh", "herdr"])(
+  "text readiness names the missing %s and its owning decision without writes",
+  async (tool) => {
+    await configure("opencode");
+    await rm(`${root}/tools/${tool}`);
+    const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+    const result = await run(false);
+    expect(result.code).toBe(3);
+    expect(result.stdout).toBe("");
+    expect(result.stderr.trim().split("\n")).toEqual([
+      `operator: not_ready: [1] executable_missing (${tool}): Install ${tool} on PATH.`,
+      `next: [1] person decides: Which installation should provide ${tool} on PATH?`,
+      `state: [1]={"tool":"${tool}","executable":null}`,
+    ]);
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+    expect(await Bun.file(`${root}/state/operator/owned-skills.json`).exists()).toBe(false);
+    if (tool === "gh") expect(await Bun.file(`${root}/calls`).exists()).toBe(false);
+    else
+      expect(await Bun.file(`${root}/calls`).json()).toEqual([
+        "auth",
+        "status",
+        "--hostname",
+        "github.com",
+      ]);
+  },
+);
 
 test("reports failed authentication, a missing host, changed owned assets, and a missing upstream skill together", async () => {
   const { folder, upstream } = await configure("opencode");
@@ -229,6 +255,23 @@ test.skipIf(process.getuid?.() === 0)(
     );
   },
 );
+test("text readiness retains each blocker decision and checked state in three indexed lines", async () => {
+  await configure("opencode");
+  await rm(`${root}/tools/herdr`);
+  await Bun.write(`${root}/tools/gh`, `#!${process.execPath}\nprocess.exit(1);`);
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const result = await run(false);
+  expect(result.code).toBe(3);
+  expect(result.stdout).toBe("");
+  expect(result.stderr.trim().split("\n")).toEqual([
+    "operator: not_ready: [1] executable_missing (herdr): Install herdr on PATH.; [2] github_auth_failed: Run gh auth login for github.com.",
+    "next: [1] person decides: Which installation should provide herdr on PATH?; [2] gh auth login --hostname github.com",
+    'state: [1]={"tool":"herdr","executable":null} [2]={"authenticationConfirmed":false}',
+  ]);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect(await Bun.file(`${root}/state/operator/owned-skills.json`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/calls`).exists()).toBe(false);
+});
 
 test.each([
   {

@@ -58,8 +58,13 @@ export async function runReadiness(
     if (!ready)
       printRefusal(
         "not_ready",
-        "Static readiness checks found blockers. Nothing was installed or repaired.",
-        context,
+        result.value.blockers
+          .map(
+            (blocker, index) =>
+              `[${index + 1}] ${blocker.reason}${"tool" in blocker ? ` (${blocker.tool})` : ""}: ${blocker.detail}`,
+          )
+          .join("; "),
+        result.value.blockers,
       );
     process.exitCode = ready ? 0 : 3;
   }

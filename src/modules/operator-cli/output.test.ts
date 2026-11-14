@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { failure, respond } from "./output.ts";
+import { failure, printRefusal, respond } from "./output.ts";
 import { Err, Ok } from "unthrown";
 
 afterEach(() => {
@@ -150,4 +150,39 @@ test("respond reports a defect with the command's decision context and no checke
     ["next: super-agent decides: How should readiness_defect be corrected before retrying ready?"],
   ]);
   expect(process.exitCode).toBe(1);
+});
+
+test("grouped refusals retain indexed decisions and only their owning checked facts", () => {
+  const { log, error } = {
+    log: spyOn(console, "log").mockImplementation(() => {}),
+    error: spyOn(console, "error").mockImplementation(() => {}),
+  };
+  process.exitCode = 7;
+  printRefusal("blocked", "first\nsecond", [
+    { next: { command: "operator next\n--wait", why: "Observe the assignment." } },
+    { next: { decider: "person", question: "Keep\u2028this?" }, state: { found: false } },
+    { next: { why: "Nothing\rleft." }, state: {} },
+  ]);
+  expect(error.mock.calls).toEqual([
+    ["operator: blocked: first second"],
+    ["next: [1] operator next --wait; [2] person decides: Keep this?; [3] Nothing left."],
+    ['state: [2]={"found":false} [3]={}'],
+  ]);
+  expect(log).not.toHaveBeenCalled();
+  expect(process.exitCode).toBe(7);
+  error.mockClear();
+  printRefusal("blocked", "no facts", [
+    { next: { decider: "super-agent", question: "Which source?" } },
+  ]);
+  expect(error.mock.calls).toEqual([
+    ["operator: blocked: no facts"],
+    ["next: [1] super-agent decides: Which source?"],
+  ]);
+  error.mockClear();
+  printRefusal("blocked", "empty checked facts", { next: { why: "Nothing left." }, state: {} });
+  expect(error.mock.calls).toEqual([
+    ["operator: blocked: empty checked facts"],
+    ["next: Nothing left."],
+    ["state: "],
+  ]);
 });
