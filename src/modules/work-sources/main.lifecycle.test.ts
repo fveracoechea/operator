@@ -621,3 +621,46 @@ test("abandon refuses corrupt persisted assignment state without repairing it", 
   ).toMatchObject({ tag: "Err", error: { reason: "state_corrupt" } });
   expect(await Bun.file(paths.database).bytes()).toEqual(before);
 });
+
+test.each([
+  { field: "id", column: "id", value: "replacement-launch" },
+  { field: "assignment", column: "assignment", value: "other" },
+  { field: "worktreePath", column: "worktree_path", value: "/isolated/replacement" },
+  { field: "state", column: "state", value: "failed" },
+  { field: "name", column: "name", value: "replacement-worker" },
+  { field: "paneId", column: "pane_id", value: "w1:replacement" },
+  { field: "herdrSocket", column: "herdr_socket", value: "/other.sock" },
+  { field: "resources", column: "resources", value: "pane" },
+])(
+  "next revalidates observed $field under the writer reservation before ending or interrupting a launch",
+  async ({ field, column, value }) => {
+    const sourceId = await registered(["read", "other"]);
+    const id = launch(sourceId, "read", "running");
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+    });
+    spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+    spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+    const end = DeviceState.endAssignments;
+    spyOn(DeviceState, "endAssignments").mockImplementation((p, target, decide) => {
+      // A concurrent resource update wins before the writer reserves the source.
+      {
+        using db = new Database(paths.database);
+        if (field === "assignment")
+          db.exec("UPDATE assignments SET state = 'running' WHERE key = 'other'");
+        db.query(`UPDATE launches SET ${column} = ? WHERE id = ?`).run(value, id);
+      }
+      return end(p, target, decide);
+    });
+    expect(await WorkSources.next({ paths, cwd: checkout, sourceId })).toMatchObject({ tag: "Ok" });
+    const source = await shown(sourceId);
+    expect(source?.assignments.find((row) => row.key === "read")).toMatchObject({
+      state: "running",
+    });
+    expect(
+      DeviceState.readSources(paths, "example/one", sourceId).getOr([])[0]?.launches[0],
+    ).toMatchObject({ [field]: value });
+    if (field !== "state") expect(source?.launches[0]?.state).toBe("running");
+  },
+);

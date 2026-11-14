@@ -449,3 +449,12 @@ test("ignored environment inspection compares all env forms and protects links w
     Ok(null),
   );
 });
+
+test("an actual ignored-environment inspection I/O failure is qualified at the new capability", async () => {
+  spyOn(ToolInvocation, "run").mockRejectedValue(
+    Object.assign(new Error("environment inspection failed"), { code: "EIO" }),
+  );
+  expect(await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller })).toEqual(
+    Err({ reason: "preparation_io_failed", detail: "Error: environment inspection failed" }),
+  );
+});
