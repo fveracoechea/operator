@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { expectWorkflowRefusal, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+import { expectWorkflowRefusal } from "./worker-fixture.ts";
 import { writeOpenCodePlugin } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 
@@ -555,12 +556,64 @@ test.each([
   },
 );
 
+test.each([
+  {
+    script: 'console.log("{sensitive response");',
+    state: { metadataValid: false },
+    question: "How should valid host model metadata be restored before selecting a launch?",
+  },
+  {
+    script: "process.exit(17);",
+    state: { exitCode: 17 },
+    question:
+      "How should the OpenCode model metadata failure be corrected before selecting a launch?",
+  },
+  {
+    script: 'console.log(JSON.stringify({location:{directory:"/other"},data:[]}));',
+    state: { directoryMatches: false },
+    question:
+      "How should the OpenCode model metadata failure be corrected before selecting a launch?",
+  },
+])(
+  "dispatch exposes checked host metadata facts before any launch effect: $state",
+  async ({ script, state, question }) => {
+    const source = await register();
+    const database = `${root}/state/operator/operator.sqlite`;
+    const before = await Bun.file(database).arrayBuffer();
+    const files = await checkoutFiles();
+    await tool("opencode", `#!${process.execPath}\n${script}\n`);
+    const result = await run(["dispatch", "--source", source, "--assignment", "implement"]);
+    expect(result).toMatchObject({
+      code: 1,
+      output: { reason: "host_metadata_failed", next: { decider: "super-agent", question }, state },
+    });
+    expect(JSON.stringify(result.output)).not.toContain("sensitive response");
+    expect(await herdrCalls()).toEqual([]);
+    expect(await Bun.file(`${root}/session.json`).exists()).toBe(false);
+    expect(await Bun.file(database).arrayBuffer()).toEqual(before);
+    expect(await checkoutFiles()).toEqual(files);
+    expect(
+      await Array.fromAsync(new Bun.Glob("**/brief.md").scan({ cwd: `${root}/state` })),
+    ).toEqual([]);
+  },
+);
+
 test("a failed launch stays visible, and a replacement resolves current settings", async () => {
   expect((await run(["herdr", "install"])).code).toBe(0);
   const source = await register();
   await setHerdr({ fail: { "agent start": "agent_not_ready: trust prompt" } });
   const failed = await run(["dispatch", "--source", source, "--assignment", "implement"]);
-  expect(failed).toMatchObject({ code: 1, output: { reason: "launch_failed" } });
+  expect(failed).toMatchObject({
+    code: 1,
+    output: {
+      reason: "launch_failed",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state: { launch: "failed", failure: { exitCode: 1 } },
+    },
+  });
   expect(failed.stderr).toContain("trust prompt");
   const next = await run(["next"]);
   expect(next.output).toMatchObject({
@@ -630,7 +683,14 @@ else console.log(JSON.stringify({location:{directory:process.cwd()},data:[{provi
   );
   expect(await run(["dispatch", "--source", source, "--assignment", "investigate"])).toMatchObject({
     code: 1,
-    output: { reason: "launch_failed" },
+    output: {
+      reason: "launch_failed",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state: { launch: "failed", failure: { responseValid: false } },
+    },
   });
   expect((await herdrState()).agents).toEqual([]);
   expect(await herdrCalls()).not.toContain("agent start");

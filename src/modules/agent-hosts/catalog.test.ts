@@ -95,9 +95,25 @@ test("uses directory-scoped OpenCode metadata and omits disabled models", async 
 test("refuses unavailable, failed, timed out, and wrong-directory metadata", async () => {
   const run = spyOn(ToolInvocation, "run");
   run.mockResolvedValue({ status: "unavailable", tool: "opencode", detail: "missing" });
-  expect(await discoverOpenCode("/isolated")).toMatchObject({ reason: "host_unavailable" });
+  expect(await discoverOpenCode("/isolated")).toMatchObject({
+    reason: "host_unavailable",
+    next: {
+      decider: "super-agent",
+      question:
+        "How should the OpenCode model metadata failure be corrected before selecting a launch?",
+    },
+    state: { invocationStatus: "unavailable" },
+  });
   run.mockResolvedValue({ status: "no-answer", detail: "timeout" });
-  expect(await discoverOpenCode("/isolated")).toMatchObject({ reason: "host_metadata_failed" });
+  expect(await discoverOpenCode("/isolated")).toMatchObject({
+    reason: "host_metadata_failed",
+    next: {
+      decider: "super-agent",
+      question:
+        "How should the OpenCode model metadata failure be corrected before selecting a launch?",
+    },
+    state: { invocationStatus: "no-answer" },
+  });
   run.mockResolvedValue({
     status: "completed",
     exitCode: 1,
@@ -107,6 +123,12 @@ test("refuses unavailable, failed, timed out, and wrong-directory metadata", asy
   expect(await discoverOpenCode("/isolated")).toEqual({
     reason: "host_metadata_failed",
     detail: "OpenCode could not read its model catalog.",
+    next: {
+      decider: "super-agent",
+      question:
+        "How should the OpenCode model metadata failure be corrected before selecting a launch?",
+    },
+    state: { exitCode: 1 },
   });
   run.mockResolvedValue({
     status: "completed",
@@ -117,6 +139,12 @@ test("refuses unavailable, failed, timed out, and wrong-directory metadata", asy
   expect(await discoverOpenCode("/isolated")).toEqual({
     reason: "host_metadata_failed",
     detail: "OpenCode returned metadata for a different directory.",
+    next: {
+      decider: "super-agent",
+      question:
+        "How should the OpenCode model metadata failure be corrected before selecting a launch?",
+    },
+    state: { directoryMatches: false },
   });
 });
 
@@ -125,6 +153,11 @@ test("does not substitute a bundled Claude executable when the installed host is
   expect(await discoverClaude("/isolated")).toEqual({
     reason: "host_unavailable",
     detail: "claude is not on PATH. Install Claude Code before selecting it.",
+    next: {
+      decider: "super-agent",
+      question: "How should Claude Code be made available before selecting a launch?",
+    },
+    state: { executableAvailable: false },
   });
 });
 
@@ -178,6 +211,12 @@ test.each([
   expect(await discoverClaude(`${directory}/work`)).toEqual({
     reason: "host_metadata_failed",
     detail: "Claude Code metadata initialization failed. No selection was substituted.",
+    next: {
+      decider: "super-agent",
+      question:
+        "How should the failed Claude Code metadata initialization be inspected before selecting a launch?",
+    },
+    state: { metadataInitializationCompleted: false },
   });
 });
 
@@ -196,6 +235,12 @@ test("stops a silent Claude Code host after ten seconds as failed metadata", asy
   expect(await discoverClaude(`${directory}/work`)).toEqual({
     reason: "host_metadata_failed",
     detail: "Claude Code metadata initialization failed. No selection was substituted.",
+    next: {
+      decider: "super-agent",
+      question:
+        "How should the failed Claude Code metadata initialization be inspected before selecting a launch?",
+    },
+    state: { metadataInitializationCompleted: false },
   });
 }, 25000);
 

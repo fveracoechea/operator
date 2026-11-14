@@ -449,6 +449,29 @@ test("an assignment with no dispatch action or a source that is not registered i
   expect(device.herdr.createTab).toHaveBeenCalledTimes(1);
 });
 
+test("an absent optional source result refuses before state or Herdr effects", async () => {
+  await using device = await dispatchDevice();
+  spyOn(WorkSources, "show").mockReturnValue(OkAsync(undefined));
+  const next = spyOn(WorkSources, "next");
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "assignment_not_dispatchable",
+      next: {
+        command: "operator next",
+        why: "Read the current assignment action before dispatching.",
+      },
+      state: { sourceExists: false },
+    },
+  });
+  expect(next).not.toHaveBeenCalled();
+  expect(device.herdr.createTab).not.toHaveBeenCalled();
+  expect(device.herdr.createWorktree).not.toHaveBeenCalled();
+  expect(device.herdr.startAgent).not.toHaveBeenCalled();
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+});
+
 test("a launch check failure refuses the start before any record", async () => {
   await using device = await dispatchDevice();
   spyOn(Herdr, "plugins").mockReturnValue(OkAsync([]));

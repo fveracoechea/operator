@@ -321,7 +321,16 @@ test.each(["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EE
     try {
       for (const call of Object.values(interfaceCalls()))
         expect(await call()).toEqual(
-          Err({ reason: "project_io_failed", detail: "Error: observation failed" }),
+          Err({
+            reason: "project_io_failed",
+            detail: "Error: observation failed",
+            next: {
+              decider: "super-agent",
+              question:
+                "How should the controlling checkout IO failure be corrected without overwriting project state?",
+            },
+            state: { code },
+          }),
         );
     } finally {
       tools.mockRestore();

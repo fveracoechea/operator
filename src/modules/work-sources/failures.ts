@@ -16,6 +16,14 @@ export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
       state: { inputValid: false },
     };
   if (isCodedError(cause) && ioCodes.includes(cause.code))
-    return { reason: "source_io_failed" as const, detail: String(cause) };
+    return {
+      reason: "source_io_failed" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question: "How should the source file IO failure be corrected before retrying?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }

@@ -34,6 +34,11 @@ test.each(["ENOENT", "EACCES", "EPERM", "EISDIR", "EIO", "ENOTDIR"])(
     const cause = Object.assign(new Error(`${code}: failed`), { code });
     expect(qualify(cause, defect)).toEqual({
       reason: "source_io_failed",
+      next: {
+        decider: "super-agent",
+        question: "How should the source file IO failure be corrected before retrying?",
+      },
+      state: { code },
       detail: `Error: ${code}: failed`,
     });
   },

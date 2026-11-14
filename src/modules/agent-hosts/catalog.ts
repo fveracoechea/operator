@@ -2,9 +2,10 @@ import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type Host = "opencode" | "claude-code";
-export type HostFailure = {
+export type HostFailure = ResultContext & {
   reason: "host_unavailable" | "host_metadata_failed" | "unsupported_model" | "unsupported_effort";
   detail: string;
 };
@@ -31,6 +32,12 @@ const openCodeCatalog = z.object({
   ),
 });
 
+const openCodeRecovery = {
+  decider: "super-agent" as const,
+  question:
+    "How should the OpenCode model metadata failure be corrected before selecting a launch?",
+};
+
 export async function discoverOpenCode(cwd: string): Promise<Model[] | HostFailure> {
   const result = await ToolInvocation.run({
     tool: "opencode",
@@ -42,14 +49,23 @@ export async function discoverOpenCode(cwd: string): Promise<Model[] | HostFailu
     return {
       reason: result.status === "unavailable" ? "host_unavailable" : "host_metadata_failed",
       detail: result.detail,
+      next: openCodeRecovery,
+      state: { invocationStatus: result.status },
     };
   if (result.exitCode !== 0)
-    return { reason: "host_metadata_failed", detail: "OpenCode could not read its model catalog." };
+    return {
+      reason: "host_metadata_failed",
+      detail: "OpenCode could not read its model catalog.",
+      next: openCodeRecovery,
+      state: { exitCode: result.exitCode },
+    };
   const parsed = openCodeCatalog.parse(JSON.parse(result.stdout));
   if (parsed.location.directory !== cwd)
     return {
       reason: "host_metadata_failed",
       detail: "OpenCode returned metadata for a different directory.",
+      next: openCodeRecovery,
+      state: { directoryMatches: false },
     };
   return parsed.data
     .filter((model) => model.enabled)
@@ -65,6 +81,11 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
     return {
       reason: "host_unavailable",
       detail: "claude is not on PATH. Install Claude Code before selecting it.",
+      next: {
+        decider: "super-agent",
+        question: "How should Claude Code be made available before selecting a launch?",
+      },
+      state: { executableAvailable: false },
     };
   const { query, AbortError } = await import("@anthropic-ai/claude-agent-sdk");
   const controller = new AbortController();
@@ -102,6 +123,12 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
       return {
         reason: "host_metadata_failed",
         detail: "Claude Code metadata initialization failed. No selection was substituted.",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the failed Claude Code metadata initialization be inspected before selecting a launch?",
+        },
+        state: { metadataInitializationCompleted: false },
       };
     // oxlint-disable-next-line unthrown/no-throw -- Only known SDK termination failures are modeled. Preserve unexpected defects for the host boundary.
     throw cause;

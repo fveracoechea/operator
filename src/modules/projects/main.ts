@@ -38,7 +38,16 @@ function qualify<T>(cause: CodedError, defect: (cause: CodedError) => T) {
       cause.code,
     )
   )
-    return { reason: "project_io_failed" as const, detail: String(cause) };
+    return {
+      reason: "project_io_failed" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the controlling checkout IO failure be corrected without overwriting project state?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 

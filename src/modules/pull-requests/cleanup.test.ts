@@ -37,6 +37,11 @@ const cleanupDecision = {
   decider: "super-agent",
   question: "How should this cleanup failure be corrected without repeating an uncertain effect?",
 };
+const githubReadDecision = {
+  decider: "super-agent",
+  question:
+    "How should the failed or unconfirmed GitHub read be corrected before this workflow continues?",
+};
 const allSteps = [
   { step: "remote_branch", outcome: "deleted" },
   { step: "pane", outcome: "closed" },
@@ -202,13 +207,26 @@ test("an unreadable or undeleted remote branch fails the step and stops the orde
   const cases: [
     (args: string[]) => ReturnType<typeof succeeded>,
     string,
-    Record<string, unknown>?,
+    Record<string, unknown>,
+    typeof cleanupDecision,
   ][] = [
-    [() => failed("Server Error", 500), "github_failed: github_refused: Server Error"],
-    [() => uncertain("gh ended"), "github_uncertain: gh ended"],
+    [
+      () => failed("Server Error", 500),
+      "github_failed: github_refused: Server Error",
+      { code: "github_refused" },
+      githubReadDecision,
+    ],
+    [
+      () => uncertain("gh ended"),
+      "github_uncertain: gh ended",
+      { requestStatus: "uncertain" },
+      githubReadDecision,
+    ],
     [
       () => succeeded({ ref: "unexpected" }),
       "github_invalid_response: GitHub did not describe the branch task/other in the expected form.",
+      { responseValid: false },
+      githubReadDecision,
     ],
     [
       (args) =>
@@ -217,6 +235,7 @@ test("an unreadable or undeleted remote branch fails the step and stops the orde
           : succeeded({ object: { sha: owner.head } }),
       "github_failed: The branch task/other still exists after the deletion request.",
       { remoteBranchExists: true },
+      cleanupDecision,
     ],
     [
       (args) =>
@@ -225,9 +244,10 @@ test("an unreadable or undeleted remote branch fails the step and stops the orde
           : succeeded({ object: { sha: owner.head } }),
       "github_failed: The branch task/other still exists after the deletion request. github_refused: Reference is protected",
       { remoteBranchExists: true },
+      cleanupDecision,
     ],
   ];
-  for (const [answer, detail, state] of cases) {
+  for (const [answer, detail, state, next] of cases) {
     device.answer(answer);
     expect<unknown>(await cleanup(owner.request)).toEqual({
       tag: "Err",
@@ -235,11 +255,7 @@ test("an unreadable or undeleted remote branch fails the step and stops the orde
         reason: "cleanup_failed",
         detail: `remote_branch: ${detail}`,
         state,
-        next: {
-          decider: "super-agent",
-          question:
-            "How should this cleanup failure be corrected without repeating an uncertain effect?",
-        },
+        next,
       },
     });
     expect<unknown>(recorded(device)).toMatchObject({
@@ -781,8 +797,8 @@ test("a branch read that fails after the deletion fails the step", async () => {
     error: {
       reason: "cleanup_failed",
       detail: "remote_branch: github_failed: github_refused: Server Error",
-      next: cleanupDecision,
-      state: undefined,
+      next: githubReadDecision,
+      state: { code: "github_refused" },
     },
   });
 });

@@ -38,6 +38,7 @@ function startupPaths(args: string[], json: boolean) {
               decider: "super-agent",
               question: "Which valid device environment should this command use?",
             },
+            state: { environmentValid: false },
           }
         : {},
     );

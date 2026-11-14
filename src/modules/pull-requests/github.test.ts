@@ -10,8 +10,20 @@ import {
   readMergeRequest,
   remoteBranch,
   retarget,
+  markReady,
 } from "./github.ts";
 import { mergeConditions } from "./wait-machine.ts";
+
+const readRecovery = {
+  decider: "super-agent",
+  question:
+    "How should the failed or unconfirmed GitHub read be corrected before this workflow continues?",
+};
+const effectRecovery = {
+  decider: "super-agent",
+  question:
+    "How should GitHub's current state be inspected before repeating the unconfirmed request?",
+};
 
 function answer(change: Record<string, unknown> = {}) {
   return {
@@ -203,6 +215,57 @@ function ok<B>(body: B): Answer {
 
 const refused: Answer = { status: "failed", code: "http_422", detail: "Refused", httpStatus: 422 };
 const lost: Answer = { status: "uncertain", detail: "gh ended on SIGTERM" };
+afterEach(() => {
+  mock.restore();
+});
+
+test("a ready transition failure retains observed uncertainty and requires inspection before another request", async () => {
+  for (const [answer, error] of [
+    [
+      refused,
+      { reason: "github_failed", detail: "http_422: Refused", state: { code: "http_422" } },
+    ],
+    [
+      lost,
+      {
+        reason: "github_uncertain",
+        detail: "gh ended on SIGTERM",
+        state: { requestStatus: "uncertain" },
+      },
+    ],
+    [
+      ok({}),
+      {
+        reason: "github_uncertain",
+        detail: "GitHub answered the ready mutation in an unknown form.",
+        state: { responseValid: false },
+      },
+    ],
+    [
+      ok({ data: { markPullRequestReadyForReview: { pullRequest: { isDraft: true } } } }),
+      {
+        reason: "github_failed",
+        detail: "The PR stayed a draft.",
+        state: { readyConfirmed: false },
+      },
+    ],
+    [
+      ok({ data: null, errors: [{ message: "denied" }] }),
+      { reason: "github_failed", detail: "denied", state: { readyConfirmed: false } },
+    ],
+  ] as const) {
+    const call = github(() => answer);
+    call.mockClear();
+    expect<unknown>(await markReady("PR_node")).toEqual({
+      tag: "Err",
+      error: { ...error, next: effectRecovery },
+    });
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls[0]?.[0].args[0]).toBe("graphql");
+    expect(call.mock.calls[0]?.[0].args.slice(-2)).toEqual(["-f", "id=PR_node"]);
+    expect(call.mock.calls[0]?.[0].timeoutMs).toBe(60000);
+  }
+});
 
 describe("GitHub reads and effects", () => {
   afterEach(() => {
@@ -279,12 +342,30 @@ describe("GitHub reads and effects", () => {
 
   test("a failed, lost, or unexpected read answer is a read failure", async () => {
     for (const [answer, error] of [
-      [refused, { reason: "github_failed", detail: "http_422: Refused" }],
-      [lost, { reason: "github_uncertain", detail: "gh ended on SIGTERM" }],
+      [
+        refused,
+        {
+          reason: "github_failed",
+          detail: "http_422: Refused",
+          next: readRecovery,
+          state: { code: "http_422" },
+        },
+      ],
+      [
+        lost,
+        {
+          reason: "github_uncertain",
+          detail: "gh ended on SIGTERM",
+          next: readRecovery,
+          state: { requestStatus: "uncertain" },
+        },
+      ],
       [
         ok({ data: {} }),
         {
           reason: "github_invalid_response",
+          next: readRecovery,
+          state: { responseValid: false },
           detail: "GitHub did not describe the pull request in the expected form.",
         },
       ],
@@ -451,12 +532,22 @@ describe("GitHub reads and effects", () => {
     github(() => refused);
     expect<unknown>(await remoteBranch("owner/one", "task/1")).toEqual({
       tag: "Err",
-      error: { reason: "github_failed", detail: "http_422: Refused" },
+      error: {
+        reason: "github_failed",
+        detail: "http_422: Refused",
+        next: readRecovery,
+        state: { code: "http_422" },
+      },
     });
     github(() => lost);
     expect<unknown>(await remoteBranch("owner/one", "task/1")).toEqual({
       tag: "Err",
-      error: { reason: "github_uncertain", detail: "gh ended on SIGTERM" },
+      error: {
+        reason: "github_uncertain",
+        detail: "gh ended on SIGTERM",
+        next: readRecovery,
+        state: { requestStatus: "uncertain" },
+      },
     });
     github(() => ok({ object: {} }));
     expect<unknown>(await remoteBranch("owner/one", "task/1")).toEqual({
@@ -464,6 +555,8 @@ describe("GitHub reads and effects", () => {
       error: {
         reason: "github_invalid_response",
         detail: "GitHub did not describe the branch task/1 in the expected form.",
+        next: readRecovery,
+        state: { responseValid: false },
       },
     });
     github(() => Promise.reject(new Error("boom")));
@@ -666,6 +759,8 @@ describe("GitHub answers in the expected form", () => {
       tag: "Err",
       error: {
         reason: "github_invalid_response",
+        next: readRecovery,
+        state: { responseValid: false },
         detail: "GitHub did not describe the pull request in the expected form.",
       },
     };

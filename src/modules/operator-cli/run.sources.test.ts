@@ -4,7 +4,8 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
-import { expectWorkflowRefusal, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+import { expectWorkflowRefusal } from "./worker-fixture.ts";
 import { z } from "zod";
 import { Database } from "bun:sqlite";
 
@@ -479,6 +480,51 @@ test("accepts selected profiles without launching a host, and refuses absent pro
     code: 0,
     output: { data: { plan: { assignments: [{ profile: "research" }] } } },
   });
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+});
+
+test("invalid device settings stop source registration with validity facts and no effects", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  await Bun.write(`${root}/config/operator/config.json`, "{invalid", { createPath: true });
+  const database = `${root}/state/operator/operator.sqlite`;
+  const before = await Bun.file(database).arrayBuffer();
+  expect(await run(cwd, ["source", "register", "--file", `${root}/plan.json`])).toMatchObject({
+    code: 3,
+    output: {
+      reason: "invalid_settings",
+      next: {
+        decider: "super-agent",
+        question:
+          "What corrected device settings should be supplied before this workflow continues?",
+      },
+      state: { settingsValid: false },
+    },
+  });
+  expect(await Bun.file(database).arrayBuffer()).toEqual(before);
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+});
+
+test("an unreadable source plan carries the checked IO code before state or external effects", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  const database = `${root}/state/operator/operator.sqlite`;
+  const before = await Bun.file(database).arrayBuffer();
+  expect(
+    await run(cwd, ["source", "register", "--file", `${root}/missing-plan.json`]),
+  ).toMatchObject({
+    code: 1,
+    output: {
+      reason: "source_io_failed",
+      next: {
+        decider: "super-agent",
+        question: "How should the source file IO failure be corrected before retrying?",
+      },
+      state: { code: "ENOENT" },
+    },
+  });
+  expect(await Bun.file(database).arrayBuffer()).toEqual(before);
   expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
 });
 

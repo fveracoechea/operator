@@ -96,10 +96,24 @@ export async function githubRemote(checkout: string, repository: string) {
 async function git(cwd: string, args: string[]): Promise<{ text: string } | CheckoutFailure> {
   const result = await ToolInvocation.run({ tool: "git", args, cwd, timeoutMs: 10000 });
   if (result.status !== "completed")
-    return { reason: "git_unavailable" as const, detail: result.detail };
+    return {
+      reason: "git_unavailable" as const,
+      detail: result.detail,
+      next: {
+        decider: "super-agent",
+        question: "How should the unavailable or unanswered Git checkout observation be recovered?",
+      },
+      state: { invocationStatus: result.status },
+    };
   if (result.exitCode !== 0)
     return {
       reason: "git_checkout_invalid" as const,
+      next: {
+        decider: "super-agent",
+        question:
+          "Which valid controlling checkout should run this command after the Git failure is corrected?",
+      },
+      state: { exitCode: result.exitCode },
       detail: result.stderr.trim() || "Git could not resolve this checkout.",
     };
   return { text: result.stdout.trim() };

@@ -231,8 +231,8 @@ test("workflow startup rejects invalid environment before release or compatibili
     decider: "super-agent",
     question: "Which valid device environment should this command use?",
   });
-  expect(result).not.toHaveProperty("state");
-  expect(output.error.mock.calls.length).toBe(2);
+  expect(result).toMatchObject({ state: { environmentValid: false } });
+  expect(output.error.mock.calls.length).toBe(3);
   expect(process.exitCode).toBe(2);
   expect(manifest).not.toHaveBeenCalled();
   expect(checked).not.toHaveBeenCalled();

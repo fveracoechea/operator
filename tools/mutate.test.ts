@@ -381,6 +381,21 @@ test("valid local suppressions are ignored, not reported as killed", async () =>
   const result = await mutate(cwd, ["src/lib/count.ts"]);
   expect(result.code).toBe(0);
   expect(result.stdout).toContain(", 1 killed, 1 ignored");
+  const ignored = z
+    .object({
+      unit: z.literal("src/lib/count.ts"),
+      id: z.string().min(1),
+      status: z.literal("Ignored"),
+      mutatorName: z.literal("ArithmeticOperator"),
+      replacement: z.literal("n - 1"),
+      original: z.literal("n + 1"),
+      location: z.object({
+        start: z.object({ line: z.literal(2), column: z.number() }),
+        end: z.object({ line: z.literal(2), column: z.number() }),
+      }),
+    })
+    .parse(JSON.parse(result.stdout.split("\n").find((line) => line.startsWith("{")) ?? "null"));
+  expect(ignored.location.start.column).toBeLessThan(ignored.location.end.column);
 });
 
 test("case-insensitive wildcard suppressions cannot hide survivors", async () => {
