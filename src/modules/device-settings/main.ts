@@ -6,13 +6,38 @@ import { isIoFailure, readConfig } from "./storage.ts";
 import { editorSchemaText } from "./schema.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { selectLaunch, type SelectionRequest } from "./selection.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
+type SettingsError = Error & { code?: unknown };
+type SettingsFailure = ResultContext & {
+  reason: "invalid_settings" | "settings_io_failed";
+  detail: string;
+};
 
-function qualify<T>(cause: Error, defect: (cause: Error) => T) {
+function qualify<T>(cause: SettingsError, defect: (cause: Error) => T): SettingsFailure | T {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-    return { reason: "invalid_settings" as const, detail: cause.message };
-  if (isIoFailure(cause)) return { reason: "settings_io_failed" as const, detail: String(cause) };
+    return {
+      reason: "invalid_settings" as const,
+      detail: cause.message,
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "What corrected device settings should be supplied before this workflow continues?",
+      },
+      state: { settingsValid: false },
+    };
+  if (isIoFailure(cause))
+    return {
+      reason: "settings_io_failed" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the device settings IO failure be corrected without overwriting settings?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 

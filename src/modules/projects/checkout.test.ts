@@ -157,6 +157,12 @@ test("returns the refusal of each Git observation that fails", async () => {
   const failed = { status: "completed" as const, exitCode: 128, stdout: "", stderr: "" };
   const fallback = {
     reason: "git_checkout_invalid",
+    next: {
+      decider: "super-agent",
+      question:
+        "Which valid controlling checkout should run this command after the Git failure is corrected?",
+    },
+    state: { exitCode: 128 },
     detail: "Git could not resolve this checkout.",
   } as const;
   const steps = [
@@ -174,6 +180,11 @@ test("returns the refusal of each Git observation that fails", async () => {
   const spy = answers({ status: "unavailable", tool: "git", detail: "not installed" });
   expect(await inspectCheckout(empty)).toEqual({
     reason: "git_unavailable",
+    next: {
+      decider: "super-agent",
+      question: "How should the unavailable or unanswered Git checkout observation be recovered?",
+    },
+    state: { invocationStatus: "unavailable" },
     detail: "not installed",
   });
   expect(spy).toHaveBeenCalledWith({
@@ -186,12 +197,23 @@ test("returns the refusal of each Git observation that fails", async () => {
   answers({ status: "no-answer", detail: "interrupted" });
   expect(await inspectCheckout(empty)).toEqual({
     reason: "git_unavailable",
+    next: {
+      decider: "super-agent",
+      question: "How should the unavailable or unanswered Git checkout observation be recovered?",
+    },
+    state: { invocationStatus: "no-answer" },
     detail: "interrupted",
   });
   mock.restore();
   answers({ status: "completed", exitCode: 128, stdout: "", stderr: "  not a repository\n" });
   expect(await inspectCheckout(empty)).toEqual({
     reason: "git_checkout_invalid",
+    next: {
+      decider: "super-agent",
+      question:
+        "Which valid controlling checkout should run this command after the Git failure is corrected?",
+    },
+    state: { exitCode: 128 },
     detail: "not a repository",
   });
 });

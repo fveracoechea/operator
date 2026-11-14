@@ -65,10 +65,8 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
       .bind("project", () => Projects.current(input).map(({ data }) => data))
       .bind("source", () =>
         WorkSources.show(input).flatMap((source) =>
-          // Stryker disable next-line ConditionalExpression: equivalent: show refuses an unknown source with source_not_found, so it never answers undefined here
           source === undefined
-            ? // Stryker disable next-line ObjectLiteral, BooleanLiteral: equivalent: show refuses unknown sources before this unreachable fallback
-              notDispatchable(input.assignment, { sourceExists: false })
+            ? notDispatchable(input.assignment, { sourceExists: false })
             : Ok(source),
         ),
       )

@@ -244,6 +244,11 @@ export function skip(input: {
       if (source === undefined)
         return ErrAsync({
           reason: "source_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the available sources before choosing a source.",
+          },
+          state: { sourceExists: false },
           detail: `Source ${input.sourceId} does not exist in this project. Nothing was changed.`,
         });
       const { review } = reviewOf(source, input.assignment);

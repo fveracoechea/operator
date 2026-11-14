@@ -22,7 +22,16 @@ export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
       cause.code,
     )
   )
-    return { reason: "dispatch_io_failed", detail: String(cause) };
+    return {
+      reason: "dispatch_io_failed",
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the dispatch IO failure be corrected without repeating an uncertain effect?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 

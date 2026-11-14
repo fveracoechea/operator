@@ -59,6 +59,12 @@ test("qualifies each known filesystem failure and leaves every other cause a def
   for (const code of ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR"])
     expect(qualify(Object.assign(new Error(`failed ${code}`), { code }), defect)).toEqual({
       reason: "dispatch_io_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the dispatch IO failure be corrected without repeating an uncertain effect?",
+      },
+      state: { code },
       detail: `Error: failed ${code}`,
     });
   for (const code of ["EISDIR", "ELOOP"])

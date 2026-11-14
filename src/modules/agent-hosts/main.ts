@@ -22,6 +22,11 @@ const createdSession = z.object({
 });
 const sessionFailure = {
   reason: "host_session_failed" as const,
+  next: {
+    decider: "super-agent" as const,
+    question:
+      "How should the possibly-created OpenCode session be inspected before another launch attempt?",
+  },
   detail:
     "OpenCode did not confirm a session with the worker agent and selected model, effort, and directory. No agent was started. Session creation may have succeeded; inspect OpenCode before retrying.",
 };
@@ -49,11 +54,16 @@ function openCodeArguments(launch: LaunchSelection, cwd: string) {
         timeoutMs: 30000,
       });
       if (result.status !== "completed")
-        return { ...sessionFailure, detail: `${result.detail} ${sessionFailure.detail}` };
+        return {
+          ...sessionFailure,
+          detail: `${result.detail} ${sessionFailure.detail}`,
+          state: { invocationStatus: result.status },
+        };
       if (result.exitCode !== 0)
         return {
           ...sessionFailure,
           detail: `OpenCode session creation exited ${result.exitCode}. ${sessionFailure.detail}`,
+          state: { exitCode: result.exitCode },
         };
       const { data } = createdSession.parse(JSON.parse(result.stdout));
       if (
@@ -62,25 +72,30 @@ function openCodeArguments(launch: LaunchSelection, cwd: string) {
         data.model.id !== model.id ||
         data.model.variant !== model.variant
       )
-        return sessionFailure;
+        return { ...sessionFailure, state: { sessionMatches: false } };
       return { args: ["--session", data.id] };
     },
     (cause, defect) =>
-      cause instanceof SyntaxError || cause instanceof z.ZodError ? sessionFailure : defect(cause),
+      cause instanceof SyntaxError || cause instanceof z.ZodError
+        ? { ...sessionFailure, state: { responseValid: false } }
+        : defect(cause),
   ).flatMap((result) => ("reason" in result ? Err(result) : Ok(result.args)));
 }
 
-function qualify<T>(cause: Error, defect: (cause: Error) => T) {
-  if (
-    cause instanceof SyntaxError ||
-    cause instanceof z.ZodError ||
-    (isCodedError(cause) && ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR"].includes(cause.code))
-  )
-    return {
-      reason: "host_metadata_failed" as const,
-      detail:
-        "The host did not return valid model and effort metadata. No selection was substituted.",
-    };
+function qualify<T>(cause: Error, defect: (cause: Error) => T): HostFailure | T {
+  const failure = {
+    reason: "host_metadata_failed" as const,
+    detail:
+      "The host did not return valid model and effort metadata. No selection was substituted.",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should valid host model metadata be restored before selecting a launch?",
+    },
+  };
+  if (cause instanceof SyntaxError || cause instanceof z.ZodError)
+    return { ...failure, state: { metadataValid: false } };
+  if (isCodedError(cause) && ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR"].includes(cause.code))
+    return { ...failure, state: { code: cause.code } };
   return defect(cause);
 }
 

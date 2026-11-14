@@ -2,10 +2,21 @@ import { Err, Ok, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
 import { ReviewRequests } from "../review-requests/main.ts";
 import { GithubApi } from "../github-api/main.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
-type GithubReadFailure = {
+type GithubReadFailure = ResultContext & {
   reason: "github_failed" | "github_uncertain" | "github_invalid_response";
   detail: string;
+};
+const readRecovery = {
+  decider: "super-agent" as const,
+  question:
+    "How should the failed or unconfirmed GitHub read be corrected before this workflow continues?",
+};
+const effectRecovery = {
+  decider: "super-agent" as const,
+  question:
+    "How should GitHub's current state be inspected before repeating the unconfirmed request?",
 };
 
 const author = z.object({ login: z.string() }).nullable();
@@ -210,15 +221,27 @@ function query<T>(fields: string[], schema: z.ZodType<T>) {
     (cause, defect) => defect(cause),
   ).flatMap((answer): Result<T, GithubReadFailure> => {
     if (answer.status === "failed")
-      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+      return Err({
+        reason: "github_failed",
+        detail: `${answer.code}: ${answer.detail}`,
+        next: readRecovery,
+        state: { code: answer.code },
+      });
     if (answer.status === "uncertain")
-      return Err({ reason: "github_uncertain", detail: answer.detail });
+      return Err({
+        reason: "github_uncertain",
+        detail: answer.detail,
+        next: readRecovery,
+        state: { requestStatus: answer.status },
+      });
     const parsed = schema.safeParse(answer.value.body);
     return parsed.success
       ? Ok(parsed.data)
       : Err({
           reason: "github_invalid_response",
           detail: "GitHub did not describe the pull request in the expected form.",
+          next: readRecovery,
+          state: { responseValid: false },
         });
   });
 }
@@ -364,7 +387,7 @@ export function observePullRequest(repository: string, number: number) {
   ).map(({ data }) => observation(data));
 }
 
-type GithubEffectFailure = {
+type GithubEffectFailure = ResultContext & {
   reason: "github_failed" | "github_uncertain";
   detail: string;
 };
@@ -465,15 +488,27 @@ export function remoteBranch(repository: string, branch: string) {
     if (answer.status === "failed")
       return answer.httpStatus === 404
         ? Ok(null)
-        : Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+        : Err({
+            reason: "github_failed",
+            detail: `${answer.code}: ${answer.detail}`,
+            next: readRecovery,
+            state: { code: answer.code },
+          });
     if (answer.status === "uncertain")
-      return Err({ reason: "github_uncertain", detail: answer.detail });
+      return Err({
+        reason: "github_uncertain",
+        detail: answer.detail,
+        next: readRecovery,
+        state: { requestStatus: answer.status },
+      });
     const parsed = refAnswer.safeParse(answer.value.body);
     return parsed.success
       ? Ok(parsed.data.object.sha)
       : Err({
           reason: "github_invalid_response",
           detail: `GitHub did not describe the branch ${branch} in the expected form.`,
+          next: readRecovery,
+          state: { responseValid: false },
         });
   });
 }
@@ -637,14 +672,26 @@ export function markReady(id: string) {
     (cause, defect) => defect(cause),
   ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
     if (answer.status === "failed")
-      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+      return Err({
+        reason: "github_failed",
+        detail: `${answer.code}: ${answer.detail}`,
+        next: effectRecovery,
+        state: { code: answer.code },
+      });
     if (answer.status === "uncertain")
-      return Err({ reason: "github_uncertain", detail: answer.detail });
+      return Err({
+        reason: "github_uncertain",
+        detail: answer.detail,
+        next: effectRecovery,
+        state: { requestStatus: answer.status },
+      });
     const parsed = readyMutationAnswer.safeParse(answer.value.body);
     if (!parsed.success)
       return Err({
         reason: "github_uncertain",
         detail: "GitHub answered the ready mutation in an unknown form.",
+        next: effectRecovery,
+        state: { responseValid: false },
       });
     const errors = parsed.data.errors ?? [];
     const pr = parsed.data.data?.markPullRequestReadyForReview.pullRequest;
@@ -652,6 +699,8 @@ export function markReady(id: string) {
       return Err({
         reason: "github_failed",
         detail: errors.map((error) => error.message).join(" ") || "The PR stayed a draft.",
+        next: effectRecovery,
+        state: { readyConfirmed: false },
       });
     return Ok(undefined);
   });
