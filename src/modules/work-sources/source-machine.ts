@@ -1,5 +1,6 @@
 import { Err, Ok, type Result } from "unthrown";
 import type { AssignmentState } from "./assignment-machine.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type SourceState = "open" | "finished" | "reset";
 type Facts = { state: SourceState; assignments: AssignmentState[] };
@@ -23,7 +24,7 @@ export function decideSource(facts: Facts): SourceState {
   return rules.find((rule) => rule.when(facts))?.state ?? facts.state;
 }
 
-type Refusal = {
+type Refusal = ResultContext & {
   reason: "source_ended" | "source_worker_running";
   detail: string;
 };
@@ -42,6 +43,8 @@ export function decideReset(facts: {
     return Err({
       reason: "source_ended",
       detail: `The source is already ${facts.state}. Nothing changed.`,
+      next: { why: "Nothing is left to reset." },
+      state: { found: facts.state, expected: "open" },
     });
   if (facts.workers.length > 0)
     return Err({

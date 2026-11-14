@@ -594,7 +594,7 @@ type WatchFailure =
 type Answer = { sources: (ReturnType<typeof nextActions> & { repository: string })[] };
 type WatchOutcome = {
   reason: "next_actions_changed" | "next_wait_timed_out";
-  data: Answer | ReturnType<typeof changedAnswer>;
+  data: Answer | ReturnType<typeof changedAnswer<Answer["sources"][number]["actions"][number]>>;
 };
 
 function nextAnswer(input: Input, sources: Source[]) {
@@ -962,12 +962,12 @@ function nextActions(input: Input, source: Source, now: number) {
       state: source.state,
       actions: [
         {
-          action: "source_ended",
+          action: "source_ended" as const,
           reason: source.state,
           endedAt: source.endedAt,
           prunableAt: kept.prunableAt,
         },
-        ...(kept.prune ? [{ action: "prune_source", reason: "retention_elapsed" }] : []),
+        ...(kept.prune ? [{ action: "prune_source" as const, reason: "retention_elapsed" }] : []),
         ...cleanup,
       ],
       waits: decisions.filter((decision) => decision.reason === "cleanup_running"),

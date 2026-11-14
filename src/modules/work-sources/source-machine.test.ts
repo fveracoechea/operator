@@ -58,7 +58,12 @@ test("reset refuses an ended source and a running worker", () => {
   for (const state of ["finished", "reset"])
     expect(decideReset({ state, workers: [], assignments: [] })).toMatchObject({
       tag: "Err",
-      error: { reason: "source_ended", detail: expect.stringContaining(state) as unknown },
+      error: {
+        reason: "source_ended",
+        detail: expect.stringContaining(state) as unknown,
+        next: { why: "Nothing is left to reset." },
+        state: { found: state, expected: "open" },
+      },
     });
   expect(
     decideReset({

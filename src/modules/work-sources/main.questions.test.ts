@@ -38,8 +38,8 @@ const idle = { activity: "idle", activityAt: "2026-01-03T00:00:00.000Z" };
 function question(key: string, assignment = "read") {
   return {
     assignment,
-    action: "answer_question",
-    reason: "question_open",
+    action: "answer_question" as const,
+    reason: "question_open" as const,
     blockers: [],
     question: { key, question: `Is ${assignment} in scope?`, askedAt: "2026-01-03T00:00:00.000Z" },
   };

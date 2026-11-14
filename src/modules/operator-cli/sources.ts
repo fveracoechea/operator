@@ -1,6 +1,7 @@
 import { WorkSources } from "../work-sources/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
+import { withNext } from "./next.ts";
 
 const sourceCommands = ["register", "show", "reset", "take-over", "prune"] as const;
 const defaultTimeoutSeconds = 300;
@@ -150,7 +151,7 @@ export async function runSources(
   if (parsed === null) return false;
   const input = { paths, cwd: process.cwd() };
   // A wait names its own result: the changed actions or the timeout.
-  const result =
+  const executed =
     parsed.operation === "next_wait"
       ? await WorkSources.wait({
           ...input,
@@ -162,6 +163,30 @@ export async function runSources(
           reason: completed[parsed.operation],
           data,
         }));
+  const result = executed.map((value) => {
+    if (value.data === undefined || !("sources" in value.data)) return value;
+    return {
+      ...value,
+      next: {
+        why:
+          value.data.sources.length === 0
+            ? "No next actions to report."
+            : "Follow the next step on the applicable row.",
+      },
+      data: {
+        ...value.data,
+        sources: value.data.sources.map((source) => {
+          const described = {
+            ...source,
+            actions: source.actions.map((row) => withNext(source.id, row)),
+          };
+          if ("waits" in source)
+            return { ...described, waits: source.waits.map((row) => withNext(source.id, row)) };
+          return described;
+        }),
+      },
+    };
+  });
   const operation = parsed.operation.startsWith("next")
     ? parsed.operation
     : `source_${parsed.operation.replace("-", "_")}`;
