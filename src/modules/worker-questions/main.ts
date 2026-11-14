@@ -176,6 +176,11 @@ function read(paths: Paths, target: Target, key: string) {
     facts.question === null
       ? Err<Failure>({
           reason: "question_not_found",
+          next: {
+            decider: "super-agent",
+            question: "Which recorded question key should this command target?",
+          },
+          state: { question: null },
           detail: `Assignment ${facts.assignment.key} has no question ${key}. Nothing changed.`,
         })
       : Ok({ facts, row: facts.question, state: stateSchema.parse(facts.question.state) }),

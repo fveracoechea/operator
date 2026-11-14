@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { z } from "zod";
+import { expectWorkflowRefusal, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 
 let root = "";
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
@@ -69,7 +70,10 @@ async function result(child: ReturnType<typeof start>) {
 }
 
 async function run(args: string[], entry = cli) {
-  return result(start([...args, "--json"], entry));
+  const response = await result(start([...args, "--json"], entry));
+  const output = workflowOutputSchema.parse(response.output);
+  expectWorkflowRefusal(args, output, response.stderr);
+  return { ...response, output };
 }
 
 async function backups() {

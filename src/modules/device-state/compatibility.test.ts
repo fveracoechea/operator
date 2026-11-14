@@ -62,6 +62,11 @@ test("the compatibility owner never creates missing state and preserves corrupti
     tag: "Err",
     error: {
       reason: "state_missing",
+      next: {
+        command: "operator project register",
+        why: "Register a project explicitly to initialize device state.",
+      },
+      state: { databaseExists: false },
       detail:
         "The device database is missing. Run operator project register explicitly in the controlling checkout before any other command.",
     },

@@ -49,6 +49,6 @@ export async function refuseUnsupervised(
     sourceId: command.sourceId,
   });
   if (checked.tag !== "Err" || checked.error.reason !== "source_supervised_elsewhere") return false;
-  failure(command.operation, checked.error.reason, checked.error.detail, 4, json);
+  failure(command.operation, checked.error.reason, checked.error.detail, 4, json, checked.error);
   return true;
 }

@@ -267,7 +267,12 @@ test("a cleanup refusal names the missing record, and a finished cleanup is retu
   recordPullRequestMerge(db, "l1", merge, sourceState);
   expect(claimCleanup(db, "owner/other", "s1", "change")).toMatchObject({
     tag: "Err",
-    error: { reason: "source_not_found", detail: "The source does not exist in this project." },
+    error: {
+      reason: "source_not_found",
+      detail: "The source does not exist in this project.",
+      next: { command: "operator next" },
+      state: { sourceExists: false },
+    },
   });
   const missing = {
     tag: "Err",
@@ -275,6 +280,8 @@ test("a cleanup refusal names the missing record, and a finished cleanup is retu
       reason: "cleanup_not_found",
       detail:
         "Assignment change has no cleanup. Only a verified merge records one. Nothing was changed.",
+      next: { command: "operator next" },
+      state: { requiredRecordsPresent: false },
     },
   };
   const other = Bun.spawn([process.execPath, "-e", "await Bun.sleep(5000)"]);
@@ -288,6 +295,8 @@ test("a cleanup refusal names the missing record, and a finished cleanup is retu
       error: {
         reason: "cleanup_running",
         detail: `Process ${other.pid} is still cleaning up assignment change. Read operator next later. Nothing was changed.`,
+        next: { command: "operator next" },
+        state: { cleanupRunning: true },
       },
     });
     db.exec("UPDATE cleanups SET step = NULL, state = 'done'");

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { expectWorkflowRefusal, workflowOutputSchema } from "./refusal-fixture.ts";
+import { expectWorkflowRefusal, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 

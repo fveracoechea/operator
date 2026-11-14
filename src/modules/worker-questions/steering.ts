@@ -58,6 +58,11 @@ function recorded(paths: Paths, target: Target, key: string) {
     facts.message === null
       ? Err<Failure>({
           reason: "message_not_found",
+          next: {
+            decider: "super-agent",
+            question: "Which recorded message key should this command target?",
+          },
+          state: { message: null },
           detail: `Assignment ${facts.assignment.key} has no steering message ${key}. Nothing changed.`,
         })
       : Ok(summary(facts, facts.message)),

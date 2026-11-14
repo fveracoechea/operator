@@ -49,7 +49,13 @@ export function decideReset(facts: {
   if (facts.workers.length > 0)
     return Err({
       reason: "source_worker_running",
-      detail: `A worker is still running for ${facts.workers.map(({ assignment, paneId }) => `${assignment} (pane ${paneId ?? "not created yet"})`).join(", ")}. Close each worker pane in Herdr, so that the Operator Herdr plugin records its end, then reset again. Run operator herdr install first when the plugin is missing or from another release. Nothing changed.`,
+      detail: `A worker is still running for ${facts.workers.map(({ assignment, paneId }) => `${assignment} (pane ${paneId ?? "not created yet"})`).join(", ")}. Nothing changed.`,
+      next: {
+        decider: "super-agent",
+        question:
+          "Should the active workers finish, or should their panes be closed before resetting the source?",
+      },
+      state: { runningWorkers: facts.workers.length },
     });
   return Ok({
     abandon: facts.assignments

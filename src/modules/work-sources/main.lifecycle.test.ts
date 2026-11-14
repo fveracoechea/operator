@@ -166,6 +166,11 @@ test("a selected profile must exist in the device settings", async () => {
     tag: "Err",
     error: {
       reason: "source_profile_missing",
+      next: {
+        command: "operator config show",
+        why: "Read the configured start profiles before correcting the plan.",
+      },
+      state: { profile: "careful", exists: false },
       detail: "The profile careful for read does not exist. No source was written.",
     },
   });
@@ -267,6 +272,11 @@ test("reset refuses a running worker and corrupt records", async () => {
       error: {
         reason: "state_corrupt",
         detail: "The source assignments are invalid. They were not repaired. Nothing changed.",
+        next: {
+          decider: "person",
+          question: "How should the damaged source records be recovered without overwriting them?",
+        },
+        state: { storedSourceValid: false },
       },
     });
     mock.restore();

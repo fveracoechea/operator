@@ -289,7 +289,14 @@ const skipRules: Rule<SkipFacts>[] = [
   },
   {
     when: (facts) => facts.pr?.state !== "OPEN",
-    refuse: () => refused("pr_not_open", `The PR is not open. Ask the person. ${unchanged}`),
+    refuse: (facts) =>
+      refused("pr_not_open", `The PR is not open. Ask the person. ${unchanged}`, {
+        next: {
+          decider: "person",
+          question: "How should the closed PR be handled before this review can continue?",
+        },
+        state: { prState: facts.pr?.state ?? null },
+      }),
   },
 ];
 

@@ -17,12 +17,19 @@ import {
 } from "./cleanup-machine.ts";
 import { deleteRemoteBranch, remoteBranch } from "./github.ts";
 import { qualify, type Paths } from "./owner.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type Claimed = Extract<ReturnType<typeof DeviceState.claimCleanup>, { tag: "Ok" }>["value"];
-type Failure = { reason: string; detail: string };
+type Failure = ResultContext & { reason: string; detail: string };
 type StepResult =
   | { done: true; outcome: string }
-  | { done: false; state: "failed" | "blocked"; reason: string; detail: string };
+  | (Pick<ResultContext, "next"> & {
+      checked?: ResultContext["state"];
+      done: false;
+      state: "failed" | "blocked";
+      reason: string;
+      detail: string;
+    });
 type Request = {
   paths: Paths;
   cwd: string;
@@ -61,12 +68,25 @@ function failed(error: Failure): StepResult {
     state: "failed",
     reason: "cleanup_failed",
     detail: `${error.reason}: ${error.detail}`,
+    next: error.next ?? {
+      decider: "super-agent",
+      question:
+        "How should this cleanup failure be corrected without repeating an uncertain effect?",
+    },
+    checked: error.state,
   };
 }
 
 function decided(decision: StepDecision): StepResult | null {
   if (decision.action === "blocked")
-    return { done: false, state: "blocked", reason: decision.reason, detail: decision.detail };
+    return {
+      done: false,
+      state: "blocked",
+      reason: decision.reason,
+      detail: decision.detail,
+      next: decision.next,
+      checked: decision.state,
+    };
   return decision.action === "skip" ? { done: true, outcome: decision.outcome } : null;
 }
 
@@ -91,6 +111,7 @@ async function remoteStep(facts: Claimed, personInstructed: boolean): Promise<St
   if (after.value === null) return { done: true, outcome: "deleted" };
   return failed({
     reason: "github_failed",
+    state: { remoteBranchExists: true },
     detail:
       `The branch ${branch} still exists after the deletion request. ${answer.ok ? (answer.value ?? "") : answer.error.detail}`.trim(),
   });
@@ -103,6 +124,11 @@ async function paneStep(facts: Claimed): Promise<StepResult> {
   if (Environment.read().HERDR_SOCKET_PATH !== (launch.herdrSocket ?? undefined))
     return failed({
       reason: "herdr_session_mismatch",
+      next: {
+        decider: "super-agent",
+        question: "Which recorded Herdr server must run this command?",
+      },
+      state: { serverMatches: false },
       detail: "Run operator cleanup in a pane of the Herdr session that started the worker.",
     });
   const observed = value(await Herdr.pane(launch.paneId));
@@ -212,6 +238,11 @@ async function inspect(
         action: "blocked",
         reason: "cleanup_unlanded_work",
         detail: `Git could not inspect ${real}, so its work is not proven landed. Repeat operator cleanup after the Git failure is resolved.`,
+        next: {
+          decider: "person",
+          question: "How should the unverified worktree be recovered without losing unlanded work?",
+        },
+        state: { gitStatusSucceeded: false },
       },
     };
   const entries = statusEntries(status.stdout);
@@ -265,6 +296,7 @@ async function removeWorktree(checkout: string, real: string, force: boolean) {
         error: {
           reason: "git_failed",
           detail: `git worktree remove failed: ${(removed?.stderr ?? "Git did not answer.").trim()}`,
+          state: { removalConfirmed: false },
         },
       };
 }
@@ -344,7 +376,12 @@ async function steps(request: Request, facts: Claimed) {
         detail: result.detail,
         release: true,
       }).flatMap(() =>
-        Err<Failure>({ reason: result.reason, detail: `${step}: ${result.detail}` }),
+        Err<Failure>({
+          reason: result.reason,
+          detail: `${step}: ${result.detail}`,
+          next: result.next,
+          state: result.checked,
+        }),
       );
     }
     outcomes.push({ step, outcome: result.outcome });

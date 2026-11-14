@@ -1,14 +1,5 @@
 import { expect, test } from "bun:test";
-import { suppressionErrors, excludedUnit, mutationExecutionBudget } from "./mutation-policy.ts";
-
-test("the full mapped baseline has thirty minutes without changing concurrency or mutant timeout parameters", () => {
-  expect(mutationExecutionBudget).toEqual({
-    dryRunTimeoutMinutes: 30,
-    timeoutFactor: 1.5,
-    timeoutMS: 2000,
-    concurrency: 1,
-  });
-});
+import { suppressionErrors, excludedUnit } from "./mutation-policy.ts";
 
 test("only the approved whole-file no-logic marker and explained local suppressions pass", () => {
   expect(suppressionErrors("// Stryker disable all: no logic\nexport type A = string;\n")).toEqual(

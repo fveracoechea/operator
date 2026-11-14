@@ -148,6 +148,11 @@ test("refuses unknown models, unknown efforts, and unavailable metadata", async 
     tag: "Err",
     error: {
       reason: "unsupported_model",
+      next: {
+        command: "operator host models --host opencode",
+        why: "Read the advertised models before selecting a launch model.",
+      },
+      state: { model: "missing", modelAdvertised: false },
       detail:
         "opencode does not advertise model missing. Select a model from operator host models.",
     },
@@ -156,6 +161,11 @@ test("refuses unknown models, unknown efforts, and unavailable metadata", async 
     tag: "Err",
     error: {
       reason: "unsupported_effort",
+      next: {
+        command: "operator host models --host opencode",
+        why: "Read the advertised efforts before selecting a launch effort.",
+      },
+      state: { model: "selected", effort: "medium", effortAdvertised: false },
       detail: "opencode model selected does not advertise effort medium. Supported efforts: high.",
     },
   });

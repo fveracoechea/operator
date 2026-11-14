@@ -323,11 +323,18 @@ test("refusals name the recorded fact, and reads scope by source", () => {
       error: {
         reason: "controller_mismatch",
         detail: "The controlling checkout changed before registration. Read the project again.",
+        next: { command: "operator project list" },
+        state: { controllerMatches: false },
       },
     });
   expect(registerSource(db, project.checkout, { ...source, id: "two" }, [])).toMatchObject({
     tag: "Err",
-    error: { reason: "source_parent_open", detail: "Source one is still open for APP-1." },
+    error: {
+      reason: "source_parent_open",
+      detail: "Source one is still open for APP-1.",
+      next: { command: "operator next" },
+      state: { openSourceExists: true },
+    },
   });
   registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, []);
   expect(
@@ -342,7 +349,12 @@ test("refusals name the recorded fact, and reads scope by source", () => {
   ).toEqual(["two"]);
   expect(readSources(db, project.repository, "three")).toMatchObject({
     tag: "Err",
-    error: { reason: "source_not_found", detail: "The source does not exist in this project." },
+    error: {
+      reason: "source_not_found",
+      detail: "The source does not exist in this project.",
+      next: { command: "operator next" },
+      state: { sourceExists: false },
+    },
   });
   for (const changed of [
     { ...target, checkout: "/other" },
@@ -353,6 +365,8 @@ test("refusals name the recorded fact, and reads scope by source", () => {
       error: {
         reason: "controller_mismatch",
         detail: "The controlling checkout changed. Read the project again. Nothing changed.",
+        next: { command: "operator project list" },
+        state: { controllerMatches: false },
       },
     });
   expect(
@@ -362,6 +376,8 @@ test("refusals name the recorded fact, and reads scope by source", () => {
     error: {
       reason: "source_not_found",
       detail: "The source does not exist in this project. Nothing changed.",
+      next: { command: "operator next" },
+      state: { sourceExists: false },
     },
   });
 });

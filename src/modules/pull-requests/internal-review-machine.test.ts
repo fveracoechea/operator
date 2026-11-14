@@ -1,5 +1,15 @@
 import { expect, test } from "bun:test";
-import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
+import {
+  decideInternalReview as internalReviewDecision,
+  decideOwnership,
+} from "./internal-review-machine.ts";
+import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
+
+function decideInternalReview(...args: Parameters<typeof internalReviewDecision>) {
+  const result = internalReviewDecision(...args);
+  if (args[0].event === "skip" && result.result === "refused") expectRefusalContext(result);
+  return result;
+}
 
 const draft = {
   event: "associate" as const,
@@ -342,6 +352,16 @@ test("a skip refuses without the person's instruction, a running review, or an o
   expect(decideInternalReview({ ...skip, review: "ready" })).toMatchObject({
     next: { why: "The internal review has already ended. No skip remains." },
     state: { review: "ready" },
+  });
+  expect(
+    decideInternalReview({ ...skip, pr: { state: "CLOSED", head: "h1", draft: true } }),
+  ).toMatchObject({
+    reason: "pr_not_open",
+    next: {
+      decider: "person",
+      question: "How should the closed PR be handled before this review can continue?",
+    },
+    state: { prState: "CLOSED" },
   });
 });
 

@@ -56,12 +56,22 @@ test("refuses bare repositories, legacy state, and linked worktrees", async () =
   await git("init", "-q", "--bare", `${root}/bare.git`);
   expect(await inspectCheckout(`${root}/bare.git`)).toEqual({
     reason: "bare_repository",
+    next: {
+      decider: "super-agent",
+      question: "Which non-bare controlling checkout should run this command?",
+    },
+    state: { bare: true },
     detail: "A bare repository cannot be a controlling checkout. Use its main non-bare checkout.",
   });
   await git("init", "-q", `${root}/legacy`);
   await symlink(`${root}/absent`, `${root}/legacy/.operator`);
   expect(await inspectCheckout(`${root}/legacy`)).toEqual({
     reason: "legacy_project_state",
+    next: {
+      decider: "person",
+      question: "How should the legacy checkout be retired with its old release?",
+    },
+    state: { legacyStatePresent: true },
     detail:
       "This checkout has legacy .operator state. Finish old work with the old release. Then the person must remove that folder before using this release. Operator does not migrate, delete, or repair it.",
   });

@@ -19,9 +19,25 @@ const ioCodes = ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "EISDIR", "ELOOP
 /** Invalid input and file system failures are refusals. Any other error stays a defect. */
 function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-    return { reason: "invalid_obligation_input", detail: `${cause.message} Nothing changed.` };
+    return {
+      reason: "invalid_obligation_input",
+      detail: `${cause.message} Nothing changed.`,
+      next: {
+        decider: "super-agent" as const,
+        question: "What corrected obligation input should be supplied in --file?",
+      },
+      state: { inputValid: false },
+    };
   if (isCodedError(cause) && ioCodes.includes(cause.code))
-    return { reason: "obligation_io_failed", detail: String(cause) };
+    return {
+      reason: "obligation_io_failed",
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question: "How should the obligation IO failure be corrected before retrying?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 

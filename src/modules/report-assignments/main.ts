@@ -85,6 +85,11 @@ function record(
       if (JSON.stringify(decided) !== JSON.stringify(expected))
         return Err<Failure>({
           reason: "report_changed",
+          next: {
+            command: "operator next",
+            why: "Read the current report action after its decision changed.",
+          },
+          state: { decisionChanged: true },
           detail:
             "The assignment changed during this command. Read operator next. Nothing changed.",
         });
@@ -117,6 +122,11 @@ function workerPane(): Result<Target, Failure> {
   return socket === null || paneId === null
     ? Err({
         reason: "worker_pane_required",
+        next: {
+          decider: "super-agent",
+          question: "Which dispatched worker pane must run this command?",
+        },
+        state: socket === null ? { serverPresent: false } : { panePresent: false },
         detail:
           "Run this command in the Herdr pane that Operator dispatched for the assignment. Nothing changed.",
       })
@@ -167,6 +177,11 @@ async function stageReport(input: {
       return Err<Failure>({
         reason: "invalid_report_input",
         detail: `Supporting file ${file} is not a regular file. Nothing changed.`,
+        next: {
+          decider: "super-agent",
+          question: "What corrected report input should be supplied in --file?",
+        },
+        state: { supportingFileRegular: false },
       });
   const stored: string[] = [];
   for (const file of submission.files) {

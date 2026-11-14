@@ -1,4 +1,5 @@
 import { isCodedError } from "../../lib/coded-error.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 import { Err, Ok, OkAsync, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
 import { discoverClaude, discoverOpenCode, type Host, type HostFailure } from "./catalog.ts";
@@ -92,38 +93,50 @@ export const AgentHosts = {
     ).flatMap((models) => ("reason" in models ? Err(models) : Ok(models)));
   },
   resolve(input: LaunchSelection & { cwd: string }) {
-    return AgentHosts.models(input).flatMap((models): Result<ResolvedLaunch, HostFailure> => {
-      const model = models.find(
-        (candidate) => candidate.model === input.model || candidate.resolvedModel === input.model,
-      );
-      if (model === undefined)
-        return Err({
-          reason: "unsupported_model" as const,
-          detail: `${input.host} does not advertise model ${input.model}. Select a model from operator host models.`,
+    return AgentHosts.models(input).flatMap(
+      (models): Result<ResolvedLaunch, HostFailure & ResultContext> => {
+        const model = models.find(
+          (candidate) => candidate.model === input.model || candidate.resolvedModel === input.model,
+        );
+        if (model === undefined)
+          return Err({
+            reason: "unsupported_model" as const,
+            next: {
+              command: `operator host models --host ${input.host}`,
+              why: "Read the advertised models before selecting a launch model.",
+            },
+            state: { model: input.model, modelAdvertised: false },
+            detail: `${input.host} does not advertise model ${input.model}. Select a model from operator host models.`,
+          });
+        if (!model.efforts.includes(input.reasoningEffort))
+          return Err({
+            reason: "unsupported_effort" as const,
+            next: {
+              command: `operator host models --host ${input.host}`,
+              why: "Read the advertised efforts before selecting a launch effort.",
+            },
+            state: { model: input.model, effort: input.reasoningEffort, effortAdvertised: false },
+            detail: `${input.host} model ${input.model} does not advertise effort ${input.reasoningEffort}. Supported efforts: ${model.efforts.join(", ") || "none advertised"}.`,
+          });
+        const resolvedModel = model.resolvedModel ?? model.model;
+        return Ok({
+          host: input.host,
+          model: resolvedModel,
+          requestedModel: input.model,
+          reasoningEffort: input.reasoningEffort,
+          command:
+            input.host === "opencode"
+              ? {
+                  tool: "opencode",
+                  args: [],
+                }
+              : {
+                  tool: "claude",
+                  args: ["--model", resolvedModel, "--effort", input.reasoningEffort],
+                },
         });
-      if (!model.efforts.includes(input.reasoningEffort))
-        return Err({
-          reason: "unsupported_effort" as const,
-          detail: `${input.host} model ${input.model} does not advertise effort ${input.reasoningEffort}. Supported efforts: ${model.efforts.join(", ") || "none advertised"}.`,
-        });
-      const resolvedModel = model.resolvedModel ?? model.model;
-      return Ok({
-        host: input.host,
-        model: resolvedModel,
-        requestedModel: input.model,
-        reasoningEffort: input.reasoningEffort,
-        command:
-          input.host === "opencode"
-            ? {
-                tool: "opencode",
-                args: [],
-              }
-            : {
-                tool: "claude",
-                args: ["--model", resolvedModel, "--effort", input.reasoningEffort],
-              },
-      });
-    });
+      },
+    );
   },
   /** Mini does not load Herdr's terminal plugin. The full TUI takes a session, not --model. */
   start(input: { launch: ResolvedLaunch; cwd: string; name: string; paneId: string }) {

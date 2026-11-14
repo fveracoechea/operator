@@ -77,8 +77,8 @@ test("workflow startup refusal reports missing state without creating it or chec
       command: "operator project register",
       why: "Register a project explicitly to initialize device state.",
     },
+    state: { databaseExists: false },
   });
-  expect(output).not.toHaveProperty("state");
   expect(result.stderr.trim().split("\n").length).toBeLessThanOrEqual(3);
   expect(await Bun.file(`${isolated}/state/operator/operator.sqlite`).exists()).toBe(false);
 });

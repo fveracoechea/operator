@@ -259,6 +259,8 @@ test("a plan's reached running cap refuses a ready assignment, and the reservati
     tag: "Err",
     error: {
       reason: "running_cap_reached",
+      next: { command: "operator next --wait" },
+      state: { maxRunning: 1, capReached: true },
       detail:
         "The plan's running cap of 1 is reached, so second waits. Read operator next after a worker ends. Nothing was launched.",
     },
@@ -384,6 +386,11 @@ test("no free name refuses the start before any record or Herdr effect", async (
     tag: "Err",
     error: {
       reason: "launch_name_exhausted",
+      next: {
+        decider: "super-agent",
+        question: "Which unused branch and worktree names should this assignment use?",
+      },
+      state: { namesAvailable: false },
       detail: "No free launch name or branch remains. Nothing was launched.",
     },
   });
@@ -408,7 +415,11 @@ test("an assignment with no dispatch action or a source that is not registered i
   expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({ tag: "Ok" });
   expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({
     tag: "Err",
-    error: { reason: "assignment_not_dispatchable" },
+    error: {
+      reason: "assignment_not_dispatchable",
+      next: { command: "operator next" },
+      state: { assignmentPlanned: true, dispatchActionExists: false },
+    },
   });
   // An idle worker needs attention, not a replacement.
   device.activity("p1", "idle");

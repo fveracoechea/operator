@@ -9,11 +9,21 @@ function defect(cause: Error) {
 test("invalid input is a refusal that keeps the parser message", () => {
   expect(qualify(new SyntaxError("Unexpected token"), defect)).toEqual({
     reason: "invalid_report_input",
+    next: {
+      decider: "super-agent",
+      question: "What corrected report input should be supplied in --file?",
+    },
+    state: { inputValid: false },
     detail: "Unexpected token Nothing changed.",
   });
   const invalid = new z.ZodError([{ code: "custom", message: "Bad.", path: ["conclusion"] }]);
   expect(qualify(invalid, defect)).toEqual({
     reason: "invalid_report_input",
+    next: {
+      decider: "super-agent",
+      question: "What corrected report input should be supplied in --file?",
+    },
+    state: { inputValid: false },
     detail: `${invalid.message} Nothing changed.`,
   });
 });
@@ -24,6 +34,11 @@ test.each(["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EI
     const cause = Object.assign(new Error(`${code}: failed`), { code });
     expect(qualify(cause, defect)).toEqual({
       reason: "report_io_failed",
+      next: {
+        decider: "super-agent",
+        question: "How should the report IO failure be corrected before retrying?",
+      },
+      state: { code },
       detail: `Error: ${code}: failed`,
     });
   },

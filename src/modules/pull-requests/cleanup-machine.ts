@@ -1,3 +1,5 @@
+import type { ResultContext } from "../../lib/cli-result.ts";
+
 /** The declared cleanup order after a verified merge. */
 export const cleanupSteps = ["remote_branch", "pane", "worktree"] as const;
 export type CleanupStep = (typeof cleanupSteps)[number];
@@ -9,11 +11,11 @@ export function nextStep(step: CleanupStep): CleanupStep | null {
 export type StepDecision =
   | { action: "dispose"; force: boolean }
   | { action: "skip"; outcome: "absent" | "not_recorded" | "replaced" }
-  | {
+  | (ResultContext & {
       action: "blocked";
       reason: "cleanup_unlanded_work" | "cleanup_resource_mismatch";
       detail: string;
-    };
+    });
 
 const person =
   "Only the person can authorize its deletion: repeat operator cleanup with --person-instructed on the person's instruction.";
@@ -32,6 +34,8 @@ export function decideRemoteBranch(facts: {
     action: "blocked",
     reason: "cleanup_unlanded_work",
     detail: `The remote branch ${facts.branch} is at ${facts.sha}, not at the merged head ${facts.mergedHead}. ${person}`,
+    next: { decider: "person", question: "May the retained unlanded work be removed?" },
+    state: { found: facts.sha, expected: facts.mergedHead, personInstructed: false },
   };
 }
 
@@ -76,6 +80,13 @@ export function decideWorktree(facts: WorktreeFacts): StepDecision {
       action: "blocked",
       reason: "cleanup_resource_mismatch",
       detail: `${facts.path} is no longer the recorded worktree on ${facts.expectedBranch}. Operator never removes another checkout. Move it away, then repeat operator cleanup.`,
+      next: {
+        decider: "person",
+        question: "How should the resource that differs from its recorded identity be handled?",
+      },
+      state: !facts.sameRepository
+        ? { sameRepository: false }
+        : { branch: facts.branch, expectedBranch: facts.expectedBranch },
     };
   const work = [
     ...(facts.landed ? [] : ["commits that are not in the merged head"]),
@@ -90,5 +101,12 @@ export function decideWorktree(facts: WorktreeFacts): StepDecision {
     action: "blocked",
     reason: "cleanup_unlanded_work",
     detail: `${facts.path} holds ${work.join("; ")}. ${person}`,
+    next: { decider: "person", question: "May the retained unlanded work be removed?" },
+    state: {
+      landed: facts.landed,
+      changedFiles: facts.changed.length,
+      unknownIgnoredFiles: facts.unknownIgnored.length,
+      personInstructed: false,
+    },
   };
 }

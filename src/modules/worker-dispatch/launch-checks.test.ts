@@ -141,6 +141,8 @@ test("static readiness blockers refuse the start and name each blocker", async (
     tag: "Err",
     error: {
       reason: "worker_not_ready",
+      next: { command: "operator ready" },
+      state: { ready: false },
       detail:
         "Static readiness failed: github_auth_failed, host_unconfigured. Run operator ready. Nothing was launched.",
     },
@@ -149,32 +151,35 @@ test("static readiness blockers refuse the start and name each blocker", async (
 
 const missing = {
   reason: "herdr_plugin_missing",
+  next: { command: "operator herdr install" },
   detail: "Run operator herdr install so new worktrees are prepared. Nothing was launched.",
 };
 const outdated = {
   reason: "herdr_plugin_outdated",
+  next: { command: "operator herdr install" },
+  state: { manifestCurrent: false },
   detail:
     "The linked Herdr plugin is not the manifest of this release. Run operator herdr install. Nothing was launched.",
 };
 
 test("a plugin that Herdr does not link from the device folder is missing", async () => {
   const plugins = spyOn(Herdr, "plugins");
-  for (const listed of [
-    [{ id: "other", root: paths.herdrPlugin }],
-    [{ id: "operator", root }],
-    [{ id: "operator", root: `${root}/gone` }],
-  ]) {
+  for (const [listed, state] of [
+    [[{ id: "other", root: paths.herdrPlugin }], { pluginLinked: false }],
+    [[{ id: "operator", root }], { pluginRootMatches: false }],
+    [[{ id: "operator", root: `${root}/gone` }], { pluginRootMatches: false }],
+  ] satisfies [{ id: string; root: string }[], Record<string, unknown>][]) {
     plugins.mockReturnValue(OkAsync(listed));
     expect(await launchSettings(paths, "/checkout", undefined)).toMatchObject({
       tag: "Err",
-      error: missing,
+      error: { ...missing, state },
     });
   }
   plugins.mockReturnValue(OkAsync([{ id: "operator", root: paths.herdrPlugin }]));
   await rm(paths.herdrPlugin, { recursive: true });
   expect(await launchSettings(paths, "/checkout", undefined)).toMatchObject({
     tag: "Err",
-    error: missing,
+    error: { ...missing, state: { devicePluginExists: false } },
   });
 });
 

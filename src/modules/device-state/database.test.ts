@@ -79,6 +79,8 @@ test("a damaged page fails the integrity check before the history is read", () =
     tag: "Err",
     error: {
       reason: "state_corrupt",
+      state: { integrityCheckPassed: false },
+      next: { decider: "person" },
       detail: "The device database failed its integrity check. It was not repaired or replaced.",
     },
   });
@@ -172,6 +174,8 @@ const unsupported = {
   tag: "Err",
   error: {
     reason: "state_incompatible",
+    state: { historySupported: false },
+    next: { decider: "person" },
     detail:
       "The device database history is newer, conflicting, or unsupported by this running release. No handler ran.",
   },
@@ -185,6 +189,8 @@ test("reads a history that matches a prefix of the shipped migrations", () => {
       reason: "state_incompatible",
       detail:
         "The device database has no Drizzle migration history. It was not adopted or repaired.",
+      state: { historyExists: false },
+      next: { decider: "person" },
     },
   });
   shippedHistory(db, 2);
@@ -199,6 +205,8 @@ test("reads a history that matches a prefix of the shipped migrations", () => {
       reason: "state_incompatible",
       detail:
         "Startup compatibility must apply the pending shipped migrations before this operation.",
+      state: { recordedMigrations: 2, shippedMigrations: 20 },
+      next: { decider: "person" },
     },
   });
   db.exec("DROP TABLE __drizzle_migrations");
@@ -229,6 +237,8 @@ test("refuses empty, longer, conflicting, and malformed histories", () => {
       error: {
         reason: "state_incompatible",
         detail: "The Drizzle history table has an unsupported format.",
+        state: { historyFormatSupported: false },
+        next: { decider: "person" },
       },
     });
   }

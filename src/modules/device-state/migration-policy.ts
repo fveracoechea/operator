@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { Err, Ok } from "unthrown";
-import type { StateFailure } from "./failures.ts";
+import { stateFailure } from "./failures.ts";
 import { ownerGone } from "./leases.ts";
 
 type Owned = { owner_pid: number | null; lease_at: string | null };
@@ -90,7 +90,7 @@ export function idleForMigration(client: Database, applied: number) {
   const guard = idleGuards.find((row) => applied >= row.applied && row.busy(client));
   return guard === undefined
     ? Ok(undefined)
-    : Err<StateFailure>({ reason: "state_migration_blocked", detail: guard.detail });
+    : Err(stateFailure("state_migration_blocked", guard.detail, { idle: false }));
 }
 
 /** The fixed migrations have no migration-specific held-record blockers. */
@@ -121,16 +121,22 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
 export function migrationBlockers(client: Database, timestamp: number, policies = shippedPolicies) {
   const queries = policies.get(timestamp);
   if (!queries)
-    return Err<StateFailure>({
-      reason: "state_incompatible",
-      detail: "The shipped migration has no declared blocker policy. No handler ran.",
-    });
+    return Err(
+      stateFailure(
+        "state_incompatible",
+        "The shipped migration has no declared blocker policy. No handler ran.",
+        { policyDeclared: false },
+      ),
+    );
   for (const query of queries) {
     if (client.query(query).get())
-      return Err<StateFailure>({
-        reason: "state_migration_blocked",
-        detail: "A migration-specific held record blocks startup. No handler ran.",
-      });
+      return Err(
+        stateFailure(
+          "state_migration_blocked",
+          "A migration-specific held record blocks startup. No handler ran.",
+          { heldRecord: true },
+        ),
+      );
   }
   return Ok(undefined);
 }

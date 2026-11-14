@@ -6,6 +6,7 @@ import { ownerGone } from "./leases.ts";
 import { assignments, launches, promotions, reports, sources } from "./schema.ts";
 import { abandonConversations, controlledSource } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type ReportRow = typeof reports.$inferSelect;
 type LaunchRow = typeof launches.$inferSelect;
@@ -41,7 +42,7 @@ export type ReportChange = {
   promote?: Promotion;
 };
 
-type TargetFailure = StateFailure | { reason: string; detail: string };
+type TargetFailure = StateFailure | (ResultContext & { reason: string; detail: string });
 
 /** The assignment that a worker pane or a SuperAgent selector names. */
 export function locate(db: Db, target: ReportTarget) {
@@ -60,6 +61,11 @@ export function locate(db: Db, target: ReportTarget) {
     return launch === undefined
       ? Err<TargetFailure>({
           reason: "worker_launch_not_found",
+          next: {
+            decider: "super-agent",
+            question: "Which dispatched worker pane must run this command?",
+          },
+          state: { launchFound: false },
           detail:
             "This pane holds no running WorkerAgent launch. Run the command in the pane that Operator dispatched for the assignment. Nothing changed.",
         })
@@ -81,6 +87,11 @@ function readFacts(db: Db, target: ReportTarget) {
       if (source === undefined || assignment === undefined)
         return Err({
           reason: "assignment_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the available assignments before choosing a target.",
+          },
+          state: { sourceExists: source !== undefined, assignmentExists: assignment !== undefined },
           detail: `Assignment ${key} does not exist in this source. Nothing changed.`,
         });
       const latest = db

@@ -414,17 +414,28 @@ test("a reservation names each refusal and records an abandoned start's end", ()
       error: {
         reason: "controller_mismatch",
         detail: "The controlling checkout changed before dispatch. Read the project again.",
+        next: { command: "operator project list" },
+        state: { controllerMatches: false },
       },
     });
   expect(reserveLaunch(db, "/one", "owner/one", { ...launch, sourceId: "missing" })).toMatchObject({
     tag: "Err",
-    error: { reason: "source_not_found", detail: "The source does not exist in this project." },
+    error: {
+      reason: "source_not_found",
+      detail: "The source does not exist in this project.",
+      next: { command: "operator next" },
+      state: { sourceExists: false },
+    },
   });
   expect(
     reserveLaunch(db, "/one", "owner/one", { ...launch, assignment: "missing" }),
   ).toMatchObject({
     tag: "Err",
-    error: { reason: "assignment_not_dispatchable" },
+    error: {
+      reason: "assignment_not_dispatchable",
+      next: { command: "operator next" },
+      state: { assignment: null, launch: null },
+    },
   });
   db.exec("UPDATE sources SET state = 'reset'");
   expect(reserveLaunch(db, "/one", "owner/one", launch)).toMatchObject({
@@ -439,6 +450,8 @@ test("a reservation names each refusal and records an abandoned start's end", ()
     error: {
       reason: "launch_name_taken",
       detail: "The launch name report-app-1-read is already recorded. Nothing was launched.",
+      next: { command: "operator next" },
+      state: { launchNameExists: true },
     },
   });
   db.exec("UPDATE launches SET state = 'starting'");
@@ -468,6 +481,8 @@ test("an update ends only a failed start, and an unknown launch is not starting"
     error: {
       reason: "launch_not_starting",
       detail: "Only a starting launch can record resources or its launch outcome.",
+      next: { command: "operator next" },
+      state: { launch: null },
     },
   });
 });

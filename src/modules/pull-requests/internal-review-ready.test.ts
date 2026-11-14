@@ -1,13 +1,11 @@
-import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 import { prDevice } from "./device-fixture.ts";
-import { ToolInvocation } from "../tool-invocation/main.ts";
 import { skip } from "./internal-review-ready.ts";
 
 afterEach(() => mock.restore());
 
 test("skip preserves the decision's checked state and person authority without reading GitHub or changing state", async () => {
   await using device = await prDevice();
-  const calls = spyOn(ToolInvocation, "run");
   const before = await Bun.file(device.paths.database).arrayBuffer();
   expect(
     await skip({
@@ -41,6 +39,6 @@ test("skip preserves the decision's checked state and person authority without r
       state: { review: null },
     },
   });
-  expect(calls.mock.calls.filter(([input]) => input.tool === "gh")).toEqual([]);
+  expect(device.calls).toEqual([]);
   expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
 });
