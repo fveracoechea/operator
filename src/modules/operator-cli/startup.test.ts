@@ -136,7 +136,11 @@ test.each([true, false])("an unsupported Bun stops startup, json %p", async (jso
         ]
       : [],
   );
-  expect(output.error).toHaveBeenCalledWith(expect.stringContaining("<1"));
+  expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
+    `operator: unsupported_bun: Bun <1 is required; running ${Bun.version}.`,
+    "next: super-agent decides: Which supported Bun runtime should run this command?",
+    `state: required="<1" actual="${Bun.version}"`,
+  ]);
   expect(process.exitCode).toBe(1);
   expect(checked).not.toHaveBeenCalled();
 });
