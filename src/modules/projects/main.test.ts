@@ -226,6 +226,11 @@ test("register and move refuse checkout and repository choice failures without w
   await mkdir(`${base}/outside`, { recursive: true });
   const missing = Err({
     reason: "github_remote_missing" as const,
+    next: {
+      decider: "super-agent" as const,
+      question: "Which github.com remote should identify this checkout?",
+    },
+    state: { repositories: [] },
     detail: "This checkout has no github.com remote. Add a matching remote before registration.",
   });
   expect(await Projects.register({ paths: device, cwd: `${base}/plain` })).toEqual(missing);
@@ -245,6 +250,10 @@ test("register and move refuse checkout and repository choice failures without w
   ).toEqual(
     Err({
       reason: "repository_choice_invalid",
+      next: {
+        command: "operator project list",
+        why: "Choose the explicit registered owner/repository identity to remove.",
+      },
       detail: "Removal requires an explicit owner/repository identity.",
     }),
   );
@@ -253,6 +262,11 @@ test("register and move refuse checkout and repository choice failures without w
   ).toEqual(
     Err({
       reason: "person_instruction_required",
+      next: {
+        decider: "person",
+        question: "May this project be removed on your explicit instruction?",
+      },
+      state: { personInstructed: false },
       detail:
         "Remove a project only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority.",
     }),

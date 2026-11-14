@@ -86,7 +86,14 @@ function refusal(decision: ReturnType<typeof decideInternalReview>, event: strin
         next: decision.next,
         state: decision.state,
       }
-    : { reason: "internal_review_defect", detail: `The ${event} event decided nothing.` };
+    : {
+        reason: "internal_review_defect",
+        detail: `The ${event} event decided nothing.`,
+        next: {
+          decider: "super-agent",
+          question: "How should the unexpected ready decision be investigated?",
+        },
+      };
 }
 
 /** The assignment reviewer starts at the ready transition when device settings enable it. */
@@ -111,6 +118,14 @@ export function ready(input: { paths: Paths; cwd: string; file: string }) {
           if (review === undefined || number === null)
             return ErrAsync({
               reason: "internal_review_not_recorded",
+              next: {
+                command: "operator next",
+                why: "Read the assignment's recorded review state before continuing.",
+              },
+              state: {
+                internalReview: review === undefined ? null : review.state,
+                pullRequest: number,
+              },
               detail: `Assignment ${owner.assignment} has no internal review. Nothing was changed.`,
             });
           const marker = commentMarker(owner.sourceId, owner.assignment);

@@ -394,7 +394,13 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
   await github({ mergeRefuse: true });
   expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
     code: 1,
-    output: { reason: "pr_merge_refused" },
+    output: {
+      reason: "pr_merge_refused",
+      next: {
+        decider: "person",
+        question: "Which GitHub merge restriction must be resolved before this PR can merge?",
+      },
+    },
   });
   expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
   expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });

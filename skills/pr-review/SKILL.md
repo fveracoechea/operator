@@ -99,10 +99,10 @@ Run `gh api repos/<owner>/<repo>/pulls/<number>/files --paginate --jq '.[] | .fi
 ## 7. Post through the CLI
 
 Run `operator review post <pr-url> --json`.
-A refusal names its cause. Correct the draft and run the post again.
-A `review_head_moved` result means that the PR changed after your review.
+Follow the result's `next`.
+The PR can change after your review.
 With a review brief, Operator moves your worktree and prompts you with the new commits. Review them and post again.
-When you run alone, tell the person and stop.
+When that happens during a standalone review, tell the person and stop.
 Report the posted event and the review URL.
 With a review brief, stay in your pane after the post. Operator prompts you when a later round starts.
 

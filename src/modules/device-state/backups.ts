@@ -34,7 +34,9 @@ function qualifyBackupFailure<T>(cause: Error, defect: (cause: Error) => T): Sta
     (isCodedError(cause) && cause.code === "SQLITE_ERROR")
   )
     // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: discovery skips every refused copy, so this reason and detail never reach a caller
-    return { reason: "state_backup_failed", detail: "The backup receipt or history is invalid." };
+    return stateFailure("state_backup_failed", "The backup receipt or history is invalid.", {
+      backupValid: false,
+    });
   return qualifyStateFailure(cause, defect);
 }
 

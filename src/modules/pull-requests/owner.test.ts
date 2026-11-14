@@ -56,6 +56,11 @@ test("a folder outside Git or outside a recorded worktree selects no owner", asy
     error: {
       reason: "pr_worktree_unrecorded",
       detail: `Run PR commands inside the recorded worktree of your assignment. ${nothing}`,
+      next: {
+        command: "operator next",
+        why: "Locate the assignment's recorded worktree before running a PR command.",
+      },
+      state: { gitTopLevel: null },
     },
   });
   expect<unknown>(await resolveOwner({ paths: device.paths, cwd: device.checkout })).toEqual({
@@ -63,6 +68,11 @@ test("a folder outside Git or outside a recorded worktree selects no owner", asy
     error: {
       reason: "pr_worktree_unrecorded",
       detail: `${device.checkout} is not the recorded worktree of an assignment. ${nothing}`,
+      next: {
+        command: "operator next",
+        why: "Locate the assignment's recorded worktree before running a PR command.",
+      },
+      state: { worktree: device.checkout, recorded: false },
     },
   });
 });
@@ -101,11 +111,23 @@ test("a launch without a recorded worktree never matches", async () => {
   });
 });
 
-function inactive(assignment: string) {
+function inactive(assignment: string, state: Record<string, unknown> = {}) {
   return {
     tag: "Err",
     error: {
       reason: "pr_owner_inactive",
+      next: {
+        decider: "super-agent",
+        question: "Which recorded owner should continue this PR assignment?",
+      },
+      state: {
+        source: "open",
+        assignment: "running",
+        completion: "pr",
+        launch: "running",
+        branch: `task/${assignment}`,
+        ...state,
+      },
       detail: `This worktree belongs to assignment ${assignment}, which has no running PR owner. ${nothing}`,
     },
   };
@@ -115,15 +137,15 @@ test("only the running start of an open PR assignment with a branch owns the wor
   await using device = await prDevice();
   const failed = device.start("other", { state: "failed" });
   expect<unknown>(await resolveOwner({ paths: device.paths, cwd: failed.worktree })).toEqual(
-    inactive("other"),
+    inactive("other", { launch: "failed" }),
   );
   const report = device.start("read");
   expect<unknown>(await resolveOwner({ paths: device.paths, cwd: report.worktree })).toEqual(
-    inactive("read"),
+    inactive("read", { completion: "report" }),
   );
   const detached = device.start("parent", { branch: null });
   expect<unknown>(await resolveOwner({ paths: device.paths, cwd: detached.worktree })).toEqual(
-    inactive("parent"),
+    inactive("parent", { branch: null }),
   );
 });
 
@@ -133,7 +155,7 @@ test("a merged assignment has no running PR owner", async () => {
   device.associate(parent.launchId, 7, "task/parent");
   device.merged(parent.launchId, 7, "h1");
   expect<unknown>(await resolveOwner({ paths: device.paths, cwd: parent.worktree })).toEqual(
-    inactive("parent"),
+    inactive("parent", { assignment: "merged" }),
   );
 });
 
@@ -146,7 +168,7 @@ test("a running launch of an ended source has no running PR owner", async () => 
     owners(paths).map((rows) => rows.map((row) => ({ ...row, sourceState: "abandoned" }))),
   );
   expect<unknown>(await resolveOwner({ paths: device.paths, cwd: other.worktree })).toEqual(
-    inactive("other"),
+    inactive("other", { source: "abandoned" }),
   );
 });
 
@@ -155,6 +177,12 @@ function mismatch() {
     tag: "Err",
     error: {
       reason: "pr_repository_mismatch",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should this worktree's repository mismatch be resolved while preserving its work?",
+      },
+      state: { repository, matches: false },
       detail: `This worktree is not a worktree of the registered ${repository} checkout. ${nothing}`,
     },
   };
@@ -194,6 +222,11 @@ test("the worktree must be on the recorded branch", async () => {
     error: {
       reason: "pr_branch_mismatch",
       detail: `The worktree must be on the recorded branch task/parent, not elsewhere. ${nothing}`,
+      next: {
+        decider: "super-agent",
+        question: "How should the recorded PR branch be restored without losing local work?",
+      },
+      state: { expected: "task/parent", actual: "elsewhere" },
     },
   });
   git(worktree, "switch", "-q", "--detach");
@@ -202,6 +235,11 @@ test("the worktree must be on the recorded branch", async () => {
     error: {
       reason: "pr_branch_mismatch",
       detail: `The worktree must be on the recorded branch task/parent, not a detached HEAD. ${nothing}`,
+      next: {
+        decider: "super-agent",
+        question: "How should the recorded PR branch be restored without losing local work?",
+      },
+      state: { expected: "task/parent", actual: null },
     },
   });
 });
@@ -211,6 +249,11 @@ test("expected file system errors become a PR I/O failure and other errors stay 
     const cause = Object.assign(new Error(`${code}: failed`), { code });
     expect(qualify(cause, () => "defect")).toEqual({
       reason: "pr_io_failed",
+      next: {
+        decider: "super-agent",
+        question: "How should the PR worktree IO failure be corrected without losing work?",
+      },
+      state: { code },
       detail: `Error: ${code}: failed`,
     });
   }

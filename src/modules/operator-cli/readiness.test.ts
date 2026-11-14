@@ -72,6 +72,12 @@ test("reports readiness blockers with exit code 3", async () => {
       blockers,
       warnings: [],
       data: { staticOnly: true },
+      next: {
+        decider: "super-agent",
+        question:
+          "Which readiness blockers should be resolved next, and which named person decisions must be requested?",
+      },
+      state: { blockers: ["executable_missing"] },
     }),
   );
   expect(process.exitCode).toBe(3);
@@ -79,7 +85,14 @@ test("reports readiness blockers with exit code 3", async () => {
 
 test("reports a readiness refusal and a defect with exit code 1", async () => {
   const check = spyOn(Readiness, "check").mockReturnValue(
-    ErrAsync({ reason: "state_io_failed", detail: "unreadable" }) as never,
+    ErrAsync({
+      reason: "state_io_failed",
+      detail: "unreadable",
+      next: {
+        decider: "super-agent",
+        question: "How should the isolated state failure be corrected?",
+      },
+    }) as never,
   );
   const { log, error } = quiet();
   expect(await runReadiness(["ready"], paths, true)).toBe(true);
@@ -87,7 +100,7 @@ test("reports a readiness refusal and a defect with exit code 1", async () => {
     operation: "ready",
     reason: "state_io_failed",
   });
-  expect(error).toHaveBeenLastCalledWith("operator: unreadable");
+  expect(error).toHaveBeenCalledWith("operator: state_io_failed: unreadable");
   expect(process.exitCode).toBe(1);
   check.mockReturnValue(fromSafePromise(() => Promise.reject(new Error("boom"))) as never);
   process.exitCode = 0;
@@ -96,6 +109,6 @@ test("reports a readiness refusal and a defect with exit code 1", async () => {
     operation: "ready",
     reason: "readiness_defect",
   });
-  expect(error).toHaveBeenLastCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: readiness_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });

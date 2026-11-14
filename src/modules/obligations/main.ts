@@ -82,7 +82,14 @@ function recorded(input: Selector, selected: Target, key: string) {
     const row = obligations.find((item) => item.key === key);
     // Stryker disable next-line ConditionalExpression: equivalent: a successful change always leaves its obligation recorded
     return row === undefined
-      ? Err({ reason: "obligation_defect", detail: "The obligation is not recorded." })
+      ? Err({
+          reason: "obligation_defect",
+          detail: "The obligation is not recorded.",
+          next: {
+            decider: "super-agent" as const,
+            question: "Why is the changed obligation missing from its recorded source?",
+          },
+        })
       : Ok(summary(row));
   });
 }

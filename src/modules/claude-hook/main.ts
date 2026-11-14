@@ -70,6 +70,11 @@ export const ClaudeHook = {
         cause instanceof SyntaxError || cause instanceof z.ZodError
           ? {
               reason: "claude_hook_event_invalid" as const,
+              next: {
+                decider: "super-agent" as const,
+                question: "Which valid Claude Code hook event should this invocation receive?",
+              },
+              state: { eventValid: false },
               // Stryker disable next-line StringLiteral: no rule: the diagnostic wording is not a promised result
               detail: "Claude Code did not describe a hook event.",
             }
@@ -109,7 +114,16 @@ export const ClaudeHook = {
           "EEXIST",
           "ELOOP",
         ].includes(cause.code)
-          ? { reason: "claude_settings_io_failed" as const, detail: String(cause) }
+          ? {
+              reason: "claude_settings_io_failed" as const,
+              detail: String(cause),
+              next: {
+                decider: "super-agent" as const,
+                question:
+                  "How should the Claude Code settings IO failure be corrected without replacing its contents?",
+              },
+              state: { code: cause.code },
+            }
           : defect(cause),
     ).flatMap((outcome) => ("detail" in outcome ? Err(outcome) : Ok(outcome.reason)));
   },

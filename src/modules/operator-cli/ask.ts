@@ -52,11 +52,11 @@ async function dispatchQuestion(
       },
     };
   if (launched.tag === "Defect") return launched;
-  const { reason, detail } = launched.error;
+  const { detail } = launched.error;
   return {
     tag: "Err" as const,
     error: {
-      reason,
+      ...launched.error,
       detail: `${detail} Source ${source.id} holds the question. Run operator dispatch --source ${source.id} --assignment ${assignment} again.`,
     },
   };

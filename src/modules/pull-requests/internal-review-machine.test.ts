@@ -191,6 +191,10 @@ test("one round without an applied blocker ends the review", () => {
   expect(one("blocker", "applied")).toEqual({
     result: "refused",
     reason: "internal_review_second_round_required",
+    next: {
+      decider: "super-agent",
+      question: "Where are the second round's findings on the pushed blocker fixes?",
+    },
     detail:
       "Round 1 had a blocker that you applied, so its fixes need round 2. Push them, then record round 2 with a fresh subagent. Nothing was changed.",
   });
@@ -370,6 +374,7 @@ test("only the launch that the handoff ended loses its PR commands", () => {
   expect(decideOwnership({ implementer: true })).toEqual({
     result: "refused",
     reason: "pr_handed_off",
+    next: { why: "This launch handed off the PR. No PR work remains for it." },
     detail:
       "This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. Nothing was changed.",
   });

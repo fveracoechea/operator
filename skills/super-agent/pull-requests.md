@@ -23,7 +23,7 @@ When the person signals urgency, steer the owner to push once lint, typecheck, a
 - `replace_worker`: the owner's pane ended or its launch failed. Inspect the recorded worktree first. A new dispatch keeps the PR, its wait progress, and the worktree, and the brief tells the replacement to read the PR before it waits.
 
 Your coordination wait returns `pr_wait_timed_out`, `pr_wait_stopped`, and `pr_owner_idle` only after they last a minute, so an owner that restarts its PR wait wakes nobody.
-Dispatch refuses a replacement with `pr_worktree_missing` when the PR's worktree is gone. Ask the person how to recover it.
+A missing PR worktree needs the person's recovery decision.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
 A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
@@ -40,19 +40,14 @@ Add a PR assignment with `adopt` set to the PR number and `branch` set to its he
 Dispatch reads the PR, puts the branch at the PR head in a new worktree, and starts the owner.
 The owner's brief tells it to read the PR, its reviews, comments, unresolved threads, and checks, to associate the PR, and then to run its feedback loop.
 A ready PR gets no internal review. A draft keeps the resolved setting: with internal review on, its owner associates the draft and a fresh reviewer takes over, and with it off, its owner marks the draft ready.
-Dispatch refuses and changes nothing on these reasons. The detail names the PR, branch, or worktree.
-
-- `adopt_pr_not_open`, `adopt_pr_branch_mismatch`: the PR is closed or merged, or its head is another branch or a fork. Fix the plan in a new source.
-- `adopt_branch_diverged`: the local branch has commits that the PR lacks.
-- `adopt_branch_checked_out`, `adopt_branch_dirty`: a worktree has the branch checked out, with uncommitted changes for `adopt_branch_dirty`.
-- `adopt_pr_unreadable`, `adopt_branch_unavailable`: GitHub or Git did not answer. Dispatch again.
+Follow the adoption result's `next`.
 
 Unlanded work belongs to whoever made it. Ask the person to push or move it, or to remove the worktree, then dispatch again.
 
 ## Internal review
 
 An internal review is on by default for each PR assignment, and an assignment, a plan, or `review.internal` can turn it off.
-With it on, the implementer opens a draft PR and associates it. Associate refuses a PR that is not a draft and a worktree with uncommitted, untracked, or unpushed work.
+With it on, the implementer opens a draft PR, commits and pushes all work, and associates it.
 The association records the review and starts the handoff in its own process: it closes the implementer's pane and dispatches a fresh reviewer into the same worktree.
 The reviewer owns the PR until its merge, and its brief makes it the reviewer from the recorded review.
 Send the reviewer no account of the implementer's work. Its inputs are the issue, the assignment instructions, and the diff.
@@ -64,12 +59,12 @@ Send the reviewer no account of the implementer's work. Its inputs are the issue
 
 `next` shows the assignment's `internalReview` with its state, its recorded rounds, its handoff, and, after it ends, its `readyHead` and summary `comment`.
 The reviewer ends the review with `operator pr ready`, which posts the one summary comment and marks the PR ready.
-The guarded merge refuses until the review ended `ready` or `skipped`, so ask nobody to approve the PR while it is a draft.
+Ask nobody to approve the draft. Internal review must end `ready` or `skipped` before the guarded merge.
 With `review.assignments` on, the end of the review queues the assignment reviewer, so `review next` shows `start_reviewer` only for a ready PR.
 A `replace_worker` after the review ended starts the PR owner. Its brief says how the review ended.
 
 To skip a running internal review, on the person's instruction only, run `operator internal-review skip --source <id> --assignment <key> --person-instructed --json` from the controlling checkout.
-It marks the PR ready with no comment and records the skip. The reviewer keeps the PR as its owner, and its next `operator pr round` or `operator pr ready` refuses with `internal_review_ended`.
+It marks the PR ready with no comment and records the skip. The reviewer keeps the PR as its owner.
 A draft associated before this release has no recorded review, so its replacement owner's brief does not make it the reviewer. Tell that owner in a steering message to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
 
 ## Cleanup after a verified merge

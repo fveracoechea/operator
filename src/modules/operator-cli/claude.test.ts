@@ -51,11 +51,19 @@ test("an event with no opinion prints nothing", async () => {
 test("a refusal or a defect exits 1 with its reason on standard error", async () => {
   spyOn(Bun.stdin, "text").mockResolvedValue("event");
   const answer = spyOn(ClaudeHook, "answer").mockReturnValue(
-    ErrAsync({ reason: "claude_hook_event_invalid", detail: "not an event" }),
+    ErrAsync({
+      reason: "claude_hook_event_invalid",
+      detail: "not an event",
+      next: {
+        decider: "super-agent",
+        question: "Which valid hook event should this invocation receive?",
+      },
+      state: { eventValid: false },
+    }),
   );
   const { log, error } = quiet();
   await runClaudeHook(["claude", "hook"], paths);
-  expect(error).toHaveBeenLastCalledWith("operator: not an event");
+  expect(error).toHaveBeenCalledWith("operator: claude_hook_event_invalid: not an event");
   expect(process.exitCode).toBe(1);
   answer.mockReturnValue(
     fromSafePromise(Promise.resolve("")).flatMap(() => {
@@ -65,7 +73,7 @@ test("a refusal or a defect exits 1 with its reason on standard error", async ()
   );
   process.exitCode = 0;
   await runClaudeHook(["claude", "hook"], paths);
-  expect(error).toHaveBeenLastCalledWith("operator: Error: broken");
+  expect(error).toHaveBeenCalledWith("operator: claude_hook_defect: Error: broken");
   expect(process.exitCode).toBe(1);
   expect(log).not.toHaveBeenCalled();
 });

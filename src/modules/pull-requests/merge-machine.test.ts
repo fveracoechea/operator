@@ -73,6 +73,21 @@ test("a PR whose internal review has not ended does not merge, also when GitHub 
   expect(decision).toEqual({
     result: "refused",
     reason: "pr_merge_blocked",
+    next: {
+      command: "operator pr wait",
+      why: "The PR needs an internal review that ended ready or skipped. Nothing was merged or changed.",
+    },
+    state: {
+      conditions: {
+        approved: true,
+        checksPassing: true,
+        threadsResolved: true,
+        defaultBase: true,
+        notDraft: true,
+        stackRelayed: true,
+        reviewEnded: false,
+      },
+    },
     detail:
       "The PR needs an internal review that ended ready or skipped. Nothing was merged or changed.",
     conditions: {
@@ -172,6 +187,11 @@ test("each refusal names every missing condition and carries the observed condit
     result: "refused",
     reason: "pr_merge_blocked",
     detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay, an internal review that ended ready or skipped. ${nothing}`,
+    next: {
+      command: "operator pr wait",
+      why: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay, an internal review that ended ready or skipped. ${nothing}`,
+    },
+    state: { conditions: none },
     conditions: none,
   });
   expect(
@@ -185,6 +205,8 @@ test("each refusal names every missing condition and carries the observed condit
     result: "refused",
     reason: "pr_not_open",
     detail: `The PR is closed without a merge. Ask the SuperAgent. ${nothing}`,
+    next: { decider: "super-agent", question: "How should the closed PR assignment be resolved?" },
+    state: { pullRequest: "CLOSED" },
     conditions: none,
   });
   const met = {
@@ -202,6 +224,11 @@ test("each refusal names every missing condition and carries the observed condit
     result: "refused",
     reason: "pr_head_mismatch",
     detail: `The PR head is h1, but the worktree is at no commit. Push or reconcile first. ${nothing}`,
+    next: {
+      decider: "super-agent",
+      question: "How should the worktree and PR heads be reconciled without losing commits?",
+    },
+    state: { localHead: null, prHead: "h1" },
     conditions: met,
   });
   expect(
@@ -240,7 +267,14 @@ test("a background merge request is read while it runs, and every end is verifie
   });
   expect(followMergeRequest({ ...request, status: "failed" }, 3)).toEqual({
     result: "verify",
-    refusal: { reason: "pr_merge_refused", detail: "Done." },
+    refusal: {
+      reason: "pr_merge_refused",
+      detail: "Done.",
+      next: {
+        decider: "person",
+        question: "Which GitHub merge restriction must be resolved before this PR can merge?",
+      },
+    },
   });
   expect(followMergeRequest({ ...request, status: "enqueued" }, 0)).toEqual({
     result: "verify",
@@ -248,6 +282,11 @@ test("a background merge request is read while it runs, and every end is verifie
       reason: "pr_merge_unverified",
       detail:
         "GitHub put the PR in a merge queue: Done. Nothing was recorded. Repeat operator pr merge after it merges.",
+      next: {
+        command: "operator pr merge",
+        why: "Verify the queued merge after GitHub reports it merged.",
+      },
+      state: { mergeRequest: "enqueued" },
     },
   });
   const running = {
@@ -256,6 +295,11 @@ test("a background merge request is read while it runs, and every end is verifie
       reason: "pr_merge_unverified",
       detail:
         "GitHub still runs the merge request: Done. Nothing was recorded. Repeat operator pr merge.",
+      next: {
+        command: "operator pr merge",
+        why: "Verify whether the background merge request landed.",
+      },
+      state: { mergeRequest: "pending" },
     },
   };
   expect(followMergeRequest({ ...request, status: "pending" }, mergeRequestReads)).toEqual(running);

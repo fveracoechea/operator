@@ -54,6 +54,15 @@ import { resolvedAfterPost } from "./rounds.ts";
 import { failureOf, syncReviewer } from "./reviewer.ts";
 
 type Posted = AsyncResult<Outcome, Failure>;
+const draftRecovery = {
+  command: "operator review next",
+  why: "Read the current draft path and head, correct the draft, then post again.",
+};
+const postDefectRecovery = {
+  decider: "super-agent" as const,
+  question:
+    "How should the missing review-post record be investigated before repeating any GitHub effect?",
+};
 
 /** What a post reports about the accepted draft. A replayed post reports nothing. */
 type Counts = Partial<{
@@ -80,6 +89,8 @@ function readDraft(file: string) {
     if (text === null)
       return Err({
         reason: "review_draft_missing",
+        next: draftRecovery,
+        state: { file, exists: false },
         detail: `Write the draft to ${file} before the post. Nothing was posted.`,
       });
     const parsed = draftJson.pipe(draftSchema).safeParse(text);
@@ -87,6 +98,8 @@ function readDraft(file: string) {
       ? Ok(parsed.data)
       : Err({
           reason: "review_draft_invalid",
+          next: draftRecovery,
+          state: { file, valid: false },
           detail: `${z.prettifyError(parsed.error)}\nCorrect ${file}. Nothing was posted.`,
         });
   });
@@ -107,6 +120,7 @@ function approval(facts: Parameters<typeof decideEvent>[0], event: ReviewEvent) 
     return Err<Failure>({
       // Stryker disable next-line StringLiteral: equivalent: decideEvent never computes an approval with an open blocker, so no post reaches this refusal
       reason: "review_approval_blocked",
+      next: draftRecovery,
       // Stryker disable next-line StringLiteral: equivalent: decideEvent never computes an approval with an open blocker, so no post reaches this refusal
       detail: "A review with an open blocker cannot approve. Nothing was posted.",
     });
@@ -115,6 +129,14 @@ function approval(facts: Parameters<typeof decideEvent>[0], event: ReviewEvent) 
       reason: "review_ci_pending",
       detail:
         "A required CI check still runs, or the PR has more checks than one read returns. Post the approval after CI finishes. Nothing was posted.",
+      next: {
+        command: "operator review wait",
+        why: "Wait for required CI before posting the approval.",
+      },
+      state: {
+        pendingChecks: facts.accepted.pendingChecks,
+        checksComplete: facts.accepted.checksComplete,
+      },
     });
   return Ok(undefined);
 }
@@ -157,6 +179,8 @@ function moveReviewer(paths: Paths, target: Target, from: string, to: string): P
       ).flatMap((synced): Posted =>
         ErrAsync<Failure>({
           reason: "review_head_moved",
+          next: draftRecovery,
+          state: { previousHead: from, head: to },
           detail:
             transition.headMoved === true
               ? `PR #${target.number} moved from ${from} to ${to}${synced.mode === null ? "" : ` by a ${synced.mode}`}. ${synced.kind === "head" ? "The reviewer worktree moved, and the reviewer got the new commits." : "The reviewer must be replaced. Read operator review next."} Write a draft for ${to}. Nothing was posted.`
@@ -303,6 +327,11 @@ async function operationsInOrder(
     if (outcome.status === "uncertain")
       return Err<Failure>({
         reason: "github_uncertain",
+        next: {
+          command: `operator review post ${target.url}`,
+          why: "Retry the recorded post; it reads the thread before repeating an uncertain reply.",
+        },
+        state: { thread: operation.threadId, operation: operation.kind, confirmed: false },
         detail: `GitHub did not confirm the ${operation.kind} in thread ${operation.threadId}: ${outcome.detail} Run the post again. It reads the thread first, so it does not reply twice.`,
       });
     const recorded: Operation = {
@@ -423,10 +452,15 @@ function finish(
         failed
           ? {
               reason: "review_post_failed",
+              next: draftRecovery,
               detail: `GitHub refused the review: ${outcome.detail} Correct the draft and post again.`,
             }
           : {
               reason: "github_uncertain",
+              next: {
+                command: `operator review post ${target.url}`,
+                why: "Retry the recorded post; it looks for the earlier review before posting.",
+              },
               detail: `GitHub did not confirm the review: ${outcome.detail} Run the post again. It first looks for this review, so it does not post twice.`,
             },
       ),
@@ -463,6 +497,10 @@ function yieldPost(paths: Paths, target: Target, request: Row): Posted {
     .flatMap(() =>
       ErrAsync<Failure>({
         reason: "review_post_in_progress",
+        next: {
+          command: "operator review wait",
+          why: "Let the process that started the post finish.",
+        },
         detail: "Another process started this post. Run the post again. Nothing was posted.",
       }),
     );
@@ -538,6 +576,7 @@ function retryPost(paths: Paths, target: Target, request: Row, snapshot: Snapsho
   if (round === undefined)
     return ErrAsync({
       reason: "review_defect",
+      next: postDefectRecovery,
       detail: "The retry lost its round.",
     });
   return apply(paths, target, "post")
@@ -586,6 +625,12 @@ function retryPost(paths: Paths, target: Target, request: Row, snapshot: Snapsho
                   .flatMap(() =>
                     ErrAsync<Failure>({
                       reason: "review_head_moved",
+                      next: draftRecovery,
+                      state: {
+                        reviewedCommit: round.reviewedCommit,
+                        head: pr.head,
+                        prState: pr.state,
+                      },
                       detail: `GitHub has no review from the lost post, and PR #${target.number} is no longer open at ${round.reviewedCommit}. Write a new draft for the current head. Nothing was posted.`,
                     }),
                   );
@@ -601,6 +646,7 @@ function retryPost(paths: Paths, target: Target, request: Row, snapshot: Snapsho
 // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: the machine refuses a post of a missing request, so no post reaches this failure
 const lostRequest: Failure = {
   reason: "review_defect",
+  next: postDefectRecovery,
   detail: "The post lost its request.",
 };
 

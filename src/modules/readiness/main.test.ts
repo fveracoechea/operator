@@ -103,6 +103,10 @@ const launcherBlocker = {
   reason: "executable_missing",
   tool: "operator",
   detail: "Install operator.",
+  next: {
+    decider: "person",
+    question: "Which pinned Operator installation should provide the global command?",
+  },
 } as const;
 const missingGuide = {
   reason: "guide_skill_unresolved" as const,
@@ -111,6 +115,26 @@ const missingGuide = {
   skill: "code-review",
   file: "/one/SKILL.md",
   detail: "Missing required skill.",
+  next: { command: "operator install --opencode", why: "Restore the required guide skill." },
+  state: {
+    host: "opencode",
+    guide: "worker-agent/kinds/review.md",
+    skill: "code-review",
+    file: "/one/SKILL.md",
+  },
+};
+const simulatedRecovery = {
+  decider: "super-agent" as const,
+  question: "How should the simulated boundary failure be corrected?",
+};
+const authenticationBlocker = {
+  reason: "github_auth_failed" as const,
+  detail: "Run gh auth login for github.com.",
+  next: {
+    command: "gh auth login --hostname github.com",
+    why: "Authenticate the intended GitHub account before running Operator workflows.",
+  },
+  state: { authenticationConfirmed: false },
 };
 
 describe("static blockers", () => {
@@ -161,30 +185,63 @@ describe("static blockers", () => {
     const device = await scenario({ host: "opencode", tools: [] });
     stub(GlobalLauncher, "check").mockReturnValue(OkAsync([launcherBlocker]));
     const owned = stub(OwnedSkills, "install").mockReturnValue(
-      ErrAsync({ reason: "skill_copy_conflict" as const, detail: "Copies differ." }),
+      ErrAsync({
+        reason: "skill_copy_conflict" as const,
+        detail: "Copies differ.",
+        next: simulatedRecovery,
+      }),
     );
     const upstream = stub(UpstreamSkills, "checkGuides").mockReturnValue(
       OkAsync({ blockers: [missingGuide], warnings: [] }),
     );
     const hook = stub(ClaudeHook, "install");
     const plugin = stub(OpenCodePlugin, "install").mockReturnValue(
-      ErrAsync({ reason: "opencode_plugin_missing" as const, detail: "No plugin." }),
+      ErrAsync({
+        reason: "opencode_plugin_missing" as const,
+        detail: "No plugin.",
+        next: simulatedRecovery,
+      }),
     );
     expect(await Readiness.check(device)).toEqual(
       Ok({
         warnings: [],
         blockers: [
-          { reason: "executable_missing", tool: "gh", detail: "Install gh on PATH." },
-          { reason: "executable_missing", tool: "herdr", detail: "Install herdr on PATH." },
+          {
+            reason: "executable_missing",
+            tool: "gh",
+            detail: "Install gh on PATH.",
+            next: { decider: "person", question: "Which installation should provide gh on PATH?" },
+            state: { tool: "gh", executable: null },
+          },
+          {
+            reason: "executable_missing",
+            tool: "herdr",
+            detail: "Install herdr on PATH.",
+            next: {
+              decider: "person",
+              question: "Which installation should provide herdr on PATH?",
+            },
+            state: { tool: "herdr", executable: null },
+          },
           launcherBlocker,
-          { reason: "executable_missing", tool: "opencode", detail: "Install opencode on PATH." },
+          {
+            reason: "executable_missing",
+            tool: "opencode",
+            detail: "Install opencode on PATH.",
+            next: {
+              decider: "person",
+              question: "Which installation should provide opencode on PATH?",
+            },
+            state: { tool: "opencode", executable: null },
+          },
           {
             reason: "skill_copy_conflict",
+            next: simulatedRecovery,
             detail:
               "Copies differ. Run operator install --opencode, or update consumer-owned Nix links.",
           },
           missingGuide,
-          { reason: "opencode_plugin_missing", detail: "No plugin." },
+          { reason: "opencode_plugin_missing", detail: "No plugin.", next: simulatedRecovery },
         ],
       }),
     );
@@ -228,31 +285,56 @@ describe("static blockers", () => {
   test("checks authentication when gh exists and names the Claude Code host", async () => {
     const device = await scenario({ host: "claude-code", tools: ["gh", "herdr", "claude"] });
     stub(GlobalLauncher, "check").mockReturnValue(
-      ErrAsync({ reason: "launcher_io_failed" as const, detail: "denied" }),
+      ErrAsync({
+        reason: "launcher_io_failed" as const,
+        detail: "denied",
+        next: simulatedRecovery,
+      }),
     );
     stub(OwnedSkills, "install").mockReturnValue(
-      ErrAsync({ reason: "skills_io_failed" as const, detail: "Unreadable." }),
+      ErrAsync({
+        reason: "skills_io_failed" as const,
+        detail: "Unreadable.",
+        next: simulatedRecovery,
+        state: { code: "EIO" },
+      }),
     );
     stub(UpstreamSkills, "checkGuides").mockReturnValue(
-      ErrAsync({ reason: "upstream_io_failed" as const, detail: "denied" }),
+      ErrAsync({
+        reason: "upstream_io_failed" as const,
+        detail: "denied",
+        next: simulatedRecovery,
+        state: { code: "EIO" },
+      }),
     );
     const hook = stub(ClaudeHook, "install").mockReturnValue(
-      ErrAsync({ reason: "claude_hook_missing" as const, detail: "Add the hook." }),
+      ErrAsync({
+        reason: "claude_hook_missing" as const,
+        detail: "Add the hook.",
+        next: simulatedRecovery,
+      }),
     );
     tools.mockResolvedValueOnce({ status: "completed", exitCode: 1, stdout: "", stderr: "" });
     expect(await Readiness.check(device)).toEqual(
       Ok({
         warnings: [],
         blockers: [
-          { reason: "launcher_io_failed", detail: "denied" },
-          { reason: "github_auth_failed", detail: "Run gh auth login for github.com." },
+          { reason: "launcher_io_failed", detail: "denied", next: simulatedRecovery },
+          authenticationBlocker,
           {
             reason: "skills_io_failed",
+            next: simulatedRecovery,
+            state: { code: "EIO" },
             detail:
               "Unreadable. Run operator install --claude, or update consumer-owned Nix links.",
           },
-          { reason: "upstream_io_failed", detail: "denied" },
-          { reason: "claude_hook_missing", detail: "Add the hook." },
+          {
+            reason: "upstream_io_failed",
+            detail: "denied",
+            next: simulatedRecovery,
+            state: { code: "EIO" },
+          },
+          { reason: "claude_hook_missing", detail: "Add the hook.", next: simulatedRecovery },
         ],
       }),
     );
@@ -272,7 +354,7 @@ describe("static blockers", () => {
     expect(await Readiness.check(device)).toEqual(
       Ok({
         warnings: [],
-        blockers: [{ reason: "github_auth_failed", detail: "Run gh auth login for github.com." }],
+        blockers: [authenticationBlocker],
       }),
     );
     expect(await Readiness.check(device)).toEqual(Ok({ blockers: [], warnings: [] }));
@@ -286,7 +368,15 @@ describe("static blockers", () => {
       Ok({
         warnings: [],
         blockers: [
-          { reason: "host_unconfigured", detail: "Set superAgent.host in device settings." },
+          {
+            reason: "host_unconfigured",
+            detail: "Set superAgent.host in device settings.",
+            next: {
+              command: "operator config show",
+              why: "Inspect settings, then plan the intended superAgent.host selection.",
+            },
+            state: { superAgentHost: null },
+          },
         ],
       }),
     );
@@ -356,8 +446,17 @@ describe("static blockers", () => {
       Ok({
         warnings: [],
         blockers: [
-          { reason: "executable_missing", tool: "herdr", detail: "Install herdr on PATH." },
-          { reason: "github_auth_failed", detail: "Run gh auth login for github.com." },
+          {
+            reason: "executable_missing",
+            tool: "herdr",
+            detail: "Install herdr on PATH.",
+            next: {
+              decider: "person",
+              question: "Which installation should provide herdr on PATH?",
+            },
+            state: { tool: "herdr", executable: null },
+          },
+          authenticationBlocker,
           missingGuide,
         ],
       }),

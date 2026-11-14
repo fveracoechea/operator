@@ -40,12 +40,29 @@ async function readableSkill(file: string, optional = false) {
 
 function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-    return { reason: "upstream_catalog_invalid" as const, detail: String(cause) };
+    return {
+      reason: "upstream_catalog_invalid" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the invalid upstream skill catalog be investigated before running an installer?",
+      },
+    };
   if (
     isCodedError(cause) &&
     ["ENOENT", "ENOTDIR", "EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ELOOP"].includes(cause.code)
   )
-    return { reason: "upstream_io_failed" as const, detail: String(cause) };
+    return {
+      reason: "upstream_io_failed" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the upstream skill IO failure be corrected while preserving installed skills?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 
@@ -70,6 +87,12 @@ async function resolve(directory: string, source: (typeof sources)[number], owne
   if (clone.status !== "completed" || clone.exitCode !== 0)
     return {
       reason: "upstream_resolution_failed" as const,
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "Why can the upstream repository's current revision not be read before installation?",
+      },
+      state: { repository },
       detail: `Cannot read the current revision of ${repository}. No installer was invoked.`,
     };
   const revision = await ToolInvocation.run({
@@ -81,6 +104,11 @@ async function resolve(directory: string, source: (typeof sources)[number], owne
   if (revision.status !== "completed" || revision.exitCode !== 0)
     return {
       reason: "upstream_resolution_failed" as const,
+      next: {
+        decider: "super-agent" as const,
+        question: "Which valid full upstream commit should supply the selected skills?",
+      },
+      state: { repository },
       detail: `Cannot resolve a full commit of ${repository}. No installer was invoked.`,
     };
   const commit = commitIdentity(revision.stdout);
@@ -90,6 +118,11 @@ async function resolve(directory: string, source: (typeof sources)[number], owne
     if (!(await file.exists()))
       return {
         reason: "upstream_catalog_invalid" as const,
+        next: {
+          decider: "super-agent" as const,
+          question: "Why is the required skill absent from the resolved upstream catalog?",
+        },
+        state: { repository, folder },
         detail: `${repository} has no skill at ${folder}. No installer was invoked.`,
       };
     documents.push(await file.text());
@@ -122,6 +155,10 @@ async function install(hosts: Host[]) {
     if (owned.length === 0 || resolved.some((source) => source.skills.length === 0))
       return {
         reason: "upstream_catalog_invalid" as const,
+        next: {
+          decider: "super-agent" as const,
+          question: "Which upstream catalog entry must be corrected before installation?",
+        },
         detail:
           "A complete owned catalog and a nonempty roster for each upstream source are required. No installer was invoked.",
       };
@@ -130,6 +167,11 @@ async function install(hosts: Host[]) {
     if (repeated !== undefined)
       return {
         reason: "upstream_catalog_invalid" as const,
+        next: {
+          decider: "super-agent" as const,
+          question: "Which upstream source should own the repeatedly selected skill?",
+        },
+        state: { skill: repeated },
         detail: `More than one upstream source selects ${repeated}. No installer was invoked.`,
       };
     for (const { repository, address, skills } of resolved) {
@@ -153,20 +195,42 @@ async function install(hosts: Host[]) {
         timeoutMs: 120000,
       });
       if (result.status === "unavailable")
-        return { reason: "upstream_installer_unavailable" as const, detail: result.detail };
+        return {
+          reason: "upstream_installer_unavailable" as const,
+          detail: result.detail,
+          next: {
+            decider: "super-agent" as const,
+            question: "Which available Bun runtime should run the pinned upstream skill installer?",
+          },
+        };
       if (result.status === "no-answer")
         return {
           reason: "upstream_install_unconfirmed" as const,
+          next: {
+            decider: "person" as const,
+            question:
+              "Which installed upstream skill contents should be retained before retrying an unconfirmed installer?",
+          },
           detail: `${repository}: ${result.detail} ${replacementPolicy}`,
         };
       if (result.exitCode !== 0)
         return {
           reason: "upstream_install_failed" as const,
+          next: {
+            decider: "super-agent" as const,
+            question:
+              "How should the upstream installer failure be corrected while preserving installed skills?",
+          },
           detail: `${repository}: ${result.stderr} ${replacementPolicy}`,
         };
       if (!installed(result.stdout, skills))
         return {
           reason: "upstream_install_unconfirmed" as const,
+          next: {
+            decider: "person" as const,
+            question:
+              "Which installed upstream skill contents should be retained before retrying an unconfirmed installer?",
+          },
           detail: `${repository}: The installer did not confirm every selected skill. ${replacementPolicy}`,
         };
     }

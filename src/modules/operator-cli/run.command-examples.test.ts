@@ -180,3 +180,25 @@ test("every skill named by a bundled kind guide resolves in the host fixture", a
 test("next actions, refusals, and briefs name only implemented commands", async () => {
   expect(await scan(["src/cli.ts", "src/modules/**/*.ts"], sourceMentions, true)).toEqual([]);
 });
+
+test("bundled skills use result next steps and retain their authority limits", async () => {
+  const worker = await Bun.file(
+    path.join(repository, "skills/worker-agent/pull-requests.md"),
+  ).text();
+  expect(worker).toContain("Follow each result's `next`");
+  expect(worker).toContain("Run no other `gh stack` command");
+  expect(worker).toContain("Stop once it succeeds");
+  expect(worker).not.toContain("Run the command again once");
+  const slack = await Bun.file(
+    path.join(repository, "skills/slack-pr-review-workflow/SKILL.md"),
+  ).text();
+  expect(slack).toContain("Follow each result's `next`");
+  expect(slack).toContain(
+    "Verify an uncertain send in Slack and tell the person before sending it again.",
+  );
+  expect(slack).toContain("Only on the person's explicit instruction, drop a pending effect");
+  expect(slack).not.toContain("## Refusals");
+  const draft = await Bun.file(path.join(repository, "skills/pr-review/draft.md")).text();
+  expect(draft).toContain("An approval waits until every required check has finished.");
+  expect(draft).not.toContain("review_ci_pending");
+});

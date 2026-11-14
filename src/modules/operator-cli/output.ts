@@ -1,10 +1,10 @@
-import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
+import type { NextStep, Refusal, ResultContext } from "../../lib/cli-result.ts";
 import { workflowRefusal } from "./workflow-refusal.ts";
 
 // Structural, so a union of command results with different value types still fits.
 type Outcome =
-  | { tag: "Ok"; value: { reason: string; data: unknown } & ResultContext }
-  | { tag: "Err"; error: { reason: string; detail: string } & ResultContext }
+  | { tag: "Ok"; value: { reason: string; data: unknown } & Partial<ResultContext> }
+  | { tag: "Err"; error: Refusal }
   | { tag: "Defect"; cause: unknown };
 
 /** Device state, project, and settings refusals exit the same way from every command. */
@@ -34,9 +34,8 @@ export function failure(
   detail: string,
   code: number,
   json: boolean,
-  context: ResultContext = {},
+  context: ResultContext,
 ) {
-  context = workflowRefusal(operation, reason, context);
   if (json)
     console.log(
       JSON.stringify({
@@ -49,20 +48,22 @@ export function failure(
         state: context.state,
       }),
     );
-  if (context.next === undefined) console.error(`operator: ${detail}`);
-  else {
-    console.error(oneLine(`operator: ${reason}: ${detail}`));
-    console.error(oneLine(`next: ${nextText(context.next)}`));
-    if (context.state !== undefined)
-      console.error(
-        oneLine(
-          `state: ${Object.entries(context.state)
-            .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-            .join(" ")}`,
-        ),
-      );
-  }
+  printRefusal(reason, detail, context);
   process.exitCode = code;
+}
+
+/** The compact text form, also used by readiness's existing multi-blocker envelope. */
+export function printRefusal(reason: string, detail: string, context: ResultContext) {
+  console.error(oneLine(`operator: ${reason}: ${detail}`));
+  console.error(oneLine(`next: ${nextText(context.next)}`));
+  if (context.state !== undefined)
+    console.error(
+      oneLine(
+        `state: ${Object.entries(context.state)
+          .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+          .join(" ")}`,
+      ),
+    );
 }
 
 function oneLine(text: string) {
@@ -113,5 +114,13 @@ export function respond(input: {
       json,
       result.error,
     );
-  } else failure(operation, input.defect, String(result.cause), 1, json);
+  } else
+    failure(
+      operation,
+      input.defect,
+      String(result.cause),
+      1,
+      json,
+      workflowRefusal(operation, input.defect, {}),
+    );
 }

@@ -70,7 +70,14 @@ test("a brief that cannot be written fails the recorded start", async () => {
 test("a tab rename that Herdr refuses fails the start after the worktree is recorded", async () => {
   await using device = await dispatchDevice();
   device.herdr.renameTab.mockReturnValue(
-    ErrAsync({ reason: "herdr_failed", detail: "herdr tab rename exited 1: refused" }),
+    ErrAsync({
+      reason: "herdr_failed",
+      detail: "herdr tab rename exited 1: refused",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed rename be inspected before retrying?",
+      },
+    }),
   );
   expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({
     tag: "Err",

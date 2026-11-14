@@ -106,7 +106,15 @@ test("no open PR or more than one open PR is not associated", async () => {
     device.answer(() => succeeded(associationBody([...prs])));
     expect<unknown>(await PullRequests.associate({ paths: device.paths, cwd: worktree })).toEqual({
       tag: "Err",
-      error: { reason, detail },
+      error: {
+        reason,
+        detail,
+        next: {
+          command: "gh pr list",
+          why: "Identify exactly one open PR from task/other in example/one before associating.",
+        },
+        state: { branch: "task/other", repository: "example/one", matches: prs.length },
+      },
     });
   }
   expect(device.pullRequestRow("other")).toBeNull();
@@ -170,6 +178,11 @@ test("a PR base that is neither the default branch nor a dependency's branch is 
       reason: "pr_base_invalid",
       detail:
         "The PR targets task/other. Target the default branch or the branch of a dependency's PR: task/parent, task/second. Nothing was changed.",
+      next: {
+        decider: "super-agent",
+        question: "Should this PR target the default branch or a recorded dependency branch?",
+      },
+      state: { base: "task/other", defaultBranch: "main", parents: ["task/parent", "task/second"] },
     },
   });
   // The parent has no dependencies, so no branch but the default one is a valid base.
@@ -184,6 +197,11 @@ test("a PR base that is neither the default branch nor a dependency's branch is 
       reason: "pr_base_invalid",
       detail:
         "The PR targets task/other. Target the default branch or the branch of a dependency's PR: none. Nothing was changed.",
+      next: {
+        decider: "super-agent",
+        question: "Should this PR target the default branch or a recorded dependency branch?",
+      },
+      state: { base: "task/other", defaultBranch: "main", parents: [] },
     },
   });
   expect(device.pullRequestRow("child")).toBeNull();
@@ -290,6 +308,11 @@ test("a wait without a recorded PR records nothing", async () => {
     error: {
       reason: "pr_not_associated",
       detail: "Run operator pr associate after you open the PR. Nothing was changed.",
+      next: {
+        command: "operator pr associate",
+        why: "Associate the assignment's open PR before waiting.",
+      },
+      state: { pullRequest: null },
     },
   });
   expect(device.calls).toEqual([]);
@@ -339,6 +362,11 @@ test("a closed parent blocks the relay for the person", async () => {
     reason: "relay_parent_closed",
     detail:
       "Parent PR #6 was closed without a merge. Your PR still targets task/parent. Ask your SuperAgent.",
+    next: {
+      decider: "super-agent",
+      question: "How should this stack continue after its parent PR closed without merging?",
+    },
+    state: { parent: 6, parentState: "CLOSED" },
   };
   expect<unknown>(await PullRequests.wait(input)).toEqual({ tag: "Err", error: blocker });
   expect(device.pullRequestRow("other")).toMatchObject({ waitState: "reported" });
@@ -466,7 +494,14 @@ test("a relay that Git or GitHub stops is recorded as blocked", async () => {
     "The branch is pushed, but GitHub did not change the PR base to main: github_refused: Base is protected Wait again to retry.";
   expect<unknown>(await PullRequests.wait(scenario.input)).toEqual({
     tag: "Err",
-    error: { reason: "relay_retarget_failed", detail },
+    error: {
+      reason: "relay_retarget_failed",
+      detail,
+      next: {
+        command: "operator pr wait",
+        why: "Retry the PR base change from the relay's recorded progress.",
+      },
+    },
   });
   const relay = JSON.parse(device.pullRequestRow("child")?.relay ?? "null") as unknown;
   expect(relay).toMatchObject({
@@ -483,6 +518,10 @@ test("a relay that Git or GitHub stops is recorded as blocked", async () => {
       reason: "relay_retarget_failed",
       detail:
         "The branch is pushed, but GitHub did not change the PR base to main: The base change stopped with a defect. Wait again to retry.",
+      next: {
+        command: "operator pr wait",
+        why: "Retry the PR base change from the relay's recorded progress.",
+      },
     },
   });
 });
@@ -518,6 +557,11 @@ test("a missing source or plan row permits no stack parent", async () => {
       reason: "pr_base_invalid",
       detail:
         "The PR targets task/parent. Target the default branch or the branch of a dependency's PR: none. Nothing was changed.",
+      next: {
+        decider: "super-agent",
+        question: "Should this PR target the default branch or a recorded dependency branch?",
+      },
+      state: { base: "task/parent", defaultBranch: "main", parents: [] },
     },
   };
   spyOn(WorkSources, "show").mockReturnValue(OkAsync(undefined));
@@ -577,6 +621,7 @@ test("a relay that loses its claim before the rebase stops without a branch chan
     error: {
       reason: "relay_claim_lost",
       detail: "Another process took over the relay. Wait again.",
+      next: { command: "operator pr wait", why: "Observe the relay owned by the other process." },
     },
   });
   expect(hold.mock.calls).toEqual([[device.paths, device.sourceId, "child"]]);
@@ -598,7 +643,14 @@ test("a relay whose record is cleared or cannot be written stops as a lost claim
       writes++;
       // The third write records the rebase, after the start and the claim.
       if (writes === 3 && change === "write failed")
-        return Err({ reason: "state_busy" as const, detail: "busy" });
+        return Err({
+          reason: "state_busy" as const,
+          detail: "busy",
+          next: {
+            decider: "super-agent",
+            question: "When has the simulated state operation finished?",
+          },
+        });
       return record(paths, launchId, decide);
     });
     spyOn(DeviceState, "holdPullRequestRelay").mockImplementation(() => {
@@ -615,6 +667,7 @@ test("a relay whose record is cleared or cannot be written stops as a lost claim
       error: {
         reason: "relay_claim_lost",
         detail: "Another process took over the relay. Wait again.",
+        next: { command: "operator pr wait", why: "Observe the relay owned by the other process." },
       },
     });
     expect(git(device.root, "--git-dir", scenario.remote, "rev-parse", "task/child")).toBe(

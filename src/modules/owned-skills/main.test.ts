@@ -153,7 +153,18 @@ test.each([
   try {
     expect(
       await OwnedSkills.install({ paths: paths(), hosts: ["opencode"], check: false }),
-    ).toEqual(Err({ reason: "skills_io_failed", detail: "Error: failed" }));
+    ).toEqual(
+      Err({
+        reason: "skills_io_failed",
+        detail: "Error: failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the skill installation IO failure be corrected while preserving installed contents?",
+        },
+        state: { code },
+      }),
+    );
   } finally {
     spy.mockRestore();
   }

@@ -444,7 +444,7 @@ export function beginPreparation(client: Database, path: string, repository: str
         db,
       ): Result<
         PreparationRow,
-        StateFailure | { reason: "preparation_running"; detail: string }
+        StateFailure | (ResultContext & { reason: "preparation_running"; detail: string })
       > => {
         const current = db
           .select()
@@ -454,6 +454,11 @@ export function beginPreparation(client: Database, path: string, repository: str
         if (current?.state === "running" && !ownerGone(current, Date.now()))
           return Err({
             reason: "preparation_running",
+            next: {
+              command: "operator next --wait",
+              why: "Let the current worktree preparation finish.",
+            },
+            state: { worktree: path, preparation: current.state },
             detail: `Another preparation of ${path} is still running.`,
           });
         const now = new Date().toISOString();

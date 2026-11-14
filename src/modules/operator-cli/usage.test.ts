@@ -92,12 +92,18 @@ test.each([true, false])("invalid arguments print the usage, json %p", (json) =>
             operation: "parse_arguments",
             outcome: "invalid",
             reason: "invalid_arguments",
-            blockers: [{ reason: "invalid_arguments" }],
+            blockers: [
+              { reason: "invalid_arguments", detail: "The command arguments are not supported." },
+            ],
+            next: { command: "operator --help", why: "Read the supported command syntax." },
           },
         ]
       : [],
   );
-  usageText(output.error.mock.calls[0]?.[0] as string | undefined);
+  expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: invalid_arguments: The command arguments are not supported.",
+    "next: operator --help",
+  ]);
   expect(process.exitCode).toBe(2);
 });
 

@@ -49,6 +49,11 @@ test("reports missing tools and configured host without creating state or launch
     output: {
       operation: "ready",
       reason: "not_ready",
+      next: {
+        decider: "super-agent",
+        question:
+          "Which readiness blockers should be resolved next, and which named person decisions must be requested?",
+      },
       blockers: [
         { reason: "executable_missing", tool: "gh" },
         { reason: "executable_missing", tool: "herdr" },
@@ -174,11 +179,16 @@ test("reports failed authentication, a missing host, changed owned assets, and a
   expect(result.code).toBe(3);
   expect(result.output).toMatchObject({
     reason: "not_ready",
+    next: { decider: "super-agent" },
     blockers: [
-      { reason: "github_auth_failed" },
-      { reason: "executable_missing", tool: "opencode" },
-      { reason: "skill_copy_conflict" },
-      { reason: "guide_skill_unresolved", skill: "code-review" },
+      { reason: "github_auth_failed", next: { command: "gh auth login --hostname github.com" } },
+      { reason: "executable_missing", tool: "opencode", next: { decider: "person" } },
+      { reason: "skill_copy_conflict", next: { decider: "person" } },
+      {
+        reason: "guide_skill_unresolved",
+        skill: "code-review",
+        next: { command: "operator install --opencode" },
+      },
     ],
   });
   expect(await Bun.file(`${folder}/deep-modules/module-shape.md`).text()).toBe("personal edit\n");

@@ -420,7 +420,14 @@ function acceptedReport(input: {
   return WorkSources.show(input).flatMap((source) => {
     const report = source?.reports.findLast((row) => row.assignment === input.assignment);
     return report === undefined
-      ? Err<Failure>({ reason: "report_defect", detail: "The accepted report is not recorded." })
+      ? Err<Failure>({
+          reason: "report_defect",
+          detail: "The accepted report is not recorded.",
+          next: {
+            decider: "super-agent",
+            question: "Why is the accepted report missing from its recorded source?",
+          },
+        })
       : Ok(report);
   });
 }
@@ -546,7 +553,14 @@ async function promotionFacts(input: PromoteInput) {
   // The rule refused a report without a worktree, so the launch has one.
   // Stryker disable next-line ConditionalExpression: equivalent: the promote rule refuses a missing launch or worktree first
   if (recorded === null || worktreePath === null)
-    return Err<Failure>({ reason: "report_defect", detail: "The worktree is not recorded." });
+    return Err<Failure>({
+      reason: "report_defect",
+      detail: "The worktree is not recorded.",
+      next: {
+        decider: "super-agent",
+        question: "Why is the report's worktree missing from its recorded launch?",
+      },
+    });
   if ((await realPathOrNull(worktreePath)) === null)
     return Err<Failure>({
       reason: "promotion_worktree_missing",

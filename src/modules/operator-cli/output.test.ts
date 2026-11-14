@@ -10,25 +10,32 @@ afterEach(() => {
 test("emits a machine-readable refusal only when JSON is selected", () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
-  failure("config_resolve", "unsupported_effort", "unsupported", 3, true);
+  const context = {
+    next: { command: "operator host models --host opencode", why: "Choose an advertised effort." },
+  };
+  failure("config_resolve", "unsupported_effort", "unsupported", 3, true, context);
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
     schemaVersion: 1,
     operation: "config_resolve",
     outcome: "refused",
     reason: "unsupported_effort",
     blockers: [{ reason: "unsupported_effort", detail: "unsupported" }],
+    ...context,
   });
-  expect(error).toHaveBeenCalledWith("operator: unsupported");
+  expect(error).toHaveBeenCalledWith("operator: unsupported_effort: unsupported");
+  expect(error).toHaveBeenCalledWith("next: operator host models --host opencode");
   expect(process.exitCode).toBe(3);
   log.mockClear();
-  failure("config_resolve", "unsupported_effort", "unsupported", 3, false);
+  failure("config_resolve", "unsupported_effort", "unsupported", 3, false, context);
   expect(log).not.toHaveBeenCalled();
 });
 
 test("marks invalid input separately from a refused operation", () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
   spyOn(console, "error").mockImplementation(() => {});
-  failure("config_plan", "invalid_settings_edit", "bad input", 2, true);
+  failure("config_plan", "invalid_settings_edit", "bad input", 2, true, {
+    next: { command: "operator --help", why: "Correct the edit syntax." },
+  });
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({ outcome: "invalid" });
   expect(process.exitCode).toBe(2);
 });

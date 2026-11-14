@@ -1,5 +1,7 @@
 import { ClaudeHook } from "../claude-hook/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
+import { failure } from "./output.ts";
+import { workflowRefusal } from "./workflow-refusal.ts";
 
 /**
  * Claude Code runs the hook before a git command and at a turn's end, and reads only Claude Code
@@ -17,8 +19,16 @@ export async function runClaudeHook(
     if (result.value !== "") console.log(result.value);
     process.exitCode = 0;
   } else {
-    console.error(`operator: ${result.tag === "Err" ? result.error.detail : String(result.cause)}`);
-    process.exitCode = 1;
+    failure(
+      "claude_hook",
+      result.tag === "Err" ? result.error.reason : "claude_hook_defect",
+      result.tag === "Err" ? result.error.detail : String(result.cause),
+      1,
+      false,
+      result.tag === "Err"
+        ? result.error
+        : workflowRefusal("claude_hook", "claude_hook_defect", {}),
+    );
   }
   return true;
 }

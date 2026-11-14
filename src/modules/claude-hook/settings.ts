@@ -4,6 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { isCodedError, type CodedError } from "../../lib/coded-error.ts";
 import { writeFile } from "../../lib/write-file.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 const command = "operator claude hook";
 
@@ -28,10 +29,10 @@ const settingsSchema = z.looseObject({
 
 type Outcome =
   | { reason: "installed" | "already_installed" }
-  | {
+  | (RefusalContext & {
       reason: "claude_hook_missing" | "claude_settings_external" | "claude_settings_invalid";
       detail: string;
-    };
+    });
 
 async function linked(file: string) {
   // A path that cannot be read is no link, and the write that follows reports its failure.
@@ -75,6 +76,12 @@ export async function installHook(input: { file: string; check: boolean }): Prom
   if (settings === null)
     return {
       reason: "claude_settings_invalid",
+      next: {
+        decider: "person",
+        question:
+          "How should the invalid Claude Code settings be repaired without replacing external configuration?",
+      },
+      state: { file: input.file, valid: false },
       detail: `${input.file} is not a Claude Code settings object. Repair it, then install again.`,
     };
   const missing = events.filter(
@@ -92,10 +99,21 @@ export async function installHook(input: { file: string; check: boolean }): Prom
   if (input.check)
     return {
       reason: "claude_hook_missing",
+      next: {
+        command: "operator install --claude",
+        why: "Install the missing Operator hook, or add the named hook groups through the settings owner.",
+      },
+      state: { file: input.file, missing },
       detail: `Claude Code does not run the Operator hook on ${missing.join(" and ")}. Run operator install --claude, or ${entry}`,
     };
   const external = {
     reason: "claude_settings_external" as const,
+    next: {
+      decider: "person" as const,
+      question:
+        "Which external Claude Code settings owner should add the required Operator hook groups?",
+    },
+    state: { file: input.file, missing },
     detail: `Operator does not change a linked or read-only Claude Code settings file. To keep commits free of Co-Authored-By trailers and guard the SuperAgent's turn end, ${entry}`,
   };
   if ((await linked(input.file)) || (await linked(path.dirname(input.file)))) return external;

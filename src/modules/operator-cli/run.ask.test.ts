@@ -128,6 +128,36 @@ test("ask refuses an unknown profile and writes no source", async () => {
   expect(await device.herdrCalls()).not.toContain("agent start");
 }, 60000);
 
+test("a failed ask keeps its registered source and the dispatch owner's recovery and checked facts", async () => {
+  await device.setHerdr({ fail: { "plugin list": "plugin unavailable" } });
+  const result = await device.run(["ask", "--question", "Why does this stop?"]);
+  expect(result).toMatchObject({
+    code: 1,
+    output: {
+      operation: "ask",
+      reason: "herdr_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the failed Herdr command and any existing effect be inspected before another request?",
+      },
+      state: { exitCode: 1 },
+    },
+  });
+  const registered = await sources();
+  expect(registered).toHaveLength(1);
+  const source = z.object({ id: z.string() }).parse(registered[0]);
+  expect(result.stderr).toContain(
+    `Source ${source.id} holds the question. Run operator dispatch --source ${source.id} --assignment why-does-this-stop again.`,
+  );
+  expect(result.stderr.trim().split("\n")).toHaveLength(3);
+  expect(await device.herdrCalls()).not.toContain("agent start");
+  const shown = await device.run(["source", "show", "--source", source.id]);
+  expect(shown.output).toMatchObject({
+    data: { launches: [], assignments: [{ key: "why-does-this-stop", state: "ready" }] },
+  });
+}, 60000);
+
 test.each([
   [["ask"]],
   [["ask", "--question"]],

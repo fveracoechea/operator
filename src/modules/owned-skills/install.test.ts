@@ -183,6 +183,11 @@ test("a release with no owned skills is invalid", async () => {
   await rm(`${request.source}/example`, { recursive: true });
   expect(await install(request)).toEqual({
     reason: "skills_release_invalid",
+    next: {
+      decider: "person",
+      question: "Which intact Operator release should supply the bundled skills?",
+    },
+    state: { source: request.source, skills: 0 },
     detail: "The running release has no owned skills.",
   });
 });
@@ -225,12 +230,24 @@ test("check mode compares release contents and ignores retired names", async () 
   const claude = `${request.paths.skillHosts["claude-code"]}/example`;
   expect(await install(check)).toEqual({
     reason: "skills_missing",
+    next: {
+      decider: "person",
+      question:
+        "Should the missing skill paths be restored by Operator installation or by their external configuration owner?",
+    },
+    state: { paths: [opencode, claude] },
     detail: `These skill paths are missing: ${opencode}, ${claude}`,
   });
   await Bun.write(`${opencode}/SKILL.md`, "person edit\n", { createPath: true });
   expect(await install(check)).toEqual({
     reason: "skill_copy_conflict",
     detail: `Preserve these skill paths and resolve their contents or external wiring: ${opencode}`,
+    next: {
+      decider: "person",
+      question:
+        "Which conflicting skill contents or external links should be retained before installation continues?",
+    },
+    state: { paths: [opencode] },
   });
   await rm(opencode, { recursive: true });
   expect((await install(request)).reason).toBe("skills_installed");
@@ -257,6 +274,10 @@ test.each(["ownedSkills", "skillsLock"] as const)(
       expect(await install(request)).toEqual({
         reason: "skill_copy_conflict",
         detail: "The device owned-content ledger or lock is externally managed.",
+        next: {
+          decider: "person",
+          question: "Which configuration owns the externally managed skill ledger or lock?",
+        },
       });
       expect(await contents(`${request.paths.skillHosts.opencode}/example`)).toBeNull();
     } finally {
@@ -279,6 +300,12 @@ test("a copy that changes after inspection stops the installation", async () => 
   expect(await install(request)).toEqual({
     reason: "skill_copy_conflict",
     detail: `Skill contents changed during installation: ${request.paths.skillHosts["claude-code"]}/example`,
+    next: {
+      decider: "person",
+      question:
+        "Which concurrently changed skill contents should be retained before installation continues?",
+    },
+    state: { path: `${request.paths.skillHosts["claude-code"]}/example` },
   });
   expect(await Bun.file(request.paths.ownedSkills).exists()).toBe(false);
 });
@@ -291,6 +318,12 @@ test("a new folder that cannot take files stops the installation", async () => {
     expect(await install(request)).toEqual({
       reason: "skill_copy_conflict",
       detail: `Skill contents changed during installation: ${request.paths.skillHosts.opencode}/example`,
+      next: {
+        decider: "person",
+        question:
+          "Which concurrently changed skill contents should be retained before installation continues?",
+      },
+      state: { path: `${request.paths.skillHosts.opencode}/example` },
     });
   } finally {
     process.umask(previous);

@@ -573,7 +573,15 @@ function launch(request: Request, settings: Settings, resources: Resources) {
           reserved.id,
           started.tag === "Err"
             ? started.error
-            : { reason: "launch_defect", detail: `Dispatch stopped: ${String(started.cause)}` },
+            : {
+                reason: "launch_defect",
+                detail: `Dispatch stopped: ${String(started.cause)}`,
+                next: {
+                  decider: "super-agent",
+                  question:
+                    "How should the unexpected dispatch failure be investigated before another launch?",
+                },
+              },
         );
       }).flatMap((result) => result),
     );

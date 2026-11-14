@@ -3,6 +3,10 @@ import { checkDraft, draftSchema, storedFindingsSchema } from "./draft.ts";
 import type { PullRequestFacts } from "./github.ts";
 
 const head = "a".repeat(40);
+const draftRecovery = {
+  command: "operator review next",
+  why: "Read the current head and draft path, correct the draft, then post again.",
+};
 function thread(change: Record<string, unknown> = {}) {
   return {
     id: "T",
@@ -243,19 +247,23 @@ test("each refusal states its cause", () => {
   const other = "b".repeat(40);
   expect(refusal({ reviewedCommit: other })).toEqual({
     reason: "review_head_moved",
+    next: draftRecovery,
     detail: `The draft reviews ${other}, but this round reviews ${head} and the PR head is ${head}. A stale draft is not posted. Nothing was posted.`,
   });
   expect(refusal({ checks: [{ kind: "guard-break", command: "x", exitCode: 0 }] })).toEqual({
     reason: "review_draft_invalid",
+    next: draftRecovery,
     detail: "A deliberate guard break that exited 0 did not prove its guard. Nothing was posted.",
   });
   expect(refusal({ blockers: [{ short: "S", detail: "D.", path: "b.ts", line: 1 }] })).toEqual({
     reason: "review_draft_invalid",
+    next: draftRecovery,
     detail: "The finding at b.ts is not on a file that this PR changes. Nothing was posted.",
   });
   const noise = [{ check: "lint", files: ["x.ts"], reason: "R." }];
   expect(refusal({ noise }, { filesComplete: false })).toEqual({
     reason: "review_noise_unverifiable",
+    next: draftRecovery,
     detail:
       "This PR changes more files than one read returns, so a noise claim cannot be checked. Nothing was posted.",
   });
@@ -263,6 +271,7 @@ test("each refusal states its cause", () => {
     refusal({ noise }, { requiredChecks: [{ name: "unit", state: "failing", url: null }] }),
   ).toEqual({
     reason: "review_noise_unknown_check",
+    next: draftRecovery,
     detail: "No failing required check is named lint. Nothing was posted.",
   });
   expect(
@@ -272,6 +281,7 @@ test("each refusal states its cause", () => {
     ),
   ).toEqual({
     reason: "review_noise_changed_file",
+    next: draftRecovery,
     detail:
       "The noise claim cites src/a.ts, which this PR changes. A failure in a changed file is a blocker. Nothing was posted.",
   });
@@ -282,6 +292,7 @@ test("each refusal states its cause", () => {
     ),
   ).toEqual({
     reason: "review_thread_unknown",
+    next: draftRecovery,
     detail:
       "Thread X is not a review thread that this account started on the PR. Nothing was posted.",
   });
@@ -291,6 +302,7 @@ test("each refusal states its cause", () => {
   ];
   expect(refusal({ threadReplies: twice }, { threads: [thread()] })).toEqual({
     reason: "review_draft_invalid",
+    next: draftRecovery,
     detail: "Reply to each thread at most once. Nothing was posted.",
   });
 });

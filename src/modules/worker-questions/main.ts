@@ -82,7 +82,14 @@ function change(
 function recordedSummary(facts: Facts) {
   // Stryker disable next-line ConditionalExpression: equivalent: a successful change always leaves its question recorded
   if (facts.question === null)
-    return Err<Failure>({ reason: "question_defect", detail: "The question is not recorded." });
+    return Err<Failure>({
+      reason: "question_defect",
+      detail: "The question is not recorded.",
+      next: {
+        decider: "super-agent",
+        question: "Why is the changed question missing from its recorded assignment?",
+      },
+    });
   return Ok(summary(facts, facts.question));
 }
 

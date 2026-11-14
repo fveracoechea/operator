@@ -12,6 +12,9 @@ import { runSkills } from "./skills.ts";
 const paths = OperatorHome.resolve(
   Environment.parse({ HOME: `${tmpdir()}/unused-skill-parser`, NODE_ENV: "test" }),
 );
+const recovery = {
+  next: { decider: "person" as const, question: "Which installed contents should be retained?" },
+};
 
 afterEach(() => {
   mock.restore();
@@ -92,7 +95,7 @@ test("installs owned skills, then upstream skills after it states the replacemen
 test("an owned refusal starts no upstream work", async () => {
   const called = spies();
   called.owned.mockReturnValue(
-    ErrAsync({ reason: "skill_copy_conflict", detail: "edited" }) as never,
+    ErrAsync({ reason: "skill_copy_conflict", detail: "edited", ...recovery }) as never,
   );
   const { log, error } = quiet();
   await runSkills(["install", "--opencode"], paths, true);
@@ -107,7 +110,7 @@ test("an owned refusal starts no upstream work", async () => {
 test("an upstream refusal after the owned install is the command result", async () => {
   const called = spies();
   called.upstream.mockReturnValue(
-    ErrAsync({ reason: "upstream_install_unconfirmed", detail: "partial" }) as never,
+    ErrAsync({ reason: "upstream_install_unconfirmed", detail: "partial", ...recovery }) as never,
   );
   const { log } = quiet();
   await runSkills(["install", "--opencode"], paths, true);
@@ -138,7 +141,16 @@ test.each([
   ["claude_settings_invalid", 4],
 ] as const)("a hook refusal %s exits %d after the skill installs", async (reason, code) => {
   const called = spies();
-  called.hook.mockReturnValue(ErrAsync({ reason, detail: "add the entry" }));
+  called.hook.mockReturnValue(
+    ErrAsync({
+      reason,
+      detail: "add the entry",
+      next: {
+        decider: "person",
+        question: "Which configuration owner should add the missing hook entry?",
+      },
+    }),
+  );
   const { log } = quiet();
   await runSkills(["install", "--claude"], paths, true);
   expect(called.upstream).toHaveBeenCalled();
@@ -173,7 +185,7 @@ test.each([
   ["skill_io_failed", 1],
 ])("refuses %s with exit code %d", async (reason, code) => {
   spyOn(OwnedSkills, "install").mockReturnValue(
-    ErrAsync({ reason, detail: "not installed" }) as never,
+    ErrAsync({ reason, detail: "not installed", ...recovery }) as never,
   );
   const { log, error } = quiet();
   expect(await runSkills(["install", "--claude"], paths, true)).toBe(true);
@@ -181,7 +193,7 @@ test.each([
     operation: "install",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not installed");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not installed`);
   expect(process.exitCode).toBe(code);
 });
 
@@ -195,6 +207,32 @@ test("reports a skills defect with exit code 1", async () => {
     operation: "install",
     reason: "skills_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: skills_defect: Error: boom");
   expect(process.exitCode).toBe(1);
+});
+
+test("the pre-effect replacement advisory precedes the compact checked refusal", async () => {
+  const called = spies();
+  called.hook.mockReturnValue(
+    ErrAsync({
+      reason: "claude_settings_external",
+      detail: "Keep the external settings.",
+      next: { decider: "person", question: "Which configuration owner should add the hook?" },
+      state: { external: true },
+    }),
+  );
+  const { error } = quiet();
+  await runSkills(["install", "--claude"], paths, true);
+  expect(error.mock.calls.map(([line]) => String(line))).toEqual([
+    UpstreamSkills.replacementPolicy(),
+    "operator: claude_settings_external: Keep the external settings.",
+    "next: person decides: Which configuration owner should add the hook?",
+    "state: external=true",
+  ]);
+  expect(error.mock.invocationCallOrder[0]).toBeLessThan(
+    called.upstream.mock.invocationCallOrder[0] ?? 0,
+  );
+  expect(called.upstream).toHaveBeenCalledTimes(1);
+  expect(called.hook).toHaveBeenCalledTimes(1);
+  expect(process.exitCode).toBe(4);
 });

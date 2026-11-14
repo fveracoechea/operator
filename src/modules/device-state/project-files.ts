@@ -59,6 +59,11 @@ export function ensureProjectDirectory(client: Database, paths: Paths, project: 
       if (current?.checkout !== project.checkout)
         return Err({
           reason: "controller_mismatch",
+          next: {
+            command: "operator project list",
+            why: "Read the changed registration before creating its state directory.",
+          },
+          state: { expectedCheckout: project.checkout, actualCheckout: current?.checkout ?? null },
           detail: "The registration changed before its state directory could be created.",
         });
       const directory = OperatorHome.projectDirectory(paths, project.repository);

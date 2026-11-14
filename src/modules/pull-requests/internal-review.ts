@@ -8,8 +8,14 @@ import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
-type Failure = { reason: string; detail: string };
+type Failure = Refusal;
+const handoffRecovery = {
+  decider: "super-agent" as const,
+  question:
+    "How should the failed internal-review handoff be recovered from its recorded progress?",
+};
 type Claimed = Extract<ReturnType<typeof DeviceState.claimHandoff>, { tag: "Ok" }>["value"];
 
 // A built release runs `cli.js`, and a source install runs `cli.ts`.
@@ -99,13 +105,21 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
   if (Environment.read().HERDR_SOCKET_PATH !== (implementer.herdrSocket ?? undefined))
     return {
       reason: "herdr_session_mismatch",
+      next: {
+        decider: "super-agent",
+        question: "Which pane of the recorded Herdr session should retry this handoff?",
+      },
+      state: {
+        expectedSocket: implementer.herdrSocket,
+        actualSocket: Environment.read().HERDR_SOCKET_PATH ?? null,
+      },
       detail: "Run operator handoff in a pane of the Herdr session that started the implementer.",
     };
   const closed = await Herdr.closePane(implementer.paneId);
   if (closed.tag === "Ok") return null;
   return closed.tag === "Err"
     ? closed.error
-    : { reason: "handoff_defect", detail: String(closed.cause) };
+    : { reason: "handoff_defect", detail: String(closed.cause), next: handoffRecovery };
 }
 
 type Step = { ok: true; reviewer: object | null } | { ok: false; error: Failure };
@@ -117,7 +131,11 @@ function failure<T>(
     | { tag: "Ok"; value: T },
 ): Failure {
   if (result.tag === "Err") return result.error;
-  return { reason: "handoff_defect", detail: result.tag === "Defect" ? String(result.cause) : "" };
+  return {
+    reason: "handoff_defect",
+    detail: result.tag === "Defect" ? String(result.cause) : "",
+    next: handoffRecovery,
+  };
 }
 
 async function runHandoff(request: HandoffRequest, facts: Claimed): Promise<Step> {
@@ -131,7 +149,11 @@ async function runHandoff(request: HandoffRequest, facts: Claimed): Promise<Step
   if (decision.result !== "handoff")
     return {
       ok: false,
-      error: { reason: "handoff_defect", detail: "The handoff event decided no handoff." },
+      error: {
+        reason: "handoff_defect",
+        detail: "The handoff event decided no handoff.",
+        next: handoffRecovery,
+      },
     };
   if (decision.closePane) {
     const closed = await closeImplementer(facts);
@@ -236,6 +258,11 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
                     ? decision
                     : {
                         reason: "internal_review_defect",
+                        next: {
+                          decider: "super-agent",
+                          question:
+                            "How should the unexpected review-round decision be investigated?",
+                        },
                         detail: "The round event decided no round.",
                       },
                 );

@@ -244,7 +244,15 @@ test("a replacement of a request with no head starts at the PR head", async () =
 test("a refused launch is recorded as failed", async () => {
   seedRequest(home.paths);
   spyOn(WorkerDispatch, "launchReviewer").mockReturnValue(
-    ErrAsync({ reason: "herdr_failed", detail: "down." }),
+    ErrAsync({
+      reason: "herdr_failed",
+      detail: "down.",
+      next: {
+        decider: "super-agent",
+        question: "How should the simulated Herdr failure be corrected?",
+      },
+      state: { invocationStatus: "unavailable" },
+    }),
   );
   expect(await ReviewRequests.start(input())).toMatchObject({
     tag: "Err",
@@ -252,6 +260,11 @@ test("a refused launch is recorded as failed", async () => {
       reason: "launch_failed",
       detail:
         "herdr_failed: down. The reviewer start is recorded as failed. Read operator review next.",
+      next: {
+        decider: "super-agent",
+        question: "How should the simulated Herdr failure be corrected?",
+      },
+      state: { invocationStatus: "unavailable" },
     },
   });
   expect(readRequest(home.paths).request).toMatchObject({

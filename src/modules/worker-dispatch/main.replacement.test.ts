@@ -14,7 +14,14 @@ afterAll(removeDevices);
 test("launch failure context omits unknown nested facts and interruption names the next recorded action", async () => {
   await using device = await dispatchDevice();
   device.herdr.prompt.mockReturnValueOnce(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "no confirmation" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "no confirmation",
+      next: {
+        decider: "super-agent",
+        question: "How should the unconfirmed prompt be inspected before retrying?",
+      },
+    }),
   );
   const failed = await WorkerDispatch.dispatch(device.request("read"));
   expect(failed).toMatchObject({
@@ -46,6 +53,10 @@ test("a failed start stays visible with its resources, and a replacement starts 
     ErrAsync({
       reason: "herdr_failed" as const,
       detail: "herdr agent prompt exited 1: busy",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed prompt be inspected before retrying?",
+      },
       state: { promptConfirmed: false },
     }),
   );
@@ -115,7 +126,14 @@ test("a failed start stays visible with its resources, and a replacement starts 
 test("a replacement whose recorded worktree is gone gets a new worktree", async () => {
   await using device = await dispatchDevice();
   device.herdr.startAgent.mockReturnValueOnce(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "no agent" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "no agent",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed agent start be inspected before retrying?",
+      },
+    }),
   );
   await WorkerDispatch.dispatch(device.request("survey"));
   const worktree = `${device.root}/worktrees/report-one-6-survey`;
@@ -135,7 +153,14 @@ test("a PR owner's replacement continues on the PR worktree and gets its open PR
   device.exited("p2");
   // A later start that failed before Herdr placed it recorded no worktree.
   device.herdr.openWorktree.mockReturnValueOnce(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "no open" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "no open",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed worktree opening be inspected before retrying?",
+      },
+    }),
   );
   expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({
     tag: "Err",

@@ -32,9 +32,10 @@ import {
   worktreeFacts,
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
 type Request = { paths: Paths; cwd: string };
-type Failure = { reason: string; detail: string };
+type Failure = Refusal;
 
 // GitHub limits API reads, so a wait observes the PR at most twice a minute.
 const pollMs = 30000;
@@ -82,6 +83,11 @@ function stackOf(
     return Err({
       reason: "pr_base_invalid",
       detail: `The PR targets ${pr.base}, but the PR of a dependency is open. Target its branch: ${open.map((row) => row.parent.branch).join(", ")}. Nothing was changed.`,
+      next: {
+        decider: "super-agent",
+        question: "Which open dependency branch should this PR target?",
+      },
+      state: { base: pr.base, openParents: open.map((row) => row.parent.branch) },
     });
   if (pr.base === pr.defaultBranch) return Ok(null);
   const parent = candidates.find((candidate) => candidate.parent.branch === pr.base)?.parent;
@@ -89,6 +95,15 @@ function stackOf(
     ? Err({
         reason: "pr_base_invalid",
         detail: `The PR targets ${pr.base}. Target the default branch or the branch of a dependency's PR: ${candidates.map((row) => row.parent.branch).join(", ") || "none"}. Nothing was changed.`,
+        next: {
+          decider: "super-agent",
+          question: "Should this PR target the default branch or a recorded dependency branch?",
+        },
+        state: {
+          base: pr.base,
+          defaultBranch: pr.defaultBranch,
+          parents: candidates.map((row) => row.parent.branch),
+        },
       })
     : Ok(stacked(parent));
 }
@@ -116,7 +131,14 @@ function reviewGate(owner: Owner, pr: { draft: boolean; head: string }) {
       : ErrAsync<Failure>(
           decision.result === "refused"
             ? decision
-            : { reason: "pr_defect", detail: "The associate event decided no association." },
+            : {
+                reason: "pr_defect",
+                detail: "The associate event decided no association.",
+                next: {
+                  decider: "super-agent",
+                  question: "How should the unexpected association decision be investigated?",
+                },
+              },
         );
   });
 }
@@ -135,6 +157,11 @@ function associate(input: Request) {
         return ErrAsync<Failure>({
           reason: pr === undefined ? "pr_not_found" : "pr_ambiguous",
           detail: `Open exactly one PR from ${owner.branch} in ${owner.repository}, then repeat. Nothing was changed.`,
+          next: {
+            command: "gh pr list",
+            why: `Identify exactly one open PR from ${owner.branch} in ${owner.repository} before associating.`,
+          },
+          state: { branch: owner.branch, repository: owner.repository, matches: found.length },
         });
       return reviewGate(owner, pr).flatMap((review) =>
         DeviceSettings.show(input.paths).flatMap((settings) =>
@@ -452,7 +479,15 @@ function wait(input: Request & { timeoutSeconds: number }) {
           // Stryker disable next-line ConditionalExpression: equivalent: the start write always changes the row, so it never returns null
           if (pr === null)
             // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: the start write never returns null, so this failure is never returned
-            return ErrAsync<Failure>({ reason: "pr_not_associated", detail: "No PR is recorded." });
+            return ErrAsync<Failure>({
+              reason: "pr_not_associated",
+              detail: "No PR is recorded.",
+              next: {
+                command: "operator pr associate",
+                why: "Associate the assignment's open PR before waiting.",
+              },
+              state: { pullRequest: null },
+            });
           // The lease shows that this wait still runs. A killed wait becomes visible in next.
           const release = DeviceState.holdPullRequestWait(
             input.paths,

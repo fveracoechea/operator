@@ -75,6 +75,12 @@ test("only a file-system code is an I/O failure, and any other error is a defect
   for (const code of ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR"])
     expect(qualify(coded(code), defect)).toEqual({
       reason: "review_io_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the review IO failure be corrected while preserving its recorded progress?",
+      },
+      state: { code },
       detail: `Error: failed ${code}`,
     });
   expect(qualify(coded("EBUSY"), defect)).toEqual({ defect: "failed EBUSY" });

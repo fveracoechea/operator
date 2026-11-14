@@ -38,9 +38,15 @@ test("handover returns the live worker's renamed resources and restores them on 
   expect(rename).toHaveBeenLastCalledWith({ paneId: "p1", name: "pr-one-9-build" });
   expect(label).toHaveBeenLastCalledWith({ tabId: "t1", label: "pr-one-9-build" });
   if (handed.tag !== "Ok") return;
-  expect(await handed.value.undo(Err({ reason: "report_changed", detail: "Changed." }))).toEqual(
-    Ok(undefined),
-  );
+  expect(
+    await handed.value.undo(
+      Err({
+        reason: "report_changed",
+        detail: "Changed.",
+        next: { command: "operator next", why: "Read the changed report action." },
+      }),
+    ),
+  ).toEqual(Ok(undefined));
   expect(rename).toHaveBeenLastCalledWith({ paneId: "p1", name: worker.name });
   expect(label).toHaveBeenLastCalledWith({ tabId: "t1", label: worker.name });
 });
@@ -157,7 +163,13 @@ test("branch and undo failures report unconfirmed effects without inferring a re
       ? Promise.resolve({ status: "completed", exitCode: 1, stdout: "", stderr: "undo denied" })
       : run(request),
   );
-  const undo = await handed.value.undo(Err({ reason: "report_changed", detail: "Changed." }));
+  const undo = await handed.value.undo(
+    Err({
+      reason: "report_changed",
+      detail: "Changed.",
+      next: { command: "operator next", why: "Read the changed report action." },
+    }),
+  );
   expect(undo).toMatchObject({
     tag: "Err",
     error: {

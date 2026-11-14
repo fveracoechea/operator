@@ -5,11 +5,12 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { cleanups, projectRemovals, projects, reviewRequests, sources } from "./schema.ts";
 import { deleteSourceRecords } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 export type RegisteredProject = typeof projects.$inferSelect;
 export type ProjectStateFailure =
   | StateFailure
-  | {
+  | (RefusalContext & {
       reason:
         | "project_not_registered"
         | "project_source_open"
@@ -17,7 +18,7 @@ export type ProjectStateFailure =
         | "project_review_open"
         | "project_cleanup_pending";
       detail: string;
-    };
+    });
 export type Registration = {
   reason: "project_registered" | "project_unchanged";
   data: RegisteredProject;
@@ -60,12 +61,20 @@ function openReview(db: Db, repository: string) {
 
 const reviewOpen = {
   reason: "project_review_open" as const,
+  next: {
+    command: "operator review next",
+    why: "Finish the project's open reviews and reviewer cleanup before changing its registration.",
+  },
   detail:
     "Finish every review request of this project first: close or skip it, and finish its reviewer cleanup. Read operator review next for it.",
 };
 
 const cleanupOpen = {
   reason: "project_cleanup_open" as const,
+  next: {
+    command: "operator next",
+    why: "Finish the project's open cleanup before changing its registration.",
+  },
   detail: "Finish every open cleanup with operator cleanup first. Read operator next for it.",
 };
 
@@ -81,6 +90,12 @@ export function registerProject(client: Database, project: RegisteredProject) {
       )
         return Err({
           reason: "project_cleanup_pending",
+          next: {
+            decider: "person",
+            question:
+              "May the pending removal of this project be completed before it is registered again?",
+          },
+          state: { repository: project.repository, removalPending: true },
           detail: `Finish project remove ${project.repository} before registering it again.`,
         });
       const existing = db
@@ -94,6 +109,11 @@ export function registerProject(client: Database, project: RegisteredProject) {
       if (byPath && byPath.repository !== project.repository)
         return Err<StateFailure>({
           reason: "controller_identity_mismatch",
+          next: {
+            decider: "super-agent",
+            question: "How should the controlling checkout's recorded remote identity be restored?",
+          },
+          state: { expected: byPath.repository, actual: project.repository },
           detail: `This checkout is recorded as ${byPath.repository}. Restore its remote identity before use. It was not re-registered as ${project.repository}.`,
         });
       // Stryker disable next-line ConditionalExpression: equivalent: a checkout row of another identity returned above, so at most one row remains and it is this identity's
@@ -101,6 +121,11 @@ export function registerProject(client: Database, project: RegisteredProject) {
       if (byIdentity && byIdentity.checkout !== project.checkout)
         return Err<StateFailure>({
           reason: "controller_mismatch",
+          next: {
+            command: "operator project list",
+            why: "Locate the recorded controlling checkout before continuing.",
+          },
+          state: { expected: byIdentity.checkout, actual: project.checkout },
           detail: `Use the recorded controlling checkout at ${byIdentity.checkout}. To change it, run operator project move from a matching main clone when no source is open.`,
         });
       if (byIdentity) return Ok({ reason: "project_unchanged" as const, data: byIdentity });
@@ -154,12 +179,22 @@ export function removeProject(client: Database, repository: string) {
       if (!project)
         return Err({
           reason: "project_not_registered",
+          next: {
+            command: "operator project list",
+            why: "Choose a registered project; this identity has no pending removal.",
+          },
+          state: { repository, registered: false },
           detail: "This identity is not registered and has no pending removal.",
         });
       const held = hasOpenSource(db, repository);
       if (held)
         return Err({
           reason: "project_source_open",
+          next: {
+            command: "operator next",
+            why: "End the project's open sources before removing its registration.",
+          },
+          state: { repository, sourceOpen: true },
           detail: "End every open source before removing this project.",
         });
       if (openCleanup(db, repository)) return Err(cleanupOpen);
@@ -189,18 +224,33 @@ export function moveProject(client: Database, repository: string, checkout: stri
         if (byPath && byPath.repository !== repository)
           return Err({
             reason: "controller_identity_mismatch",
+            next: {
+              decider: "super-agent",
+              question: "How should this checkout's recorded remote identity be restored?",
+            },
+            state: { expected: byPath.repository, actual: repository },
             detail: `This checkout is already recorded as ${byPath.repository}. Its identity was not changed.`,
           });
         const project = db.select().from(projects).where(eq(projects.repository, repository)).get();
         if (!project)
           return Err({
             reason: "project_not_registered",
+            next: {
+              command: "operator project register",
+              why: "Register this identity explicitly before moving it.",
+            },
+            state: { repository, registered: false },
             detail: "Register this identity explicitly before moving it.",
           });
         const held = hasOpenSource(db, repository);
         if (held)
           return Err({
             reason: "project_source_open",
+            next: {
+              command: "operator next",
+              why: "End the project's open sources before moving its registration.",
+            },
+            state: { repository, sourceOpen: true },
             detail: "End every open source before moving this project.",
           });
         if (openCleanup(db, repository)) return Err(cleanupOpen);

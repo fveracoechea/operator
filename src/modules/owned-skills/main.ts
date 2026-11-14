@@ -50,7 +50,15 @@ export const OwnedSkills = {
       },
       (cause, defect) => {
         if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-          return { reason: "skills_ledger_invalid" as const, detail: String(cause) };
+          return {
+            reason: "skills_ledger_invalid" as const,
+            detail: String(cause),
+            next: {
+              decider: "person" as const,
+              question:
+                "How should the invalid skill ledger be recovered while preserving installed contents?",
+            },
+          };
         if (
           isCodedError(cause) &&
           [
@@ -71,7 +79,16 @@ export const OwnedSkills = {
             "SQLITE_NOTADB",
           ].includes(cause.code)
         )
-          return { reason: "skills_io_failed" as const, detail: String(cause) };
+          return {
+            reason: "skills_io_failed" as const,
+            detail: String(cause),
+            next: {
+              decider: "super-agent" as const,
+              question:
+                "How should the skill installation IO failure be corrected while preserving installed contents?",
+            },
+            state: { code: cause.code },
+          };
         return defect(cause);
       },
     ).flatMap((result) => ("detail" in result ? Err(result) : Ok(result)));

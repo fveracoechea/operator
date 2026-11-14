@@ -7,16 +7,16 @@ import { z } from "zod";
 import { runClaudeHook } from "./claude.ts";
 import { runOpenCodeHook } from "./opencode.ts";
 import { herdrEventWithoutState } from "./dispatch.ts";
-import { exitCodeOf, failure } from "./output.ts";
-import { projectArgs } from "./projects.ts";
+import { exitCodeOf, failure, printRefusal } from "./output.ts";
 import { workflowArguments } from "./usage.ts";
+import { projectArgs } from "./projects.ts";
 import { workflowRefusal } from "./workflow-refusal.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
-function context(args: string[], reason: string, checked: ResultContext = {}) {
-  return workflowArguments(args) ? workflowRefusal("workflow_startup", reason, checked) : checked;
+function context(_args: string[], reason: string, checked: Partial<ResultContext> = {}) {
+  return workflowRefusal("workflow_startup", reason, checked);
 }
 
 function startupPaths(args: string[], json: boolean) {
@@ -26,22 +26,13 @@ function startupPaths(args: string[], json: boolean) {
   )();
   if (startup.tag === "Ok") return startup.value;
   if (startup.tag === "Err")
-    failure(
-      "startup",
-      "invalid_environment",
-      startup.error,
-      2,
-      json,
-      workflowArguments(args)
-        ? {
-            next: {
-              decider: "super-agent",
-              question: "Which valid device environment should this command use?",
-            },
-            state: { environmentValid: false },
-          }
-        : {},
-    );
+    failure("startup", "invalid_environment", startup.error, 2, json, {
+      next: {
+        decider: "super-agent",
+        question: "Which valid device environment should this command use?",
+      },
+      state: { environmentValid: false },
+    });
   else
     failure(
       "startup",
@@ -56,35 +47,41 @@ function startupPaths(args: string[], json: boolean) {
 
 function supportedRuntime(args: string[], supportedBun: string, json: boolean) {
   if (Bun.semver.satisfies(Bun.version, supportedBun)) return true;
-  if (workflowArguments(args)) {
-    failure(
-      "startup",
+  const recovery = {
+    next: {
+      decider: "super-agent" as const,
+      question: "Which supported Bun runtime should run this command?",
+    },
+    state: { required: supportedBun, actual: Bun.version },
+  };
+  if (!workflowArguments(args)) {
+    if (json)
+      console.log(
+        JSON.stringify({
+          schemaVersion: 1,
+          operation: "startup",
+          outcome: "failed",
+          reason: "unsupported_bun",
+          blockers: [{ reason: "unsupported_bun", required: supportedBun, actual: Bun.version }],
+          ...recovery,
+        }),
+      );
+    printRefusal(
       "unsupported_bun",
       `Bun ${supportedBun} is required; running ${Bun.version}.`,
-      1,
-      json,
-      {
-        next: {
-          decider: "super-agent",
-          question: "Which supported Bun runtime should run this command?",
-        },
-        state: { required: supportedBun, actual: Bun.version },
-      },
+      recovery,
     );
+    process.exitCode = 1;
     return false;
   }
-  if (json)
-    console.log(
-      JSON.stringify({
-        schemaVersion: 1,
-        operation: "startup",
-        outcome: "failed",
-        reason: "unsupported_bun",
-        blockers: [{ reason: "unsupported_bun", required: supportedBun, actual: Bun.version }],
-      }),
-    );
-  console.error(`operator: Bun ${supportedBun} is required; running ${Bun.version}.`);
-  process.exitCode = 1;
+  failure(
+    "startup",
+    "unsupported_bun",
+    `Bun ${supportedBun} is required; running ${Bun.version}.`,
+    1,
+    json,
+    recovery,
+  );
   return false;
 }
 

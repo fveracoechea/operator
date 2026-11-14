@@ -204,7 +204,11 @@ test("no matching workspace gives none, and a Herdr failure passes through", asy
     tag: "Ok",
     value: { workspaceId: null, labels: ["wt"] },
   });
-  const failure = { reason: "herdr_unavailable" as const, detail: "gone" };
+  const failure = {
+    reason: "herdr_unavailable" as const,
+    detail: "gone",
+    next: { decider: "super-agent" as const, question: "How should Herdr be made available?" },
+  };
   workspaces.mockReturnValue(ErrAsync(failure));
   expect(await projectWorkspace(checkout)).toMatchObject({ tag: "Err", error: failure });
 });
@@ -302,7 +306,14 @@ test("panes are read only for a workspace with no checkout, and a pane read fail
   const workspaces = spyOn(Herdr, "workspaces").mockReturnValue(
     OkAsync([{ workspaceId: "w1", label: "other", checkout: root, linked: false }]),
   );
-  const failure = { reason: "herdr_failed" as const, detail: "refused" };
+  const failure = {
+    reason: "herdr_failed" as const,
+    detail: "refused",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should the refused Herdr read be inspected?",
+    },
+  };
   const panes = spyOn(Herdr, "panes").mockReturnValue(ErrAsync(failure));
   expect(await projectWorkspace(checkout)).toMatchObject({
     tag: "Ok",
@@ -439,7 +450,14 @@ test(
     });
     expect(read).not.toHaveBeenCalled();
     await repository("worktree");
-    const failure = { reason: "state_busy" as const, detail: "locked" };
+    const failure = {
+      reason: "state_busy" as const,
+      detail: "locked",
+      next: {
+        decider: "super-agent" as const,
+        question: "When has the simulated state operation finished?",
+      },
+    };
     read.mockReturnValue(Err(failure));
     expect(await waitForPreparation(paths(), `${root}/worktree`, since)).toMatchObject({
       tag: "Err",

@@ -5,5 +5,9 @@ export type NextStep =
   | { decider: "person" | "super-agent"; question: string; command?: never; why?: never }
   | { why: string; command?: never; decider?: never; question?: never };
 
-/** Optional during the refusal migration. State contains only facts checked by the operation. */
-export type ResultContext = { next?: NextStep; state?: Record<string, unknown> };
+/** State contains only facts checked by the operation. Success may use Partial<ResultContext>. */
+export type ResultContext = { next: NextStep; state?: Record<string, unknown> };
+
+/** Every refusal supplies recovery at the owner of the checked facts. */
+export type RefusalContext = ResultContext;
+export type Refusal = RefusalContext & { reason: string; detail: string };

@@ -26,6 +26,14 @@ const migrated = new Set([
   "message",
   "obligation",
   "cleanup",
+  "pr",
+  "review",
+  "project",
+  "config",
+  "install",
+  "ready",
+  "herdr",
+  "host",
 ]);
 
 /** Migrated command families share the protocol oracle without moving their selection into lib. */
