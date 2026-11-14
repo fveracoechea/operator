@@ -989,3 +989,137 @@ test("next names every retained assignment path after a later pathless launch an
     { assignment: "other", action: "ready_assignment" },
   ]);
 });
+
+test("next observes a recorded finished pane assignment before ending it", async () => {
+  const sourceId = await registered(["pane", "other"]);
+  const id = launch(sourceId, "pane", "running");
+  {
+    using db = new Database(paths.database);
+    db.query(
+      "UPDATE launches SET resources = 'pane', worktree_path = NULL, state = 'finished' WHERE id = ?",
+    ).run(id);
+  }
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_SOCKET_PATH: "/herdr.sock",
+  });
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+  const pane = spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+  const answer = await WorkSources.next({ paths, cwd: checkout, sourceId });
+  expect(answer).toMatchObject({
+    tag: "Ok",
+    value: {
+      sources: [
+        {
+          actions: [
+            { assignment: "pane", action: "ended" },
+            { assignment: "other", action: "ready_assignment" },
+          ],
+        },
+      ],
+    },
+  });
+  expect(pane).toHaveBeenCalledWith("w1:pane");
+  expect((await shown(sourceId))?.launches.find((row) => row.id === id)).toMatchObject({
+    state: "finished",
+  });
+});
+
+test("repeated real waits preserve acknowledged actions instead of reporting them again", async () => {
+  await registered(["one", "two"]);
+  const input = { paths, cwd: checkout, timeoutSeconds: 0 };
+  expect(await WorkSources.wait(input)).toMatchObject({
+    tag: "Ok",
+    value: { reason: "next_actions_changed" },
+  });
+  for (const attempt of [1, 2]) {
+    expect(await WorkSources.wait(input), `unchanged wait ${attempt}`).toMatchObject({
+      tag: "Ok",
+      value: { reason: "next_wait_timed_out", data: { sources: [] } },
+    });
+  }
+});
+
+test("retained resources appear only after abandonment, and a reset source keeps no new resource decision", async () => {
+  const result = await register({
+    trackerKey: "APP-retained-close",
+    assignments: [
+      { ...assignment("read"), resources: "worktree", branch: "task/read" },
+      assignment("other"),
+    ],
+  });
+  expect(result.tag).toBe("Ok");
+  if (result.tag !== "Ok") return;
+  const sourceId = result.value.id;
+  launch(sourceId, "read", "failed");
+  await mkdir(`${root}/worktrees/read`, { recursive: true });
+  const active = await WorkSources.next({ paths, cwd: checkout, sourceId });
+  expect(active.tag).toBe("Ok");
+  if (active.tag === "Ok")
+    expect(active.value.sources[0]?.actions[0]).not.toHaveProperty("retainedResources");
+  expect(
+    (await WorkSources.abandon({ paths, cwd: checkout, sourceId, assignment: "read" })).tag,
+  ).toBe("Ok");
+  expect((await reset(sourceId)).tag).toBe("Ok");
+  const closed = await WorkSources.next({ paths, cwd: checkout, sourceId, all: true });
+  expect(closed).toMatchObject({
+    tag: "Ok",
+    value: { sources: [{ actions: [{ action: "source_ended" }] }] },
+  });
+  if (closed.tag === "Ok") expect(closed.value.sources[0]?.actions).toHaveLength(1);
+});
+
+test("one abandoned assignment does not expose an unrelated completed assignment as newly ended", async () => {
+  const sourceId = await registered(["abandoned", "completed"]);
+  expect(
+    (await WorkSources.abandon({ paths, cwd: checkout, sourceId, assignment: "abandoned" })).tag,
+  ).toBe("Ok");
+  setState(sourceId, "completed", "completed");
+  const next = await WorkSources.next({ paths, cwd: checkout, sourceId });
+  expect(next).toMatchObject({
+    tag: "Ok",
+    value: { sources: [{ actions: [{ assignment: "abandoned", action: "ended" }] }] },
+  });
+  if (next.tag === "Ok") expect(next.value.sources[0]?.actions).toHaveLength(1);
+});
+
+test("a finished source retains its pending merge cleanup without adding retained assignment resources", async () => {
+  const result = await register({
+    trackerKey: "APP-merged-cleanup",
+    assignments: [assignment("merged", "pr")],
+  });
+  expect(result.tag).toBe("Ok");
+  if (result.tag !== "Ok") return;
+  const sourceId = result.value.id;
+  const id = launch(sourceId, "merged", "running");
+  await mkdir(`${root}/worktrees/merged`, { recursive: true });
+  expect(
+    DeviceState.associatePullRequest(paths, id, {
+      number: 7,
+      url: "https://github.com/example/one/pull/7",
+      branch: "task/merged",
+      relay: null,
+    }).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.recordPullRequestMerge(
+      paths,
+      id,
+      { number: 7, head: "head", mergeCommit: "merge" },
+      WorkSources.stateAfter,
+    ).tag,
+  ).toBe("Ok");
+  const next = await WorkSources.next({ paths, cwd: checkout, sourceId, all: true });
+  expect(next).toMatchObject({
+    tag: "Ok",
+    value: {
+      sources: [
+        {
+          actions: [{ action: "source_ended" }, { assignment: "merged", action: "retry_cleanup" }],
+        },
+      ],
+    },
+  });
+  if (next.tag === "Ok")
+    expect(next.value.sources[0]?.actions[1]).not.toHaveProperty("retainedResources");
+});
