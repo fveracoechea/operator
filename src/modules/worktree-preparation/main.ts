@@ -226,16 +226,30 @@ export const WorktreePreparation = {
           "--others",
           "--ignored",
           "--exclude-standard",
+          "--directory",
           "-z",
-          "--",
-          ":(glob)**/.env",
-          ":(glob)**/.env.*",
-          ":(glob)**/*.env",
-          ":(glob)**/*.env.*",
         ]);
         if (listed === null) return null;
+        const files = new Set<string>();
+        const environment = new Bun.Glob("**/{.env,.env.*,*.env,*.env.*}");
+        for (const entry of listed.split("\0").filter((file) => file !== "")) {
+          if (!entry.endsWith("/")) {
+            if (environment.match(entry)) files.add(entry);
+            continue;
+          }
+          // Listing ignored directories first avoids Git silently skipping unreadable contents.
+          for await (const file of environment.scan({
+            cwd: `${input.worktree}/${entry}`,
+            dot: true,
+            onlyFiles: false,
+            followSymlinks: false,
+          })) {
+            if (!(await lstat(`${input.worktree}/${entry}${file}`)).isDirectory())
+              files.add(`${entry}${file}`);
+          }
+        }
         const changed: string[] = [];
-        for (const file of listed.split("\0").filter((file) => file !== "")) {
+        for (const file of files) {
           if (!(await sameFile(`${input.worktree}/${file}`, `${input.controller}/${file}`)))
             changed.push(file);
         }

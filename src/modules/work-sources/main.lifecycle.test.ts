@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 // Bun has no temporary-directory, folder creation, or recursive removal API.
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Err, fromSafePromise, fromThrowable, Ok, OkAsync } from "unthrown";
@@ -17,6 +17,7 @@ const day = 24 * 60 * 60 * 1000;
 let root = "";
 let checkout = "";
 let paths: ReturnType<typeof OperatorHome.resolve>;
+const asRoot = process.getuid?.() === 0;
 beforeEach(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-source-lifecycle-")));
   paths = OperatorHome.resolve(Environment.parse({ HOME: `${root}/home`, NODE_ENV: "test" }));
@@ -643,6 +644,47 @@ test("abandon refuses corrupt persisted assignment state without repairing it", 
   }
   expect(await Bun.file(paths.database).bytes()).toEqual(before);
 });
+
+test.skipIf(asRoot)(
+  "unreadable resource facts refuse before any lifecycle write or external probe",
+  async () => {
+    const sourceId = await registered(["read", "other"]);
+    launch(sourceId, "read", "running");
+    launch(sourceId, "other", "running");
+    await mkdir(`${root}/worktrees/read`, { recursive: true });
+    await Bun.write(`${root}/worktrees/read/notes.md`, "keep\n");
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+    });
+    const names = spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+    const pane = spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+    const before = await Bun.file(paths.database).bytes();
+    await chmod(`${root}/worktrees`, 0);
+    try {
+      const result = await WorkSources.next({ paths, cwd: checkout, sourceId });
+      expect(result).toMatchObject({
+        tag: "Err",
+        error: {
+          reason: "source_io_failed",
+          state: { operation: "resource_metadata" },
+          next: { decider: "person" },
+        },
+      });
+      if (result.tag === "Err") expect(result.error.detail).toContain("EACCES");
+      expect(await Bun.file(paths.database).bytes()).toEqual(before);
+      expect(names).not.toHaveBeenCalled();
+      expect(pane).not.toHaveBeenCalled();
+    } finally {
+      await chmod(`${root}/worktrees`, 0o755);
+    }
+    expect(await Bun.file(`${root}/worktrees/read/notes.md`).text()).toBe("keep\n");
+    expect((await shown(sourceId))?.assignments).toMatchObject([
+      { state: "running" },
+      { state: "running" },
+    ]);
+  },
+);
 
 test.each(["completed", "merged"])(
   "abandon refuses %s work and next never probes its closed worker",
