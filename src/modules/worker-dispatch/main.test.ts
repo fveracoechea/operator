@@ -259,7 +259,10 @@ test("a plan's reached running cap refuses a ready assignment, and the reservati
     tag: "Err",
     error: {
       reason: "running_cap_reached",
-      next: { command: "operator next --wait" },
+      next: {
+        command: "operator next --wait",
+        why: "Wait for a running assignment to finish before dispatching more work.",
+      },
       state: { maxRunning: 1, capReached: true },
       detail:
         "The plan's running cap of 1 is reached, so second waits. Read operator next after a worker ends. Nothing was launched.",
@@ -405,6 +408,11 @@ test("an assignment with no dispatch action or a source that is not registered i
       tag: "Err",
       error: {
         reason: "assignment_not_dispatchable",
+        next: {
+          command: "operator next",
+          why: "Read the current assignment action before dispatching.",
+        },
+        state: { assignmentPlanned: request.assignment === "blocked", dispatchActionExists: false },
         detail: `Assignment ${request.assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
       },
     });
@@ -417,11 +425,18 @@ test("an assignment with no dispatch action or a source that is not registered i
     tag: "Err",
     error: {
       reason: "assignment_not_dispatchable",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the current assignment action before dispatching.",
+      },
       state: { assignmentPlanned: true, dispatchActionExists: false },
     },
   });
   // An idle worker needs attention, not a replacement.
+  expect(await WorkerDispatch.refreshBrief(device.request("read"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable", state: { briefRefreshAllowed: false } },
+  });
   device.activity("p1", "idle");
   expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({
     tag: "Err",

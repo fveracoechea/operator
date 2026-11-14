@@ -32,18 +32,14 @@ function startupPaths(args: string[], json: boolean) {
       startup.error,
       2,
       json,
-      context(
-        args,
-        "invalid_environment",
-        workflowArguments(args)
-          ? {
-              next: {
-                decider: "super-agent",
-                question: "Which valid device environment should this command use?",
-              },
-            }
-          : {},
-      ),
+      workflowArguments(args)
+        ? {
+            next: {
+              decider: "super-agent",
+              question: "Which valid device environment should this command use?",
+            },
+          }
+        : {},
     );
   else
     failure(
@@ -66,13 +62,13 @@ function supportedRuntime(args: string[], supportedBun: string, json: boolean) {
       `Bun ${supportedBun} is required; running ${Bun.version}.`,
       1,
       json,
-      context(args, "unsupported_bun", {
+      {
         next: {
           decider: "super-agent",
           question: "Which supported Bun runtime should run this command?",
         },
         state: { required: supportedBun, actual: Bun.version },
-      }),
+      },
     );
     return false;
   }

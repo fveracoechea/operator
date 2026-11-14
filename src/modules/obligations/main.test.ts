@@ -18,7 +18,8 @@ test("invalid obligation inputs expose their recovery without creating state", a
   const input = { paths, cwd: root, sourceId: "unchecked", file: `${root}/input.json` };
   for (const text of ["{broken", "{}"]) {
     await Bun.write(input.file, text);
-    expect(await Obligations.add(input)).toMatchObject({
+    const result = await Obligations.add(input);
+    expect(result).toMatchObject({
       tag: "Err",
       error: {
         reason: "invalid_obligation_input",
@@ -29,6 +30,7 @@ test("invalid obligation inputs expose their recovery without creating state", a
         state: { inputValid: false },
       },
     });
+    if (result.tag === "Err") expect(result.error.detail).toContain("Nothing changed.");
   }
   expect(await Obligations.add({ ...input, file: `${root}/missing.json` })).toMatchObject({
     tag: "Err",

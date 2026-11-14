@@ -78,6 +78,30 @@ function setState(sourceId: string, key: string, state: string) {
   expect(changed.tag).toBe("Ok");
 }
 
+test("a corrupt stored source names person recovery and preserves the original records", async () => {
+  const sourceId = await registered(["read"]);
+  const rows = DeviceState.readSources(paths, "example/one", sourceId).getOrNull();
+  expect(rows).not.toBeNull();
+  if (rows === null) return;
+  const before = await Bun.file(paths.database).arrayBuffer();
+  spyOn(DeviceState, "readSources").mockReturnValue(
+    Ok(rows.map((row) => ({ ...row, source: { ...row.source, plan: "{broken" } }))),
+  );
+  expect(await WorkSources.show({ paths, cwd: checkout, sourceId })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "state_corrupt",
+      detail: "Stored source records are invalid. They were not repaired.",
+      next: {
+        decider: "person",
+        question: "How should the damaged source records be recovered without overwriting them?",
+      },
+      state: { storedSourceValid: false },
+    },
+  });
+  expect(await Bun.file(paths.database).arrayBuffer()).toEqual(before);
+});
+
 function launch(sourceId: string, key: string, state: "running" | "failed") {
   const id = crypto.randomUUID();
   expect(

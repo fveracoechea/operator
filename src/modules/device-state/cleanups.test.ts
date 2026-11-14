@@ -270,7 +270,10 @@ test("a cleanup refusal names the missing record, and a finished cleanup is retu
     error: {
       reason: "source_not_found",
       detail: "The source does not exist in this project.",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the available sources before choosing a source.",
+      },
       state: { sourceExists: false },
     },
   });
@@ -280,7 +283,10 @@ test("a cleanup refusal names the missing record, and a finished cleanup is retu
       reason: "cleanup_not_found",
       detail:
         "Assignment change has no cleanup. Only a verified merge records one. Nothing was changed.",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the assignment's completion action before requesting cleanup.",
+      },
       state: { requiredRecordsPresent: false },
     },
   };
@@ -295,7 +301,10 @@ test("a cleanup refusal names the missing record, and a finished cleanup is retu
       error: {
         reason: "cleanup_running",
         detail: `Process ${other.pid} is still cleaning up assignment change. Read operator next later. Nothing was changed.`,
-        next: { command: "operator next" },
+        next: {
+          command: "operator next",
+          why: "Read the current cleanup action after its active process finishes.",
+        },
         state: { cleanupRunning: true },
       },
     });

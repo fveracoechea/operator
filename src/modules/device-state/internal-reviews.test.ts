@@ -85,9 +85,40 @@ test("skip commit guards expose only checked facts and preserve the database on 
     tag: "Err",
     error: {
       reason: "pr_owner_inactive",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the assignment's current action before ending its review.",
+      },
       state: { source: "reset" },
     },
   });
   expect(client.serialize()).toEqual(inactive);
+  client.exec("UPDATE sources SET state = 'open'; UPDATE assignments SET state = 'reported'");
+  const wrongState = client.serialize();
+  expect(endInternalReview(client, target, end, false)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_owner_inactive",
+      next: {
+        command: "operator next",
+        why: "Read the assignment's current action before ending its review.",
+      },
+      state: { assignment: "reported" },
+    },
+  });
+  expect(client.serialize()).toEqual(wrongState);
+  expect(endInternalReview(client, { ...target, assignment: "missing" }, end, false)).toMatchObject(
+    {
+      tag: "Err",
+      error: {
+        reason: "pr_owner_inactive",
+        next: {
+          command: "operator next",
+          why: "Read the assignment's current action before ending its review.",
+        },
+        state: { openAssignmentFound: false },
+      },
+    },
+  );
+  expect(client.serialize()).toEqual(wrongState);
 });

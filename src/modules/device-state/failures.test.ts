@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { qualifyStateFailure } from "./failures.ts";
+import { qualifyStateFailure, stateFailure } from "./failures.ts";
 
 function coded(code: string) {
   return Object.assign(new Error(`failure ${code}`), { code });
@@ -7,6 +7,54 @@ function coded(code: string) {
 function asDefect(cause: Error) {
   return { defect: cause };
 }
+
+test.each([
+  {
+    reason: "state_missing",
+    next: {
+      command: "operator project register",
+      why: "Register a project explicitly to initialize device state.",
+    },
+  },
+  {
+    reason: "state_backup_failed",
+    next: {
+      decider: "super-agent",
+      question: "How should the backup failure be corrected before the upgrade is retried?",
+    },
+  },
+  {
+    reason: "state_migration_blocked",
+    next: {
+      decider: "super-agent",
+      question: "How should the recorded live operations finish before the upgrade is retried?",
+    },
+  },
+  {
+    reason: "controller_mismatch",
+    next: {
+      command: "operator project list",
+      why: "Find the recorded controlling checkout and run the command there.",
+    },
+  },
+  {
+    reason: "controller_identity_mismatch",
+    next: {
+      decider: "super-agent",
+      question: "How should the controlling checkout's recorded GitHub remote be restored?",
+    },
+  },
+] as const)(
+  "state owner supplies recovery for $reason without replacing checked facts",
+  ({ reason, next }) => {
+    expect(stateFailure(reason, "The guard refused.", { checked: false })).toEqual({
+      reason,
+      detail: "The guard refused.",
+      state: { checked: false },
+      next,
+    });
+  },
+);
 
 test("qualifies known SQLite and filesystem failures as input failures", () => {
   for (const code of [

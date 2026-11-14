@@ -215,7 +215,10 @@ test("each target refusal names what is missing and changes nothing", () => {
     tag: "Err",
     error: {
       reason: "assignment_not_found",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the available assignments before choosing a target.",
+      },
       state: { sourceExists: true, assignmentExists: false },
       detail: "Assignment missing does not exist in this source. Nothing changed.",
     },

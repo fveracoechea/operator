@@ -79,9 +79,21 @@ test("a ring needs a pending message of a running worker", () => {
     tag: "Ok",
     value: { insert: false, state: "pending" },
   });
-  expect(decideMessage(facts("ring", { ...sent("pending"), launch: null }))).toMatchObject(
-    notRunning,
-  );
+  expect(decideMessage(facts("ring", { ...sent("pending"), launch: null }))).toMatchObject({
+    ...notRunning,
+    error: { ...notRunning.error, state: { assignment: "running", launch: null } },
+  });
+  expect(
+    decideMessage(
+      facts("ring", {
+        ...sent("pending"),
+        launch: { id: "l1", state: "starting", paneId: null, herdrSocket: "/herdr.sock" },
+      }),
+    ),
+  ).toMatchObject({
+    ...notRunning,
+    error: { ...notRunning.error, state: { assignment: "running", launch: "starting" } },
+  });
   expect(decideMessage(facts("ring"))).toMatchObject({
     error: {
       reason: "message_not_found",

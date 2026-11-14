@@ -130,10 +130,9 @@ function accept(facts: Facts): Result<ReportTransition, Refusal> {
  */
 function promote(facts: Facts): Result<ReportTransition, Refusal> {
   const { promotion } = facts;
-  const sourceState = promotion?.sourceState ?? null;
-  if (sourceState !== "open" || promotion === undefined)
-    return refuse("source_ended", `The source is ${sourceState ?? "unknown"}.`, {
-      state: { source: sourceState },
+  if (promotion?.sourceState !== "open")
+    return refuse("source_ended", `The source is ${promotion?.sourceState ?? "unknown"}.`, {
+      state: { source: promotion?.sourceState ?? null },
     });
   return promoteReport(facts, promotion);
 }
