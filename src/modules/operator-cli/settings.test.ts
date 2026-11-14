@@ -118,7 +118,14 @@ test("prints a completed operation as compact JSON or as indented text", async (
 
 test("refuses with the reason's settings exit code", async () => {
   spyOn(DeviceSettings, "apply").mockReturnValue(
-    ErrAsync({ reason: "settings_plan_stale", detail: "stale plan" } as never),
+    ErrAsync({
+      reason: "settings_plan_stale",
+      detail: "stale plan",
+      next: {
+        decider: "super-agent",
+        question: "Which fresh settings plan should replace this stale plan?",
+      },
+    }),
   );
   const { log, error } = quiet();
   expect(await runSettings(["config", "apply", "--plan", "p"], paths, true)).toBe(true);
@@ -126,7 +133,7 @@ test("refuses with the reason's settings exit code", async () => {
     operation: "config_apply",
     reason: "settings_plan_stale",
   });
-  expect(error).toHaveBeenCalledWith("operator: stale plan");
+  expect(error).toHaveBeenCalledWith("operator: settings_plan_stale: stale plan");
   expect(process.exitCode).toBe(4);
 });
 
@@ -140,6 +147,6 @@ test("reports a settings defect with exit code 1", async () => {
     operation: "config_show",
     reason: "settings_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: settings_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });

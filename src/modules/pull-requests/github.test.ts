@@ -457,11 +457,17 @@ describe("GitHub reads and effects", () => {
     github(() => refused);
     expect<unknown>(
       await mergePullRequest("owner/one", { number: 7, head: "h1", method: "merge" }),
-    ).toEqual({ tag: "Err", error: { reason: "github_failed", detail: "http_422: Refused" } });
+    ).toEqual({
+      tag: "Err",
+      error: { reason: "github_failed", detail: "http_422: Refused", next: effectRecovery },
+    });
     github(() => lost);
     expect<unknown>(
       await mergePullRequest("owner/one", { number: 7, head: "h1", method: "merge" }),
-    ).toEqual({ tag: "Err", error: { reason: "github_uncertain", detail: "gh ended on SIGTERM" } });
+    ).toEqual({
+      tag: "Err",
+      error: { reason: "github_uncertain", detail: "gh ended on SIGTERM", next: effectRecovery },
+    });
     github(() => Promise.reject(new Error("boom")));
     expect<unknown>(
       await mergePullRequest("owner/one", { number: 7, head: "h1", method: "merge" }),
@@ -494,6 +500,7 @@ describe("GitHub reads and effects", () => {
         error: {
           reason: "github_uncertain",
           detail: "GitHub did not describe the merge request in the expected form.",
+          next: effectRecovery,
         },
       });
     }
