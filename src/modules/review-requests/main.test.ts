@@ -286,6 +286,10 @@ test("a launch that stopped with a defect is recorded as failed", async () => {
       reason: "launch_failed",
       detail:
         "launch_defect: The start stopped: lost The reviewer start is recorded as failed. Read operator review next.",
+      next: {
+        decider: "super-agent",
+        question: "How should the unexpected reviewer launch failure be investigated?",
+      },
     },
   });
   expect(readRequest(home.paths).request).toMatchObject({
@@ -502,6 +506,7 @@ test("a cleanup refuses an open request and a request with no cleanup left", asy
     error: {
       reason: "review_cleanup_unchanged",
       detail: "No approved, closed, or skipped request of PR #7 has a reviewer cleanup left.",
+      next: { why: "No reviewer cleanup remains for this PR." },
     },
   });
   seedRequest(home.paths);
@@ -511,6 +516,11 @@ test("a cleanup refuses an open request and a request with no cleanup left", asy
       reason: "review_request_open",
       detail:
         "The review request of PR #7 is queued. Only an approved, closed, or skipped request, or one with kept reviewer work, is cleaned up. Nothing changed.",
+      next: {
+        command: "operator review next",
+        why: "Finish the open review request before cleaning up its reviewer.",
+      },
+      state: { reviewState: "queued" },
     },
   });
   expect(await ReviewRequests.cleanup({ paths: home.paths, url: "nope" })).toMatchObject({

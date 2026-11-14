@@ -11,6 +11,8 @@ import {
   remoteBranch,
   retarget,
   markReady,
+  postComment,
+  updateComment,
 } from "./github.ts";
 import { mergeConditions } from "./wait-machine.ts";
 
@@ -24,6 +26,29 @@ const effectRecovery = {
   question:
     "How should GitHub's current state be inspected before repeating the unconfirmed request?",
 };
+
+test("comment effects retain the inspect-before-repeat decision for every unconfirmed answer", async () => {
+  for (const response of [
+    { status: "failed", code: "http_422", detail: "Refused", httpStatus: 422 } as const,
+    { status: "uncertain", detail: "Timed out." } as const,
+  ]) {
+    const call = github(() => response);
+    call.mockClear();
+    const expected = {
+      tag: "Err",
+      error: {
+        reason: response.status === "failed" ? "github_failed" : "github_uncertain",
+        detail: response.status === "failed" ? "http_422: Refused" : "Timed out.",
+        next: effectRecovery,
+      },
+    };
+    expect<unknown>(await postComment("owner/one", 7, "summary")).toEqual(expected);
+    expect<unknown>(await updateComment("C1", "summary")).toEqual(expected);
+    expect(call).toHaveBeenCalledTimes(2);
+    expect(call.mock.calls[0]?.[0].input).toBe(JSON.stringify({ body: "summary" }));
+    expect(call.mock.calls[1]?.[0].args).toContain("id=C1");
+  }
+});
 
 function answer(change: Record<string, unknown> = {}) {
   return {

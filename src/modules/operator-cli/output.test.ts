@@ -119,3 +119,35 @@ test("respond passes refusal context without inventing unchecked state", () => {
   expect(log).not.toHaveBeenCalled();
   expect(process.exitCode).toBe(3);
 });
+
+test("respond reports a defect with the command's decision context and no checked facts", () => {
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  respond({
+    operation: "ready",
+    result: { tag: "Defect", cause: new Error("injected") },
+    exitCodes: {},
+    defect: "readiness_defect",
+    json: true,
+  });
+  expect(log.mock.calls).toEqual([
+    [
+      JSON.stringify({
+        schemaVersion: 1,
+        operation: "ready",
+        outcome: "refused",
+        reason: "readiness_defect",
+        blockers: [{ reason: "readiness_defect", detail: "Error: injected" }],
+        next: {
+          decider: "super-agent",
+          question: "How should readiness_defect be corrected before retrying ready?",
+        },
+      }),
+    ],
+  ]);
+  expect(error.mock.calls).toEqual([
+    ["operator: readiness_defect: Error: injected"],
+    ["next: super-agent decides: How should readiness_defect be corrected before retrying ready?"],
+  ]);
+  expect(process.exitCode).toBe(1);
+});

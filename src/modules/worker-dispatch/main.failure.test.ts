@@ -41,6 +41,11 @@ test("a defect during the start is recorded as a failed launch", async () => {
       reason: "launch_failed",
       detail:
         "launch_defect: Dispatch stopped: TypeError: boom The launch is recorded as failed. Read operator next before a replacement.",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state: { launch: "failed" },
     },
   });
   expect(await device.launches("read")).toMatchObject([

@@ -35,6 +35,7 @@ function qualifyBackupFailure<T>(cause: Error, defect: (cause: Error) => T): Sta
   )
     // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: discovery skips every refused copy, so this reason and detail never reach a caller
     return stateFailure("state_backup_failed", "The backup receipt or history is invalid.", {
+      // Stryker disable next-line BooleanLiteral: equivalent: Discovery catches and skips every refused backup copy. Its invalid-copy checked flag never reaches a public result. The three sibling reason/detail/object mutants are already among the original five Ignored; this BooleanLiteral child is on the following line.
       backupValid: false,
     });
   return qualifyStateFailure(cause, defect);

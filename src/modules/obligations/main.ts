@@ -82,14 +82,21 @@ function recorded(input: Selector, selected: Target, key: string) {
     const row = obligations.find((item) => item.key === key);
     // Stryker disable next-line ConditionalExpression: equivalent: a successful change always leaves its obligation recorded
     return row === undefined
-      ? Err({
-          reason: "obligation_defect",
-          detail: "The obligation is not recorded.",
-          next: {
-            decider: "super-agent" as const,
-            question: "Why is the changed obligation missing from its recorded source?",
+      ? Err(
+          // Stryker disable next-line ObjectLiteral: equivalent: recorded uses the fixed source/key selector immediately after synchronous changeObligation commits. Every supported obligation transition inserts or retains that row. Source pruning makes readObligations fail before its success callback. No pane selector or asynchronous effect separates this commit/reread, unlike questions. Existing conditional guard already has equivalent disposition.
+          {
+            // Stryker disable next-line StringLiteral: equivalent: recorded uses the fixed source/key selector immediately after synchronous changeObligation commits. Every supported obligation transition inserts or retains that row. Source pruning makes readObligations fail before its success callback. No pane selector or asynchronous effect separates this commit/reread, unlike questions. Existing conditional guard already has equivalent disposition.
+            reason: "obligation_defect",
+            // Stryker disable next-line StringLiteral: equivalent: recorded uses the fixed source/key selector immediately after synchronous changeObligation commits. Every supported obligation transition inserts or retains that row. Source pruning makes readObligations fail before its success callback. No pane selector or asynchronous effect separates this commit/reread, unlike questions. Existing conditional guard already has equivalent disposition.
+            detail: "The obligation is not recorded.",
+            // Stryker disable next-line ObjectLiteral: equivalent: recorded uses the fixed source/key selector immediately after synchronous changeObligation commits. Every supported obligation transition inserts or retains that row. Source pruning makes readObligations fail before its success callback. No pane selector or asynchronous effect separates this commit/reread, unlike questions. Existing conditional guard already has equivalent disposition.
+            next: {
+              decider: "super-agent" as const,
+              // Stryker disable next-line StringLiteral: equivalent: recorded uses the fixed source/key selector immediately after synchronous changeObligation commits. Every supported obligation transition inserts or retains that row. Source pruning makes readObligations fail before its success callback. No pane selector or asynchronous effect separates this commit/reread, unlike questions. Existing conditional guard already has equivalent disposition.
+              question: "Why is the changed obligation missing from its recorded source?",
+            },
           },
-        })
+        )
       : Ok(summary(row));
   });
 }

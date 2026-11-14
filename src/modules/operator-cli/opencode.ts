@@ -20,6 +20,7 @@ export async function runOpenCodeHook(
     process.exitCode = 0;
   } else {
     failure(
+      // Stryker disable next-line StringLiteral: equivalent: The adapter calls failure with json=false. Its operation argument is used only inside the disabled JSON output branch, while the separate owner/defect context supplies observable stderr.
       "opencode_hook",
       result.tag === "Err" ? result.error.reason : "opencode_hook_defect",
       result.tag === "Err" ? result.error.detail : String(result.cause),

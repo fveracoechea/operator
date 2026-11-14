@@ -330,6 +330,7 @@ test("a remote or parent head that Git cannot fetch stops the relay", async () =
   expect(parent).toMatchObject({
     blocker: {
       reason: "relay_fetch_failed",
+      next: { command: "operator pr wait", why: "Retry the relay's failed parent-head fetch." },
       detail: expect.stringMatching(
         new RegExp(`^Git could not fetch the parent head ${missing}: \\S.* ${kept}$`, "s"),
       ) as unknown,
@@ -580,6 +581,16 @@ test("a pushed relay is not pushed again, and a refused push keeps the rebased c
   expect(refused).toMatchObject({
     blocker: {
       reason: "relay_push_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the failed relay push be resolved while retaining the rebased commits?",
+      },
+      state: {
+        branch: "task/child",
+        rebasedHead: git(work, "rev-parse", "HEAD"),
+        expectedRemoteHead: childHead,
+      },
       detail: expect.stringMatching(
         /^Git could not push the rebased task\/child: .*hook refused.* The rebased commits stay in the worktree\.$/s,
       ) as unknown,

@@ -553,11 +553,17 @@ async function promotionFacts(input: PromoteInput) {
   // The rule refused a report without a worktree, so the launch has one.
   // Stryker disable next-line ConditionalExpression: equivalent: the promote rule refuses a missing launch or worktree first
   if (recorded === null || worktreePath === null)
+    // Stryker disable next-line ObjectLiteral: equivalent: promotionFacts reads a single facts/decision pair. The promote rule refuses missing launch or worktree before it returns that pair. No mutation or re-read occurs before the narrowing guard, so its missing-worktree defect result cannot occur under the production rule. Actual vanished paths after that guard remain reachable and are tested.
     return Err<Failure>({
+      // Stryker disable next-line StringLiteral: equivalent: promotionFacts reads a single facts/decision pair. The promote rule refuses missing launch or worktree before it returns that pair. No mutation or re-read occurs before the narrowing guard, so its missing-worktree defect result cannot occur under the production rule. Actual vanished paths after that guard remain reachable and are tested.
       reason: "report_defect",
+      // Stryker disable next-line StringLiteral: equivalent: promotionFacts reads a single facts/decision pair. The promote rule refuses missing launch or worktree before it returns that pair. No mutation or re-read occurs before the narrowing guard, so its missing-worktree defect result cannot occur under the production rule. Actual vanished paths after that guard remain reachable and are tested.
       detail: "The worktree is not recorded.",
+      // Stryker disable next-line ObjectLiteral: equivalent: promotionFacts reads a single facts/decision pair. The promote rule refuses missing launch or worktree before it returns that pair. No mutation or re-read occurs before the narrowing guard, so its missing-worktree defect result cannot occur under the production rule. Actual vanished paths after that guard remain reachable and are tested.
       next: {
+        // Stryker disable next-line StringLiteral: equivalent: promotionFacts reads a single facts/decision pair. The promote rule refuses missing launch or worktree before it returns that pair. No mutation or re-read occurs before the narrowing guard, so its missing-worktree defect result cannot occur under the production rule. Actual vanished paths after that guard remain reachable and are tested.
         decider: "super-agent",
+        // Stryker disable next-line StringLiteral: equivalent: promotionFacts reads a single facts/decision pair. The promote rule refuses missing launch or worktree before it returns that pair. No mutation or re-read occurs before the narrowing guard, so its missing-worktree defect result cannot occur under the production rule. Actual vanished paths after that guard remain reachable and are tested.
         question: "Why is the report's worktree missing from its recorded launch?",
       },
     });

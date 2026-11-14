@@ -124,16 +124,13 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
 
 type Step = { ok: true; reviewer: object | null } | { ok: false; error: Failure };
 
-function failure<T>(
-  result:
-    | { tag: "Err"; error: Failure }
-    | { tag: "Defect"; cause: unknown }
-    | { tag: "Ok"; value: T },
+function failure(
+  result: { tag: "Err"; error: Failure } | { tag: "Defect"; cause: unknown },
 ): Failure {
   if (result.tag === "Err") return result.error;
   return {
     reason: "handoff_defect",
-    detail: result.tag === "Defect" ? String(result.cause) : "",
+    detail: String(result.cause),
     next: handoffRecovery,
   };
 }
@@ -149,8 +146,11 @@ async function runHandoff(request: HandoffRequest, facts: Claimed): Promise<Step
   if (decision.result !== "handoff")
     return {
       ok: false,
+      // Stryker disable next-line ObjectLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
       error: {
+        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
         reason: "handoff_defect",
+        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
         detail: "The handoff event decided no handoff.",
         next: handoffRecovery,
       },
@@ -258,9 +258,12 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
                     ? decision
                     : {
                         reason: "internal_review_defect",
+                        // Stryker disable next-line ObjectLiteral: equivalent: round calls the pure machine with the fixed round event. Its decision is round or refused for every typed fact. The nested unexpected-event fallback is unreachable; recorded ordinary refusals remain tested through the real machine.
                         next: {
+                          // Stryker disable next-line StringLiteral: equivalent: round calls the pure machine with the fixed round event. Its decision is round or refused for every typed fact. The nested unexpected-event fallback is unreachable; recorded ordinary refusals remain tested through the real machine.
                           decider: "super-agent",
                           question:
+                            // Stryker disable next-line StringLiteral: equivalent: round calls the pure machine with the fixed round event. Its decision is round or refused for every typed fact. The nested unexpected-event fallback is unreachable; recorded ordinary refusals remain tested through the real machine.
                             "How should the unexpected review-round decision be investigated?",
                         },
                         detail: "The round event decided no round.",

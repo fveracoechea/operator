@@ -77,6 +77,12 @@ test("a command that appears during the write is kept and reported as a conflict
   expect(result.error).toEqual({
     reason: "launcher_conflict",
     detail: `${root}/bun/bin/operator appeared while the launcher was written. It was not changed.`,
+    next: {
+      decider: "person",
+      question:
+        "Which concurrently created launcher should be retained? Operator did not replace it.",
+    },
+    state: { command: `${root}/bun/bin/operator` },
   });
   expect(await Bun.file(`${root}/bun/bin/operator`).text()).toBe("raced");
   expect(await binFiles()).toEqual(["operator"]);
@@ -105,7 +111,17 @@ test("no operator on PATH is one missing executable blocker", async () => {
   const result = await GlobalLauncher.check();
   expect(result).toMatchObject({
     tag: "Ok",
-    value: [{ reason: "executable_missing", tool: "operator" }],
+    value: [
+      {
+        reason: "executable_missing",
+        tool: "operator",
+        next: {
+          decider: "person",
+          question: "Which pinned Operator installation should provide the global command on PATH?",
+        },
+        state: { executable: null },
+      },
+    ],
   });
   expect(result.tag === "Ok" && result.value[0]?.detail).toContain("operator install launcher");
 });
@@ -132,7 +148,18 @@ test("a command that reaches another release is a mismatch that names both paths
     const result = await GlobalLauncher.check();
     expect(result).toMatchObject({
       tag: "Ok",
-      value: [{ reason: "executable_mismatch", tool: "operator" }],
+      value: [
+        {
+          reason: "executable_mismatch",
+          tool: "operator",
+          next: {
+            decider: "person",
+            question:
+              "Should the conflicting Operator command be retained or replaced so hooks run this release?",
+          },
+          state: { executable: `${root}/bin/operator`, runningPackage: sourceRoot },
+        },
+      ],
     });
     const detail = result.tag === "Ok" ? (result.value[0]?.detail ?? "") : "";
     expect(detail).toContain(`${root}/bin/operator on PATH`);
@@ -161,13 +188,30 @@ test("check qualifies each modeled I/O code and leaves other failures as defects
     manifest.mockRejectedValueOnce(Object.assign(new Error(`${code}: refused`), { code }));
     expect(await GlobalLauncher.check()).toMatchObject({
       tag: "Err",
-      error: { reason: "launcher_io_failed", detail: `Error: ${code}: refused` },
+      error: {
+        reason: "launcher_io_failed",
+        detail: `Error: ${code}: refused`,
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the launcher IO failure be corrected without replacing external contents?",
+        },
+        state: { code },
+      },
     });
   }
   manifest.mockRejectedValueOnce(new SyntaxError("bad JSON"));
   expect(await GlobalLauncher.check()).toMatchObject({
     tag: "Err",
-    error: { reason: "launcher_global_manifest_invalid", detail: "SyntaxError: bad JSON" },
+    error: {
+      reason: "launcher_global_manifest_invalid",
+      detail: "SyntaxError: bad JSON",
+      next: {
+        decider: "person",
+        question:
+          "How should Bun's invalid global manifest be repaired while preserving installed packages?",
+      },
+    },
   });
   const invalid = z.string().safeParse(1).error;
   manifest.mockRejectedValueOnce(invalid);
@@ -194,6 +238,10 @@ test("install reports a Bun failure when Bun is absent, fails, or names no folde
     error: {
       reason: "launcher_bun_failed",
       detail: "bun pm could not report its global folders. No launcher was written.",
+      next: {
+        decider: "super-agent",
+        question: "Why can Bun not report the global folders needed for the launcher?",
+      },
     },
   };
   expect(await GlobalLauncher.install()).toMatchObject(failed);
@@ -286,7 +334,7 @@ async function globalManifest(text: string) {
 const resultSchema = z.object({
   tag: z.string(),
   value: z.unknown().optional(),
-  error: z.object({ reason: z.string(), detail: z.string() }).optional(),
+  error: z.looseObject({ reason: z.string(), detail: z.string() }).optional(),
   cause: z.string().optional(),
 });
 
@@ -363,7 +411,18 @@ test("check reports an installation whose manifest names a moving version", asyn
     if (expected === "unpinned") {
       expect(result).toMatchObject({
         tag: "Ok",
-        value: [{ reason: "installation_unpinned", tool: "operator" }],
+        value: [
+          {
+            reason: "installation_unpinned",
+            tool: "operator",
+            next: {
+              decider: "person",
+              question:
+                "Which exact release version or full source commit should pin this Operator installation?",
+            },
+            state: { specifier: "npm:@jsr/fveracoechea__operator@^1.2.3", version: "1.2.3" },
+          },
+        ],
       });
       expect(JSON.stringify(result.value)).toContain(
         `beside ${pkg} names npm:@jsr/fveracoechea__operator@^1.2.3`,

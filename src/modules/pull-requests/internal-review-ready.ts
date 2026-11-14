@@ -86,11 +86,17 @@ function refusal(decision: ReturnType<typeof decideInternalReview>, event: strin
         next: decision.next,
         state: decision.state,
       }
-    : {
+    : // Stryker disable next-line ObjectLiteral: equivalent: refusal is called only after fixed ready event did not return ready, or fixed skip event did not return skip OR missing snapshot/facts. ready event returns ready or refused exhaustively. skip event returns skip only when review is recorded and open facts exist, so the additional missing-record/facts guards cannot send skip to refusal. The unexpected decision fallback cannot occur under these fixed event rules.
+      {
+        // Stryker disable next-line StringLiteral: equivalent: refusal is called only after fixed ready event did not return ready, or fixed skip event did not return skip OR missing snapshot/facts. ready event returns ready or refused exhaustively. skip event returns skip only when review is recorded and open facts exist, so the additional missing-record/facts guards cannot send skip to refusal. The unexpected decision fallback cannot occur under these fixed event rules.
         reason: "internal_review_defect",
+        // Stryker disable next-line StringLiteral: equivalent: refusal is called only after fixed ready event did not return ready, or fixed skip event did not return skip OR missing snapshot/facts. ready event returns ready or refused exhaustively. skip event returns skip only when review is recorded and open facts exist, so the additional missing-record/facts guards cannot send skip to refusal. The unexpected decision fallback cannot occur under these fixed event rules.
         detail: `The ${event} event decided nothing.`,
+        // Stryker disable next-line ObjectLiteral: equivalent: refusal is called only after fixed ready event did not return ready, or fixed skip event did not return skip OR missing snapshot/facts. ready event returns ready or refused exhaustively. skip event returns skip only when review is recorded and open facts exist, so the additional missing-record/facts guards cannot send skip to refusal. The unexpected decision fallback cannot occur under these fixed event rules.
         next: {
+          // Stryker disable next-line StringLiteral: equivalent: refusal is called only after fixed ready event did not return ready, or fixed skip event did not return skip OR missing snapshot/facts. ready event returns ready or refused exhaustively. skip event returns skip only when review is recorded and open facts exist, so the additional missing-record/facts guards cannot send skip to refusal. The unexpected decision fallback cannot occur under these fixed event rules.
           decider: "super-agent",
+          // Stryker disable next-line StringLiteral: equivalent: refusal is called only after fixed ready event did not return ready, or fixed skip event did not return skip OR missing snapshot/facts. ready event returns ready or refused exhaustively. skip event returns skip only when review is recorded and open facts exist, so the additional missing-record/facts guards cannot send skip to refusal. The unexpected decision fallback cannot occur under these fixed event rules.
           question: "How should the unexpected ready decision be investigated?",
         },
       };

@@ -146,7 +146,13 @@ test("refuses edits that the settings schema rejects", async () => {
   const request = { paths, sets: ["review.channel=bad"], unsets: [] };
   for (const result of [await plan(request), await apply({ ...request, planId: "any" })]) {
     expect(Object.keys(result).toSorted()).toEqual(["detail", "next", "reason"]);
-    expect(result).toMatchObject({ reason: "invalid_settings_edit" });
+    expect(result).toMatchObject({
+      reason: "invalid_settings_edit",
+      next: {
+        command: "operator config show",
+        why: "Inspect the settings schema and correct the requested edits before planning again.",
+      },
+    });
     expect("detail" in result && result.detail).toContain("channel");
   }
   expect(await Bun.file(paths.config).exists()).toBe(false);

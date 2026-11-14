@@ -43,7 +43,17 @@ test("only registration creates state and lookup remains project-scoped", async 
       },
       [],
     ),
-  ).toMatchObject({ tag: "Err", error: { reason: "state_missing" } });
+  ).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "state_missing",
+      next: {
+        command: "operator project register",
+        why: "Register a project explicitly to initialize device state.",
+      },
+      state: { databaseExists: false },
+    },
+  });
   expect(DeviceState.lookupProject(paths, "/isolated/one", [])).toMatchObject({
     tag: "Err",
     error: { reason: "state_missing" },
@@ -249,7 +259,17 @@ test.skipIf(asRoot)(
     } finally {
       await chmod(`${directory}/inner`, 0o700);
     }
-    expect(removed).toMatchObject({ tag: "Err", error: { reason: "project_cleanup_pending" } });
+    expect(removed).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "project_cleanup_pending",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the pending project removal failure be corrected while preserving its remaining state?",
+        },
+      },
+    });
     if (removed.tag === "Err")
       // The cause is the platform's: macOS reports ENOTEMPTY and Linux EACCES for the same blocked removal.
       expect(removed.error.detail).toMatch(

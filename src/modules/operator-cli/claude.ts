@@ -20,6 +20,7 @@ export async function runClaudeHook(
     process.exitCode = 0;
   } else {
     failure(
+      // Stryker disable next-line StringLiteral: equivalent: The adapter calls failure with json=false. Its operation argument is used only inside the disabled JSON output branch, while the separate owner/defect context supplies observable stderr.
       "claude_hook",
       result.tag === "Err" ? result.error.reason : "claude_hook_defect",
       result.tag === "Err" ? result.error.detail : String(result.cause),

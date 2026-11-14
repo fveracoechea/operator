@@ -131,11 +131,17 @@ function reviewGate(owner: Owner, pr: { draft: boolean; head: string }) {
       : ErrAsync<Failure>(
           decision.result === "refused"
             ? decision
-            : {
+            : // Stryker disable next-line ObjectLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
+              {
+                // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
                 reason: "pr_defect",
+                // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
                 detail: "The associate event decided no association.",
+                // Stryker disable next-line ObjectLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
                 next: {
+                  // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
                   decider: "super-agent",
+                  // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
                   question: "How should the unexpected association decision be investigated?",
                 },
               },
@@ -480,12 +486,18 @@ function wait(input: Request & { timeoutSeconds: number }) {
           if (pr === null)
             // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: the start write never returns null, so this failure is never returned
             return ErrAsync<Failure>({
+              // Stryker disable next-line StringLiteral: equivalent: wait calls recordPullRequestWait with a callback that always returns a change, then uses its transaction-returned row. recordPullRequestWait returns null only when the callback returns null. No asynchronous re-read occurs before this null guard. Existing conditional/object suppressions document the same invariant; only nested newly formatted fields are proposed.
               reason: "pr_not_associated",
+              // Stryker disable next-line StringLiteral: equivalent: wait calls recordPullRequestWait with a callback that always returns a change, then uses its transaction-returned row. recordPullRequestWait returns null only when the callback returns null. No asynchronous re-read occurs before this null guard. Existing conditional/object suppressions document the same invariant; only nested newly formatted fields are proposed.
               detail: "No PR is recorded.",
+              // Stryker disable next-line ObjectLiteral: equivalent: wait calls recordPullRequestWait with a callback that always returns a change, then uses its transaction-returned row. recordPullRequestWait returns null only when the callback returns null. No asynchronous re-read occurs before this null guard. Existing conditional/object suppressions document the same invariant; only nested newly formatted fields are proposed.
               next: {
+                // Stryker disable next-line StringLiteral: equivalent: wait calls recordPullRequestWait with a callback that always returns a change, then uses its transaction-returned row. recordPullRequestWait returns null only when the callback returns null. No asynchronous re-read occurs before this null guard. Existing conditional/object suppressions document the same invariant; only nested newly formatted fields are proposed.
                 command: "operator pr associate",
+                // Stryker disable next-line StringLiteral: equivalent: wait calls recordPullRequestWait with a callback that always returns a change, then uses its transaction-returned row. recordPullRequestWait returns null only when the callback returns null. No asynchronous re-read occurs before this null guard. Existing conditional/object suppressions document the same invariant; only nested newly formatted fields are proposed.
                 why: "Associate the assignment's open PR before waiting.",
               },
+              // Stryker disable next-line ObjectLiteral: equivalent: wait calls recordPullRequestWait with a callback that always returns a change, then uses its transaction-returned row. recordPullRequestWait returns null only when the callback returns null. No asynchronous re-read occurs before this null guard. Existing conditional/object suppressions document the same invariant; only nested newly formatted fields are proposed.
               state: { pullRequest: null },
             });
           // The lease shows that this wait still runs. A killed wait becomes visible in next.

@@ -315,6 +315,11 @@ test("a lost thread answer keeps the request posting, and the retry reads the th
       reason: "github_uncertain",
       detail:
         "GitHub did not confirm the reply in thread T2: The call timed out. Run the post again. It reads the thread first, so it does not reply twice.",
+      next: {
+        command: `operator review post ${url}`,
+        why: "Retry the recorded post; it reads the thread before repeating an uncertain reply.",
+      },
+      state: { thread: "T2", operation: "reply", confirmed: false },
     },
   });
   const lost = readRequest(home.paths);
@@ -393,6 +398,10 @@ test("a refused post returns the request to its reviewer with the failure", asyn
     error: {
       reason: "review_post_failed",
       detail: "GitHub refused the review: HTTP 422: Bad. Correct the draft and post again.",
+      next: {
+        command: "operator review next",
+        why: "Read the current draft path and head, correct the draft, then post again.",
+      },
     },
   });
   const after = readRequest(home.paths);
@@ -415,6 +424,10 @@ test("a lost post stays posting, and the retry finds the review by its marker in
       reason: "github_uncertain",
       detail:
         "GitHub did not confirm the review: Timed out. Run the post again. It first looks for this review, so it does not post twice.",
+      next: {
+        command: `operator review post ${url}`,
+        why: "Retry the recorded post; it looks for the earlier review before posting.",
+      },
     },
   });
   expect(first.posts).toHaveLength(1);
@@ -541,6 +554,11 @@ test("a retry with no review on a moved PR fails the round and posts nothing", a
     error: {
       reason: "review_head_moved",
       detail: `GitHub has no review from the lost post, and PR #7 is no longer open at ${h2}. Write a new draft for the current head. Nothing was posted.`,
+      next: {
+        command: "operator review next",
+        why: "Read the current draft path and head, correct the draft, then post again.",
+      },
+      state: { reviewedCommit: h2, head: h1, prState: "OPEN" },
     },
   });
   expect(retried.posts).toEqual([]);
@@ -571,7 +589,15 @@ test("a posting request with no round is a defect", async () => {
   github({});
   expect(await post({ paths: home.paths, url })).toMatchObject({
     tag: "Err",
-    error: { reason: "review_defect", detail: "The retry lost its round." },
+    error: {
+      reason: "review_defect",
+      detail: "The retry lost its round.",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the missing review-post record be investigated before repeating any GitHub effect?",
+      },
+    },
   });
 });
 
@@ -583,6 +609,11 @@ test("a missing or invalid draft is refused before GitHub sees a post", async ()
     tag: "Err",
     error: {
       reason: "review_draft_missing",
+      next: {
+        command: "operator review next",
+        why: "Read the current draft path and head, correct the draft, then post again.",
+      },
+      state: { file, exists: false },
       detail: `Write the draft to ${file} before the post. Nothing was posted.`,
     },
   });
@@ -592,6 +623,11 @@ test("a missing or invalid draft is refused before GitHub sees a post", async ()
     error: {
       reason: "review_draft_invalid",
       detail: `✖ The draft is not JSON.\nCorrect ${file}. Nothing was posted.`,
+      next: {
+        command: "operator review next",
+        why: "Read the current draft path and head, correct the draft, then post again.",
+      },
+      state: { file, valid: false },
     },
   });
   await draft({ reviewedCommit: "short" });
@@ -657,6 +693,14 @@ test("a draft that the PR refuses, or an approval that waits for CI, posts nothi
     tag: "Err",
     error: {
       reason: "review_ci_pending",
+      next: {
+        command: "operator review wait",
+        why: "Wait for required CI before posting the approval.",
+      },
+      state: {
+        pendingChecks: [{ name: "unit", state: "pending", url: null }],
+        checksComplete: true,
+      },
       detail:
         "A required CI check still runs, or the PR has more checks than one read returns. Post the approval after CI finishes. Nothing was posted.",
     },
@@ -714,6 +758,11 @@ test("a moved PR moves the running reviewer and posts nothing", async () => {
     tag: "Err",
     error: {
       reason: "review_head_moved",
+      next: {
+        command: "operator review next",
+        why: "Read the current draft path and head, correct the draft, then post again.",
+      },
+      state: { previousHead: h1, head: h2 },
       detail: `PR #7 moved from ${h1} to ${h2} by a fast-forward. The reviewer worktree moved, and the reviewer got the new commits. Write a draft for ${h2}. Nothing was posted.`,
     },
   });
@@ -775,6 +824,10 @@ test("a post that another process turned into a retry after the read posts nothi
     error: {
       reason: "review_post_in_progress",
       detail: "Another process started this post. Run the post again. Nothing was posted.",
+      next: {
+        command: "operator review wait",
+        why: "Let the process that started the post finish.",
+      },
     },
   });
   expect(calls.posts).toEqual([]);

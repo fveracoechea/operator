@@ -39,7 +39,7 @@ test("reports a ready device as compact JSON or as indented text", async () => {
   const check = spyOn(Readiness, "check").mockReturnValue(
     OkAsync({ blockers: [], warnings: [] }) as never,
   );
-  const { log } = quiet();
+  const { log, error } = quiet();
   const expected = {
     schemaVersion: 1,
     operation: "ready",
@@ -56,12 +56,13 @@ test("reports a ready device as compact JSON or as indented text", async () => {
   expect(process.exitCode).toBe(0);
   expect(await runReadiness(["ready"], paths, false)).toBe(true);
   expect(log).toHaveBeenLastCalledWith(JSON.stringify(expected, null, 2));
+  expect(error).not.toHaveBeenCalled();
 });
 
 test("reports readiness blockers with exit code 3", async () => {
   const blockers = [{ reason: "executable_missing", tool: "herdr", detail: "missing" }];
   spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers, warnings: [] }) as never);
-  const { log } = quiet();
+  const { log, error } = quiet();
   expect(await runReadiness(["ready"], paths, true)).toBe(true);
   expect(log).toHaveBeenLastCalledWith(
     JSON.stringify({
@@ -81,6 +82,21 @@ test("reports readiness blockers with exit code 3", async () => {
     }),
   );
   expect(process.exitCode).toBe(3);
+  const text = [
+    [
+      "operator: not_ready: Static readiness checks found blockers. Nothing was installed or repaired.",
+    ],
+    [
+      "next: super-agent decides: Which readiness blockers should be resolved next, and which named person decisions must be requested?",
+    ],
+    ['state: blockers=["executable_missing"]'],
+  ];
+  expect(error.mock.calls).toEqual(text);
+  log.mockClear();
+  error.mockClear();
+  expect(await runReadiness(["ready"], paths, false)).toBe(true);
+  expect(log).not.toHaveBeenCalled();
+  expect(error.mock.calls).toEqual(text);
 });
 
 test("reports a readiness refusal and a defect with exit code 1", async () => {
@@ -108,6 +124,10 @@ test("reports a readiness refusal and a defect with exit code 1", async () => {
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "ready",
     reason: "readiness_defect",
+    next: {
+      decider: "super-agent",
+      question: "How should readiness_defect be corrected before retrying ready?",
+    },
   });
   expect(error).toHaveBeenCalledWith("operator: readiness_defect: Error: boom");
   expect(process.exitCode).toBe(1);

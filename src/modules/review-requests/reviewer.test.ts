@@ -127,7 +127,11 @@ test("a refused or defective result names its failure", () => {
 test("a start with no request, project, or head is a defect, and nothing launches", async () => {
   const launched = spyOn(WorkerDispatch, "launchReviewer");
   const snapshot = held({ head: h1 });
-  const lost = { reason: "review_defect", detail: "The start lost its request." };
+  const lost = {
+    reason: "review_defect",
+    detail: "The start lost its request.",
+    next: { decider: "super-agent", question: "Why is the reviewer's start record missing?" },
+  };
   for (const broken of [
     { ...snapshot, request: null },
     { ...snapshot, project: null },
@@ -771,7 +775,11 @@ test("a cleanup that stops records nothing and releases the hold", async () => {
 test("a cleanup is claimed only when work is left and no other process runs it", () => {
   const unchanged = {
     tag: "Err",
-    error: { reason: "review_cleanup_unchanged", detail: "The reviewer cleanup is done." },
+    error: {
+      reason: "review_cleanup_unchanged",
+      detail: "The reviewer cleanup is done.",
+      next: { why: "The reviewer cleanup is complete. No cleanup remains." },
+    },
   };
   for (const cleanupState of [null, "done"]) {
     held({ state: "closed", cleanupState, ownerPid: null, leaseAt: null });
@@ -791,6 +799,8 @@ test("a cleanup is claimed only when work is left and no other process runs it",
     tag: "Err",
     error: {
       reason: "review_cleanup_in_progress",
+      next: { command: "operator review wait", why: "Let the current reviewer cleanup finish." },
+      state: { ownerActive: true },
       detail: "Another process cleans up this reviewer now. Nothing changed.",
     },
   });

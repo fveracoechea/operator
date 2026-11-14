@@ -26,6 +26,11 @@ test("a missing file is written in place, and check mode only reports it", async
   expect(await installPlugin({ file, check: true })).toMatchObject({
     reason: "opencode_plugin_missing",
     detail: expect.stringContaining(`link or copy ${pluginFile} to ${file}`) as string,
+    next: {
+      command: "operator install --opencode",
+      why: "Install the Operator plugin, or restore its consumer-owned link.",
+    },
+    state: { file, installed: null },
   });
   expect(await Bun.file(file).exists()).toBe(false);
   expect(await installPlugin({ file, check: false })).toEqual({ reason: "installed" });
@@ -45,6 +50,11 @@ test("another version is reported in check mode and replaced by install", async 
     await Bun.write(file, `// OPERATOR_PLUGIN_VERSION=${other}\n`);
     expect(await installPlugin({ file, check: true })).toMatchObject({
       reason: "opencode_plugin_outdated",
+      next: {
+        command: "operator install --opencode",
+        why: "Update the Operator plugin, or update its consumer-owned link.",
+      },
+      state: { file, installed: String(other), required: String(version) },
       detail: expect.stringContaining(
         `version ${other}, and this release runs version ${version}`,
       ) as string,
@@ -62,6 +72,11 @@ test("a file with no marker belongs to the person and stays unchanged", async ()
   expect(await installPlugin({ file, check: false })).toMatchObject({
     reason: "opencode_plugin_external",
     detail: expect.stringContaining(`to ${file}`) as string,
+    next: {
+      decider: "person",
+      question: "Which external OpenCode configuration should link or copy the Operator plugin?",
+    },
+    state: { file },
   });
   expect(await Bun.file(file).text()).toBe("export default { id: 'mine' }\n");
 });

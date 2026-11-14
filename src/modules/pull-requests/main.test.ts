@@ -140,6 +140,28 @@ function stack(device: Device) {
   return { parent: parentStart, child: device.start("child") };
 }
 
+test("an open dependency refuses a default-branch base and names the dependency decision", async () => {
+  await using device = await prDevice();
+  const { child } = stack(device);
+  device.answer(() =>
+    succeeded(associationBody([{ number: 7, base: "main", head: "task/child" }])),
+  );
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await PullRequests.associate({ paths: device.paths, cwd: child.worktree })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_base_invalid",
+      next: {
+        decider: "super-agent",
+        question: "Which open dependency branch should this PR target?",
+      },
+      state: { base: "main", openParents: ["task/parent", "task/second"] },
+    },
+  });
+  expect(device.pullRequestRow("child")).toBeNull();
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+});
+
 test("a PR on a dependency's PR branch is recorded as stacked", async () => {
   await using device = await prDevice();
   const { child } = stack(device);

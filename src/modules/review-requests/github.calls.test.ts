@@ -17,6 +17,11 @@ afterEach(() => {
 type Outcome = Awaited<ReturnType<typeof GithubApi.call>>;
 const failed: Outcome = { status: "failed", code: "HTTP 403", detail: "No.", httpStatus: 403 };
 const lost: Outcome = { status: "uncertain", detail: "Timed out." };
+const readRecovery = {
+  decider: "super-agent",
+  question:
+    "How should the failed or unreadable GitHub review read be corrected before continuing?",
+};
 
 function github(outcome: Outcome | Error) {
   return spyOn(GithubApi, "call").mockImplementation(async () => {
@@ -60,17 +65,18 @@ test("a PR read names a refusal, a lost answer, an unknown answer, and a missing
   github(failed);
   expect(await readPullRequest(target)).toMatchObject({
     tag: "Err",
-    error: { reason: "github_failed", detail: "HTTP 403: No." },
+    error: { reason: "github_failed", detail: "HTTP 403: No.", next: readRecovery },
   });
   mock.restore();
   github(lost);
   expect(await readPullRequest(target)).toMatchObject({
     tag: "Err",
-    error: { reason: "github_uncertain", detail: "Timed out." },
+    error: { reason: "github_uncertain", detail: "Timed out.", next: readRecovery },
   });
   const invalid = {
     reason: "github_invalid_response",
     detail: "GitHub did not describe PR #7 of example/one in the expected form.",
+    next: readRecovery,
   };
   for (const body of [
     {},

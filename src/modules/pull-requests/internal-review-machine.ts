@@ -334,7 +334,7 @@ const skipRules: Rule<SkipFacts>[] = [
       refused(
         "internal_review_not_recorded",
         `The assignment has no internal review to skip. ${unchanged}`,
-        { next: { why: "No internal review exists to skip." }, state: { review: null } },
+        { state: { review: null } },
       ),
   },
   {

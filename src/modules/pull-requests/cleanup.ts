@@ -341,7 +341,9 @@ async function worktreeStep(
   if (inspection.real === null || inspection.decision.action !== "dispose")
     // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: this type guard is unreachable, as the line before explains
     return failed({
+      // Stryker disable next-line StringLiteral: equivalent: worktreeStep returned for every inspection decision except dispose. inspectWorktree returns dispose only with a real path. The immediately preceding conditional and object literal already carry original equivalent proofs; these are the nested reason/detail strings introduced onto separate lines.
       reason: "cleanup_defect",
+      // Stryker disable next-line StringLiteral: equivalent: worktreeStep returned for every inspection decision except dispose. inspectWorktree returns dispose only with a real path. The immediately preceding conditional and object literal already carry original equivalent proofs; these are the nested reason/detail strings introduced onto separate lines.
       detail: "The worktree inspection has no path.",
       next: cleanupRecovery,
     });

@@ -738,7 +738,14 @@ test("acceptance stops when its cleanup record or the accepted report cannot be 
   spyOn(WorkSources, "show").mockReturnValue(OkAsync(undefined));
   expect(await accept(sourceId)).toMatchObject({
     tag: "Err",
-    error: { reason: "report_defect", detail: "The accepted report is not recorded." },
+    error: {
+      reason: "report_defect",
+      detail: "The accepted report is not recorded.",
+      next: {
+        decider: "super-agent",
+        question: "Why is the accepted report missing from its recorded source?",
+      },
+    },
   });
 });
 

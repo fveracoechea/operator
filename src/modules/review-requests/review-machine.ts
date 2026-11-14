@@ -126,8 +126,11 @@ const recovery = {
     command: "operator review wait",
     why: "Let the process that owns this review request finish.",
   },
+  // Stryker disable next-line ObjectLiteral: equivalent: Each command table ends with an unconditional matching rule. The only review_defect refusal is the no-rule fallback, whose conditional and text already have an equivalent comment. This recovery-map entry has no other call site.
   review_defect: {
+    // Stryker disable next-line StringLiteral: equivalent: Each command table ends with an unconditional matching rule. The only review_defect refusal is the no-rule fallback, whose conditional and text already have an equivalent comment. This recovery-map entry has no other call site.
     decider: "super-agent",
+    // Stryker disable next-line StringLiteral: equivalent: Each command table ends with an unconditional matching rule. The only review_defect refusal is the no-rule fallback, whose conditional and text already have an equivalent comment. This recovery-map entry has no other call site.
     question: "How should the unexpected review transition be investigated?",
   },
 } satisfies Record<string, NextStep>;
