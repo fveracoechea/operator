@@ -316,21 +316,22 @@ function applyEnds(
   change: { abandon: string[]; interrupted?: string[] },
 ) {
   const endedAt = new Date().toISOString();
-  db.update(launches)
-    .set({
-      state: "interrupted",
-      endedAt,
-      failureReason: "pane_missing",
-      failureDetail: "Herdr confirmed that the worker pane and named agent no longer exist.",
-    })
-    .where(
-      and(
-        eq(launches.sourceId, sourceId),
-        eq(launches.state, "running"),
-        inArray(launches.id, change.interrupted ?? []),
-      ),
-    )
-    .run();
+  if (change.interrupted?.length)
+    db.update(launches)
+      .set({
+        state: "interrupted",
+        endedAt,
+        failureReason: "pane_missing",
+        failureDetail: "Herdr confirmed that the worker pane and named agent no longer exist.",
+      })
+      .where(
+        and(
+          eq(launches.sourceId, sourceId),
+          eq(launches.state, "running"),
+          inArray(launches.id, change.interrupted),
+        ),
+      )
+      .run();
   db.update(assignments)
     .set({ state: "abandoned" })
     .where(and(eq(assignments.sourceId, sourceId), inArray(assignments.key, change.abandon)))
@@ -343,7 +344,7 @@ function applyEnds(
 export function endAssignments<E extends { reason: string; detail: string }>(
   client: Database,
   target: ControlledSource,
-  decide: (facts: EndFacts) => Result<{ abandon: string[]; interrupted: string[] }, E>,
+  decide: (facts: EndFacts) => Result<{ abandon: string[]; interrupted?: string[] }, E>,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>

@@ -39,7 +39,7 @@ type Facts = {
     workerGone: boolean;
     paneGone: boolean;
     worktreeGone: boolean;
-    retained: boolean;
+    retained?: boolean;
   };
 };
 type Decision = {
@@ -186,7 +186,7 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   },
   {
     when: ({ assignment, resources }) =>
-      !["ready", "merged", "completed", "abandoned"].includes(assignment.state) &&
+      assignment.state !== "ready" &&
       resources !== undefined &&
       (resources.kind === "pane"
         ? resources.paneGone

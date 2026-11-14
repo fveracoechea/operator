@@ -186,10 +186,9 @@ function read(input: Input & { sourceId?: string }) {
 }
 
 function resourceFacts(
-  launch: { state: string; resources: string; worktreePath: string | null } | undefined,
+  launch: { state: string; resources: string; worktreePath: string | null },
   paneGone = false,
-) {
-  if (launch === undefined) return undefined;
+): NonNullable<Parameters<typeof decideAssignment>[0]["resources"]> {
   const worktreeGone =
     launch.worktreePath !== null &&
     lstatSync(launch.worktreePath, { throwIfNoEntry: false }) === undefined;
@@ -198,7 +197,6 @@ function resourceFacts(
     workerGone: paneGone || ["interrupted", "finished", "failed"].includes(launch.state),
     paneGone,
     worktreeGone,
-    retained: launch.worktreePath !== null && !worktreeGone,
   };
 }
 
@@ -216,8 +214,7 @@ function observedSources(
         const active = new Set(
           row.assignments
             .filter(
-              (assignment) =>
-                !["ready", "merged", "completed", "abandoned"].includes(assignment.state),
+              (assignment) => !["merged", "completed", "abandoned"].includes(assignment.state),
             )
             .map((assignment) => assignment.key),
         );
@@ -256,7 +253,7 @@ function observedSources(
             .filter(({ launch, resources }) => {
               return (
                 isMissing(launch) ||
-                (resources?.kind === "worktree" && resources.workerGone && resources.worktreeGone)
+                (resources.kind === "worktree" && resources.workerGone && resources.worktreeGone)
               );
             })
             .map(({ launch }) => launch.sourceId),
@@ -284,9 +281,7 @@ function observedSources(
                       .map((launch) => launch.id);
                     const abandon = facts.assignments
                       .filter((assignment) => {
-                        if (
-                          ["ready", "merged", "completed", "abandoned"].includes(assignment.state)
-                        )
+                        if (["merged", "completed", "abandoned"].includes(assignment.state))
                           return false;
                         const launch = facts.launches.findLast(
                           (row) => row.assignment === assignment.key,
@@ -414,7 +409,7 @@ export const WorkSources = {
         (
           facts,
         ): Result<
-          { abandon: string[]; interrupted: string[] },
+          { abandon: string[]; interrupted?: string[] },
           ResultContext & {
             reason: "assignment_not_found" | "assignment_ended" | "state_corrupt";
             detail: string;
@@ -448,7 +443,7 @@ export const WorkSources = {
               next: { why: "Nothing is left to abandon." },
               state: { found: current.state },
             });
-          return Ok({ abandon: [input.assignment], interrupted: [] });
+          return Ok({ abandon: [input.assignment] });
         },
       ).map((result) => ({
         sourceId: input.sourceId,
@@ -1084,7 +1079,7 @@ function assignmentResources(
         branch: previous.branch,
       });
   }
-  const resources = resourceFacts(launch);
+  const resources = launch === undefined ? undefined : resourceFacts(launch);
   if (resources !== undefined) resources.retained = retained.size > 0;
   return { resources, retained: current.state === "abandoned" ? [...retained.values()] : [] };
 }

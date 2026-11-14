@@ -11,6 +11,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { WorkSources } from "./main.ts";
+import { z } from "zod";
 
 const day = 24 * 60 * 60 * 1000;
 let root = "";
@@ -580,7 +581,8 @@ test("abandon changes only its selected assignment and refuses missing or ended 
   const input = { paths, cwd: checkout, sourceId };
   const database = Bun.file(paths.database);
   const before = await database.bytes();
-  expect(await WorkSources.abandon({ ...input, assignment: "missing" })).toMatchObject({
+  const missing = await WorkSources.abandon({ ...input, assignment: "missing" });
+  expect(missing).toMatchObject({
     tag: "Err",
     error: {
       reason: "assignment_not_found",
@@ -588,11 +590,22 @@ test("abandon changes only its selected assignment and refuses missing or ended 
       next: { command: `operator source show --source ${sourceId}` },
     },
   });
+  if (missing.tag === "Err") {
+    expect(missing.error.detail.length).toBeGreaterThan(0);
+    expect(
+      z.object({ next: z.object({ why: z.string().min(1) }) }).safeParse(missing.error).success,
+    ).toBe(true);
+  }
   expect(await database.bytes()).toEqual(before);
-  expect(await WorkSources.abandon({ ...input, assignment: "read" })).toMatchObject({
+  const abandoned = await WorkSources.abandon({ ...input, assignment: "read" });
+  expect(abandoned).toMatchObject({
     tag: "Ok",
     value: { assignment: "read", ended: ["read"], retained: [] },
   });
+  if (abandoned.tag === "Ok") {
+    expect(abandoned.value.next.command).toBe(`operator next --source ${sourceId}`);
+    expect(abandoned.value.next.why.length).toBeGreaterThan(0);
+  }
   expect((await WorkSources.show(input)).getOr(undefined)?.assignments).toMatchObject([
     { key: "read", state: "abandoned" },
     { key: "other", state: "ready" },
@@ -616,11 +629,128 @@ test("abandon refuses corrupt persisted assignment state without repairing it", 
     db.exec("UPDATE assignments SET state = 'corrupt'");
   }
   const before = await Bun.file(paths.database).bytes();
-  expect(
-    await WorkSources.abandon({ paths, cwd: checkout, sourceId, assignment: "read" }),
-  ).toMatchObject({ tag: "Err", error: { reason: "state_corrupt" } });
+  const refusal = await WorkSources.abandon({ paths, cwd: checkout, sourceId, assignment: "read" });
+  expect(refusal).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_corrupt", state: { found: "corrupt" }, next: { decider: "person" } },
+  });
+  if (refusal.tag === "Err") {
+    expect(refusal.error.detail.length).toBeGreaterThan(0);
+    expect(
+      z.object({ next: z.object({ question: z.string().min(1) }) }).safeParse(refusal.error)
+        .success,
+    ).toBe(true);
+  }
   expect(await Bun.file(paths.database).bytes()).toEqual(before);
 });
+
+test.each(["completed", "merged"])(
+  "abandon refuses %s work and next never probes its closed worker",
+  async (state) => {
+    const completion = state === "merged" ? "pr" : "report";
+    const registered = await register({
+      trackerKey: "APP-closed",
+      assignments: [
+        { ...assignment("closed", completion), resources: "worktree", branch: "task/closed" },
+        assignment("other"),
+      ],
+    });
+    expect(registered.tag).toBe("Ok");
+    if (registered.tag !== "Ok") return;
+    const sourceId = registered.value.id;
+    const id = launch(sourceId, "closed", "running");
+    if (state === "merged") {
+      expect(
+        DeviceState.associatePullRequest(paths, id, {
+          number: 7,
+          url: "https://github.com/example/one/pull/7",
+          branch: "task/closed",
+          relay: null,
+        }).tag,
+      ).toBe("Ok");
+      expect(
+        DeviceState.recordPullRequestMerge(
+          paths,
+          id,
+          { number: 7, head: "head", mergeCommit: "merge" },
+          WorkSources.stateAfter,
+        ).tag,
+      ).toBe("Ok");
+    } else setState(sourceId, "closed", "completed");
+    const before = await Bun.file(paths.database).bytes();
+    const refusal = await WorkSources.abandon({
+      paths,
+      cwd: checkout,
+      sourceId,
+      assignment: "closed",
+    });
+    expect(refusal).toMatchObject({
+      tag: "Err",
+      error: { reason: "assignment_ended", state: { found: state } },
+    });
+    if (refusal.tag === "Err") expect(refusal.error.detail.length).toBeGreaterThan(0);
+    expect(await Bun.file(paths.database).bytes()).toEqual(before);
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+    });
+    const names = spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+    const pane = spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+    expect((await WorkSources.next({ paths, cwd: checkout, sourceId })).tag).toBe("Ok");
+    expect(names).not.toHaveBeenCalled();
+    expect(pane).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["completed", "merged", "abandoned"])(
+  "next preserves a concurrent %s assignment end before applying older resource observations",
+  async (state) => {
+    const completion = state === "merged" ? "pr" : "report";
+    const registered = await register({
+      trackerKey: "APP-concurrent-end",
+      assignments: [
+        { ...assignment("closed", completion), resources: "worktree", branch: "task/closed" },
+        assignment("other"),
+      ],
+    });
+    expect(registered.tag).toBe("Ok");
+    if (registered.tag !== "Ok") return;
+    const sourceId = registered.value.id;
+    const id = launch(sourceId, "closed", "running");
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+    });
+    spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+    spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+    const end = DeviceState.endAssignments;
+    spyOn(DeviceState, "endAssignments").mockImplementation((p, target, decide) => {
+      if (state === "merged") {
+        expect(
+          DeviceState.associatePullRequest(paths, id, {
+            number: 7,
+            url: "https://github.com/example/one/pull/7",
+            branch: "task/closed",
+            relay: null,
+          }).tag,
+        ).toBe("Ok");
+        expect(
+          DeviceState.recordPullRequestMerge(
+            paths,
+            id,
+            { number: 7, head: "head", mergeCommit: "merge" },
+            WorkSources.stateAfter,
+          ).tag,
+        ).toBe("Ok");
+      } else setState(sourceId, "closed", state);
+      return end(p, target, decide);
+    });
+    expect((await WorkSources.next({ paths, cwd: checkout, sourceId })).tag).toBe("Ok");
+    expect((await shown(sourceId))?.assignments.find((row) => row.key === "closed")).toMatchObject({
+      state,
+    });
+  },
+);
 
 test.each([
   { field: "id", column: "id", value: "replacement-launch" },
@@ -664,3 +794,198 @@ test.each([
     if (field !== "state") expect(source?.launches[0]?.state).toBe("running");
   },
 );
+
+test("next persists missing pane and worktree ends, keeps existing work, and renders complete ended rows", async () => {
+  const registered = await register({
+    trackerKey: "APP-resources",
+    assignments: [
+      { ...assignment("read"), resources: "worktree", branch: "task/read" },
+      assignment("pane"),
+      assignment("other"),
+    ],
+  });
+  expect(registered.tag).toBe("Ok");
+  if (registered.tag !== "Ok") return;
+  const sourceId = registered.value.id;
+  const read = launch(sourceId, "read", "running");
+  const pane = launch(sourceId, "pane", "running");
+  {
+    using db = new Database(paths.database);
+    db.query("UPDATE launches SET resources = 'pane', worktree_path = NULL WHERE id = ?").run(pane);
+  }
+  await mkdir(`${root}/worktrees/read`, { recursive: true });
+  await Bun.write(`${root}/worktrees/read/notes.md`, "keep\n");
+  expect(
+    DeviceState.registerProject(paths, {
+      repository: "aaa/other",
+      checkout: "/isolated/other",
+      registeredAt: "now",
+    }).tag,
+  ).toBe("Ok");
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_SOCKET_PATH: "/herdr.sock",
+  });
+  const names = spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+  const query = spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "t1", workspaceId: "w1" }));
+  const input = { paths, cwd: checkout, sourceId };
+  expect((await WorkSources.next(input)).getOr(undefined)?.sources[0]?.waits).toMatchObject([
+    { assignment: "read", action: "wait" },
+    { assignment: "pane", action: "wait" },
+  ]);
+  query.mockReturnValue(OkAsync(null));
+  const missing = await WorkSources.next(input);
+  expect(missing.getOr(undefined)?.sources[0]?.actions).toMatchObject([
+    { assignment: "read", action: "replace_worker" },
+    { assignment: "pane", action: "ended", blockers: [] },
+    { assignment: "other", action: "ready_assignment" },
+  ]);
+  expect(await shown(sourceId)).toMatchObject({
+    assignments: [
+      { key: "read", state: "running" },
+      { key: "pane", state: "abandoned" },
+      { key: "other", state: "ready" },
+    ],
+  });
+  const persisted = await shown(sourceId);
+  expect(persisted?.launches.find((row) => row.id === read)).toMatchObject({
+    state: "interrupted",
+  });
+  expect(persisted?.launches.find((row) => row.id === pane)).toMatchObject({
+    state: "interrupted",
+  });
+  expect(await Bun.file(`${root}/worktrees/read/notes.md`).text()).toBe("keep\n");
+  await rm(`${root}/worktrees/read`, { recursive: true });
+  const ended = await WorkSources.next(input);
+  expect(ended.getOr(undefined)?.sources[0]?.actions).toMatchObject([
+    { assignment: "read", action: "ended", blockers: [] },
+    { assignment: "pane", action: "ended", blockers: [] },
+    { assignment: "other", action: "ready_assignment" },
+  ]);
+  expect((await shown(sourceId))?.assignments).toMatchObject([
+    { key: "read", state: "abandoned" },
+    { key: "pane", state: "abandoned" },
+    { key: "other", state: "ready" },
+  ]);
+  query.mockClear();
+  names.mockClear();
+  expect((await WorkSources.next(input)).tag).toBe("Ok");
+  expect(query).not.toHaveBeenCalled();
+  expect(names).not.toHaveBeenCalled();
+});
+
+test.each(["interrupted", "finished", "failed"])(
+  "next ends a missing worktree after recorded %s even while the pane remains",
+  async (state) => {
+    const registered = await register({
+      trackerKey: "APP-terminal",
+      assignments: [
+        { ...assignment("read"), resources: "worktree", branch: "task/read" },
+        assignment("other"),
+      ],
+    });
+    expect(registered.tag).toBe("Ok");
+    if (registered.tag !== "Ok") return;
+    const sourceId = registered.value.id;
+    const id = launch(sourceId, "read", "running");
+    {
+      using db = new Database(paths.database);
+      db.query("UPDATE launches SET state = ? WHERE id = ?").run(state, id);
+    }
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+    });
+    spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+    spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "t1", workspaceId: "w1" }));
+    expect(
+      (await WorkSources.next({ paths, cwd: checkout, sourceId })).getOr(undefined)?.sources[0]
+        ?.actions,
+    ).toMatchObject([
+      { assignment: "read", action: "ended" },
+      { assignment: "other", action: "ready_assignment" },
+    ]);
+    expect((await shown(sourceId))?.assignments[0]).toMatchObject({
+      key: "read",
+      state: "abandoned",
+    });
+  },
+);
+
+test("a real session wait observes and returns only its supervised source", async () => {
+  const selected = await registered(["selected"], "APP-selected");
+  const other = await registered(["outside"], "APP-outside");
+  launch(selected, "selected", "running");
+  launch(other, "outside", "running");
+  {
+    using db = new Database(paths.database);
+    db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_scope", selected);
+    db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_other", other);
+  }
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_SOCKET_PATH: "/herdr.sock",
+    HERDR_PANE_ID: "super:p0",
+    OPENCODE_SESSION_ID: "ses_scope",
+    CLAUDE_CODE_SESSION_ID: undefined,
+  });
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+  spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+  const next = await WorkSources.wait({ paths, cwd: checkout, timeoutSeconds: 0, all: true });
+  expect(next).toMatchObject({
+    tag: "Ok",
+    value: {
+      data: { sources: [{ id: selected, actions: [{ assignment: "selected", action: "ended" }] }] },
+    },
+  });
+  expect((await shown(other))?.assignments).toMatchObject([{ key: "outside", state: "running" }]);
+});
+
+test("next names every retained assignment path after a later pathless launch and leaves other assignments separate", async () => {
+  const registered = await register({
+    trackerKey: "APP-retained",
+    assignments: [
+      { ...assignment("read"), resources: "worktree", branch: "task/read" },
+      assignment("other"),
+    ],
+  });
+  expect(registered.tag).toBe("Ok");
+  if (registered.tag !== "Ok") return;
+  const sourceId = registered.value.id;
+  const first = launch(sourceId, "read", "failed");
+  await mkdir(`${root}/worktrees/read`, { recursive: true });
+  await Bun.write(`${root}/worktrees/read/notes.md`, "keep\n");
+  const later = launch(sourceId, "read", "failed");
+  {
+    using db = new Database(paths.database);
+    db.query("UPDATE launches SET worktree_path = NULL WHERE id = ?").run(later);
+  }
+  expect(
+    await WorkSources.abandon({ paths, cwd: checkout, sourceId, assignment: "read" }),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { ended: ["read"], retained: [{ worktreePath: `${root}/worktrees/read` }] },
+  });
+  expect(
+    (await WorkSources.next({ paths, cwd: checkout, sourceId })).getOr(undefined)?.sources[0]
+      ?.actions,
+  ).toMatchObject([
+    {
+      assignment: "read",
+      action: "person_decision",
+      reason: "cleanup_unlanded_work",
+      retainedResources: [{ worktreePath: `${root}/worktrees/read`, branch: "task/read" }],
+    },
+    { assignment: "other", action: "ready_assignment" },
+  ]);
+  expect((await shown(sourceId))?.launches.map((row) => row.id)).toEqual([first, later]);
+  expect(await Bun.file(`${root}/worktrees/read/notes.md`).text()).toBe("keep\n");
+  await rm(`${root}/worktrees/read`, { recursive: true });
+  expect(
+    (await WorkSources.next({ paths, cwd: checkout, sourceId })).getOr(undefined)?.sources[0]
+      ?.actions,
+  ).toMatchObject([
+    { assignment: "read", action: "ended" },
+    { assignment: "other", action: "ready_assignment" },
+  ]);
+});

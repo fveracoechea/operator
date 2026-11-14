@@ -521,22 +521,23 @@ test("changed and new ignored install output does not block removal", async () =
   });
 });
 
-test("an environment inspection failure blocks cleanup", async () => {
-  const owner = await mergedOwner();
-  await using device = owner.device;
-  await Bun.write(`${device.checkout}/.git/info/exclude`, "*.log\n");
-  await Bun.write(`${owner.worktree}/debug.log`, "log\n");
-  spyOn(WorktreePreparation, "changedIgnoredEnvironment").mockReturnValue(
-    ErrAsync({ reason: "preparation_io_failed" as const, detail: "busy" }),
-  );
-  expect<unknown>(await cleanup(owner.request)).toEqual(
-    blocked(
-      device,
-      "cleanup_unlanded_work",
-      `${owner.worktree} holds ignored content that preparation did not write: environment files could not be inspected. ${person}`,
-    ),
-  );
-});
+test.each([ErrAsync({ reason: "preparation_io_failed" as const, detail: "busy" }), OkAsync(null)])(
+  "an environment inspection failure blocks cleanup %#",
+  async (failure) => {
+    const owner = await mergedOwner();
+    await using device = owner.device;
+    await Bun.write(`${device.checkout}/.git/info/exclude`, "*.log\n");
+    await Bun.write(`${owner.worktree}/debug.log`, "log\n");
+    spyOn(WorktreePreparation, "changedIgnoredEnvironment").mockReturnValue(failure);
+    expect<unknown>(await cleanup(owner.request)).toEqual(
+      blocked(
+        device,
+        "cleanup_unlanded_work",
+        `${owner.worktree} holds ignored content that preparation did not write: environment files could not be inspected. ${person}`,
+      ),
+    );
+  },
+);
 
 test("a worktree that Git cannot inspect is not proven landed", async () => {
   const owner = await mergedOwner();

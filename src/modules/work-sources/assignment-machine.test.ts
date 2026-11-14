@@ -92,6 +92,36 @@ test("resource facts end work only when its required resources are gone, and ret
     }).action,
   ).toBe("ready_assignment");
 });
+
+test("resource decisions keep active retained work running and expose complete end and person decisions", () => {
+  const assignment: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
+  const resources = {
+    kind: "worktree" as const,
+    workerGone: false,
+    worktreeGone: false,
+    paneGone: false,
+    retained: true,
+  };
+  expect(decideAssignment({ assignment, dependencies: [], resources })).toEqual({
+    action: "wait",
+    reason: "pr_feedback_loop",
+    blockers: [],
+  });
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      resources: { ...resources, workerGone: true, worktreeGone: true },
+    }),
+  ).toEqual({ action: "ended", reason: "assignment_ended", blockers: [] });
+  expect(
+    decideAssignment({
+      assignment: { ...assignment, state: "abandoned" },
+      dependencies: [],
+      resources,
+    }),
+  ).toEqual({ action: "person_decision", reason: "cleanup_unlanded_work", blockers: [] });
+});
 test("only open or merged PRs and accepted reports satisfy dependencies", () => {
   for (const state of prStates)
     expect(dependencyBlockers(child, [{ key: "parent", completion: "pr", state }]).length).toBe(
