@@ -1153,3 +1153,57 @@ test("next refuses without restoring a project removed after its resource snapsh
     error: { reason: "source_not_found" },
   });
 });
+
+test("a retained-work action returns as new after its path disappears and returns", async () => {
+  const registered = await register({
+    trackerKey: "APP-returned-path",
+    assignments: [
+      { ...assignment("read"), resources: "worktree", branch: "task/read" },
+      assignment("other"),
+    ],
+  });
+  expect(registered.tag).toBe("Ok");
+  if (registered.tag !== "Ok") return;
+  const sourceId = registered.value.id;
+  launch(sourceId, "read", "failed");
+  const worktree = `${root}/worktrees/read`;
+  await mkdir(worktree, { recursive: true });
+  expect(
+    (await WorkSources.abandon({ paths, cwd: checkout, sourceId, assignment: "read" })).tag,
+  ).toBe("Ok");
+  const input = { paths, cwd: checkout, sourceId, timeoutSeconds: 0 };
+  expect(await WorkSources.wait(input)).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "next_actions_changed",
+      data: {
+        sources: [
+          {
+            actions: [
+              { assignment: "read", action: "person_decision" },
+              { assignment: "other", action: "ready_assignment" },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  await rm(worktree, { recursive: true });
+  expect(await WorkSources.wait(input)).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "next_actions_changed",
+      data: { sources: [{ actions: [{ assignment: "read", action: "ended" }] }] },
+    },
+  });
+  await mkdir(worktree, { recursive: true });
+  const returned = await WorkSources.wait(input);
+  expect(returned).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "next_actions_changed",
+      data: { sources: [{ actions: [{ assignment: "read", action: "person_decision" }] }] },
+    },
+  });
+  if (returned.tag === "Ok") expect(returned.value.data.sources[0]?.actions).toHaveLength(1);
+});

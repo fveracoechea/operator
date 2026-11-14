@@ -911,13 +911,14 @@ function watchActions(
       scopeAnswer(input, target.repository).flatMap((answer) => {
         const set = parseSet(stored);
         const current = actionKeys(answer);
-        // Stryker disable next-line ArrayDeclaration: equivalent: a first wait has no stored keys to remove, and finishing that wait records the complete current set
-        const removed = [...(set ?? [])].filter((key) => !current.has(key));
         const dropped =
-          // Stryker disable next-line ConditionalExpression: no rule: dropping an empty key set changes no acknowledged action; skipping that redundant write is only an optimization
-          removed.length === 0
+          set === null
             ? Ok(undefined)
-            : DeviceState.changeCoordinationWait(input.paths, target, dropKeys(removed)).discard();
+            : DeviceState.changeCoordinationWait(
+                input.paths,
+                target,
+                dropKeys([...set].filter((key) => !current.has(key))),
+              ).discard();
         return dropped.map(() => ({ stored: set, answer, current }));
       }),
     );
