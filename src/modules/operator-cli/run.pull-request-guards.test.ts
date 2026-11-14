@@ -148,8 +148,8 @@ test.each([
     name: "missing PR worktree",
     file: "worker-dispatch/main.ts",
     replacements: [["facts.pullRequest !== null && reuse === null", "false"]],
-    testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "a replacement after a failed replacement start",
+    testFile: "worker-dispatch/main.replacement.test.ts",
+    pattern: "a PR on a branch that no recorded worktree holds",
   },
   {
     name: "PR branch of the waiting launch",
