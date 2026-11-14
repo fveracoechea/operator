@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Err, fromThrowable, Ok, OkAsync } from "unthrown";
+import { Err, fromSafePromise, fromThrowable, Ok, OkAsync } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -1122,4 +1122,34 @@ test("a finished source retains its pending merge cleanup without adding retaine
   });
   if (next.tag === "Ok")
     expect(next.value.sources[0]?.actions[1]).not.toHaveProperty("retainedResources");
+});
+
+test("next refuses without restoring a project removed after its resource snapshot", async () => {
+  const sourceId = await registered(["read"]);
+  launch(sourceId, "read", "running");
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_SOCKET_PATH: "/herdr.sock",
+  });
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+  spyOn(Herdr, "pane")
+    .mockReturnValue(OkAsync(null))
+    .mockImplementationOnce(() =>
+      fromSafePromise(
+        (async () => {
+          expect((await reset(sourceId)).tag).toBe("Ok");
+          expect(DeviceState.removeProject(paths, "example/one").tag).toBe("Ok");
+          return null;
+        })(),
+      ),
+    );
+  expect(await WorkSources.next({ paths, cwd: checkout, sourceId })).toMatchObject({
+    tag: "Err",
+    error: { reason: "controller_mismatch" },
+  });
+  expect(DeviceState.listProjects(paths)).toMatchObject({ tag: "Ok", value: { projects: [] } });
+  expect(DeviceState.readSources(paths, "example/one", sourceId)).toMatchObject({
+    tag: "Err",
+    error: { reason: "source_not_found" },
+  });
 });

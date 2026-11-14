@@ -266,7 +266,7 @@ function observedSources(
                   {
                     repository,
                     checkout:
-                      // Stryker disable next-line OptionalChaining,StringLiteral: equivalent: a stored source belongs to a registered project, so this lookup cannot miss in valid device state
+                      // Stryker disable next-line StringLiteral: equivalent: when concurrent removal deletes the project, any fallback checkout reaches the same controller_mismatch refusal
                       projects.find((project) => project.repository === repository)?.checkout ?? "",
                     sourceId: source.id,
                   },
@@ -276,8 +276,14 @@ function observedSources(
                       .map((launch) => launch.id);
                     const abandon = facts.assignments
                       .filter((assignment) => {
-                        // Stryker disable next-line StringLiteral: equivalent: the abandoned machine decision can only repeat its existing end; conversations are already closed
-                        if (["merged", "completed", "abandoned"].includes(assignment.state))
+                        if (
+                          [
+                            "merged",
+                            "completed",
+                            // Stryker disable next-line StringLiteral: equivalent: the abandoned machine decision can only repeat its existing end; conversations are already closed
+                            "abandoned",
+                          ].includes(assignment.state)
+                        )
                           return false;
                         const launch = facts.launches.findLast(
                           (row) => row.assignment === assignment.key,
