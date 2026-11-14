@@ -251,10 +251,7 @@ function observedSources(
         const changedIds = new Set(
           observed
             .filter(({ launch, resources }) => {
-              return (
-                isMissing(launch) ||
-                (resources.kind === "worktree" && resources.workerGone && resources.worktreeGone)
-              );
+              return isMissing(launch) || (resources.workerGone && resources.worktreeGone);
             })
             .map(({ launch }) => launch.sourceId),
         );
@@ -269,18 +266,17 @@ function observedSources(
                   {
                     repository,
                     checkout:
+                      // Stryker disable next-line OptionalChaining,StringLiteral: equivalent: a stored source belongs to a registered project, so this lookup cannot miss in valid device state
                       projects.find((project) => project.repository === repository)?.checkout ?? "",
                     sourceId: source.id,
                   },
                   (facts) => {
                     const interrupted = facts.launches
-                      .filter(
-                        (launch) =>
-                          unchanged(launch) && launch.state === "running" && isMissing(launch),
-                      )
+                      .filter((launch) => unchanged(launch) && isMissing(launch))
                       .map((launch) => launch.id);
                     const abandon = facts.assignments
                       .filter((assignment) => {
+                        // Stryker disable next-line StringLiteral: equivalent: the abandoned machine decision can only repeat its existing end; conversations are already closed
                         if (["merged", "completed", "abandoned"].includes(assignment.state))
                           return false;
                         const launch = facts.launches.findLast(
@@ -290,7 +286,9 @@ function observedSources(
                         return (
                           decideAssignment({
                             assignment: assignmentStateSchema.parse(assignment),
+                            // Stryker disable next-line ArrayDeclaration: equivalent: the machine decides ended before consulting dependencies; all later dependency decisions are not ended
                             dependencies: [],
+                            // Stryker disable next-line OptionalChaining: equivalent: unchanged proved that this launch ID exists in byId immediately before this lookup
                             resources: byId.get(launch.id)?.resources,
                           }).action === "ended"
                         );
@@ -907,8 +905,10 @@ function watchActions(
       scopeAnswer(input, target.repository).flatMap((answer) => {
         const set = parseSet(stored);
         const current = actionKeys(answer);
+        // Stryker disable next-line ArrayDeclaration: equivalent: a first wait has no stored keys to remove, and finishing that wait records the complete current set
         const removed = [...(set ?? [])].filter((key) => !current.has(key));
         const dropped =
+          // Stryker disable next-line ConditionalExpression: no rule: dropping an empty key set changes no acknowledged action; skipping that redundant write is only an optimization
           removed.length === 0
             ? Ok(undefined)
             : DeviceState.changeCoordinationWait(input.paths, target, dropKeys(removed)).discard();
