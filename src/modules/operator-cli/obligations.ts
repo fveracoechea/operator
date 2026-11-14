@@ -26,7 +26,10 @@ export function obligationArgs(args: string[]) {
     sourceId: values["--source"] ?? "",
     file: values["--file"] ?? "",
     key: values["--key"] ?? "",
-    kind: values["--kind"] ?? "",
+    kind:
+      values["--kind"] ??
+      // Stryker disable next-line StringLiteral: equivalent: add requires --kind; close and list never read kind
+      "",
     reference: values["--reference"],
   };
 }
