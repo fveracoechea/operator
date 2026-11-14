@@ -53,6 +53,29 @@ test.each([
     after: "pane.value === null",
     pattern: "live panes, moved named agents, and another Herdr session",
   },
+  {
+    name: "observed resource identity",
+    file: "work-sources/main.ts",
+    before: "if (launch === undefined || !unchanged(launch)) return false;",
+    after: "if (launch === undefined) return false;",
+    pattern: "next revalidates observed worktreePath",
+    testFile: "work-sources/main.lifecycle.test.ts",
+  },
+  {
+    name: "assignment-wide retained work",
+    file: "work-sources/main.ts",
+    before: "if (resources !== undefined) resources.retained = retained.size > 0;",
+    after: "void resources;",
+    pattern: "abandon preserves earlier worktrees",
+  },
+  {
+    name: "environment inspection errors keep work",
+    file: "worker-dispatch/worktree-cleanup.ts",
+    before: 'if (classified.tag !== "Ok" || classified.value === null)',
+    after: "if (false)",
+    pattern: "an environment inspection I/O failure keeps the worktree",
+    testFile: "worker-dispatch/worktree-cleanup.test.ts",
+  },
 ])(
   "a deliberate break of $name fails its lifecycle behavior test",
   async (change) => {
@@ -66,7 +89,7 @@ test.each([
           process.execPath,
           "run",
           "test",
-          "src/modules/operator-cli/run.assignment-ending.test.ts",
+          `src/modules/${"testFile" in change ? change.testFile : "operator-cli/run.assignment-ending.test.ts"}`,
           "--test-name-pattern",
           change.pattern,
         ],

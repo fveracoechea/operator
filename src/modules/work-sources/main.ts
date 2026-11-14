@@ -52,6 +52,16 @@ type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
   | { reason: "state_corrupt"; detail: string };
 type Input = { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string };
+type ResourceIdentity = {
+  id: string;
+  assignment: string;
+  state: string;
+  name: string;
+  paneId: string | null;
+  herdrSocket: string | null;
+  resources: string;
+  worktreePath: string | null;
+};
 
 // Activity is shown as an observation only. It never proves a submitted or completed result.
 function launchSummary(launch: Launch) {
@@ -219,16 +229,37 @@ function observedSources(
         return [...latest.values()];
       });
       return missingWorkers(candidates, true).flatMap((isMissing) => {
+        const observed = candidates.map((launch) => ({
+          launch,
+          resources: resourceFacts(launch, isMissing(launch)),
+        }));
+        const byId = new Map(observed.map((row) => [row.launch.id, row]));
+        function unchanged(launch: ResourceIdentity) {
+          const previous = byId.get(launch.id);
+          return (
+            previous !== undefined &&
+            (
+              [
+                "assignment",
+                "state",
+                "name",
+                "paneId",
+                "herdrSocket",
+                "resources",
+                "worktreePath",
+              ] as const
+            ).every((key) => previous.launch[key] === launch[key])
+          );
+        }
         const changedIds = new Set(
-          candidates
-            .filter((launch) => {
-              const resources = resourceFacts(launch, isMissing(launch));
+          observed
+            .filter(({ launch, resources }) => {
               return (
                 isMissing(launch) ||
                 (resources?.kind === "worktree" && resources.workerGone && resources.worktreeGone)
               );
             })
-            .map((launch) => launch.sourceId),
+            .map(({ launch }) => launch.sourceId),
         );
         const changed = scoped.filter((row) => changedIds.has(row.source.id));
         if (changed.length === 0) return Ok(decoded);
@@ -246,7 +277,10 @@ function observedSources(
                   },
                   (facts) => {
                     const interrupted = facts.launches
-                      .filter((launch) => launch.state === "running" && isMissing(launch))
+                      .filter(
+                        (launch) =>
+                          unchanged(launch) && launch.state === "running" && isMissing(launch),
+                      )
                       .map((launch) => launch.id);
                     const abandon = facts.assignments
                       .filter((assignment) => {
@@ -257,14 +291,12 @@ function observedSources(
                         const launch = facts.launches.findLast(
                           (row) => row.assignment === assignment.key,
                         );
+                        if (launch === undefined || !unchanged(launch)) return false;
                         return (
                           decideAssignment({
                             assignment: assignmentStateSchema.parse(assignment),
                             dependencies: [],
-                            resources: resourceFacts(
-                              launch,
-                              launch !== undefined && isMissing(launch),
-                            ),
+                            resources: byId.get(launch.id)?.resources,
                           }).action === "ended"
                         );
                       })
@@ -1034,6 +1066,29 @@ function decide(input: Input, source: Source, now: number) {
   });
 }
 
+function assignmentResources(
+  source: Source,
+  current: { key: string; state: string },
+  launch: Launch | undefined,
+) {
+  if (source.state !== "open") return { resources: undefined, retained: [] };
+  const retained = new Map<string, { worktreePath: string; branch: string | null }>();
+  for (const previous of source.launches) {
+    if (
+      previous.assignment === current.key &&
+      previous.worktreePath !== null &&
+      lstatSync(previous.worktreePath, { throwIfNoEntry: false }) !== undefined
+    )
+      retained.set(previous.worktreePath, {
+        worktreePath: previous.worktreePath,
+        branch: previous.branch,
+      });
+  }
+  const resources = resourceFacts(launch);
+  if (resources !== undefined) resources.retained = retained.size > 0;
+  return { resources, retained: current.state === "abandoned" ? [...retained.values()] : [] };
+}
+
 function decideAssignmentRow(
   input: Input,
   source: Source,
@@ -1053,6 +1108,7 @@ function decideAssignmentRow(
   const report = source.reports.findLast((row) => row.assignment === assignment.key);
   const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
   const review = source.internalReviews.find((row) => row.assignment === assignment.key);
+  const { resources, retained } = assignmentResources(source, current, launch);
   const decision = decideAssignment({
     assignment: current,
     dependencies,
@@ -1068,16 +1124,17 @@ function decideAssignmentRow(
     handoff: handoffFact(review),
     reviewing: review?.state === "reviewing",
     capReached: maxRunning !== undefined && running >= maxRunning,
-    resources: source.state === "open" ? resourceFacts(launch) : undefined,
+    resources,
   });
   const cap =
     decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
-  return described(
+  const row = described(
     input,
     source,
     { assignment: assignment.key, ...decision, ...cap },
     { assignment: assignment.key, launch, pullRequest, report, cleanup, review },
   );
+  return retained.length > 0 ? { ...row, retainedResources: retained } : row;
 }
 
 /** Adds the recorded facts that the SuperAgent reads beside each decision. */
