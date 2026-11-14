@@ -176,22 +176,26 @@ test("submission needs the worker's own Herdr pane and reads no file without it"
   const missing = `${device.root}/drafts/missing.json`;
   const required = {
     reason: "worker_pane_required",
+    next: {
+      decider: "super-agent",
+      question: "Which dispatched worker pane must run this command?",
+    },
     detail:
       "Run this command in the Herdr pane that Operator dispatched for the assignment. Nothing changed.",
   };
-  for (const [pane, server] of [
-    [null, socket],
-    [workerPane, null],
-    [null, null],
+  for (const [pane, server, state] of [
+    [null, socket, { panePresent: false }],
+    [workerPane, null, { serverPresent: false }],
+    [null, null, { serverPresent: false }],
   ] as const) {
     device.inPane(pane, server);
     expect(await ReportAssignments.submit({ paths: device.paths, file: missing })).toMatchObject({
       tag: "Err",
-      error: required,
+      error: { ...required, state },
     });
     expect(await ReportAssignments.resume({ paths: device.paths })).toMatchObject({
       tag: "Err",
-      error: required,
+      error: { ...required, state },
     });
     mock.restore();
   }
@@ -281,6 +285,10 @@ test("a decision that changes before the write publishes no report", async () =>
     tag: "Err",
     error: {
       reason: "report_changed",
+      next: {
+        command: "operator next",
+        why: "Read the current report action after its decision changed.",
+      },
       detail: "The assignment changed during this command. Read operator next. Nothing changed.",
     },
   });

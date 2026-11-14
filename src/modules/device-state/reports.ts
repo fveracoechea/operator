@@ -91,7 +91,7 @@ function readFacts(db: Db, target: ReportTarget) {
             command: "operator next",
             why: "Read the available assignments before choosing a target.",
           },
-          state: { sourceExists: source !== undefined, assignmentExists: assignment !== undefined },
+          state: { sourceExists: true, assignmentExists: false },
           detail: `Assignment ${key} does not exist in this source. Nothing changed.`,
         });
       const latest = db

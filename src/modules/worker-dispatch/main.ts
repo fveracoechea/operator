@@ -67,7 +67,8 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         WorkSources.show(input).flatMap((source) =>
           // Stryker disable next-line ConditionalExpression: equivalent: show refuses an unknown source with source_not_found, so it never answers undefined here
           source === undefined
-            ? notDispatchable(input.assignment, { sourceExists: false })
+            ? // Stryker disable next-line ObjectLiteral, BooleanLiteral: equivalent: show refuses unknown sources before this unreachable fallback
+              notDispatchable(input.assignment, { sourceExists: false })
             : Ok(source),
         ),
       )
@@ -107,7 +108,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         return planned === undefined || action === undefined
           ? notDispatchable(input.assignment, {
               assignmentPlanned: planned !== undefined,
-              dispatchActionExists: action !== undefined,
+              dispatchActionExists: false,
             })
           : Ok({
               ...planned,

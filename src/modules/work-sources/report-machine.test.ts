@@ -64,6 +64,22 @@ test.each([
     { command: "cleanup", state: "reported", latest: submitted },
     { assignment: "reported", decision: null },
   ],
+  [
+    {
+      command: "return",
+      state: "running",
+      latest: { number: 1, decision: "accepted", cleanupState: null },
+    },
+    { assignment: "running", decision: "accepted" },
+  ],
+  [
+    {
+      command: "cleanup",
+      state: "reported",
+      latest: { number: 1, decision: "returned", cleanupState: null },
+    },
+    { assignment: "reported", decision: "returned" },
+  ],
   [{ command: "submit", state: "running", completion: "pr" }, { completion: "pr" }],
 ] satisfies [Parameters<typeof facts>[0], Record<string, unknown>][])(
   "report refusal exposes checked facts for %j",
@@ -74,6 +90,36 @@ test.each([
     });
   },
 );
+
+test("promotion names an unknown or ended source without inferring its state", () => {
+  expect(
+    decideReport(facts({ command: "promote", state: "reported", latest: submitted })),
+  ).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "source_ended",
+      detail: "The source is unknown. Nothing changed.",
+      state: { source: null },
+    },
+  });
+  expect(
+    decideReport(
+      facts({
+        command: "promote",
+        state: "reported",
+        latest: submitted,
+        promotion: { sourceState: "reset", key: "build" },
+      }),
+    ),
+  ).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "source_ended",
+      detail: "The source is reset. Nothing changed.",
+      state: { source: "reset" },
+    },
+  });
+});
 
 test("a running worker submits the next report, and submission is not completion", () => {
   expect(decideReport(facts({ command: "submit", state: "running" }))).toMatchObject({

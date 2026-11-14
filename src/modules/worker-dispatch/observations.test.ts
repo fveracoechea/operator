@@ -388,7 +388,11 @@ test(
       error: {
         reason: "worktree_setup_failed",
         detail: "bun install failed",
-        next: { decider: "super-agent" },
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the recorded worktree preparation failure be corrected before retrying?",
+        },
         state: { preparation: "failed" },
       },
     });
@@ -398,7 +402,11 @@ test(
       tag: "Err",
       error: {
         reason: "worktree_setup_failed",
-        next: { decider: "super-agent" },
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the recorded worktree preparation failure be corrected before retrying?",
+        },
         state: { preparationAbandoned: true },
         detail: "The Herdr worktree hook stopped before it recorded a preparation outcome.",
       },
@@ -415,7 +423,10 @@ test(
       tag: "Err",
       error: {
         reason: "worktree_missing",
-        next: { decider: "super-agent" },
+        next: {
+          decider: "super-agent",
+          question: "How should the recorded missing worktree be recovered?",
+        },
         state: { worktreeExists: false },
         detail: `Herdr returned ${root}/missing, but it does not exist.`,
       },
@@ -446,7 +457,10 @@ test(
       tag: "Err",
       error: {
         reason: "worktree_setup_unconfirmed",
-        next: { command: "operator next" },
+        next: {
+          command: "operator next",
+          why: "Read the current launch action before retrying its unconfirmed preparation.",
+        },
         state: { completionConfirmed: false },
         detail:
           "The Herdr worktree hook did not record a finished preparation. Check the Operator Herdr plugin and its log.",

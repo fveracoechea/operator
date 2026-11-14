@@ -19,6 +19,32 @@ const worker = {
   branch: null,
 };
 
+test("handover returns the live worker's renamed resources and restores them on refusal", async () => {
+  await using device = await dispatchDevice();
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([worker.name]));
+  const rename = spyOn(Herdr, "renameAgent").mockReturnValue(OkAsync(undefined));
+  const label = spyOn(Herdr, "renameTab").mockReturnValue(OkAsync(undefined));
+  const handed = await handOver({
+    paths: device.paths,
+    checkout: device.checkout,
+    callerSocket: worker.herdrSocket,
+    assignment,
+    launch: { ...worker, worktreePath: device.checkout },
+  });
+  expect(handed).toMatchObject({
+    tag: "Ok",
+    value: { name: "pr-one-9-build", branch: "task/build" },
+  });
+  expect(rename).toHaveBeenLastCalledWith({ paneId: "p1", name: "pr-one-9-build" });
+  expect(label).toHaveBeenLastCalledWith({ tabId: "t1", label: "pr-one-9-build" });
+  if (handed.tag !== "Ok") return;
+  expect(await handed.value.undo(Err({ reason: "report_changed", detail: "Changed." }))).toEqual(
+    Ok(undefined),
+  );
+  expect(rename).toHaveBeenLastCalledWith({ paneId: "p1", name: worker.name });
+  expect(label).toHaveBeenLastCalledWith({ tabId: "t1", label: worker.name });
+});
+
 test("handover refuses the wrong server before reads or outward effects", async () => {
   await using device = await dispatchDevice();
   const names = spyOn(DeviceState, "launchNames");

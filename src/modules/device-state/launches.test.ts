@@ -301,6 +301,11 @@ test("a ready assignment waits while the plan's running cap is reached, and a re
     tag: "Err",
     error: {
       reason: "running_cap_reached",
+      next: {
+        command: "operator next --wait",
+        why: "Wait for a running assignment to finish before dispatching more work.",
+      },
+      state: { maxRunning: 1, capReached: true },
       detail:
         "The plan's running cap of 1 is reached. Read next actions again after a worker ends. Nothing was launched.",
     },
@@ -414,7 +419,10 @@ test("a reservation names each refusal and records an abandoned start's end", ()
       error: {
         reason: "controller_mismatch",
         detail: "The controlling checkout changed before dispatch. Read the project again.",
-        next: { command: "operator project list" },
+        next: {
+          command: "operator project list",
+          why: "Find the recorded controlling checkout and run the command there.",
+        },
         state: { controllerMatches: false },
       },
     });
@@ -423,7 +431,10 @@ test("a reservation names each refusal and records an abandoned start's end", ()
     error: {
       reason: "source_not_found",
       detail: "The source does not exist in this project.",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the available sources before choosing a source.",
+      },
       state: { sourceExists: false },
     },
   });
@@ -433,14 +444,17 @@ test("a reservation names each refusal and records an abandoned start's end", ()
     tag: "Err",
     error: {
       reason: "assignment_not_dispatchable",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the current assignment action before dispatching.",
+      },
       state: { assignment: null, launch: null },
     },
   });
   db.exec("UPDATE sources SET state = 'reset'");
   expect(reserveLaunch(db, "/one", "owner/one", launch)).toMatchObject({
     tag: "Err",
-    error: { reason: "assignment_not_dispatchable" },
+    error: { reason: "assignment_not_dispatchable", state: { source: "reset" } },
   });
   db.exec("UPDATE sources SET state = 'open'");
   reserveLaunch(db, "/one", "owner/one", launch);
@@ -450,7 +464,10 @@ test("a reservation names each refusal and records an abandoned start's end", ()
     error: {
       reason: "launch_name_taken",
       detail: "The launch name report-app-1-read is already recorded. Nothing was launched.",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the assignment's current launch action before retrying.",
+      },
       state: { launchNameExists: true },
     },
   });
@@ -481,7 +498,7 @@ test("an update ends only a failed start, and an unknown launch is not starting"
     error: {
       reason: "launch_not_starting",
       detail: "Only a starting launch can record resources or its launch outcome.",
-      next: { command: "operator next" },
+      next: { command: "operator next", why: "Read the launch's current action before retrying." },
       state: { launch: null },
     },
   });

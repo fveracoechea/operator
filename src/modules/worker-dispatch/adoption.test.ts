@@ -9,6 +9,7 @@ import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { git, removeDevices } from "./dispatch-fixture.ts";
+import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
 
 const branch = "feature/existing";
 let root = "";
@@ -52,6 +53,7 @@ function refused(
   decider = "person",
 ) {
   expect(result).toMatchObject({ tag: "Err", error: { reason, state, next: { decider } } });
+  if (result.tag === "Err") expectRefusalContext(result.error);
   expect(result.tag === "Err" ? result.error.detail : "").toContain(detail);
 }
 
@@ -108,6 +110,7 @@ test.each([
     tag: "Err",
     error: { reason, state, next: { decider: "super-agent" } },
   });
+  if (result.tag === "Err") expectRefusalContext(result.error);
   expect(result.tag === "Err" ? result.error.detail : "").toContain(detail);
 });
 
@@ -140,6 +143,27 @@ test("a missing local branch is created at the PR head, tracking the remote bran
     `local/${branch}`,
   );
 });
+
+test.each(["create", "move"] as const)(
+  "an unconfirmed branch %s keeps local work and names the person's decision",
+  async (action) => {
+    if (action === "move") git(checkout, "branch", "-q", branch, "main");
+    const before = git(checkout, "branch", "--list", "--format=%(objectname)", branch);
+    const run = ToolInvocation.run.bind(ToolInvocation);
+    spyOn(ToolInvocation, "run").mockImplementation((input) =>
+      input.args.includes(action === "create" ? "--track" : "--force")
+        ? Promise.resolve({ status: "completed", exitCode: 128, stdout: "", stderr: "denied" })
+        : run(input),
+    );
+    refused(
+      await prepareBranch(request()),
+      "adopt_branch_unavailable",
+      action === "create" ? "could not create" : "could not move",
+      action === "create" ? { creationConfirmed: false } : { moveConfirmed: false },
+    );
+    expect(git(checkout, "branch", "--list", "--format=%(objectname)", branch)).toBe(before);
+  },
+);
 
 test("a local branch behind the PR head moves forward, and one at the head stays", async () => {
   git(checkout, "branch", "-q", branch, "main");

@@ -49,7 +49,10 @@ test("a worker pane and a SuperAgent selector read the same question by its key"
   expect(readQuestion(db, { ...key, assignment: "missing" }, "scope")).toMatchObject({
     error: {
       reason: "assignment_not_found",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the available assignments before choosing a target.",
+      },
       state: { sourceExists: true, assignmentExists: false },
     },
   });

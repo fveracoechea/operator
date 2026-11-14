@@ -323,7 +323,10 @@ test("refusals name the recorded fact, and reads scope by source", () => {
       error: {
         reason: "controller_mismatch",
         detail: "The controlling checkout changed before registration. Read the project again.",
-        next: { command: "operator project list" },
+        next: {
+          command: "operator project list",
+          why: "Find the recorded controlling checkout and run the command there.",
+        },
         state: { controllerMatches: false },
       },
     });
@@ -332,7 +335,10 @@ test("refusals name the recorded fact, and reads scope by source", () => {
     error: {
       reason: "source_parent_open",
       detail: "Source one is still open for APP-1.",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the open source's current action before registering it again.",
+      },
       state: { openSourceExists: true },
     },
   });
@@ -352,7 +358,10 @@ test("refusals name the recorded fact, and reads scope by source", () => {
     error: {
       reason: "source_not_found",
       detail: "The source does not exist in this project.",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the available sources before choosing a source.",
+      },
       state: { sourceExists: false },
     },
   });
@@ -365,7 +374,10 @@ test("refusals name the recorded fact, and reads scope by source", () => {
       error: {
         reason: "controller_mismatch",
         detail: "The controlling checkout changed. Read the project again. Nothing changed.",
-        next: { command: "operator project list" },
+        next: {
+          command: "operator project list",
+          why: "Find the recorded controlling checkout and run the command there.",
+        },
         state: { controllerMatches: false },
       },
     });
@@ -376,7 +388,10 @@ test("refusals name the recorded fact, and reads scope by source", () => {
     error: {
       reason: "source_not_found",
       detail: "The source does not exist in this project. Nothing changed.",
-      next: { command: "operator next" },
+      next: {
+        command: "operator next",
+        why: "Read the available sources before choosing a source.",
+      },
       state: { sourceExists: false },
     },
   });

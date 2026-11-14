@@ -1,5 +1,62 @@
-import { expect, test } from "bun:test";
-import { coordinatedSource } from "./supervision.ts";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import { ErrAsync } from "unthrown";
+import { coordinatedSource, refuseUnsupervised } from "./supervision.ts";
+import { WorkSources } from "../work-sources/main.ts";
+import { OperatorHome } from "../operator-home/main.ts";
+import { Environment } from "../environment/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
+import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+
+afterEach(() => {
+  mock.restore();
+  process.exitCode = 0;
+});
+
+test("a different supervisor's refusal preserves authority and checked identities before continuation", async () => {
+  const paths = OperatorHome.resolve(Environment.parse({ HOME: "/isolated", NODE_ENV: "test" }));
+  const next = {
+    decider: "super-agent" as const,
+    question:
+      "Will the recorded supervisor continue, or should the person authorize a source take-over?",
+  };
+  const state = { supervisorSession: "recorded", callerSession: "caller" };
+  const checked = spyOn(WorkSources, "checkSupervisor").mockReturnValue(
+    ErrAsync({
+      reason: "source_supervised_elsewhere",
+      detail: "Another session owns this source. Nothing changed.",
+      next,
+      state,
+    }),
+  );
+  const tools = spyOn(ToolInvocation, "run");
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  expect(
+    await refuseUnsupervised(["dispatch", "--source", "s1", "--assignment", "build"], paths, true),
+  ).toBe(true);
+  expect(checked).toHaveBeenCalledTimes(1);
+  expect(checked).toHaveBeenCalledWith({ paths, cwd: process.cwd(), sourceId: "s1" });
+  expect(workflowOutputSchema.parse(JSON.parse(String(log.mock.lastCall?.[0])))).toMatchObject({
+    operation: "dispatch",
+    outcome: "refused",
+    reason: "source_supervised_elsewhere",
+    next,
+    state,
+    blockers: [
+      {
+        reason: "source_supervised_elsewhere",
+        detail: "Another session owns this source. Nothing changed.",
+      },
+    ],
+  });
+  expect(error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: source_supervised_elsewhere: Another session owns this source. Nothing changed.",
+    "next: super-agent decides: Will the recorded supervisor continue, or should the person authorize a source take-over?",
+    'state: supervisorSession="recorded" callerSession="caller"',
+  ]);
+  expect(process.exitCode).toBe(4);
+  expect(tools).not.toHaveBeenCalled();
+});
 
 test("the SuperAgent commands that coordinate a source name their operation and source", () => {
   for (const [args, operation] of [
