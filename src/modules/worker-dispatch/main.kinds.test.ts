@@ -59,6 +59,38 @@ test("a legacy assignment keeps a null kind in its new launch and brief", async 
   expect(await Bun.file(result.value.brief).text()).not.toContain("Worker kind:");
 });
 
+test("an ended source's empty decision rows refuse dispatch without a kind or cap misclassification", async () => {
+  await using device = await dispatchDevice();
+  expect(
+    await WorkSources.reset({
+      paths: device.paths,
+      cwd: device.checkout,
+      sourceId: device.sourceId,
+      personInstructed: true,
+    }),
+  ).toMatchObject({ tag: "Ok" });
+  expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable" },
+  });
+  expect(await device.launches("read")).toEqual([]);
+  expect(device.herdr.startAgent).not.toHaveBeenCalled();
+});
+
+test("a handoff flag cannot bypass an assignment's pending dependencies", async () => {
+  await using device = await dispatchDevice();
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(
+    await WorkerDispatch.dispatch({ ...device.request("blocked"), handoff: true }),
+  ).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable" },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+  expect(await device.launches("blocked")).toEqual([]);
+  expect(device.herdr.startAgent).not.toHaveBeenCalled();
+});
+
 test.each(["review", "pr-feedback"])(
   "%s refuses plain dispatch with its checked kind and a decision owner",
   async (kind) => {
