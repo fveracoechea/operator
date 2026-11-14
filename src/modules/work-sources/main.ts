@@ -232,7 +232,7 @@ function resourceFacts(
   };
 }
 
-function observedSources(
+function observeSources(
   input: Input & { sourceId?: string },
   repository: string,
   selected?: Set<string> | null,
@@ -263,7 +263,7 @@ function observedSources(
         );
         return [...latest.values()];
       });
-      return missingWorkers(candidates, true).flatMap((isMissing) => {
+      return missingWorkers(candidates, true).map((isMissing) => {
         const observed = candidates.map((launch) => ({
           launch,
           resources: resourceFacts(launch, missing, isMissing(launch)),
@@ -294,57 +294,63 @@ function observedSources(
             .map(({ launch }) => launch.sourceId),
         );
         const changed = scoped.filter((row) => changedIds.has(row.source.id));
-        if (changed.length === 0) return Ok(decoded);
-        return DeviceState.listProjects(input.paths)
-          .flatMap(({ projects }) =>
-            all(
-              changed.map(({ source }) =>
-                DeviceState.endAssignments(
-                  input.paths,
-                  {
-                    repository,
-                    checkout:
-                      // Stryker disable next-line StringLiteral: equivalent: when concurrent removal deletes the project, any fallback checkout reaches the same controller_mismatch refusal
-                      projects.find((project) => project.repository === repository)?.checkout ?? "",
-                    sourceId: source.id,
-                  },
-                  (facts) => {
-                    const interrupted = facts.launches
-                      .filter((launch) => unchanged(launch) && isMissing(launch))
-                      .map((launch) => launch.id);
-                    const abandon = facts.assignments
-                      .filter((assignment) => {
-                        if (
-                          [
-                            "merged",
-                            "completed",
-                            // Stryker disable next-line StringLiteral: equivalent: the abandoned machine decision can only repeat its existing end; conversations are already closed
-                            "abandoned",
-                          ].includes(assignment.state)
-                        )
-                          return false;
-                        const launch = facts.launches.findLast(
-                          (row) => row.assignment === assignment.key,
-                        );
-                        if (launch === undefined || !unchanged(launch)) return false;
-                        return (
-                          decideAssignment({
-                            assignment: assignmentStateSchema.parse(assignment),
-                            // Stryker disable next-line ArrayDeclaration: equivalent: the machine decides ended before consulting dependencies; all later dependency decisions are not ended
-                            dependencies: [],
-                            // Stryker disable next-line OptionalChaining: equivalent: unchanged proved that this launch ID exists in byId immediately before this lookup
-                            resources: byId.get(launch.id)?.resources,
-                          }).action === "ended"
-                        );
-                      })
-                      .map((assignment) => assignment.key);
-                    return Ok({ abandon, interrupted });
-                  },
+        return {
+          missing,
+          reconcile: () => {
+            if (changed.length === 0) return Ok(decoded);
+            return DeviceState.listProjects(input.paths)
+              .flatMap(({ projects }) =>
+                all(
+                  changed.map(({ source }) =>
+                    DeviceState.endAssignments(
+                      input.paths,
+                      {
+                        repository,
+                        checkout:
+                          // Stryker disable next-line StringLiteral: equivalent: when concurrent removal deletes the project, any fallback checkout reaches the same controller_mismatch refusal
+                          projects.find((project) => project.repository === repository)?.checkout ??
+                          "",
+                        sourceId: source.id,
+                      },
+                      (facts) => {
+                        const interrupted = facts.launches
+                          .filter((launch) => unchanged(launch) && isMissing(launch))
+                          .map((launch) => launch.id);
+                        const abandon = facts.assignments
+                          .filter((assignment) => {
+                            if (
+                              [
+                                "merged",
+                                "completed",
+                                // Stryker disable next-line StringLiteral: equivalent: the abandoned machine decision can only repeat its existing end; conversations are already closed
+                                "abandoned",
+                              ].includes(assignment.state)
+                            )
+                              return false;
+                            const launch = facts.launches.findLast(
+                              (row) => row.assignment === assignment.key,
+                            );
+                            if (launch === undefined || !unchanged(launch)) return false;
+                            return (
+                              decideAssignment({
+                                assignment: assignmentStateSchema.parse(assignment),
+                                // Stryker disable next-line ArrayDeclaration: equivalent: the machine decides ended before consulting dependencies; all later dependency decisions are not ended
+                                dependencies: [],
+                                // Stryker disable next-line OptionalChaining: equivalent: unchanged proved that this launch ID exists in byId immediately before this lookup
+                                resources: byId.get(launch.id)?.resources,
+                              }).action === "ended"
+                            );
+                          })
+                          .map((assignment) => assignment.key);
+                        return Ok({ abandon, interrupted });
+                      },
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          )
-          .flatMap(() => readSources(input, repository));
+              )
+              .flatMap(() => readSources(input, repository));
+          },
+        };
       });
     });
 }
@@ -693,11 +699,12 @@ export const WorkSources = {
   /** The next answer. Without `all`, an ended source shows only what it still needs. */
   next(input: Input & { sourceId?: string; all?: boolean }) {
     return Projects.current(input)
-      .flatMap(({ data: project }) => observedSources(input, project.repository))
-      .flatMap((sources) =>
-        actionAnswer(input, sources).map((answer) =>
-          input.all === true ? answer : withoutEnded(answer),
-        ),
+      .flatMap(({ data: project }) => observeSources(input, project.repository))
+      .flatMap(({ missing, reconcile }) =>
+        reconcile().map((sources) => {
+          const answer = nextAnswer(input, sources, missing);
+          return input.all === true ? answer : withoutEnded(answer);
+        }),
       );
   },
   /**
@@ -838,7 +845,8 @@ type CoordinationScope = Parameters<typeof DeviceState.startCoordinationWait>[1]
 // The watch recurses, so it names the closed failures of the reads and the records it repeats.
 type WatchFailure =
   | ErrOf<ReturnType<typeof readSources>>
-  | import("unthrown").AsyncErrOf<ReturnType<typeof observedSources>>
+  | import("unthrown").AsyncErrOf<ReturnType<typeof observeSources>>
+  | ErrOf<ReturnType<import("unthrown").AsyncOkOf<ReturnType<typeof observeSources>>["reconcile"]>>
   | ErrOf<ReturnType<typeof DeviceState.finishCoordinationWait>>;
 type Answer = { sources: (ReturnType<typeof nextActions> & { repository: string })[] };
 type WatchOutcome = {
@@ -927,18 +935,28 @@ function scopeAnswer(
     fromSafePromise(
       Promise.all(
         list.map((project) =>
-          observedSources(input, project.repository, project.ids).flatMap((sources) =>
-            actionAnswer(
-              input,
-              sources.filter((source) => project.ids?.has(source.id) ?? true),
-            ).map((answer) =>
-              answer.sources.map((source) => ({ ...source, repository: project.repository })),
-            ),
-          ),
+          observeSources(input, project.repository, project.ids).map((observation) => ({
+            project,
+            observation,
+          })),
         ),
       ),
     )
       .flatMap((results) => all(results))
+      // Every scope observation must succeed before any project applies its ending effects.
+      .flatMap((observations) =>
+        all(
+          observations.map(({ project, observation }) =>
+            observation.reconcile().map((sources) =>
+              nextAnswer(
+                input,
+                sources.filter((source) => project.ids?.has(source.id) ?? true),
+                observation.missing,
+              ).sources.map((source) => ({ ...source, repository: project.repository })),
+            ),
+          ),
+        ),
+      )
       .map((lists) => ({ sources: lists.flat() })),
   );
 }

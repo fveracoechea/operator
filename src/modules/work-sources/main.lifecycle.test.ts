@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { chmod, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Err, fromSafePromise, fromThrowable, Ok, OkAsync } from "unthrown";
+import { Err, ErrAsync, fromSafePromise, fromThrowable, Ok, OkAsync } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -81,10 +81,15 @@ function setState(sourceId: string, key: string, state: string) {
   expect(changed.tag).toBe("Ok");
 }
 
-function launch(sourceId: string, key: string, state: "running" | "failed") {
+function launch(
+  sourceId: string,
+  key: string,
+  state: "running" | "failed",
+  project = { checkout, repository: "example/one" },
+) {
   const id = crypto.randomUUID();
   expect(
-    DeviceState.reserveLaunch(paths, checkout, "example/one", {
+    DeviceState.reserveLaunch(paths, project.checkout, project.repository, {
       id,
       sourceId,
       assignment: key,
@@ -774,6 +779,71 @@ test.skipIf(asRoot).each(["before", "after"])(
       expect(source?.launches).toHaveLength(1);
     } finally {
       await chmod(`${root}/worktrees`, 0o755);
+    }
+  },
+);
+
+test.skipIf(asRoot).each(["resource", "Herdr"])(
+  "a failed %s observation in one supervised project precedes every project's ending effects",
+  async (failure) => {
+    const first = await registered(["pane"], "APP-first-project");
+    const pane = launch(first, "pane", "running");
+    const other = `${root}/other`;
+    await mkdir(other);
+    for (const args of [
+      ["init", "-q"],
+      ["remote", "add", "origin", "https://github.com/example/two.git"],
+    ])
+      expect(await Bun.spawn(["git", ...args], { cwd: other, stderr: "pipe" }).exited).toBe(0);
+    expect((await Projects.register({ paths, cwd: other })).tag).toBe("Ok");
+    const file = `${root}/other-plan.json`;
+    await Bun.write(
+      file,
+      JSON.stringify({
+        trackerKey: "APP-second-project",
+        assignments: [{ ...assignment("blocked"), resources: "worktree", branch: "task/blocked" }],
+      }),
+    );
+    const registeredOther = await WorkSources.register({ paths, cwd: other, file });
+    expect(registeredOther.tag).toBe("Ok");
+    if (registeredOther.tag !== "Ok") return;
+    const second = registeredOther.value.id;
+    launch(second, "blocked", "running", { checkout: other, repository: "example/two" });
+    await mkdir(`${root}/worktrees/blocked`, { recursive: true });
+    {
+      using db = new Database(paths.database);
+      db.query("UPDATE launches SET resources = 'pane', worktree_path = NULL WHERE id = ?").run(
+        pane,
+      );
+      db.query("UPDATE sources SET supervising_session = ?").run("ses_cross");
+    }
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+      HERDR_PANE_ID: "super:p0",
+      OPENCODE_SESSION_ID: "ses_cross",
+      CLAUDE_CODE_SESSION_ID: undefined,
+    });
+    spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
+    spyOn(Herdr, "pane").mockImplementation((id) =>
+      failure === "Herdr" && id === "w1:blocked"
+        ? ErrAsync({ reason: "herdr_failed", detail: "Unavailable" })
+        : OkAsync(null),
+    );
+    const beforeFirst = await shown(first);
+    const beforeSecond = await WorkSources.show({ paths, cwd: other, sourceId: second });
+    if (failure === "resource") await chmod(`${root}/worktrees`, 0);
+    try {
+      expect(
+        await WorkSources.wait({ paths, cwd: checkout, timeoutSeconds: 0, all: true }),
+      ).toMatchObject({
+        tag: "Err",
+        error: { reason: failure === "resource" ? "source_io_failed" : "herdr_failed" },
+      });
+      expect(await shown(first)).toEqual(beforeFirst);
+      expect(await WorkSources.show({ paths, cwd: other, sourceId: second })).toEqual(beforeSecond);
+    } finally {
+      if (failure === "resource") await chmod(`${root}/worktrees`, 0o755);
     }
   },
 );
