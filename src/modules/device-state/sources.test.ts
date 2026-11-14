@@ -192,6 +192,77 @@ test("a failed assignment end rolls back its preceding worker interruption", () 
   expect(db.serialize()).toEqual(before);
 });
 
+test("assignment ending reserves the writer before running even a refusing decision", () => {
+  using db = endedDatabase();
+  using held = reservedCopy(db);
+  let decided = false;
+  expect(
+    endAssignments(held.subject, target, () => {
+      decided = true;
+      return Err({ reason: "refused", detail: "No." });
+    }),
+  ).toMatchObject(busy);
+  expect(decided).toBe(false);
+});
+
+test("ending one assignment abandons its open conversations but retains an unselected PR separately", () => {
+  using db = endedDatabase();
+  db.exec("INSERT INTO assignments VALUES ('one', 'keep', 'pr', 'pr-open')");
+  insertRow(db, "launches", {
+    id: "l1",
+    source_id: "one",
+    assignment: "open",
+    attempt: 1,
+    state: "running",
+  });
+  insertRow(db, "worker_questions", {
+    source_id: "one",
+    assignment: "open",
+    key: "scope",
+    launch_id: "l1",
+    state: "open",
+  });
+  insertRow(db, "worker_messages", {
+    source_id: "one",
+    assignment: "open",
+    key: "steer",
+    launch_id: "l1",
+    state: "pending",
+  });
+  for (const [key, number] of [
+    ["open", 7],
+    ["keep", 8],
+  ] as const)
+    insertRow(db, "pull_requests", {
+      source_id: "one",
+      assignment: key,
+      number,
+      url: `https://github.com/owner/one/pull/${number}`,
+      branch: `task/${key}`,
+      associated_at: "now",
+    });
+  expect(
+    endAssignments(db, target, () => Ok({ abandon: ["open"], interrupted: [] })),
+  ).toMatchObject({
+    tag: "Ok",
+    value: {
+      retained: [
+        {
+          assignment: "open",
+          worktreePath: null,
+          branch: "task/open",
+          pullRequest: "https://github.com/owner/one/pull/7",
+        },
+      ],
+    },
+  });
+  expect(db.query("SELECT state FROM worker_questions").get()).toEqual({ state: "abandoned" });
+  expect(db.query("SELECT state FROM worker_messages").get()).toEqual({ state: "abandoned" });
+  expect(db.query("SELECT state FROM assignments WHERE key='keep'").get()).toEqual({
+    state: "pr-open",
+  });
+});
+
 test("reset checks source ownership inside its transaction", () => {
   using db = endedDatabase();
   const other = { ...project, repository: "owner/two", checkout: "/isolated/two" };

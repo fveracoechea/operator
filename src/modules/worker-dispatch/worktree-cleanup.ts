@@ -46,8 +46,7 @@ async function unlanded(input: {
     .filter((line) => line !== "");
   const reasons: string[] = [];
   for (const line of status) {
-    if (!line.startsWith("!! "))
-      reasons.push(`changed or untracked ${line.slice(3).replace(/\/$/, "")}`);
+    if (!line.startsWith("!! ")) reasons.push(`changed or untracked ${line.slice(3)}`);
   }
   const classified = await WorktreePreparation.changedIgnoredEnvironment({
     worktree,
@@ -55,8 +54,7 @@ async function unlanded(input: {
   });
   if (classified.tag !== "Ok" || classified.value === null)
     reasons.push("environment files that could not be inspected");
-  for (const entry of classified.tag === "Ok" ? (classified.value ?? []) : [])
-    reasons.push(`ignored ${entry.replace(/\/$/, "")}`);
+  else for (const entry of classified.value) reasons.push(`ignored ${entry}`);
   const tips = ["HEAD"];
   const exclude: string[] = [];
   if (branch !== null) {
