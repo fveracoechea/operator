@@ -126,6 +126,56 @@ function reset(sourceId: string, personInstructed = true) {
   return WorkSources.reset({ paths, cwd: checkout, sourceId, personInstructed });
 }
 
+function seedConversations(
+  sourceId: string,
+  assignment: string,
+  launchId: string,
+  project = { checkout, repository: "example/one" },
+) {
+  const target = { by: "key" as const, ...project, sourceId, assignment };
+  const at = "2026-01-01T00:00:00.000Z";
+  expect(
+    DeviceState.changeQuestion(paths, target, "scope", () =>
+      Ok({
+        insert: {
+          sourceId,
+          assignment,
+          launchId,
+          key: "scope",
+          question: "Which output is required?",
+          askedAt: at,
+          state: "open",
+          answer: null,
+          answeredBy: null,
+          answeredAt: null,
+          endedAt: null,
+        },
+      }),
+    ).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.changeMessage(paths, target, "focus", () =>
+      Ok({
+        insert: {
+          sourceId,
+          assignment,
+          launchId,
+          key: "focus",
+          message: "Keep the notes until review.",
+          questionKey: null,
+          sentAt: at,
+          state: "pending",
+          rungAt: at,
+          doorbellFailure: null,
+          acknowledgedAt: null,
+          reply: null,
+          endedAt: null,
+        },
+      }),
+    ).tag,
+  ).toBe("Ok");
+}
+
 async function shown(sourceId: string) {
   const result = await WorkSources.show({ paths, cwd: checkout, sourceId });
   return result.tag === "Ok" ? result.value : undefined;
@@ -808,7 +858,10 @@ test.skipIf(asRoot).each(["resource", "Herdr"])(
     expect(registeredOther.tag).toBe("Ok");
     if (registeredOther.tag !== "Ok") return;
     const second = registeredOther.value.id;
-    launch(second, "blocked", "running", { checkout: other, repository: "example/two" });
+    const blocked = launch(second, "blocked", "running", {
+      checkout: other,
+      repository: "example/two",
+    });
     await mkdir(`${root}/worktrees/blocked`, { recursive: true });
     {
       using db = new Database(paths.database);
@@ -817,6 +870,14 @@ test.skipIf(asRoot).each(["resource", "Herdr"])(
       );
       db.query("UPDATE sources SET supervising_session = ?").run("ses_cross");
     }
+    seedConversations(first, "pane", pane);
+    seedConversations(second, "blocked", blocked, { checkout: other, repository: "example/two" });
+    const files = [
+      `${checkout}/retained.md`,
+      `${other}/retained.md`,
+      `${root}/worktrees/blocked/retained.md`,
+    ];
+    for (const file of files) await Bun.write(file, "keep\n");
     spyOn(Environment, "read").mockReturnValue({
       ...Environment.read(),
       HERDR_SOCKET_PATH: "/herdr.sock",
@@ -825,26 +886,55 @@ test.skipIf(asRoot).each(["resource", "Herdr"])(
       CLAUDE_CODE_SESSION_ID: undefined,
     });
     spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
-    spyOn(Herdr, "pane").mockImplementation((id) =>
+    const probe = spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "t1", workspaceId: "w1" }));
+    const waiting = { paths, cwd: checkout, timeoutSeconds: 0 };
+    expect(await WorkSources.wait(waiting)).toMatchObject({
+      tag: "Ok",
+      value: { reason: "next_actions_changed" },
+    });
+    const scope = {
+      repository: "example/one",
+      scope: DeviceState.coordinationSessionScope("ses_cross"),
+    };
+    const frontier = DeviceState.readCoordinationWait(paths, scope);
+    expect(frontier.getOr(null)).toContain(first);
+    expect(frontier.getOr(null)).toContain(second);
+    const beforeFirst = await shown(first);
+    const beforeSecond = await WorkSources.show({ paths, cwd: other, sourceId: second });
+    expect(beforeFirst).toMatchObject({
+      questions: [{ key: "scope", state: "open" }],
+      messages: [{ key: "focus", state: "pending" }],
+    });
+    expect(beforeSecond).toMatchObject({
+      tag: "Ok",
+      value: {
+        questions: [{ key: "scope", state: "open" }],
+        messages: [{ key: "focus", state: "pending" }],
+      },
+    });
+    probe.mockImplementation((id) =>
       failure === "Herdr" && id === "w1:blocked"
         ? ErrAsync({ reason: "herdr_failed", detail: "Unavailable" })
         : OkAsync(null),
     );
-    const beforeFirst = await shown(first);
-    const beforeSecond = await WorkSources.show({ paths, cwd: other, sourceId: second });
     if (failure === "resource") await chmod(`${root}/worktrees`, 0);
     try {
-      expect(
-        await WorkSources.wait({ paths, cwd: checkout, timeoutSeconds: 0, all: true }),
-      ).toMatchObject({
+      expect(await WorkSources.wait(waiting)).toMatchObject({
         tag: "Err",
         error: { reason: failure === "resource" ? "source_io_failed" : "herdr_failed" },
       });
       expect(await shown(first)).toEqual(beforeFirst);
       expect(await WorkSources.show({ paths, cwd: other, sourceId: second })).toEqual(beforeSecond);
+      expect(DeviceState.readCoordinationWait(paths, scope)).toEqual(frontier);
     } finally {
       if (failure === "resource") await chmod(`${root}/worktrees`, 0o755);
     }
+    for (const file of files) expect(await Bun.file(file).text()).toBe("keep\n");
+    probe.mockReturnValue(OkAsync({ tabId: "t1", workspaceId: "w1" }));
+    expect(await WorkSources.wait(waiting)).toMatchObject({
+      tag: "Ok",
+      value: { reason: "next_wait_timed_out", data: { sources: [] } },
+    });
   },
 );
 

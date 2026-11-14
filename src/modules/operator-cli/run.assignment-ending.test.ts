@@ -298,71 +298,211 @@ test.skipIf(asRoot)(
   60000,
 );
 
-test.skipIf(asRoot)(
-  "a session refusal from one project does not end another project's assignment or its conversations",
-  async () => {
-    device = await workerDevice();
-    const other = await device.checkout("other", "example/two");
-    expect((await device.run(["project", "register"], { cwd: other })).code).toBe(0);
-    const first = await device.register({
-      trackerKey: "APP-pane-scope",
-      assignments: [assignment("pane", "pane")],
-    });
-    const second = await device.register(
-      { trackerKey: "APP-blocked-scope", assignments: [assignment("blocked", "worktree")] },
-      other,
-    );
-    const pane = await device.dispatch(first, "pane");
-    const blocked = await device.dispatch(second, "blocked", other);
-    const question = await device.writeJson("scope-question.json", {
+const sessionWait = [
+  "env",
+  "OPENCODE_SESSION_ID=ses_cross",
+  "CLAUDE_CODE_SESSION_ID=",
+  "operator",
+  "next",
+  "--wait",
+  "--timeout",
+  "0",
+];
+
+async function supervisedProjects(secondResources: "pane" | "worktree") {
+  device = await workerDevice();
+  const other = await device.checkout("other", "example/two");
+  expect((await device.run(["project", "register"], { cwd: other })).code).toBe(0);
+  const first = await device.register({
+    trackerKey: "APP-pane-scope",
+    assignments: [assignment("pane", "pane")],
+  });
+  const second = await device.register(
+    { trackerKey: "APP-blocked-scope", assignments: [assignment("blocked", secondResources)] },
+    other,
+  );
+  const pane = await device.dispatch(first, "pane");
+  const blocked = await device.dispatch(second, "blocked", other);
+  const groups = [
+    { source: first, cwd: device.main, key: "pane", worker: pane },
+    { source: second, cwd: other, key: "blocked", worker: blocked },
+  ];
+  for (const group of groups) {
+    const question = await device.writeJson(`${group.key}-question.json`, {
       key: "scope",
       question: "Which output is required?",
     });
     expect(
-      (await device.run(["question", "ask", "--file", question], { pane: pane.paneId })).code,
+      (
+        await device.run(["question", "ask", "--file", question], {
+          pane: group.worker.paneId,
+          cwd: group.worker.worktreePath ?? group.cwd,
+        })
+      ).code,
     ).toBe(0);
-    {
-      using db = new Database(`${device.root}/state/operator/operator.sqlite`);
-      db.query("UPDATE sources SET supervising_session = ?").run("ses_cross");
-    }
-    await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
-    const parent = path.dirname(blocked.worktreePath ?? "");
-    await chmod(parent, 0);
+    const message = await device.writeJson(`${group.key}-message.json`, {
+      key: "focus",
+      message: "Keep the notes until review.",
+    });
+    expect(
+      (
+        await device.run(
+          [
+            "message",
+            "send",
+            "--source",
+            group.source,
+            "--assignment",
+            group.key,
+            "--file",
+            message,
+          ],
+          { cwd: group.cwd },
+        )
+      ).code,
+    ).toBe(0);
+    await Bun.write(`${group.worker.worktreePath ?? group.cwd}/retained.md`, "keep\n");
+  }
+  {
+    using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+    db.query("UPDATE sources SET supervising_session = ?").run("ses_cross");
+  }
+  const primed = await device.exec([...sessionWait, "--json"], device.main);
+  expect(primed.code, primed.stderr).toBe(0);
+  expect(JSON.parse(primed.stdout)).toMatchObject({ reason: "next_actions_changed" });
+  const board = z
+    .object({
+      data: z.object({
+        sources: z.array(
+          z.object({
+            id: z.string(),
+            actions: z.array(z.looseObject({ question: z.object({ key: z.string() }).optional() })),
+          }),
+        ),
+      }),
+    })
+    .parse(JSON.parse(primed.stdout)).data.sources;
+  expect(board.map((source) => source.id).toSorted()).toEqual([first, second].toSorted());
+  for (const source of board)
+    expect(source.actions.some((row) => row.question?.key === "scope")).toBe(true);
+  const snapshots = await Promise.all(
+    groups.map(
+      async (group) =>
+        (await device.run(["source", "show", "--source", group.source], { cwd: group.cwd })).output,
+    ),
+  );
+  for (const snapshot of snapshots)
+    expect(snapshot).toMatchObject({
+      data: {
+        questions: [{ key: "scope", state: "open" }],
+        messages: [{ key: "focus", state: "pending" }],
+      },
+    });
+  const liveHerdr = z
+    .looseObject({})
+    .parse(await Bun.file(`${device.root}/herdr-state.json`).json());
+  return { groups, snapshots, liveHerdr };
+}
+
+test.skipIf(asRoot).each(["resource", "Herdr"])(
+  "a %s session refusal preserves both projects, conversations, frontier and resources in JSON and text",
+  async (failure) => {
+    const { groups, snapshots, liveHerdr } = await supervisedProjects("worktree");
+    const parent = path.dirname(z.string().min(1).parse(groups[1]?.worker.worktreePath));
+    const calls = await device.herdrCalls();
+    await device.setHerdr({
+      tabs: [],
+      agents: [],
+      skipHooks: true,
+      fail: failure === "Herdr" ? { "pane get": "Herdr unavailable" } : {},
+    });
+    if (failure === "resource") await chmod(parent, 0);
     try {
-      const waited = await device.exec(
-        [
-          "env",
-          "OPENCODE_SESSION_ID=ses_cross",
-          "CLAUDE_CODE_SESSION_ID=",
-          "operator",
-          "next",
-          "--wait",
-          "--timeout",
-          "0",
-          "--json",
-        ],
-        device.main,
-      );
-      expect(JSON.parse(waited.stdout)).toMatchObject({ reason: "source_io_failed" });
-      expect((await device.run(["source", "show", "--source", first])).output).toMatchObject({
-        data: {
-          assignments: [{ state: "running" }],
-          launches: [{ state: "running" }],
-          questions: [{ key: "scope", state: "open" }],
-        },
-      });
-      expect(
-        (await device.run(["source", "show", "--source", second], { cwd: other })).output,
-      ).toMatchObject({
-        data: { assignments: [{ state: "running" }], launches: [{ state: "running" }] },
-      });
+      for (const json of [true, false]) {
+        const waited = await device.exec(
+          [...sessionWait, ...(json ? ["--json"] : [])],
+          device.main,
+        );
+        expect(waited.code).toBe(failure === "resource" ? 1 : 3);
+        expect(waited.stderr).toContain(failure === "resource" ? "EACCES" : "Herdr unavailable");
+        if (json)
+          expect(JSON.parse(waited.stdout)).toMatchObject({
+            outcome: "refused",
+            reason: failure === "resource" ? "source_io_failed" : "herdr_failed",
+          });
+        else expect(waited.stdout).toBe("");
+        for (const [index, group] of groups.entries())
+          expect(
+            (await device.run(["source", "show", "--source", group.source], { cwd: group.cwd }))
+              .output,
+          ).toEqual(z.looseObject({}).parse(snapshots[index]));
+      }
     } finally {
-      await chmod(parent, 0o755);
+      if (failure === "resource") await chmod(parent, 0o755);
+      await device.setHerdr(liveHerdr);
     }
-    expect(await Bun.file(`${blocked.worktreePath}/package.json`).exists()).toBe(true);
+    for (const group of groups)
+      expect(await Bun.file(`${group.worker.worktreePath ?? group.cwd}/retained.md`).text()).toBe(
+        "keep\n",
+      );
+    const repeated = await device.exec([...sessionWait, "--json"], device.main);
+    expect(repeated.code, repeated.stderr).toBe(0);
+    expect(JSON.parse(repeated.stdout)).toMatchObject({
+      reason: "next_wait_timed_out",
+      data: { sources: [] },
+    });
+    expect((await device.herdrCalls()).slice(calls.length)).not.toContain("pane exit");
+    expect((await device.herdrCalls()).slice(calls.length)).not.toContain("worktree remove");
   },
   60000,
 );
+
+test("a successful session wait ends two real project assignments and consumes their new frontier once", async () => {
+  const { groups } = await supervisedProjects("pane");
+  await device.setHerdr({ tabs: [], agents: [], skipHooks: true });
+  const ended = await device.exec([...sessionWait, "--json"], device.main);
+  expect(ended.code, ended.stderr).toBe(0);
+  expect(ended.stderr).toBe("");
+  const board = z
+    .object({
+      data: z.object({
+        sources: z.array(
+          z.object({
+            id: z.string(),
+            actions: z.array(z.object({ assignment: z.string(), action: z.string() })),
+          }),
+        ),
+      }),
+    })
+    .parse(JSON.parse(ended.stdout)).data.sources;
+  expect(board.map((source) => source.id).toSorted()).toEqual(
+    groups.map((group) => group.source).toSorted(),
+  );
+  const keys = new Map(groups.map((group) => [group.source, group.key]));
+  for (const source of board)
+    expect(source.actions).toEqual([
+      { assignment: z.string().parse(keys.get(source.id)), action: "ended" },
+    ]);
+  for (const group of groups) {
+    expect(
+      (await device.run(["source", "show", "--source", group.source], { cwd: group.cwd })).output,
+    ).toMatchObject({
+      data: {
+        assignments: [{ state: "abandoned" }],
+        launches: [{ state: "interrupted" }],
+        questions: [{ key: "scope", state: "abandoned" }],
+        messages: [{ key: "focus", state: "abandoned" }],
+      },
+    });
+    expect(await Bun.file(`${group.cwd}/retained.md`).text()).toBe("keep\n");
+  }
+  const repeated = await device.exec([...sessionWait, "--json"], device.main);
+  expect(repeated.code, repeated.stderr).toBe(0);
+  expect(JSON.parse(repeated.stdout)).toMatchObject({
+    reason: "next_wait_timed_out",
+    data: { sources: [] },
+  });
+}, 60000);
 
 test.each(["missing resources", "abandon"])(
   "an ended pr-open assignment names its open PR without closing it after %s",
