@@ -110,6 +110,37 @@ test("an unreadable legacy probe is a filesystem error, not a missing folder", a
   }
 });
 
+test("linked checkout recovery preserves an apostrophe in the controlling Git directory", async () => {
+  const controller = `${root}/owner's checkout`;
+  await git("init", "-q", controller);
+  await git(
+    "-C",
+    controller,
+    "-c",
+    "user.name=Operator",
+    "-c",
+    "user.email=operator@example.com",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "start",
+  );
+  await git("-C", controller, "worktree", "add", "-q", `${root}/quoted-linked`);
+  expect(await inspectCheckout(`${root}/quoted-linked`)).toEqual({
+    reason: "linked_checkout",
+    detail: `A linked worktree cannot control a project. Use the main checkout associated with ${controller}/.git.`,
+    next: {
+      command: `git --git-dir '${root}/owner'\\''s checkout/.git' worktree list`,
+      why: "Locate the controlling checkout, then run the Operator command there.",
+    },
+    state: {
+      gitDir: `${controller}/.git/worktrees/quoted-linked`,
+      commonDir: `${controller}/.git`,
+    },
+  });
+});
+
 test("returns the refusal of each Git observation that fails", async () => {
   const empty = `${root}/empty`;
   await mkdir(`${empty}/.git`, { recursive: true });

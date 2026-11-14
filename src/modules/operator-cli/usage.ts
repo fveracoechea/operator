@@ -51,7 +51,7 @@ export function runUsage(args: string[], release: Release, json: boolean) {
 }
 
 /** Reports arguments that no command accepts. */
-export function invalidArguments(json: boolean, args: string[] = []) {
+export function invalidArguments(json: boolean, args: string[]) {
   if (workflowArguments(args)) {
     failure(
       "parse_arguments",
