@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { registerTestDevice } from "../../../tools/device-fixture.ts";
 import { writeUpstreamTools } from "../../../tools/upstream-tools-fixture.ts";
+import { quietPrStates } from "./turn-end-fixture.ts";
 
 let root = "";
 // Install also runs the upstream installer, so fake upstream tools sit outside the device root.
@@ -163,7 +164,7 @@ function update(sql: string) {
   db.query(sql).run();
 }
 
-test("an idle session continues while it supervises running work and no wait runs", async () => {
+test("the turn-end guard fires only with a live worker launch", async () => {
   const id = await registeredSource();
   update(
     `UPDATE sources SET supervising_pane = 'server-pane', supervising_session = 'ses_1' WHERE id = '${id}'`,
@@ -171,9 +172,42 @@ test("an idle session continues while it supervises running work and no wait run
   // Ready work runs nothing.
   expect(await run(["opencode", "hook"], idle())).toEqual(allowed);
   update("UPDATE assignments SET state = 'running'");
+  // Assignment state alone is not a live launch.
+  expect(await run(["opencode", "hook"], idle())).toEqual(allowed);
+  update(`INSERT INTO launches
+    (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model,
+     reasoning_effort, release, skills, started_at, owner_pid, lease_at)
+    VALUES ('launch-1', '${id}', 'investigate', 1, 'running', 'worker-1', 'pane',
+      'opencode', 'model', 'model', 'default', '{"version":"2.3.2"}', '[]',
+      '${new Date().toISOString()}', ${process.pid}, '${new Date().toISOString()}')`);
   const continued = await run(["opencode", "hook"], idle());
   expect(continued.code, continued.stderr).toBe(0);
   expect(continued.stdout).toContain(`running work in ${id}`);
+  for (const state of ["starting", "running"]) {
+    update(`UPDATE launches SET state = '${state}'`);
+    for (const activity of ["active", "idle"]) {
+      update(`UPDATE launches SET activity = '${activity}'`);
+      expect((await run(["opencode", "hook"], idle())).stdout).toBe(continued.stdout);
+    }
+  }
+  update(`INSERT INTO worker_questions
+    (source_id, assignment, key, launch_id, question, asked_at, state)
+    VALUES ('${id}', 'investigate', 'q', 'launch-1', 'Which approach?',
+      '${new Date().toISOString()}', 'open')`);
+  expect((await run(["opencode", "hook"], idle())).stdout).toBe(continued.stdout);
+  update("UPDATE worker_questions SET state = 'awaiting_person'");
+  expect((await run(["opencode", "hook"], idle())).stdout).toBe(continued.stdout);
+  // Decisions do not guard a turn after its worker ends, nor do failed/interrupted launches.
+  for (const state of ["finished", "failed", "interrupted", "starting"]) {
+    update(`UPDATE launches SET state = '${state}', owner_pid = NULL, lease_at = NULL`);
+    expect((await run(["source", "show", "--source", id, "--json"], "", git)).code).toBe(0);
+    expect(await run(["opencode", "hook"], idle())).toEqual(allowed);
+  }
+  for (const scenario of quietPrStates(`${root}/state/operator/operator.sqlite`, id)) {
+    const shown = await run(["source", "show", "--source", id, "--json"], "", git);
+    expect(shown.code, `${scenario}: ${shown.stdout} ${shown.stderr}`).toBe(0);
+    expect(await run(["opencode", "hook"], idle()), scenario).toEqual(allowed);
+  }
   // Another session in the same pane, such as a subagent's or a new one, supervises nothing.
   expect(await run(["opencode", "hook"], idle("ses_child"))).toEqual(allowed);
 }, 30000);

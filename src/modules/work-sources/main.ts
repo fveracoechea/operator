@@ -507,8 +507,8 @@ export const WorkSources = {
     );
   },
   /**
-   * The sources that the agent session supervises whose next actions show running work while no
-   * wait from that session covers them. Work that waits only for its dependencies runs nothing yet.
+   * The sources that the agent session supervises with a live worker launch while no wait from
+   * that session covers them. Other waits and decisions do not keep the session's turn going.
    */
   unwatched(input: Input & { session: string }) {
     return DeviceState.readSupervision(input.paths, input.session).flatMap((supervised) =>
@@ -517,11 +517,7 @@ export const WorkSources = {
           .filter((source) => !source.waiting)
           .map((source) =>
             readSources({ ...input, sourceId: source.id }, source.repository).map((sources) =>
-              nextAnswer(input, sources).sources.some((next) =>
-                next.waits.some((row) => row.reason !== "dependencies_pending"),
-              )
-                ? [source.id]
-                : [],
+              sources.some((source) => runningCount(source) > 0) ? [source.id] : [],
             ),
           ),
       ).map((ids) => ids.flat()),
