@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no temporary-directory, realpath, symlink, or recursive removal API.
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Err, Ok } from "unthrown";
@@ -458,3 +458,51 @@ test("an actual ignored-environment inspection I/O failure is qualified at the n
     Err({ reason: "preparation_io_failed", detail: "Error: environment inspection failed" }),
   );
 });
+
+test("ignored repositories contribute actual environment files, not directory placeholders or linked descendants", async () => {
+  await Bun.write(`${controller}/.git/info/exclude`, "build/\n");
+  await Bun.write(`${worktree}/build/output.js`, "generated\n", { createPath: true });
+  git(`${worktree}/build`, "init", "-q");
+  expect(await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller })).toEqual(
+    Ok(["apps/web/.env.test.local"]),
+  );
+  for (const file of [".env", ".env.production", "app.env", "app.env.local", "nested/.env.test"]) {
+    await Bun.write(`${worktree}/build/${file}`, "changed\n", { createPath: true });
+    await Bun.write(`${controller}/build/${file}`, "original\n", { createPath: true });
+  }
+  await Bun.write(`${worktree}/build/.env.same`, "same\n");
+  await Bun.write(`${controller}/build/.env.same`, "same\n");
+  await mkdir(`${worktree}/build/.env.directory`);
+  await symlink(`${root}/missing`, `${worktree}/build/.env.broken`);
+  await Bun.write(`${root}/outside/.env`, "outside\n", { createPath: true });
+  await symlink(`${root}/outside`, `${worktree}/build/linked-directory`);
+  const result = await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller });
+  expect(result.tag).toBe("Ok");
+  expect(result.getOr([])?.toSorted()).toEqual([
+    "apps/web/.env.test.local",
+    "build/.env",
+    "build/.env.broken",
+    "build/.env.production",
+    "build/app.env",
+    "build/app.env.local",
+    "build/nested/.env.test",
+  ]);
+});
+
+test.skipIf(process.getuid?.() === 0)(
+  "an unreadable ignored repository refuses environment inspection instead of treating it as generated-only",
+  async () => {
+    await Bun.write(`${controller}/.git/info/exclude`, "build/\n");
+    await Bun.write(`${worktree}/build/.env`, "private\n", { createPath: true });
+    git(`${worktree}/build`, "init", "-q");
+    await chmod(`${worktree}/build`, 0);
+    try {
+      expect(
+        await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller }),
+      ).toMatchObject({ tag: "Err", error: { reason: "preparation_io_failed" } });
+    } finally {
+      await chmod(`${worktree}/build`, 0o755);
+    }
+    expect(await Bun.file(`${worktree}/build/.env`).text()).toBe("private\n");
+  },
+);

@@ -185,13 +185,45 @@ function read(input: Input & { sourceId?: string }) {
   return readProject(input).map(({ sources }) => sources);
 }
 
+function resourcePaths(sources: Source[]) {
+  return fromThrowable(
+    () => {
+      const missing = new Map<string, boolean>();
+      for (const source of sources) {
+        if (source.state !== "open") continue;
+        for (const launch of source.launches) {
+          if (launch.worktreePath !== null && !missing.has(launch.worktreePath))
+            missing.set(
+              launch.worktreePath,
+              lstatSync(launch.worktreePath, { throwIfNoEntry: false }) === undefined,
+            );
+        }
+      }
+      return missing;
+    },
+    (cause, defect) => {
+      const failure = cause instanceof Error ? qualify(cause, defect) : defect(cause);
+      return "reason" in failure
+        ? {
+            ...failure,
+            next: {
+              decider: "person" as const,
+              question:
+                "How should access to the recorded resource paths be restored before retrying operator next?",
+            },
+            state: { operation: "resource_metadata" },
+          }
+        : failure;
+    },
+  )();
+}
+
 function resourceFacts(
   launch: { state: string; resources: string; worktreePath: string | null },
+  missing: ReadonlyMap<string, boolean>,
   paneGone = false,
 ): NonNullable<Parameters<typeof decideAssignment>[0]["resources"]> {
-  const worktreeGone =
-    launch.worktreePath !== null &&
-    lstatSync(launch.worktreePath, { throwIfNoEntry: false }) === undefined;
+  const worktreeGone = launch.worktreePath !== null && missing.get(launch.worktreePath) === true;
   return {
     kind: launch.resources === "pane" ? ("pane" as const) : ("worktree" as const),
     workerGone: paneGone || ["interrupted", "finished", "failed"].includes(launch.state),
@@ -206,9 +238,15 @@ function observedSources(
   selected?: Set<string> | null,
 ) {
   return DeviceState.readSources(input.paths, repository, input.sourceId)
-    .flatMap((rows) => decodeRows(rows).map((decoded) => ({ rows, decoded })))
+    .flatMap((rows) =>
+      decodeRows(rows).flatMap((decoded) =>
+        resourcePaths(decoded.filter((source) => selected?.has(source.id) ?? true)).map(
+          (missing) => ({ rows, decoded, missing }),
+        ),
+      ),
+    )
     .toAsync()
-    .flatMap(({ rows, decoded }) => {
+    .flatMap(({ rows, decoded, missing }) => {
       const scoped = rows.filter((row) => selected?.has(row.source.id) ?? true);
       const candidates = scoped.flatMap((row) => {
         const active = new Set(
@@ -228,7 +266,7 @@ function observedSources(
       return missingWorkers(candidates, true).flatMap((isMissing) => {
         const observed = candidates.map((launch) => ({
           launch,
-          resources: resourceFacts(launch, isMissing(launch)),
+          resources: resourceFacts(launch, missing, isMissing(launch)),
         }));
         const byId = new Map(observed.map((row) => [row.launch.id, row]));
         function unchanged(launch: ResourceIdentity) {
@@ -656,10 +694,11 @@ export const WorkSources = {
   next(input: Input & { sourceId?: string; all?: boolean }) {
     return Projects.current(input)
       .flatMap(({ data: project }) => observedSources(input, project.repository))
-      .map((sources) => {
-        const answer = nextAnswer(input, sources);
-        return input.all === true ? answer : withoutEnded(answer);
-      });
+      .flatMap((sources) =>
+        actionAnswer(input, sources).map((answer) =>
+          input.all === true ? answer : withoutEnded(answer),
+        ),
+      );
   },
   /**
    * Block until an action appears that the scope's waits have not returned, or until the timeout
@@ -687,8 +726,11 @@ export const WorkSources = {
     const after = await read(scope);
     if (before.tag !== "Ok" || after.tag !== "Ok") return result;
     const known = new Set(before.value.map((source) => source.id));
-    const prior = actionKeys(nextAnswer(input, before.value));
-    const added = [...actionKeys(nextAnswer(input, after.value))].filter((key) => {
+    const priorAnswer = actionAnswer(input, before.value);
+    const afterAnswer = actionAnswer(input, after.value);
+    if (priorAnswer.tag !== "Ok" || afterAnswer.tag !== "Ok") return result;
+    const prior = actionKeys(priorAnswer.value);
+    const added = [...actionKeys(afterAnswer.value)].filter((key) => {
       if (prior.has(key)) return false;
       const [sourceId, assignment] = parseKey(key);
       if (input.sourceId === undefined) return !known.has(sourceId);
@@ -720,12 +762,14 @@ export const WorkSources = {
         supervised
           .filter((source) => !source.waiting)
           .map((source) =>
-            readSources({ ...input, sourceId: source.id }, source.repository).map((sources) =>
-              nextAnswer(input, sources).sources.some((next) =>
-                next.waits.some((row) => row.reason !== "dependencies_pending"),
-              )
-                ? [source.id]
-                : [],
+            readSources({ ...input, sourceId: source.id }, source.repository).flatMap((sources) =>
+              actionAnswer(input, sources).map((answer) =>
+                answer.sources.some((next) =>
+                  next.waits.some((row) => row.reason !== "dependencies_pending"),
+                )
+                  ? [source.id]
+                  : [],
+              ),
             ),
           ),
       ).map((ids) => ids.flat()),
@@ -802,10 +846,14 @@ type WatchOutcome = {
   data: Answer | ReturnType<typeof changedAnswer<Answer["sources"][number]["actions"][number]>>;
 };
 
-function nextAnswer(input: Input, sources: Source[]) {
+function actionAnswer(input: Input, sources: Source[]) {
+  return resourcePaths(sources).map((missing) => nextAnswer(input, sources, missing));
+}
+
+function nextAnswer(input: Input, sources: Source[], missing: ReadonlyMap<string, boolean>) {
   const now = Date.now();
   // Decoding already refused rows that do not match their plan.
-  return { sources: sources.map((source) => nextActions(input, source, now)) };
+  return { sources: sources.map((source) => nextActions(input, source, now, missing)) };
 }
 
 /**
@@ -879,11 +927,13 @@ function scopeAnswer(
     fromSafePromise(
       Promise.all(
         list.map((project) =>
-          observedSources(input, project.repository, project.ids).map((sources) =>
-            nextAnswer(
+          observedSources(input, project.repository, project.ids).flatMap((sources) =>
+            actionAnswer(
               input,
               sources.filter((source) => project.ids?.has(source.id) ?? true),
-            ).sources.map((source) => ({ ...source, repository: project.repository })),
+            ).map((answer) =>
+              answer.sources.map((source) => ({ ...source, repository: project.repository })),
+            ),
           ),
         ),
       ),
@@ -1047,7 +1097,7 @@ function runningCount(source: Source) {
   return [...latest.values()].filter(liveWorker).length;
 }
 
-function decide(input: Input, source: Source, now: number) {
+function decide(input: Input, source: Source, now: number, missing: ReadonlyMap<string, boolean>) {
   const running = runningCount(source);
   return source.planned.flatMap((assignment) => {
     const questions = source.questions
@@ -1061,7 +1111,7 @@ function decide(input: Input, source: Source, now: number) {
       .filter((row) => row.assignment === assignment.key)
       .flatMap((row) => messageAction(row, now));
     const recorded = [...questions, ...messages];
-    const decision = decideAssignmentRow(input, source, assignment, running);
+    const decision = decideAssignmentRow(input, source, assignment, running, missing);
     return recorded.length > 0 && idleReasons.has(decision.reason)
       ? recorded
       : [...recorded, decision];
@@ -1072,6 +1122,7 @@ function assignmentResources(
   source: Source,
   current: { key: string; state: string },
   launch: Launch | undefined,
+  missing: ReadonlyMap<string, boolean>,
 ) {
   if (source.state !== "open") return { resources: undefined, retained: [] };
   const retained = new Map<string, { worktreePath: string; branch: string | null }>();
@@ -1079,14 +1130,14 @@ function assignmentResources(
     if (
       previous.assignment === current.key &&
       previous.worktreePath !== null &&
-      lstatSync(previous.worktreePath, { throwIfNoEntry: false }) !== undefined
+      missing.get(previous.worktreePath) !== true
     )
       retained.set(previous.worktreePath, {
         worktreePath: previous.worktreePath,
         branch: previous.branch,
       });
   }
-  const resources = launch === undefined ? undefined : resourceFacts(launch);
+  const resources = launch === undefined ? undefined : resourceFacts(launch, missing);
   if (resources !== undefined) resources.retained = retained.size > 0;
   return { resources, retained: current.state === "abandoned" ? [...retained.values()] : [] };
 }
@@ -1096,6 +1147,7 @@ function decideAssignmentRow(
   source: Source,
   assignment: Source["planned"][number],
   running: number,
+  missing: ReadonlyMap<string, boolean>,
 ) {
   const { maxRunning } = source.plan;
   // Decoding matched each planned key to one stored row.
@@ -1110,7 +1162,7 @@ function decideAssignmentRow(
   const report = source.reports.findLast((row) => row.assignment === assignment.key);
   const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
   const review = source.internalReviews.find((row) => row.assignment === assignment.key);
-  const { resources, retained } = assignmentResources(source, current, launch);
+  const { resources, retained } = assignmentResources(source, current, launch, missing);
   const decision = decideAssignment({
     assignment: current,
     dependencies,
@@ -1189,8 +1241,13 @@ function owed(obligations: Obligation[]) {
     }));
 }
 
-function nextActions(input: Input, source: Source, now: number) {
-  const decisions = decide(input, source, now);
+function nextActions(
+  input: Input,
+  source: Source,
+  now: number,
+  missing: ReadonlyMap<string, boolean>,
+) {
+  const decisions = decide(input, source, now, missing);
   // An ended source keeps the cleanup that its completed work still owes.
   const cleanup = decisions.filter(
     (decision) => decision.action === "retry_cleanup" || decision.action === "person_decision",
