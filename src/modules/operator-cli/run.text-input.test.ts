@@ -155,20 +155,35 @@ test("text commands refuse legacy JSON envelopes and removed inline flags", asyn
 test("malformed report bullets and duplicate headings refuse without recording a report", async () => {
   const source = await device.register(plan);
   const worker = await device.dispatch(source, "read");
+  const calls = await device.herdrCalls();
   for (const invalid of [
     `${report}\n## Conclusion\nOverwritten.`,
     report.replace("Scope? Answer: Only a.ts.", "Scope? Only a.ts."),
+    report.replace("Scope? Answer: Only a.ts.", " Answer: Only a.ts."),
+    report.replace("Scope? Answer: Only a.ts.", "Scope? Answer: "),
     report.replace("- Read `a.ts`.", "Read `a.ts`."),
     report.replace("## Supporting files\n- None.", "## Supporting files\n- relative.md"),
   ]) {
-    expect(
-      await device.run(["report", "submit", "--file", "-"], {
-        pane: worker.paneId,
-        stdin: invalid,
-      }),
-    ).toMatchObject({ code: 2, output: { reason: "invalid_report_input" } });
+    const result = await device.run(["report", "submit", "--file", "-"], {
+      pane: worker.paneId,
+      stdin: invalid,
+    });
+    expect(result).toMatchObject({
+      code: 2,
+      output: {
+        reason: "invalid_report_input",
+        next: { command: "operator report submit --file <path|->" },
+      },
+    });
+    expect(result.output).not.toHaveProperty("state");
   }
   expect((await device.next("read")).map((row) => row.action)).toEqual(["wait"]);
+  expect(
+    await Bun.file(
+      `${device.root}/state/operator/projects/example/one/sources/${source}/assignments/read/reports/1/report.md`,
+    ).exists(),
+  ).toBe(false);
+  expect(await device.herdrCalls()).toEqual(calls);
   const file = await device.writeText("report.md", report);
   expect(
     await device.run(["report", "submit", "--file", file], { pane: worker.paneId }),

@@ -83,8 +83,7 @@ const markdownSubmission = z
     function decisions(heading: string, by: "person" | "super-agent") {
       return bullets(heading).map((item) => {
         const separator = item.indexOf(" Answer: ");
-        // Stryker disable next-line EqualityOperator: equivalent: a separator at zero also fails the required nonempty question schema
-        if (separator < 0) invalid(`Use <question> Answer: <answer> in ## ${heading}.`);
+        if (separator === -1) invalid(`Use <question> Answer: <answer> in ## ${heading}.`);
         return { question: item.slice(0, separator), answer: item.slice(separator + 9), by };
       });
     }

@@ -160,6 +160,50 @@ test("report diagnostics identify missing, duplicate, and unknown sections", () 
   ).toThrow("Use <question> Answer: <answer> in ## Human answers.");
 });
 
+test("decision bullets reject absent delimiters and empty questions or answers without changing diagnostic order", () => {
+  for (const bullet of ["Scope? a.ts only", " Answer: a.ts only", "Scope? Answer: "]) {
+    let failure: unknown;
+    try {
+      parseSubmission(markdown.replace("Scope? Answer: a.ts only", bullet));
+    } catch (cause) {
+      failure = cause;
+    }
+    expect(failure).toMatchObject({
+      issues: [
+        {
+          code: "custom",
+          path: [],
+          message: "Use <question> Answer: <answer> in ## Human answers.",
+        },
+      ],
+    });
+  }
+  let failure: unknown;
+  try {
+    parseSubmission(
+      markdown
+        .replace("Scope? Answer: a.ts only", " Answer: a.ts only")
+        .replace("Name? Answer: reader", "Name? reader"),
+    );
+  } catch (cause) {
+    failure = cause;
+  }
+  expect(failure).toMatchObject({
+    issues: [
+      { code: "custom", message: "Use <question> Answer: <answer> in ## Human answers." },
+      { code: "custom", message: "Use <question> Answer: <answer> in ## SuperAgent decisions." },
+    ],
+  });
+  expect(
+    parseSubmission(
+      markdown.replace("Scope? Answer: a.ts only", "Scope? Answer: a.ts only Answer: keep this."),
+    ).decisions,
+  ).toEqual([
+    { question: "Scope?", answer: "a.ts only Answer: keep this.", by: "person" },
+    { question: "Name?", answer: "reader", by: "super-agent" },
+  ]);
+});
+
 test("the rendered authority explanation is accepted only in SuperAgent decisions", () => {
   expect(() =>
     parseSubmission(
