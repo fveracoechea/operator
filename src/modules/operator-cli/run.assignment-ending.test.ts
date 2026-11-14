@@ -1,11 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 // Bun has no recursive removal API.
-import { rm } from "node:fs/promises";
+import { chmod, rm, symlink } from "node:fs/promises";
+import path from "node:path";
 import { workerDevice } from "./worker-fixture.ts";
 import { z } from "zod";
 import { Database } from "bun:sqlite";
 
 let device: Awaited<ReturnType<typeof workerDevice>>;
+const asRoot = process.getuid?.() === 0;
 afterEach(async () => {
   await rm(device.root, { recursive: true, force: true });
 });
@@ -130,6 +132,171 @@ test("abandon ends one assignment and deletes nothing", async () => {
     output: { reason: "assignment_not_dispatchable" },
   });
 }, 60000);
+
+test("cleanup ignores an ignored generated repository with no environment files", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-generated-repository",
+    assignments: [assignment("build", "worktree")],
+  });
+  const worker = await device.dispatch(source, "build");
+  const worktree = worker.worktreePath ?? "";
+  const exclude = await device.exec(["git", "rev-parse", "--git-path", "info/exclude"], worktree);
+  await Bun.write(exclude.stdout.trim(), "build/\n");
+  await Bun.write(`${worktree}/build/output.js`, "generated\n", { createPath: true });
+  expect((await device.exec(["git", "init", "-q", `${worktree}/build`], worktree)).code).toBe(0);
+  const report = await device.writeJson("report.json", {
+    conclusion: "Done",
+    evidence: ["Built output."],
+    unresolved: [],
+  });
+  expect(
+    (await device.run(["report", "submit", "--file", report], { pane: worker.paneId })).code,
+  ).toBe(0);
+  expect(
+    await device.run(["report", "accept", "--source", source, "--assignment", "build"]),
+  ).toMatchObject({
+    code: 0,
+    output: { data: { cleanup: { state: "done" } } },
+  });
+  expect(await Bun.file(`${worktree}/build/output.js`).exists()).toBe(false);
+}, 60000);
+
+test.each(["changed", "unchanged", "linked"])(
+  "cleanup inspects %s environment files inside ignored repositories before removing anything",
+  async (mode) => {
+    device = await workerDevice();
+    const source = await device.register({
+      trackerKey: `APP-repository-env-${mode}`,
+      assignments: [assignment("build", "worktree")],
+    });
+    const worker = await device.dispatch(source, "build");
+    const worktree = worker.worktreePath ?? "";
+    const exclude = await device.exec(["git", "rev-parse", "--git-path", "info/exclude"], worktree);
+    await Bun.write(exclude.stdout.trim(), "build/\n");
+    await Bun.write(`${worktree}/build/output.js`, "generated\n", { createPath: true });
+    expect((await device.exec(["git", "init", "-q", `${worktree}/build`], worktree)).code).toBe(0);
+    await Bun.write(`${device.main}/build/.env`, "TOKEN=original\n", { createPath: true });
+    const outside = `${device.root}/secret.env`;
+    await Bun.write(outside, "TOKEN=original\n");
+    await (mode === "linked"
+      ? symlink(outside, `${worktree}/build/.env`)
+      : Bun.write(
+          `${worktree}/build/.env`,
+          mode === "changed" ? "TOKEN=changed\n" : "TOKEN=original\n",
+        ));
+    const report = await device.writeJson("report.json", {
+      conclusion: "Done",
+      evidence: ["Built output."],
+      unresolved: [],
+    });
+    expect(
+      (await device.run(["report", "submit", "--file", report], { pane: worker.paneId })).code,
+    ).toBe(0);
+    const accepted = await device.run([
+      "report",
+      "accept",
+      "--source",
+      source,
+      "--assignment",
+      "build",
+    ]);
+    expect(accepted).toMatchObject({
+      code: 0,
+      output: { data: { cleanup: { state: mode === "unchanged" ? "done" : "kept" } } },
+    });
+    if (mode !== "unchanged") {
+      expect(JSON.stringify(accepted.output)).toContain("ignored build/.env");
+      expect(await Bun.file(`${worktree}/build/output.js`).text()).toBe("generated\n");
+      expect(await Bun.file(`${worktree}/build/.env`).text()).toBe(
+        mode === "changed" ? "TOKEN=changed\n" : "TOKEN=original\n",
+      );
+    }
+    expect(await Bun.file(outside).text()).toBe("TOKEN=original\n");
+  },
+  60000,
+);
+
+test.skipIf(asRoot)(
+  "an unreadable resource refuses next without ending work or changing state",
+  async () => {
+    device = await workerDevice();
+    const source = await device.register({
+      trackerKey: "APP-unreadable",
+      assignments: [assignment("read", "worktree")],
+    });
+    const worker = await device.dispatch(source, "read");
+    const worktree = worker.worktreePath ?? "";
+    const parent = path.dirname(worktree);
+    const before = await Bun.file(`${device.root}/state/operator/operator.sqlite`).bytes();
+    await chmod(parent, 0);
+    try {
+      expect(await device.run(["next"])).toMatchObject({
+        code: 1,
+        output: {
+          reason: "source_io_failed",
+          next: { decider: "person" },
+          state: { operation: "resource_metadata" },
+        },
+      });
+      expect(await Bun.file(`${device.root}/state/operator/operator.sqlite`).bytes()).toEqual(
+        before,
+      );
+    } finally {
+      await chmod(parent, 0o755);
+    }
+    expect(await Bun.file(`${worktree}/package.json`).exists()).toBe(true);
+    expect((await device.run(["source", "show", "--source", source])).output).toMatchObject({
+      data: { assignments: [{ state: "running" }], launches: [{ state: "running" }] },
+    });
+  },
+  60000,
+);
+
+test.skipIf(asRoot)(
+  "abandon keeps its committed success when acknowledgement cannot inspect a retained path",
+  async () => {
+    device = await workerDevice();
+    const source = await device.register({
+      trackerKey: "APP-ack-unreadable",
+      assignments: [assignment("read", "worktree")],
+    });
+    const worker = await device.dispatch(source, "read");
+    {
+      using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+      db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_review", source);
+    }
+    const parent = path.dirname(worker.worktreePath ?? "");
+    await chmod(parent, 0);
+    try {
+      const abandoned = await device.exec(
+        [
+          "env",
+          "OPENCODE_SESSION_ID=ses_review",
+          "CLAUDE_CODE_SESSION_ID=",
+          "operator",
+          "abandon",
+          "--source",
+          source,
+          "--assignment",
+          "read",
+          "--json",
+        ],
+        device.main,
+      );
+      expect(JSON.parse(abandoned.stdout)).toMatchObject({ reason: "assignment_abandoned" });
+      expect(abandoned.code, abandoned.stderr).toBe(0);
+      expect(abandoned.stderr).toBe("");
+    } finally {
+      await chmod(parent, 0o755);
+    }
+    expect((await device.run(["source", "show", "--source", source])).output).toMatchObject({
+      data: { assignments: [{ state: "abandoned" }] },
+    });
+    expect(await Bun.file(`${worker.worktreePath}/package.json`).exists()).toBe(true);
+  },
+  60000,
+);
 
 test.each(["missing resources", "abandon"])(
   "an ended pr-open assignment names its open PR without closing it after %s",
