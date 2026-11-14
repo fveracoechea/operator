@@ -307,8 +307,8 @@ function observeSources(
                       {
                         repository,
                         checkout:
-                          // Stryker disable next-line StringLiteral: equivalent: when concurrent removal deletes the project, any fallback checkout reaches the same controller_mismatch refusal
                           projects.find((project) => project.repository === repository)?.checkout ??
+                          // Stryker disable next-line StringLiteral: equivalent: when concurrent removal deletes the project, any fallback checkout reaches the same controller_mismatch refusal
                           "",
                         sourceId: source.id,
                       },
