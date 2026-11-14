@@ -44,8 +44,11 @@ function eventOf(args: string[]): Event | undefined {
 
 /** Locate by the recorded pane, never by an arbitrary directory or a guessed kind. */
 function worker(paths: OperatorPaths) {
-  const { HERDR_SOCKET_PATH: socket, HERDR_PANE_ID: paneId } = Environment.read();
-  if (socket === undefined || paneId === undefined) return null;
+  const caller = z
+    .object({ HERDR_SOCKET_PATH: z.string(), HERDR_PANE_ID: z.string() })
+    .safeParse(Environment.read());
+  if (!caller.success) return null;
+  const { HERDR_SOCKET_PATH: socket, HERDR_PANE_ID: paneId } = caller.data;
   const read = DeviceState.readReport(paths, { by: "pane", socket, paneId });
   if (read.tag !== "Ok") return null;
   const launch = read.value.launch;
@@ -108,7 +111,7 @@ function recorded(
         : {
             returned: report.decision === "returned",
             accepted: report.decision === "accepted",
-            resumed: source.assignments.find((row) => row.key === key)?.state === "running",
+            resumed: source.assignments.some((row) => row.key === key && row.state === "running"),
           },
     pr: {
       associated: pr !== undefined,
@@ -150,7 +153,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
       cwd: selected.launch.worktreePath,
       timeoutMs: 10000,
     });
-    clean = status.status === "completed" && status.exitCode === 0 && status.stdout.trim() === "";
+    clean = status.status === "completed" && status.exitCode === 0 && status.stdout === "";
     const commit = await ToolInvocation.run({
       tool: "git",
       args: ["rev-parse", "--verify", "HEAD"],

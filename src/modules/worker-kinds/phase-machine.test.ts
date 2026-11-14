@@ -242,6 +242,32 @@ test.each([0, 1, 2])(
   },
 );
 
+test("wrong-completion commands stay with their owner and an off-mode ready step has no round prerequisite", () => {
+  const facts = prFacts();
+  expect(
+    decidePhase(
+      { ...facts, kind: { ...facts.kind, completion: "report" }, worktreeClean: false },
+      "associate",
+    ),
+  ).toEqual({
+    kind: "custom",
+    phase: "report",
+    next: { command: "operator report submit --file <file>", why: "Submit the completed report." },
+    refusal: undefined,
+  });
+  expect(
+    decidePhase(
+      { ...facts, internalReview: false, pr: { ...facts.pr, associated: true } },
+      "ready",
+    ),
+  ).toEqual({
+    kind: "custom",
+    phase: "feedback",
+    next: { command: "operator pr wait", why: "Wait for PR feedback or merge eligibility." },
+    refusal: undefined,
+  });
+});
+
 test("a phase exit command refuses until its guard holds, and names the next command", () => {
   const facts = {
     kind: { name: "review", completion: "pr" as const, workPhases: [] },

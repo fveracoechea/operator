@@ -121,6 +121,7 @@ test("version and argument refusals preserve a worker's phase and next action", 
     next: { command: "operator report submit --file <file>", why: "Submit." },
   });
   expect(JSON.parse(String(output.log.mock.calls[1]?.[0]))).toMatchObject({
+    operation: "parse_arguments",
     kind: "research",
     phase: "investigate",
     next: { command: "operator --help", why: "Read the implemented commands and their flags." },
