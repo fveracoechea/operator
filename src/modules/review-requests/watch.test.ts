@@ -145,31 +145,65 @@ test("each request row names its action and command, its attention, or its wait"
     action: "start_reviewer",
     reason: "review_queued",
     command: `operator review start ${url}`,
+    next: { command: `operator review start ${url}`, why: "review_queued" },
   });
   expect(found[1]).toMatchObject({
     action: "replace_reviewer",
     reason: "reviewer_interrupted",
     command: `operator review start ${at(8)}`,
+    next: { command: `operator review start ${at(8)}`, why: "reviewer_interrupted" },
   });
   expect(found[2]).toMatchObject({
     action: "post_review",
     reason: "review_post_uncertain",
     command: `operator review post ${at(9)}`,
+    next: { command: `operator review post ${at(9)}`, why: "review_post_uncertain" },
   });
   expect(found[3]).toMatchObject({
     action: "wait_reviews",
     reason: "reviewer_move_unfinished",
     command: "operator review wait",
+    next: { command: "operator review wait", why: "reviewer_move_unfinished" },
   });
   expect(found[4]).toMatchObject({
     action: "clean_reviewer",
     reason: "cleanup_pending",
     command: `operator review cleanup ${at(11)}`,
+    next: { command: `operator review cleanup ${at(11)}`, why: "cleanup_pending" },
   });
-  expect(found[5]).toMatchObject({ id: "r12", attention: "reviewer_work_kept" });
+  expect(found[5]).toMatchObject({
+    id: "r12",
+    attention: "reviewer_work_kept",
+    next: {
+      decider: "person",
+      question: "What intervention does this review need for reviewer_work_kept?",
+    },
+  });
   expect(found[5]).not.toHaveProperty("action");
-  expect(found[6]).toMatchObject({ id: "r13", wait: "review_watching" });
+  expect(found[6]).toMatchObject({
+    id: "r13",
+    wait: "review_watching",
+    command: "operator review wait",
+    next: { command: "operator review wait", why: "review_watching" },
+  });
   expect(found[6]).not.toHaveProperty("attention");
+});
+
+test("an unknown review state asks the SuperAgent for intervention", () => {
+  seedRequest(home.paths);
+  const unknown = listed(home.paths).map((row) => ({
+    ...row,
+    request: row.request === null ? null : { ...row.request, state: "unknown" },
+  }));
+  expect(rows(home.paths, unknown)).toMatchObject([
+    {
+      attention: "review_state_unknown",
+      next: {
+        decider: "super-agent",
+        question: "What intervention does this review need for review_state_unknown?",
+      },
+    },
+  ]);
 });
 
 test("a wait with nothing to observe times out at its deadline", async () => {

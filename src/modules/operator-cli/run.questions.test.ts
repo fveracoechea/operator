@@ -65,6 +65,7 @@ test("a worker question stays in next actions until the SuperAgent answers it on
       reason: "question_open",
       blockers: [],
       question: { key: "scope", question: "Is b.ts in scope?", askedAt },
+      next: { decider: "super-agent", question: "Is b.ts in scope?" },
     },
   ]);
 
@@ -75,7 +76,12 @@ test("a worker question stays in next actions until the SuperAgent answers it on
   const escalated = await device.run(["question", "escalate", ...selector, "--key", "scope"]);
   expect(escalated.code, escalated.stderr).toBe(0);
   expect(await device.next("investigate")).toMatchObject([
-    { action: "person_decision", reason: "question_awaiting_person", question: { key: "scope" } },
+    {
+      action: "person_decision",
+      reason: "question_awaiting_person",
+      question: { key: "scope" },
+      next: { decider: "person", question: "Is b.ts in scope?" },
+    },
   ]);
   expect(
     await device.run(["question", "wait", "--key", "scope", "--timeout", "0"], pane),

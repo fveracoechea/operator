@@ -19,6 +19,7 @@ import {
 import { cleanupResult, cleanupReviewer, failureOf, syncReviewer } from "./reviewer.ts";
 import { decideWatch, type WatchDecision } from "./rounds.ts";
 import { slackActions, type SlackView } from "./slack.ts";
+import type { NextStep } from "../../lib/cli-result.ts";
 
 const pollMs = 30000;
 type Listed = Snapshot;
@@ -36,21 +37,34 @@ export function rows(paths: Paths, listed: Snapshot[]) {
     const request = row.request;
     if (request === null) return [];
     const step = reviewAction(request, row.ownerActive);
-    const commands: Record<string, string> = {
+    const commands: Record<
+      Extract<ReturnType<typeof reviewAction>, { kind: "action" }>["action"],
+      string
+    > = {
       start_reviewer: `operator review start ${request.url}`,
       replace_reviewer: `operator review start ${request.url}`,
       post_review: `operator review post ${request.url}`,
       wait_reviews: "operator review wait",
       clean_reviewer: `operator review cleanup ${request.url}`,
     };
+    const next: NextStep =
+      step.kind === "action"
+        ? { command: commands[step.action], why: step.reason }
+        : step.kind === "attention"
+          ? {
+              decider: step.reason === "reviewer_work_kept" ? "person" : "super-agent",
+              question: `What intervention does this review need for ${step.reason}?`,
+            }
+          : { command: "operator review wait", why: step.reason };
     return [
       {
         ...summary(paths, row),
+        next,
         ...(step.kind === "action"
-          ? { action: step.action, reason: step.reason, command: commands[step.action] }
+          ? { action: step.action, reason: step.reason, command: next.command }
           : step.kind === "attention"
             ? { attention: step.reason }
-            : { wait: step.reason }),
+            : { wait: step.reason, command: next.command }),
       },
     ];
   });

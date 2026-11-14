@@ -280,6 +280,7 @@ test("reset preserves merged and completed work, abandons the rest, and refuses 
     actions: [
       {
         action: "source_ended",
+        next: { why: "No assignment work remains." },
         reason: "reset",
         endedAt: data.endedAt,
         prunableAt: data.prunableAt,

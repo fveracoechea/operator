@@ -72,6 +72,11 @@ test("a steering message reaches the worker as a doorbell and returns as a recor
   // The reply waits on the SuperAgent beside the working worker's own wait.
   expect((await device.next("investigate"))[0]).toMatchObject({
     action: "read_reply",
+    command: `operator message close --source ${source} --assignment investigate --key focus`,
+    next: {
+      command: `operator message close --source ${source} --assignment investigate --key focus`,
+      why: "Read the recorded reply and act on it before closing the message.",
+    },
     reason: "message_replied",
     message: { key: "focus", reply: "a.ts has two gaps; b.ts next." },
   });

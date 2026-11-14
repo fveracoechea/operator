@@ -124,7 +124,12 @@ for (const host of ["opencode", "claude-code"] as const)
       output: { reason: "review_unchanged" },
     });
     expect(await next()).toMatchObject([
-      { state: "queued", action: "start_reviewer", command: `operator review start ${url}` },
+      {
+        state: "queued",
+        action: "start_reviewer",
+        command: `operator review start ${url}`,
+        next: { command: `operator review start ${url}`, why: "review_queued" },
+      },
     ]);
 
     const started = await run(["review", "start", url]);

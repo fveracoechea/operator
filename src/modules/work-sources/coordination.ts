@@ -121,8 +121,8 @@ export function dueKeys(input: {
 }
 
 /** The answer's sources with only the actions whose keys are given, without waits. */
-export function changedAnswer(
-  answer: { sources: { id: string; state: string; repository?: string; actions: Row[] }[] },
+export function changedAnswer<T extends Row>(
+  answer: { sources: { id: string; state: string; repository?: string; actions: T[] }[] },
   keys: Set<string>,
 ) {
   return {
