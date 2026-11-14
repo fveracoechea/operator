@@ -773,27 +773,30 @@ test("a cleanup that stops records nothing and releases the hold", async () => {
 });
 
 test("a cleanup is claimed only when work is left and no other process runs it", () => {
-  const unchanged = {
-    tag: "Err",
-    error: {
-      reason: "review_cleanup_unchanged",
-      detail: "The reviewer cleanup is done.",
-      next: { why: "The reviewer cleanup is complete. No cleanup remains." },
-    },
-  };
+  function unchanged(cleanup: string | null) {
+    return {
+      tag: "Err",
+      error: {
+        reason: "review_cleanup_unchanged",
+        detail: "The reviewer cleanup is done.",
+        next: { why: "The reviewer cleanup is complete. No cleanup remains." },
+        state: { cleanup },
+      },
+    };
+  }
   for (const cleanupState of [null, "done"]) {
     held({ state: "closed", cleanupState, ownerPid: null, leaseAt: null });
-    expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged);
+    expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged(cleanupState));
   }
   held({ state: "approved", cleanupState: "done", ownerPid: null, leaseAt: null });
-  expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged);
+  expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged("done"));
   // An earlier Operator version kept the reviewer of an approved request and recorded no cleanup.
   held({ state: "approved", cleanupState: null, ownerPid: null, leaseAt: null });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
     tag: "Ok",
     value: { request: { ownerPid: process.pid, cleanupState: "pending" } },
   });
-  expect(claimCleanup(home.paths, target, "missing")).toMatchObject(unchanged);
+  expect(claimCleanup(home.paths, target, "missing")).toMatchObject(unchanged(null));
   held({ state: "closed", cleanupState: "failed" });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
     tag: "Err",

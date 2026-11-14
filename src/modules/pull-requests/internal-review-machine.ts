@@ -319,13 +319,7 @@ const skipRules: Rule<SkipFacts>[] = [
       refused(
         "person_instruction_required",
         `Skip an internal review only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. ${unchanged}`,
-        {
-          next: {
-            decider: "person",
-            question: "May this command run on your explicit instruction?",
-          },
-          state: { personInstructed: false },
-        },
+        { state: { personInstructed: false } },
       ),
   },
   {
