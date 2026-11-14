@@ -320,3 +320,35 @@ test("abandon refusals leave database, resources and external tools unchanged", 
   expect(await Bun.file(`${worker.worktreePath}/package.json`).exists()).toBe(true);
   expect((await githubCalls.exists()) ? await githubCalls.text() : "").toBe(githubBefore);
 }, 60000);
+
+test("abandon preserves earlier worktrees after a failed pathless replacement and next names the person's retained work", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "APP-11",
+    assignments: [assignment("read", "worktree")],
+  });
+  const worker = await device.dispatch(source, "read");
+  const worktree = worker.worktreePath ?? "";
+  await Bun.write(`${worktree}/notes.md`, "retained work\n");
+  expect((await device.event("pane.exited", { pane_id: worker.paneId })).code).toBe(0);
+  await device.setHerdr({ fail: { "worktree open": "Herdr refused" } });
+  expect(await device.run(["dispatch", "--source", source, "--assignment", "read"])).toMatchObject({
+    code: 1,
+    output: { reason: "launch_failed" },
+  });
+  const calls = await device.herdrCalls();
+  expect(await device.run(["abandon", "--source", source, "--assignment", "read"])).toMatchObject({
+    code: 0,
+    output: { data: { retained: [{ worktreePath: worktree }] } },
+  });
+  expect(await device.next("read")).toMatchObject([
+    {
+      action: "person_decision",
+      reason: "cleanup_unlanded_work",
+      retainedResources: [{ worktreePath: worktree, branch: "task/read" }],
+      next: { decider: "person" },
+    },
+  ]);
+  expect(await Bun.file(`${worktree}/notes.md`).text()).toBe("retained work\n");
+  expect(await device.herdrCalls()).toEqual(calls);
+}, 60000);

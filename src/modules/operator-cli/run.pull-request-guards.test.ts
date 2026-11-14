@@ -205,12 +205,13 @@ test.each([
     file: "device-state/migration-policy.ts",
     replacements: [
       [
-        "return guard === undefined",
-        "return guard === undefined && !found(client, \"SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1\")",
+        "const guard = idleGuards.find((row) => applied >= row.applied && row.busy(client));",
+        "const guard = applied >= 2 && found(client, \"SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1\") ? {detail: 'Assignment state blocks migration.'} : idleGuards.find((row) => applied >= row.applied && row.busy(client));",
       ],
     ],
     testFile: "operator-cli/run.compatibility.test.ts",
     pattern: "a migration runs with a",
+    diagnostic: "state_migration_blocked",
   },
   {
     name: "stacked start on the parent's pushed head",
@@ -404,6 +405,10 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.diagnostic !== undefined) {
+        expect(`${stdout}${stderr}`).toContain(change.diagnostic);
+        expect(`${stdout}${stderr}`).not.toContain("TypeError");
+      }
     } finally {
       await Bun.write(file, original);
     }
