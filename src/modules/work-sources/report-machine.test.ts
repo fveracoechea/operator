@@ -57,6 +57,15 @@ test.each([
     { assignment: "reported", decision: null, launch: "running" },
   ],
   [
+    {
+      command: "resume",
+      state: "reported",
+      latest: { number: 1, decision: "returned", cleanupState: null },
+      launch: null,
+    },
+    { assignment: "reported", decision: "returned", launch: null },
+  ],
+  [
     { command: "return", state: "running" },
     { assignment: "running", decision: null },
   ],
