@@ -6,6 +6,7 @@ import { ErrAsync, fromSafePromise, OkAsync } from "unthrown";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
+import { WorkSources } from "../work-sources/main.ts";
 import { dispatchArgs, herdrEventWithoutState, runDispatch } from "./dispatch.ts";
 
 const paths = OperatorHome.resolve(
@@ -41,6 +42,11 @@ function spies() {
 }
 
 test("parses dispatch and Herdr commands", () => {
+  expect(dispatchArgs(["abandon", "--source", "s", "--assignment", "a", "--json"])).toEqual({
+    operation: "abandon",
+    sourceId: "s",
+    assignment: "a",
+  });
   expect(dispatchArgs(["dispatch", "--source", "s", "--assignment", "a", "--json"])).toEqual({
     operation: "dispatch",
     sourceId: "s",
@@ -53,6 +59,31 @@ test("parses dispatch and Herdr commands", () => {
   });
   expect(dispatchArgs(["herdr", "install"])).toEqual({ operation: "herdr_install" });
   expect(dispatchArgs(["herdr", "event", "--json"])).toEqual({ operation: "herdr_event" });
+});
+
+test("abandon passes its exact selector and preserves the result and next without launching or observing a worker", async () => {
+  const called = spies();
+  const next = { command: "operator next --source s", why: "Read remaining work." };
+  const abandon = spyOn(WorkSources, "abandon").mockReturnValue(
+    OkAsync({ sourceId: "s", assignment: "a", ended: ["a"], retained: [], next }),
+  );
+  const { log } = quiet();
+  expect(
+    await runDispatch(["abandon", "--source", "s", "--assignment", "a", "--json"], paths, true),
+  ).toBe(true);
+  expect(abandon).toHaveBeenCalledWith({
+    paths,
+    cwd: process.cwd(),
+    sourceId: "s",
+    assignment: "a",
+  });
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "abandon",
+    reason: "assignment_abandoned",
+    data: { sourceId: "s", assignment: "a", ended: ["a"], retained: [] },
+    next,
+  });
+  for (const call of Object.values(called)) expect(call).not.toHaveBeenCalled();
 });
 
 test.each([

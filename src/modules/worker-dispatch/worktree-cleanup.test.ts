@@ -246,19 +246,28 @@ test.each([
   expect(await Bun.file(`${worktree}/.gitignore`).exists()).toBe(true);
 });
 
-test("an environment inspection I/O failure keeps the worktree and branch without attempting removal", async () => {
-  const run = ToolInvocation.run;
-  const calls = spyOn(ToolInvocation, "run").mockImplementation((input) =>
-    input.args.includes("ls-files")
-      ? Promise.reject(Object.assign(new Error("environment inspection failed"), { code: "EIO" }))
-      : run(input),
-  );
-  const outcome = await cleanWorktree({ paths, checkout, worktree, branch: "task/read" });
-  expect(outcome.state).toBe("kept");
-  expect(outcome.detail).toContain("environment files that could not be inspected");
-  expect(await Bun.file(`${worktree}/.gitignore`).exists()).toBe(true);
-  expect(git(checkout, "branch", "--list", "task/read")).toContain("task/read");
-  expect(
-    calls.mock.calls.some(([input]) => input.args.includes("remove") || input.args.includes("-D")),
-  ).toBe(false);
-});
+test.each(["error", "no-answer"])(
+  "an environment inspection I/O failure keeps the worktree and branch without attempting removal: %s",
+  async (mode) => {
+    const run = ToolInvocation.run;
+    const calls = spyOn(ToolInvocation, "run").mockImplementation((input) =>
+      input.args.includes("ls-files")
+        ? mode === "error"
+          ? Promise.reject(
+              Object.assign(new Error("environment inspection failed"), { code: "EIO" }),
+            )
+          : Promise.resolve({ status: "unavailable" as const, tool: "git", detail: "No answer." })
+        : run(input),
+    );
+    const outcome = await cleanWorktree({ paths, checkout, worktree, branch: "task/read" });
+    expect(outcome.state).toBe("kept");
+    expect(outcome.detail).toContain("environment files that could not be inspected");
+    expect(await Bun.file(`${worktree}/.gitignore`).exists()).toBe(true);
+    expect(git(checkout, "branch", "--list", "task/read")).toContain("task/read");
+    expect(
+      calls.mock.calls.some(
+        ([input]) => input.args.includes("remove") || input.args.includes("-D"),
+      ),
+    ).toBe(false);
+  },
+);

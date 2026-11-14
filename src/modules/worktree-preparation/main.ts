@@ -165,8 +165,8 @@ function prepareProject(
 
 async function sameFile(first: string, second: string) {
   const [firstInfo, secondInfo] = await Promise.all([
-    lstat(first).catch(() => null),
-    lstat(second).catch(() => null),
+    lstat(first).catch(() => undefined),
+    lstat(second).catch(() => undefined),
   ]);
   if (!firstInfo?.isFile() || !secondInfo?.isFile()) return false;
   const [a, b] = [Bun.file(first), Bun.file(second)];

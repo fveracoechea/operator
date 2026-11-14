@@ -4,6 +4,7 @@ import { coordinatedSource } from "./supervision.ts";
 test("the SuperAgent commands that coordinate a source name their operation and source", () => {
   for (const [args, operation] of [
     [["dispatch", "--source", "s1", "--assignment", "a"], "dispatch"],
+    [["abandon", "--source", "s1", "--assignment", "a"], "abandon"],
     [["next", "--wait", "--source", "s1"], "next_wait"],
     [["report", "accept", "--source", "s1", "--assignment", "a"], "report_accept"],
     [["report", "return", "--source", "s1"], "report_return"],
