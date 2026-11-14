@@ -111,15 +111,19 @@ test.each([
     OkAsync({ repos: [...policy.repos], authors: [...policy.authors] }),
   );
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ author: policy.author })));
-  expect(await ReviewRequests.add(input())).toMatchObject({
+  const excluded = await ReviewRequests.add(input());
+  expect(excluded).toMatchObject({
     tag: "Err",
     error: {
       reason: "review_author_excluded",
-      detail: expect.stringMatching(/\S/),
-      next: { decider: "super-agent", question: expect.stringMatching(/\S/) },
+      next: { decider: "super-agent" },
       state: { repository: "example/one", author: policy.author?.login ?? null },
     },
   });
+  if (excluded.tag !== "Err") expect.unreachable("The author policy did not refuse the request.");
+  expect(excluded.error.detail).toMatch(/\S/);
+  if (!("next" in excluded.error)) expect.unreachable("The refusal has no next step.");
+  expect(excluded.error.next?.question).toMatch(/\S/);
   expect(DeviceState.readReviewRequests(home.paths)).toMatchObject({ tag: "Ok", value: [] });
 });
 

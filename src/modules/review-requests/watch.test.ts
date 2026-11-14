@@ -211,6 +211,7 @@ test.each(["watching", "approved"])("a posted %s row asks for one status reply",
     Ok({ round: posted(1, new Date(start).toISOString()) }),
   );
   const found = rows(home.paths, listed(home.paths));
+  expect(found[0]?.next.question).toContain(`Reply once in ${thread}`);
   expect(found[0]?.next.question).toContain("review round 1 (review)");
   expect(found[0]?.next.question).toContain("no draft");
   expect(found[0]?.next).not.toHaveProperty("command");
@@ -220,7 +221,6 @@ test.each(["watching", "approved"])("a posted %s row asks for one status reply",
       review: { round: 1, url: "review" },
       next: {
         decider: "super-agent",
-        question: expect.stringContaining(`Reply once in ${thread}`),
       },
     },
   ]);
@@ -253,12 +253,13 @@ test("posted reply guidance preserves an approved request's cleanup command", ()
   DeviceState.changeReviewRequest(home.paths, target, () =>
     Ok({ round: posted(1, new Date(start).toISOString()) }),
   );
-  expect(rows(home.paths, listed(home.paths))).toMatchObject([
+  const found = rows(home.paths, listed(home.paths));
+  expect(found[0]?.next.why).toContain(`cleanup_failed. Reply once in ${thread}`);
+  expect(found).toMatchObject([
     {
       action: "clean_reviewer",
       next: {
         command: `operator review cleanup ${url}`,
-        why: expect.stringContaining(`cleanup_failed. Reply once in ${thread}`),
       },
     },
   ]);
