@@ -232,7 +232,7 @@ export const WorktreePreparation = {
         if (listed === null) return null;
         const files = new Set<string>();
         const environment = new Bun.Glob("**/{.env,.env.*,*.env,*.env.*}");
-        for (const entry of listed.split("\0").filter((file) => file !== "")) {
+        for (const entry of listed.split("\0")) {
           if (!entry.endsWith("/")) {
             if (environment.match(entry)) files.add(entry);
             continue;

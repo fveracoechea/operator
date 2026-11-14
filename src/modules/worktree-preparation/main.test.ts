@@ -461,6 +461,7 @@ test("an actual ignored-environment inspection I/O failure is qualified at the n
 
 test("ignored repositories contribute actual environment files, not directory placeholders or linked descendants", async () => {
   await Bun.write(`${controller}/.git/info/exclude`, "build/\n");
+  await Bun.write(`${worktree}/ignored.txt`, "generated\n");
   await Bun.write(`${worktree}/build/output.js`, "generated\n", { createPath: true });
   git(`${worktree}/build`, "init", "-q");
   expect(await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller })).toEqual(

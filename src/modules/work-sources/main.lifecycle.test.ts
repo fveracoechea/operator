@@ -671,7 +671,13 @@ test.skipIf(asRoot)(
           next: { decider: "person" },
         },
       });
-      if (result.tag === "Err") expect(result.error.detail).toContain("EACCES");
+      if (result.tag === "Err") {
+        expect(result.error.detail).toContain("EACCES");
+        expect(
+          z.object({ next: z.object({ question: z.string().min(1) }) }).safeParse(result.error)
+            .success,
+        ).toBe(true);
+      }
       expect(await Bun.file(paths.database).bytes()).toEqual(before);
       expect(names).not.toHaveBeenCalled();
       expect(pane).not.toHaveBeenCalled();
@@ -683,6 +689,92 @@ test.skipIf(asRoot)(
       { state: "running" },
       { state: "running" },
     ]);
+  },
+);
+
+test.skipIf(asRoot)("next does not inspect unreadable resources of a reset source", async () => {
+  const sourceId = await registered(["closed"]);
+  launch(sourceId, "closed", "failed");
+  await mkdir(`${root}/worktrees/closed`, { recursive: true });
+  expect((await reset(sourceId)).tag).toBe("Ok");
+  await chmod(`${root}/worktrees`, 0);
+  try {
+    expect(await WorkSources.next({ paths, cwd: checkout, sourceId, all: true })).toMatchObject({
+      tag: "Ok",
+      value: { sources: [{ actions: [{ action: "source_ended" }] }] },
+    });
+  } finally {
+    await chmod(`${root}/worktrees`, 0o755);
+  }
+});
+
+test.skipIf(asRoot)(
+  "a session wait does not inspect unreadable resources outside its supervised scope",
+  async () => {
+    const selected = await registered(["selected"], "APP-selected-access");
+    const outside = await registered(["outside"], "APP-outside-access");
+    launch(outside, "outside", "running");
+    await mkdir(`${root}/worktrees/outside`, { recursive: true });
+    {
+      using db = new Database(paths.database);
+      db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run(
+        "ses_scope",
+        selected,
+      );
+      db.query("UPDATE sources SET supervising_session = ? WHERE id = ?").run("ses_other", outside);
+    }
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_SOCKET_PATH: "/herdr.sock",
+      HERDR_PANE_ID: "super:p0",
+      OPENCODE_SESSION_ID: "ses_scope",
+      CLAUDE_CODE_SESSION_ID: undefined,
+    });
+    await chmod(`${root}/worktrees`, 0);
+    try {
+      expect(
+        await WorkSources.wait({ paths, cwd: checkout, timeoutSeconds: 0, all: true }),
+      ).toMatchObject({
+        tag: "Ok",
+        value: {
+          reason: "next_actions_changed",
+          data: {
+            sources: [
+              { id: selected, actions: [{ assignment: "selected", action: "ready_assignment" }] },
+            ],
+          },
+        },
+      });
+      expect((await shown(outside))?.assignments).toMatchObject([{ state: "running" }]);
+    } finally {
+      await chmod(`${root}/worktrees`, 0o755);
+    }
+  },
+);
+
+test.skipIf(asRoot).each(["before", "after"])(
+  "a command keeps its committed result when only its %s action snapshot is unreadable",
+  async (when) => {
+    const sourceId = await registered(["read"]);
+    await mkdir(`${root}/worktrees/read`, { recursive: true });
+    if (when === "before") launch(sourceId, "read", "failed");
+    await chmod(`${root}/worktrees`, 0);
+    try {
+      const result = await WorkSources.acknowledgeOwnChange(
+        { paths, cwd: checkout, sourceId, session: "ses_scope" },
+        async () => {
+          if (when === "before") expect((await reset(sourceId)).tag).toBe("Ok");
+          else launch(sourceId, "read", "failed");
+          return { outcome: "committed" };
+        },
+      );
+      expect(result).toEqual({ outcome: "committed" });
+      const source = await shown(sourceId);
+      expect(source?.state).toBe(when === "before" ? "reset" : "open");
+      expect(source?.launches).toHaveLength(1);
+    } finally {
+      await chmod(`${root}/worktrees`, 0o755);
+    }
   },
 );
 

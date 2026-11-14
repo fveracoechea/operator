@@ -220,10 +220,10 @@ function resourcePaths(sources: Source[]) {
 
 function resourceFacts(
   launch: { state: string; resources: string; worktreePath: string | null },
-  missing: ReadonlyMap<string, boolean>,
+  missing: ReadonlyMap<string | null, boolean>,
   paneGone = false,
 ): NonNullable<Parameters<typeof decideAssignment>[0]["resources"]> {
-  const worktreeGone = launch.worktreePath !== null && missing.get(launch.worktreePath) === true;
+  const worktreeGone = missing.get(launch.worktreePath) === true;
   return {
     kind: launch.resources === "pane" ? ("pane" as const) : ("worktree" as const),
     workerGone: paneGone || ["interrupted", "finished", "failed"].includes(launch.state),
