@@ -453,35 +453,53 @@ test("a draft PR is never eligible and never merges", async () => {
   expect(await exists(worker.worktreePath)).toBe(true);
 }, 90000);
 
-test("a lost merge answer and a concurrent merge are verified and recorded once", async () => {
-  const source = await setup("opencode");
-  const worker = await openPullRequest(source);
-  // The merge's cleanup removes the worktree that both commands run in. The cleanup waits at its
-  // remote branch step until both commands answer, so the second command never starts or runs
-  // in a removed folder.
-  await github({ mergeLost: true, cleanupHold: true });
-  const both = await Promise.all([
-    run(["pr", "merge"], worker.worktreePath),
-    run(["pr", "merge"], worker.worktreePath),
-  ]);
-  const reasons = both.map(
-    (result) => z.object({ reason: z.string() }).parse(result.output).reason,
-  );
-  expect(reasons.filter((reason) => reason === "pr_merged")).toHaveLength(1);
-  for (const reason of reasons)
-    expect(reason, JSON.stringify(both)).toBeOneOf([
-      "pr_merged",
-      "pr_merge_unchanged",
-      "pr_owner_inactive",
+test.each([false, true])(
+  "a lost merge answer and a concurrent merge are verified and recorded once, held read %p",
+  async (heldRead) => {
+    const source = await setup("opencode");
+    const worker = await openPullRequest(source);
+    // The merge's cleanup removes the worktree that both commands run in. The cleanup waits at its
+    // remote branch step until both commands answer, so the second command never starts or runs
+    // in a removed folder.
+    await github({ mergeLost: true, cleanupHold: true });
+    if (heldRead) await tool("gh", fakeGithubScript(root, { mergeReadRace: true }));
+    const both = await Promise.all([
+      run(["pr", "merge"], worker.worktreePath),
+      run(["pr", "merge"], worker.worktreePath),
     ]);
-  await held("cleanup-held");
-  expect(await exists(worker.worktreePath)).toBe(true);
-  await Bun.write(`${root}/cleanup-release`, "");
-  expect(await settled(source)).toMatchObject({ state: "done" });
-  const state = await shown(source);
-  expect(state.cleanups).toHaveLength(1);
-  expect(state.assignments[0]).toMatchObject({ state: "merged" });
-}, 90000);
+    const reasons = both.map(
+      (result) => z.object({ reason: z.string() }).parse(result.output).reason,
+    );
+    if (heldRead) {
+      const trace = [];
+      for await (const file of new Bun.Glob("merge-race-*.jsonl").scan(root))
+        for (const line of (await Bun.file(`${root}/${file}`).text()).trim().split("\n"))
+          trace.push(z.object({ event: z.string(), state: z.string() }).parse(JSON.parse(line)));
+      expect(trace.filter((event) => event.event === "held")).toEqual([
+        { event: "held", state: "OPEN" },
+      ]);
+      expect(trace.filter((event) => event.event === "merged")).toEqual([
+        { event: "merged", state: "MERGED" },
+      ]);
+      expect(trace).toContainEqual({ event: "read", state: "MERGED" });
+    }
+    expect(reasons.filter((reason) => reason === "pr_merged")).toHaveLength(1);
+    for (const reason of reasons)
+      expect(reason, JSON.stringify(both)).toBeOneOf([
+        "pr_merged",
+        "pr_merge_unchanged",
+        "pr_owner_inactive",
+      ]);
+    await held("cleanup-held");
+    expect(await exists(worker.worktreePath)).toBe(true);
+    await Bun.write(`${root}/cleanup-release`, "");
+    expect(await settled(source)).toMatchObject({ state: "done" });
+    const state = await shown(source);
+    expect(state.cleanups).toHaveLength(1);
+    expect(state.assignments[0]).toMatchObject({ state: "merged" });
+  },
+  90000,
+);
 
 test("a PR that the person merged on GitHub is verified without another merge request", async () => {
   const second = await setup("opencode", ["implement"]);
@@ -498,6 +516,36 @@ test("a PR that the person merged on GitHub is verified without another merge re
   const next = await run(["next", "--source", second, "--all"]);
   expect(next.output).toMatchObject({
     data: { sources: [{ state: "finished", actions: [{ action: "source_ended" }], waits: [] }] },
+  });
+}, 90000);
+
+test("PR observations consume and persist each queued change before a no-op read", async () => {
+  const source = await setup("opencode");
+  const worker = await openPullRequest(source);
+  await github({ queue: [{ reviewDecision: "REVIEW_REQUIRED" }, { reviewDecision: "APPROVED" }] });
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { data: { mergeConditions: { approved: false } } },
+  });
+  expect(await readJson(`${root}/github.json`)).toMatchObject({
+    queue: [{ reviewDecision: "APPROVED" }],
+    pulls: [{ reviewDecision: "REVIEW_REQUIRED" }],
+  });
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { data: { mergeConditions: { approved: true } } },
+  });
+  expect(await readJson(`${root}/github.json`)).toMatchObject({
+    queue: [],
+    pulls: [{ reviewDecision: "APPROVED" }],
+  });
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_wait_timed_out" },
+  });
+  expect(await readJson(`${root}/github.json`)).toMatchObject({
+    queue: [],
+    pulls: [{ reviewDecision: "APPROVED" }],
   });
 }, 90000);
 

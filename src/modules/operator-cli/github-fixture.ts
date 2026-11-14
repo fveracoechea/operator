@@ -17,16 +17,43 @@
  * barrier since the root was created.
  * It is not evidence of the live GitHub integration.
  */
-export function fakeGithubScript(root: string) {
+export function fakeGithubScript(root: string, options: { mergeReadRace?: boolean } = {}) {
   return `#!${process.execPath}
 import { writeFile } from ${JSON.stringify(Bun.fileURLToPath(new URL("../../lib/write-file.ts", import.meta.url)))};
 const root = ${JSON.stringify(root)};
 const stateFile = root + "/github.json";
 const args = process.argv.slice(2);
+// Select a reachable stale-read schedule without changing any fake response or merge rule.
+const race = ${options.mergeReadRace === true};
+const { appendFileSync, existsSync, mkdirSync, watch } = await import("node:fs");
+const observation = args.some(arg => arg.startsWith("query=") && arg.includes("reviewDecision"));
+const mergePut = args.includes("PUT") && args.some(arg => arg.endsWith("/merge-async"));
+const trace = (event, snapshot) => {
+  if (race) appendFileSync(root + "/merge-race-" + process.pid + ".jsonl", JSON.stringify({ event, state: snapshot.pulls?.[0]?.state }) + "\\n");
+};
+const waitFor = async (name) => {
+  const file = root + "/" + name;
+  if (existsSync(file)) return;
+  await new Promise(resolve => {
+    const watcher = watch(root, () => { if (existsSync(file)) { watcher.close(); resolve(); } });
+    if (existsSync(file)) { watcher.close(); resolve(); }
+  });
+};
+if (race && existsSync(root + "/merge-race-saved")) {
+  if (mergePut) await waitFor("merge-race-verified");
+  else if (observation) await waitFor("merge-race-stale-finished");
+}
 const log = root + "/gh-calls.jsonl";
 await Bun.write(log, (await Bun.file(log).exists() ? await Bun.file(log).text() : "") + JSON.stringify(args) + "\\n");
 if (args[0] === "auth") process.exit(0);
 const state = await Bun.file(stateFile).exists() ? await Bun.file(stateFile).json() : {};
+let staleReader = false;
+if (race && observation) {
+  try { mkdirSync(root + "/merge-race-reader"); staleReader = true; }
+  catch (cause) { if (cause.code !== "EEXIST") throw cause; }
+  trace("read", state);
+  if (staleReader) { trace("held", state); await waitFor("merge-race-saved"); }
+}
 // Publish a whole fixture snapshot so concurrent commands never parse a truncated JSON file.
 const save = () => writeFile(stateFile, new TextEncoder().encode(JSON.stringify(state)));
 state.pulls ??= []; state.queue ??= [];
@@ -65,6 +92,10 @@ if (path?.includes("/merge-async")) {
     }
   }
   await save();
+  if (race && mergePut && !existsSync(root + "/merge-race-saved")) {
+    trace("merged", state);
+    await Bun.write(root + "/merge-race-saved", "");
+  }
   process.exit(0);
 }
 if (path?.includes("/pulls/") && method === "PUT") {
@@ -207,9 +238,14 @@ if (args.includes("PATCH")) {
   const number = Number(field("number"));
   const index = state.pulls.findIndex((pr) => pr.number === number);
   const change = state.queue.shift();
-  if (change) state.pulls[index] = { ...state.pulls[index], ...change };
-  await save();
+  // A no-op read must not overwrite a concurrent merge with its older snapshot.
+  if (change) { state.pulls[index] = { ...state.pulls[index], ...change }; await save(); }
   const pr = state.pulls[index];
+  if (race) {
+    trace("observation-finished", state);
+    if (staleReader) await Bun.write(root + "/merge-race-stale-finished", "");
+    else if (existsSync(root + "/merge-race-saved")) await Bun.write(root + "/merge-race-verified", "");
+  }
   answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: {
     state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), isDraft: pr.isDraft ?? false, reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
     reviews: nodes((pr.reviews ?? []).map((review) => ({ id: review.id, state: review.state, body: review.body ?? "", url: "https://github.com/r/" + review.id, author: author(review.author ?? "reviewer") }))),
