@@ -9,7 +9,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
-import type { NextStep } from "../../lib/cli-result.ts";
+import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
 import { internalReview } from "./internal-review.ts";
@@ -19,7 +19,6 @@ import { handOver } from "./handover.ts";
 import { ensureWorkspace, launchSettings, preparedAgain } from "./launch-checks.ts";
 import { chooseNames, launchBase } from "./names.ts";
 import { installPlugin, observe } from "./hooks.ts";
-import type { ResultContext } from "../../lib/cli-result.ts";
 import {
   gitBranches,
   listFiles,
