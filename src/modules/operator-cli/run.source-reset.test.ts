@@ -114,7 +114,7 @@ async function sourceNext(source: string, cwd = device.main) {
 
 async function submitAndAccept(source: string, key: string) {
   const worker = await device.dispatch(source, key);
-  const file = await device.writeJson(`${key}.json`, report);
+  const file = await device.writeReport(`${key}.md`, report);
   expect(
     (await device.run(["report", "submit", "--file", file], { pane: worker.paneId })).code,
   ).toBe(0);
@@ -210,7 +210,7 @@ test("reset preserves merged and completed work, abandons the rest, and refuses 
   const open = await openPullRequest(source, "open", 8);
   await stopWorker(open.paneId);
   const submitted = await device.dispatch(source, "submitted");
-  const file = await device.writeJson("submitted.json", report);
+  const file = await device.writeReport("submitted.md", report);
   expect(
     (await device.run(["report", "submit", "--file", file], { pane: submitted.paneId })).code,
   ).toBe(0);
@@ -529,7 +529,7 @@ test("an open cleanup keeps its ended source visible until the cleanup finishes"
     assignments: [reportAssignment("investigate")],
   });
   const worker = await device.dispatch(source, "investigate");
-  const file = await device.writeJson("report.json", report);
+  const file = await device.writeReport("report.md", report);
   await device.run(["report", "submit", "--file", file], { pane: worker.paneId });
   await device.setHerdr({ fail: { "pane close": "herdr is restarting" } });
   const accept = ["report", "accept", "--source", source, "--assignment", "investigate"];
