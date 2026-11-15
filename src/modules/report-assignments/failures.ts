@@ -1,5 +1,6 @@
 import { isCodedError } from "../../lib/coded-error.ts";
 import { z } from "zod";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 const ioCodes = [
   "ENOENT",
@@ -14,16 +15,16 @@ const ioCodes = [
 ];
 
 /** Invalid input and file system failures are refusals. Any other error stays a defect. */
-export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
+export function qualify<T>(cause: Error, defect: (cause: Error) => T, context: ResultContext = {}) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
     return {
       reason: "invalid_report_input",
       detail: `${cause.message} Nothing changed.`,
-      next: {
+      next: context.next ?? {
         decider: "super-agent" as const,
         question: "What corrected report input should be supplied in --file?",
       },
-      state: { inputValid: false },
+      state: { ...context.state, inputValid: false },
     };
   if (isCodedError(cause) && ioCodes.includes(cause.code))
     return {

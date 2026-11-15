@@ -28,7 +28,6 @@ Each `SKILL.md` description is the one source for when to load it.
 - [pr-review](./pr-review/SKILL.md)
 - [react-best-practices](./react-best-practices/SKILL.md)
 - [react-composition](./react-composition/SKILL.md)
-- [slack-pr-review-workflow](./slack-pr-review-workflow/SKILL.md)
 - [super-agent](./super-agent/SKILL.md)
 - [tanstack-tools](./tanstack-tools/SKILL.md)
 - [worker-agent](./worker-agent/SKILL.md)

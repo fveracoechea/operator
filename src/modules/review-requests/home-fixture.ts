@@ -63,7 +63,7 @@ export function seedRequest(
         repository: pr.repository,
         number: pr.number,
         url: pr.url,
-        origin: "slack",
+        origin: "manual",
         state: "queued",
       },
     }),

@@ -197,7 +197,12 @@ function briefOf(device: { paths: Paths }, sourceId: string, assignment: string)
 
 test("a plan that turns internal review off gives a ready PR, and an assignment can turn it on", async () => {
   await using device = await dispatchDevice();
-  const pr = { completion: "pr", resources: "worktree", dependencies: [], instructions: "Fix." };
+  const pr = {
+    kind: "implementation",
+    resources: "worktree",
+    dependencies: [],
+    instructions: "Fix.",
+  };
   await Bun.write(
     `${device.root}/urgent.json`,
     JSON.stringify({
@@ -224,7 +229,15 @@ test("a plan that turns internal review off gives a ready PR, and an assignment 
   for (const assignment of ["urgent", "checked"])
     expect(
       await WorkerDispatch.dispatch({ ...device.request(assignment), sourceId }),
-    ).toMatchObject({ tag: "Ok" });
+    ).toMatchObject({
+      tag: "Ok",
+      value: {
+        kind: {
+          name: "implementation",
+          nextKind: assignment === "urgent" ? "pr-feedback" : "review",
+        },
+      },
+    });
   const urgent = await briefOf(device, sourceId, "urgent");
   expect(urgent).toContain("Open one PR from your branch");
   expect(urgent).not.toMatch(/draft|internal review/i);
@@ -235,7 +248,7 @@ test("a plan that turns internal review off gives a ready PR, and an assignment 
 
 test("a plan's reached running cap refuses a ready assignment, and the reservation checks it again", async () => {
   await using device = await dispatchDevice();
-  const read = { completion: "report", resources: "pane", dependencies: [], instructions: "Read." };
+  const read = { kind: "research", resources: "pane", dependencies: [], instructions: "Read." };
   await Bun.write(
     `${device.root}/capped.json`,
     JSON.stringify({
@@ -277,7 +290,12 @@ test("a plan's reached running cap refuses a ready assignment, and the reservati
 
 test("an assignment's intent wins over the plan's in the brief", async () => {
   await using device = await dispatchDevice();
-  const pr = { completion: "pr", resources: "worktree", dependencies: [], instructions: "Fix." };
+  const pr = {
+    kind: "implementation",
+    resources: "worktree",
+    dependencies: [],
+    instructions: "Fix.",
+  };
   await Bun.write(
     `${device.root}/intent.json`,
     JSON.stringify({
@@ -412,7 +430,10 @@ test("an assignment with no dispatch action or a source that is not registered i
           command: "operator next",
           why: "Read the current assignment action before dispatching.",
         },
-        state: { assignmentPlanned: request.assignment === "blocked", dispatchActionExists: false },
+        state:
+          request.assignment === "blocked"
+            ? { assignmentPlanned: true, dispatchActionExists: false }
+            : { assignmentPlanned: false },
         detail: `Assignment ${request.assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
       },
     });

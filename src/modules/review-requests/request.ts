@@ -16,20 +16,21 @@ import {
   type ReviewTransition,
 } from "./review-machine.ts";
 import { headLimitSchema } from "./review-body.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
-export type Failure = { reason: string; detail: string };
+export type Failure = { reason: string; detail: string } & ResultContext;
 export type Snapshot = OkOf<ReturnType<typeof DeviceState.readReviewRequest>>;
 export type Row = NonNullable<Snapshot["request"]>;
 export type Round = Snapshot["rounds"][number];
 export type Operation = Snapshot["operations"][number];
 type Payload = {
-  insert?: Pick<Row, "id" | "repository" | "number" | "url" | "origin" | "state">;
+  insert?: Pick<Row, "id" | "repository" | "number" | "url" | "origin" | "state"> & {
+    slackThread?: string | null;
+  };
   update?: Partial<Omit<Row, "id">>;
   round?: Round;
   operations?: Operation[];
-  /** Slack effects, recorded only for a request with a Slack thread. */
-  effects?: { key: string; kind: string; content: string }[];
 };
 /** A move or a prompt that a decided transition gives to the running reviewer. */
 const syncSchema = z.discriminatedUnion("kind", [
@@ -208,7 +209,6 @@ export function apply(
               },
         round: added.round,
         operations: added.operations,
-        effects: added.effects,
         lease: transition.lease,
       };
     }),
@@ -247,6 +247,7 @@ export function summary(paths: Paths, snapshot: Pick<Snapshot, "request" | "roun
     repository: request.repository,
     number: request.number,
     origin: request.origin,
+    slackThread: request.slackThread,
     assignment:
       request.origin === "assignment"
         ? { sourceId: request.sourceId, assignment: request.assignment }

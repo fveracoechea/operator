@@ -34,7 +34,7 @@ test("CLI preserves next and checked state on success", async () => {
   spyOn(ReviewRequests, "next").mockReturnValue(
     OkAsync({
       reason: "review_next",
-      data: { requests: [], slack: null },
+      data: { requests: [] },
       next: { command: "operator review wait", why: "Wait for a review request." },
       state: { requests: 0 },
     }),

@@ -41,9 +41,9 @@ type LaunchResources = Partial<
 // A start that does not resolve internal review, for example a report assignment, records none.
 export type LaunchReservation = Omit<
   LaunchRow,
-  "attempt" | "ownerPid" | "leaseAt" | "internalReview"
+  "attempt" | "ownerPid" | "leaseAt" | "internalReview" | "kind"
 > &
-  Partial<Pick<LaunchRow, "internalReview">>;
+  Partial<Pick<LaunchRow, "internalReview" | "kind">>;
 
 const abandonedDetail =
   "The dispatching process stopped before it recorded a launch outcome. Its recorded resources stay.";
@@ -255,6 +255,7 @@ export function reserveLaunch(
       if (abandoned) endAbandoned(db, latest.id, now);
       const row = {
         internalReview: null,
+        kind: null,
         ...launch,
         attempt,
         ownerPid: process.pid,

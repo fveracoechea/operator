@@ -1,5 +1,6 @@
 import type { WorkSources } from "../work-sources/main.ts";
 import type { Adoption } from "./adoption.ts";
+import type { WorkerKinds } from "../worker-kinds/main.ts";
 
 type Finding = { axis: string; severity: string; location: string; claim: string };
 
@@ -9,6 +10,7 @@ type BriefInput = {
   assignment: string;
   trackerKey: string;
   completion: "pr" | "report";
+  kind?: ReturnType<typeof WorkerKinds.resolve> | null;
   profile: string | null;
   instructions: string;
   /** The person's own words, or null when neither the assignment nor the plan gives them. */
@@ -231,9 +233,9 @@ function prSteps(directory: string) {
 /** Submission is durable in device state, and only the SuperAgent completes a report. */
 function reportSteps(directory: string) {
   return [
-    "- Write a JSON report outside the project checkout with `conclusion`, `evidence`, `unresolved`, and optional `decisions` and `files`.",
-    "- `evidence` and `unresolved` are lists of short text. `files` lists absolute paths of detailed supporting files.",
-    "- Each decision has `question`, `answer`, and `by`. Use `person` only for an answer that the person gave. Use `super-agent` for a SuperAgent decision.",
+    "- Write a Markdown report outside the checkout with headings `## Conclusion`, `## Evidence`, `## Unresolved points`, `## Supporting files`, `## Human answers`, and `## SuperAgent decisions`.",
+    "- Write the conclusion as prose. Other sections use `- ` bullets, or `- None.` when empty. Supporting files use absolute paths.",
+    "- Decision bullets read `<question> Answer: <answer>`. Human answers record only the person's own answers. SuperAgent decisions stay in their own section.",
     "- Submit it from this pane with `operator report submit --file <path> --json`. Your SuperAgent's coordination wait returns it, so send no message.",
     `- Operator stores the report and copies of the supporting files in \`${directory}\`.`,
     "- Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.",
@@ -265,7 +267,7 @@ Read all of it before you start.
 
 - Source: \`${input.sourceId}\`, tracker key \`${input.sourceTrackerKey}\`.
 - Assignment: \`${input.assignment}\`, tracker key \`${input.trackerKey}\`.
-- Completion type: ${input.completion === "pr" ? "a merged pull request" : "a report that the SuperAgent accepts"}.
+- Completion type: ${input.completion === "pr" ? "a merged pull request" : "a report that the SuperAgent accepts"}.${input.kind === undefined || input.kind === null ? "" : `\n- Worker kind: \`${input.kind.name}\`. Read \`${input.kind.guide}\`.`}
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
 ${input.instructions}

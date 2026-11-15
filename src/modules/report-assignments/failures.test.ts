@@ -28,6 +28,23 @@ test("invalid input is a refusal that keeps the parser message", () => {
   });
 });
 
+test("invalid report text keeps its owning recovery and adds checked parser validity", () => {
+  const next = {
+    command: "operator report submit --file <path|->",
+    why: "Correct the report headings and content, then submit it again.",
+  };
+  const result: unknown = qualify(new SyntaxError("Missing Conclusion heading"), defect, {
+    next,
+    state: { input: "stdin" },
+  });
+  expect(result).toEqual({
+    reason: "invalid_report_input",
+    detail: "Missing Conclusion heading Nothing changed.",
+    next,
+    state: { input: "stdin", inputValid: false },
+  });
+});
+
 test.each(["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR", "ELOOP"])(
   "a %s file system failure is a refusal",
   (code) => {

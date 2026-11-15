@@ -38,7 +38,7 @@ function assignment(key: string, completion: "pr" | "report" = "report") {
         key,
         trackerKey: `APP-${key}`,
         instructions: `Do ${key}.`,
-        completion,
+        kind: "implementation",
         resources: "worktree",
         branch: `task/${key}`,
         dependencies: [],
@@ -47,7 +47,7 @@ function assignment(key: string, completion: "pr" | "report" = "report") {
         key,
         trackerKey: `APP-${key}`,
         instructions: `Do ${key}.`,
-        completion,
+        kind: "research",
         resources: "pane",
         dependencies: [],
       };
@@ -120,6 +120,7 @@ function launch(sourceId: string, key: string, state: "running" | "failed") {
       profile: null,
       release: JSON.stringify({ version: "1.0.0" }),
       skills: "[]",
+      kind: null,
       herdrSocket: "/herdr.sock",
       workspaceId: "w1",
       tabId: "w1:t1",
@@ -159,7 +160,13 @@ test("registration stores a supplied plan with ready assignments and no tracker 
     state: "open",
     registeredAt: result.value.registeredAt,
     endedAt: null,
-    plan,
+    plan: {
+      ...plan,
+      assignments: [
+        { ...assignment("read"), completion: "report", profile: undefined },
+        { ...assignment("fix", "pr"), completion: "pr", profile: undefined },
+      ],
+    },
     assignments: [
       { key: "read", completion: "report", state: "ready" },
       { key: "fix", completion: "pr", state: "ready" },
@@ -180,6 +187,36 @@ test("an empty plan registers a finished source", async () => {
   expect(result).toMatchObject({ tag: "Ok", value: { state: "finished" } });
   if (result.tag === "Ok") expect(result.value.endedAt).toBe(result.value.registeredAt);
 });
+
+test.each(["review", "pr-feedback"])(
+  "next does not offer a plain start for the %s kind",
+  async (kind) => {
+    const registered = await register({
+      trackerKey: `kind:${kind}`,
+      assignments: [{ ...assignment("work", "pr"), kind }],
+    });
+    if (registered.tag !== "Ok") expect.unreachable("The transition plan was refused.");
+    expect(
+      await WorkSources.next({ paths, cwd: checkout, sourceId: registered.value.id }),
+    ).toMatchObject({
+      tag: "Ok",
+      value: {
+        sources: [
+          {
+            actions: [
+              { assignment: "work", action: "owner_attention", reason: "kind_not_dispatchable" },
+            ],
+            waits: [],
+          },
+        ],
+      },
+    });
+    expect(await shown(registered.value.id)).toMatchObject({
+      assignments: [{ key: "work", state: "ready" }],
+      launches: [],
+    });
+  },
+);
 
 test("a selected profile must exist in the device settings", async () => {
   const plan = {
@@ -279,7 +316,7 @@ test("reset refuses a running worker and corrupt records", async () => {
   for (const corrupt of [
     { plan: "{broken" },
     { plan: JSON.stringify({ trackerKey: "APP-1" }) },
-    { assignments: [{ sourceId, key: "read", completion: "report", state: "merged" }] },
+    { assignments: [{ sourceId, key: "read", kind: null, completion: "report", state: "merged" }] },
   ]) {
     spyOn(DeviceState, "resetSource").mockImplementation((p, target, decide) =>
       original(p, target, (facts) =>
@@ -368,9 +405,9 @@ test("reset includes assignments promoted after the registered plan in its order
       decide({
         ...facts,
         assignments: [
-          { sourceId, key: "build", completion: "pr", state: "ready" },
+          { sourceId, key: "build", kind: null, completion: "pr", state: "ready" },
           ...facts.assignments,
-          { sourceId, key: "done", completion: "report", state: "completed" },
+          { sourceId, key: "done", kind: null, completion: "report", state: "completed" },
         ],
       }),
     ),

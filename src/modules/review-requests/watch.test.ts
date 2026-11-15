@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, mock, setSystemTime, spyOn, test } from "bun:test";
 import { Err, ErrAsync, Ok, OkAsync } from "unthrown";
-import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { GithubApi } from "../github-api/main.ts";
@@ -34,7 +33,6 @@ function defaults() {
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h1 })));
   spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["other", "rev"]));
   spyOn(Herdr, "prompt").mockReturnValue(OkAsync(null));
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(null));
   sleeps();
   // A wait that loops without its sleep fails fast instead of spinning.
   let reads = 0;
@@ -108,8 +106,8 @@ function sleeps(after: () => void = () => {}) {
   return slept;
 }
 
-async function waited(timeoutSeconds = 0, slack = false, all = false) {
-  const result = await wait({ paths: home.paths, timeoutSeconds, slack, all });
+async function waited(timeoutSeconds = 0, all = false) {
+  const result = await wait({ paths: home.paths, timeoutSeconds, all });
   return result.tag === "Ok" ? result.value : expect.unreachable(`The wait failed: ${result.tag}`);
 }
 
@@ -206,10 +204,71 @@ test("an unknown review state asks the SuperAgent for intervention", () => {
   ]);
 });
 
+test.each(["watching", "approved"])("a posted %s row asks for one status reply", (state) => {
+  const thread = "https://example.slack.com/archives/C0123/p1234000005";
+  seedRequest(home.paths, { state, slackThread: thread });
+  DeviceState.changeReviewRequest(home.paths, target, () =>
+    Ok({ round: posted(1, new Date(start).toISOString()) }),
+  );
+  const found = rows(home.paths, listed(home.paths));
+  expect(found[0]?.next.question).toContain(`Reply once in ${thread}`);
+  expect(found[0]?.next.question).toContain("review round 1 (review)");
+  expect(found[0]?.next.question).toContain("no draft");
+  expect(found[0]?.next).not.toHaveProperty("command");
+  expect(found).toMatchObject([
+    {
+      slackThread: thread,
+      review: { round: 1, url: "review" },
+      next: {
+        decider: "super-agent",
+      },
+    },
+  ]);
+});
+
+test.each([
+  { state: "watching", slackThread: null, hasPost: true },
+  { state: "watching", slackThread: "https://example.slack.com/archives/C0123/p1", hasPost: false },
+  { state: "queued", slackThread: "https://example.slack.com/archives/C0123/p1", hasPost: true },
+])(
+  "a row without a posted outcome and thread waits or acts without reply guidance: %j",
+  (facts) => {
+    seedRequest(home.paths, { state: facts.state, slackThread: facts.slackThread });
+    if (facts.hasPost)
+      DeviceState.changeReviewRequest(home.paths, target, () =>
+        Ok({ round: posted(1, new Date(start).toISOString()) }),
+      );
+    const found = rows(home.paths, listed(home.paths));
+    expect(found[0]?.next).toMatchObject({
+      command: facts.state === "queued" ? `operator review start ${url}` : "operator review wait",
+      why: facts.state === "queued" ? "review_queued" : "review_watching",
+    });
+    expect(found[0]?.next).not.toHaveProperty("question");
+  },
+);
+
+test("posted reply guidance preserves an approved request's cleanup command", () => {
+  const thread = "https://example.slack.com/archives/C0123/p1234000005";
+  seedRequest(home.paths, { state: "approved", slackThread: thread, cleanupState: "failed" });
+  DeviceState.changeReviewRequest(home.paths, target, () =>
+    Ok({ round: posted(1, new Date(start).toISOString()) }),
+  );
+  const found = rows(home.paths, listed(home.paths));
+  expect(found[0]?.next.why).toContain(`cleanup_failed. Reply once in ${thread}`);
+  expect(found).toMatchObject([
+    {
+      action: "clean_reviewer",
+      next: {
+        command: `operator review cleanup ${url}`,
+      },
+    },
+  ]);
+});
+
 test("a wait with nothing to observe times out at its deadline", async () => {
   expect(await waited()).toEqual({
     reason: "review_wait_timed_out",
-    data: { events: [], requests: [], slack: null },
+    data: { events: [], requests: [] },
   });
 });
 
@@ -221,19 +280,19 @@ test("a wait polls every thirty seconds until its deadline", async () => {
 
 test("a failed sleep ends the wait with its failure", async () => {
   spyOn(Bun, "sleep").mockRejectedValue(coded("EIO"));
-  expect(await wait({ paths: home.paths, timeoutSeconds: 5, slack: false })).toMatchObject({
+  expect(await wait({ paths: home.paths, timeoutSeconds: 5 })).toMatchObject({
     tag: "Err",
     error: { reason: "review_io_failed", detail: "Error: failed EIO" },
   });
   spyOn(Bun, "sleep").mockRejectedValue("stopped");
-  expect((await wait({ paths: home.paths, timeoutSeconds: 5, slack: false })).tag).toBe("Defect");
+  expect((await wait({ paths: home.paths, timeoutSeconds: 5 })).tag).toBe("Defect");
 });
 
 test("only the first pass returns for an action", async () => {
   seedRequest(home.paths);
   expect(await waited(60)).toMatchObject({
     reason: "review_actions_ready",
-    data: { events: [], requests: [{ action: "start_reviewer" }], slack: null },
+    data: { events: [], requests: [{ action: "start_reviewer" }] },
   });
   await home.remove();
   home = await reviewHome();
@@ -358,7 +417,6 @@ test("a merged PR ends its request and cleans up its reviewer", async () => {
         },
       ],
       requests: [],
-      slack: null,
     },
   });
   expect(readRequest(home.paths).request).toMatchObject({
@@ -431,7 +489,7 @@ test("a wait returns only the requests that its events name, unless asked for al
     requests: [{ id: "r1" }],
   });
   expect((await waited()).data).toMatchObject({ events: [], requests: [] });
-  expect((await waited(0, false, true)).data).toMatchObject({
+  expect((await waited(0, true)).data).toMatchObject({
     requests: [{ id: "r1" }, { id: "r2", attention: "reviewer_work_kept" }],
   });
 });
@@ -604,7 +662,6 @@ test("a pending cleanup of an approved request whose process stopped is finished
         },
       ],
       requests: [expect.objectContaining({ state: "approved", wait: "review_approved" })],
-      slack: null,
     },
   });
   expect(close).toHaveBeenCalledWith("p1");
@@ -668,7 +725,7 @@ test("a failed pass ends the wait with its failure", async () => {
     // oxlint-disable-next-line unthrown/no-throw -- Inject a failure at the module interface.
     throw coded("ENOSPC");
   });
-  expect(await wait({ paths: home.paths, timeoutSeconds: 0, slack: false })).toMatchObject({
+  expect(await wait({ paths: home.paths, timeoutSeconds: 0 })).toMatchObject({
     tag: "Err",
     error: { reason: "review_io_failed", detail: "Error: failed ENOSPC" },
   });
@@ -676,98 +733,13 @@ test("a failed pass ends the wait with its failure", async () => {
     // oxlint-disable-next-line unthrown/no-throw, no-throw-literal -- A cause that is no Error.
     throw "stopped";
   });
-  expect((await wait({ paths: home.paths, timeoutSeconds: 0, slack: false })).tag).toBe("Defect");
+  expect((await wait({ paths: home.paths, timeoutSeconds: 0 })).tag).toBe("Defect");
 });
 
-const policy = { channel: "C1", repos: ["example/one"], authors: ["author"] };
-
-function readChannel() {
-  DeviceState.startSlackWatch(home.paths, "C1", "1.0");
-  DeviceState.ingestSlack(home.paths, {
-    channel: "C1",
-    from: { cursor: "1.0", latest: null, pending: null },
-    to: { cursor: "2.0", latest: null, pending: null, paging: false },
-    candidates: [],
-    start: [],
-  });
-}
-
-function effect(failure: string | null) {
-  seedRequest(home.paths, { state: "watching", head: h1, slackChannel: "C1", slackTs: "1.5" });
-  const changed = DeviceState.changeReviewRequest(home.paths, target, () =>
-    Ok({ effects: [{ key: "k", kind: "reply", content: "done" }] }),
-  );
-  const id =
-    changed.tag === "Ok"
-      ? DeviceState.readSlack(home.paths, "C1")
-      : expect.unreachable("The effect was not recorded.");
-  const pending = id.tag === "Ok" ? id.value.effects[0]?.id : undefined;
-  if (failure !== null && pending !== undefined)
-    DeviceState.acknowledgeSlackEffect(home.paths, pending, () => ({
-      kind: "failed",
-      detail: failure,
-    }));
-}
-
-test("in the Slack loop, a due channel read ends the wait", async () => {
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(policy));
-  expect(await waited(60, true)).toMatchObject({
-    reason: "review_slack_ready",
-    data: { events: [], slack: { channel: "C1", read: { tool: "slack_read_channel" } } },
-  });
-});
-
-test("outside the Slack loop, a due read only reports Slack", async () => {
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(policy));
-  expect(await waited(0, false)).toMatchObject({
-    reason: "review_wait_timed_out",
-    data: { slack: { channel: "C1", read: { tool: "slack_read_channel" } } },
-  });
-});
-
-test("in the Slack loop, a read that is not due and no effect do not end the wait", async () => {
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(policy));
-  readChannel();
-  expect(await waited(0, true)).toMatchObject({
-    reason: "review_wait_timed_out",
-    data: { slack: { read: null, effects: [] } },
-  });
-});
-
-test("in the Slack loop, a pending effect ends the wait", async () => {
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(policy));
-  readChannel();
-  effect(null);
-  expect(await waited(60, true)).toMatchObject({
-    reason: "review_slack_ready",
-    data: { slack: { read: null, effects: [{ kind: "reply", failure: null }] } },
-  });
-});
-
-test("a refused effect ends only the first pass of the Slack loop", async () => {
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(policy));
-  readChannel();
-  effect("refused");
-  expect(await waited(60, true)).toMatchObject({
-    reason: "review_slack_ready",
-    data: { slack: { effects: [{ failure: "refused" }] } },
-  });
-  await home.remove();
-  home = await reviewHome();
-  readChannel();
-  const slept = sleeps(() => effect("refused"));
-  expect(await waited(45, true)).toMatchObject({
-    reason: "review_wait_timed_out",
-    data: { slack: { effects: [{ failure: "refused" }] } },
-  });
-  expect(slept).toEqual([30000, 15000]);
-});
-
-test("an event ends the wait before Slack or an action", async () => {
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(policy));
+test("an event ends the wait before an action", async () => {
   seedRequest(home.paths, { state: "watching", ...running, name: "gone" });
   seedRequest(home.paths, {}, "r8", otherPr(8));
-  expect((await waited(60, true)).reason).toBe("review_events_observed");
+  expect((await waited(60)).reason).toBe("review_events_observed");
 });
 
 const busy = { reason: "state_busy" as const, detail: "busy" };
@@ -784,7 +756,7 @@ test("a row with no request is neither resumed nor observed", async () => {
   spyOn(DeviceState, "readReviewRequests").mockReturnValue(Ok(rowsRead));
   expect(await waited()).toEqual({
     reason: "review_wait_timed_out",
-    data: { events: [], requests: [], slack: null },
+    data: { events: [], requests: [] },
   });
   expect(call).not.toHaveBeenCalled();
 });
@@ -795,13 +767,6 @@ test("an ended request is never read on GitHub", async () => {
   seedRequest(home.paths, { state: "skipped", cleanupState: "failed" }, "r8", otherPr(8));
   await waited();
   expect(call).not.toHaveBeenCalled();
-});
-
-test("in the Slack loop with no channel set, the wait only times out", async () => {
-  expect(await waited(0, true)).toEqual({
-    reason: "review_wait_timed_out",
-    data: { events: [], requests: [], slack: null },
-  });
 });
 
 test("an interruption that the state refuses reports nothing", async () => {
@@ -945,15 +910,4 @@ test("a resumed sync applies to the listed request, not to a newer request of th
     ],
   });
   expect(prompt).toHaveBeenCalledTimes(1);
-});
-
-test("a new effect ends a later pass of the Slack loop", async () => {
-  spyOn(DeviceSettings, "slackReviewPolicy").mockReturnValue(OkAsync(policy));
-  readChannel();
-  const slept = sleeps(() => effect(null));
-  expect(await waited(45, true)).toMatchObject({
-    reason: "review_slack_ready",
-    data: { slack: { effects: [{ failure: null }] } },
-  });
-  expect(slept).toEqual([30000]);
 });

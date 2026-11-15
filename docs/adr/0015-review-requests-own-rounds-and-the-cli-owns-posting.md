@@ -4,11 +4,11 @@
 
 Accepted - 2026-10-24.
 Decided in #228 and #233.
-Implemented in #253, with review rounds in #254 and Slack transport in #255.
+Implemented in #253, with review rounds in #254.
 Amended 2026-10-30 in #284: only a defect that breaks the app or a security issue requests changes, and a breach of style or design gives a comment.
 Amended 2026-10-30 in #286: an approval cleans up the reviewer, and a renewed request after approval gets a replacement.
 Amended 2026-11-04 in #305: with internal review on, the end of the internal review queues the assignment-origin request, not the PR association (ADR-0020).
-Amended 2026-11-11 in #344: a person-instructed drop ends a pending Slack effect unsent, and an ended request keeps its pending effects.
+Amended 2026-11-13 in #373 and #381: requests originate from manual adds or assignment reviewers; the SuperAgent owns Slack status replies, and manual adds apply the author policy. This retires the 2026-11-11 drop clause.
 
 ## Context
 
@@ -18,8 +18,8 @@ Prompt-based posting permission also failed to reach host permission checks.
 
 ## Decision
 
-A review request is a separate device record, not an assignment or a Slack work source.
-Its origin is Slack or the optional reviewer of a PR assignment.
+A review request is a separate device record, not an assignment.
+Its origin is a manual add or the optional reviewer of a PR assignment.
 Both use the same reviewer, structured draft, head check, and CLI post path.
 The request moves through queued, reviewing, posting, and watching, then ends approved, closed, or skipped.
 An assignment-origin review always posts a comment, with a clear no-blockers result when appropriate, because the owner's account cannot approve its own PR.
@@ -59,26 +59,22 @@ An approved request stops watching later commits, while a renewed GitHub review 
 Before posting, the CLI compares the PR head with the reviewed commit.
 A fast-forward updates the worktree and asks the same reviewer for the new commits and diff.
 A force push requires review from the start.
-After three head moves, the CLI posts against the last reviewed commit and states that limit in GitHub and Slack output.
+After three head moves, the CLI posts against the last reviewed commit and states that limit in GitHub output.
 
-Slack transport uses the agent's MCP tools, with no Slack token in the CLI.
-The CLI schedules channel reads, filters registered repositories and GitHub authors through device policy, and records the channel cursor from raw ingested results.
-It generates every reply and reaction, then gives the exact effect to the agent for transport and acknowledgement.
-Pending effects survive a restart.
-Only the person's instruction drops a pending effect unsent, so a stale reply never posts as the person.
-A closed or skipped request keeps its pending effects, because a reply generated before the end still reports a posted review.
+Operator has no Slack transport and holds no Slack tokens.
+On request, the SuperAgent searches GitHub for requested reviews or reads a Slack channel with its own tools.
+A manual add applies the device's registered-repository and GitHub-author policy.
+An optional thread permalink stays on each review row.
+After a review posts, the row tells the SuperAgent to reply once in that thread with one short status line, without a draft.
+The CLI keeps no effect, acknowledgement, or retry record.
 A skip applies to one PR, never an author-wide skip list.
-Replies have a compact status, nonzero counts, and a review link, with at most three short blocker bullets and later-round progress.
-Start and outcome reactions are additive, not replacements.
-The four reactions mark review start, approval, requested changes, and comment outcomes.
-The skill routes these transport actions and blocked-worker attention without recreating the workflow.
 
 ## Consequences
 
-- Review requests need their own rounds and Slack effect records, but not a tracker or assignment-acceptance protocol.
+- Review requests need their own rounds, but not a tracker or assignment-acceptance protocol.
 - Reported local checks remain claims, while required CI results are independently observed facts.
 - The head-move limit bounds review churn but can post against an older reviewed commit with an explicit warning.
-- Slack effects cross a tool boundary and require acknowledgement, so the CLI does not claim exactly-once Slack delivery.
+- The SuperAgent owns status delivery and avoids repeated replies for a posted round; the CLI does not guarantee exactly-once delivery.
 - Assignment reviewers cannot supply the approval that the PR merge gate requires.
 - A replacement after approval starts without the code context of the reviewer that the cleanup closed.
   It reads the earlier drafts and round history instead.
@@ -90,11 +86,8 @@ The skill routes these transport actions and blocked-worker attention without re
 - A new reviewer for every round was rejected because it loses the request's code context.
 - Keeping an approved request's reviewer until the PR closed was rejected because each approved PR then held an idle agent, Herdr workspace, and worktree with no end date.
 - Direct skill posting and pasted permission grants were rejected because they create a second write path and do not solve host permission checks.
-- Slack user or bot tokens in the CLI were rejected because the person chose MCP transport and replies under their account.
-- Agent-composed Slack status and session ledgers were rejected because resumable state and mechanical output belong to the CLI.
+- Slack user or bot tokens in the CLI were rejected because Slack reads and replies belong to the SuperAgent's own tools.
 - Per-project gate command settings and rerunning all checks before posting were rejected because CI already supplies required checks and repeating them adds cost.
-- Dropping the pending effects of a request when it ends was rejected because a PR that merges right after an approval would lose the approval reply before the Slack loop sends it.
-  The cost is that effects of ended requests stay pending until they are sent or the person drops them.
 - Author-wide skips were rejected because a one-PR exception must not silently exclude all work by one person.
 
 Related: ADR-0001 and ADR-0003, next actions and state guards; ADR-0010, optional assignment-origin review; ADR-0005, repository workspace identity; ADR-0011, reviewer resources; ADR-0007, stable global-command plugin; ADR-0014, both host integrations.

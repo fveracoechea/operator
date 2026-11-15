@@ -34,7 +34,7 @@ Hand an open PR that Operator did not create to a PR owner. Never carry it yours
 Add a PR assignment with `adopt` set to the PR number and `branch` set to its head branch, in a new plan:
 
 ```json
-{ "key": "pr-2164", "trackerKey": "github:org/repo#2164", "instructions": "Carry PR #2164 through its review to the merge.", "completion": "pr", "resources": "worktree", "branch": "feat/chat-link-widgets", "adopt": 2164, "dependencies": [] }
+{ "key": "pr-2164", "trackerKey": "github:org/repo#2164", "instructions": "Carry PR #2164 through its review to the merge.", "kind": "implementation", "resources": "worktree", "branch": "feat/chat-link-widgets", "adopt": 2164, "dependencies": [] }
 ```
 
 Dispatch reads the PR, puts the branch at the PR head in a new worktree, and starts the owner.
