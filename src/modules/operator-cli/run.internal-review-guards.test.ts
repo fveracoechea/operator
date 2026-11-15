@@ -247,9 +247,14 @@ async function commit(worktree: string, file: string) {
   return git(worktree, "rev-parse", "HEAD");
 }
 
-async function findings(items: object[]) {
-  const file = `${root}/findings.json`;
-  await Bun.write(file, JSON.stringify({ findings: items }));
+async function findings(
+  items: { severity: string; axis: string; location: string; claim: string }[],
+) {
+  const file = `${root}/findings.md`;
+  await Bun.write(
+    file,
+    `## Findings\n${items.map((item) => `- ${item.severity}, ${item.axis}, ${item.location}: ${item.claim}`).join("\n")}\n`,
+  );
   return file;
 }
 
