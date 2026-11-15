@@ -23,6 +23,7 @@ export async function runReadiness(
           outcome: ready ? "completed" : "blocked",
           reason: ready ? "ready" : "not_ready",
           blockers: result.value.blockers,
+          warnings: result.value.warnings,
           data: { staticOnly: true },
         },
         null,

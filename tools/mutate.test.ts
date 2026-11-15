@@ -1,7 +1,7 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { Environment } from "../src/modules/environment/main.ts";
-// Bun has no temporary directory or recursive removal API.
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+// Bun has no file-mode, metadata, recursive copy, or temporary-directory API.
+import { cp, lstat, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -89,6 +89,222 @@ test("the repository's public script invokes the mutation CLI", async () => {
   const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
   expect(code).toBe(0);
   expect(stdout).toStartWith("Usage: bun run mutate");
+});
+
+test("a mutant's first test failure stops before the next test's effects", async () => {
+  const cwd = await fixture({
+    "count.ts": "export function count(n: number) { return n + 1; }\n",
+  });
+  const receipt = path.join(cwd, "second-test-receipt.txt");
+  await Bun.write(receipt, "");
+  await Bun.write(
+    path.join(cwd, "count.test.ts"),
+    `import { expect, test } from "bun:test";
+import { count } from "./count.ts";
+test("the count is correct", () => expect(count(1)).toBe(2));
+test("the next test records its effect", async () => {
+  const receipt = ${JSON.stringify(receipt)};
+  await Bun.write(receipt, (await Bun.file(receipt).text()) + "reached\\n");
+});
+`,
+  );
+  const result = await mutate(cwd, ["count.ts"]);
+  expect(result.code, result.stdout + result.stderr).toBe(0);
+  expect(result.stdout).toContain("0 survivors, 0 untested, 0 incomplete");
+  expect(await Bun.file(receipt).text()).toBe("reached\n");
+});
+
+test("sandbox tests preserve the actual source readiness command in a private copy", async () => {
+  const cwd = await fixture({});
+  const repository = path.resolve(import.meta.dir, "..");
+  const original = path.join(repository, "src/cli.ts");
+  const copied = path.join(cwd, "src/cli.ts");
+  const receipt = path.join(cwd, "source-command-receipt.json");
+  await cp(path.join(repository, "src"), path.join(cwd, "src"), { recursive: true });
+  await cp(path.join(repository, "skills"), path.join(cwd, "skills"), { recursive: true });
+  await Bun.write(
+    path.join(cwd, "tools/device-fixture.ts"),
+    Bun.file(path.join(repository, "tools/device-fixture.ts")),
+  );
+  const packaged = z
+    .looseObject({})
+    .parse(await Bun.file(path.join(repository, "package.json")).json());
+  await Bun.write(
+    path.join(cwd, "package.json"),
+    JSON.stringify({
+      ...packaged,
+      scripts: { test: "bun test --isolate" },
+    }),
+  );
+  const before = await lstat(copied);
+  const source = await lstat(original);
+  expect(before.isSymbolicLink()).toBe(false);
+  expect(await realpath(copied)).toBe(copied);
+  expect(before.mode % 0o1000).toBe(0o755);
+  expect(before.nlink).toBe(1);
+  expect([before.dev, before.ino]).not.toEqual([source.dev, source.ino]);
+  const sourceText = await Bun.file(original).text();
+  // Stryker inserts this type-check directive without changing the source command's behavior.
+  const identity = new Bun.CryptoHasher("sha256")
+    .update(sourceText.replace("// @ts-nocheck\n", ""))
+    .digest("hex");
+  expect(await Bun.file(copied).text()).toBe(sourceText);
+  // Exercise the real outer annotation before the nested Stryker run copies this command again.
+  const { disableTypeChecks } = await import("@stryker-mutator/instrumenter");
+  const shebang = "#!/usr/bin/env bun\n";
+  const annotatedShebang = `${shebang}// @ts-nocheck\n`;
+  const canonicalSource = sourceText.startsWith(annotatedShebang)
+    ? shebang + sourceText.slice(annotatedShebang.length)
+    : sourceText;
+  const annotated = await disableTypeChecks(
+    { name: copied, content: canonicalSource, mutate: false },
+    { plugins: null },
+  );
+  expect(annotated.content).toBe(annotatedShebang + canonicalSource.slice(shebang.length));
+  const nested = await disableTypeChecks(annotated, { plugins: null });
+  expect(nested.content.replace("// @ts-nocheck\n", "")).toBe(
+    shebang + "// \n" + canonicalSource.slice(shebang.length),
+  );
+  const restored = shebang + annotated.content.slice(annotatedShebang.length);
+  expect(restored).toBe(canonicalSource);
+  expect(new Bun.CryptoHasher("sha256").update(restored).digest("hex")).toBe(identity);
+  console.error(
+    JSON.stringify({
+      phase: "outer-annotation-normalization",
+      annotatedHash: new Bun.CryptoHasher("sha256").update(annotated.content).digest("hex"),
+      nestedHash: new Bun.CryptoHasher("sha256").update(nested.content).digest("hex"),
+      restoredHash: identity,
+      removed: "// @ts-nocheck\n",
+    }),
+  );
+  await Bun.write(copied, restored);
+  console.error(
+    JSON.stringify({
+      phase: "original-private-copy",
+      copied,
+      mode: before.mode % 0o1000,
+      links: before.nlink,
+      dev: before.dev,
+      ino: before.ino,
+      identity,
+    }),
+  );
+  await Bun.write(
+    path.join(cwd, "src/lib/source-readiness-count.ts"),
+    "export function count(n: number) { return n + 1; }\n",
+  );
+  await Bun.write(
+    path.join(cwd, "src/lib/source-readiness-count.test.ts"),
+    `import { expect, test } from "bun:test";
+// Bun has no permission, file metadata, symlink, or temporary-directory API.
+import { chmod, lstat, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
+import { Environment } from "../modules/environment/main.ts";
+import { writeGuideSkills, writeOpenCodePlugin } from "../modules/operator-cli/command-fixture.ts";
+import { registerTestDevice } from "../../tools/device-fixture.ts";
+import { count } from "./source-readiness-count.ts";
+test("the actual source command passes readiness through its PATH link", async () => {
+  const cli = Bun.fileURLToPath(new URL("../cli.ts", import.meta.url));
+  const project = path.resolve(import.meta.dir, "../..");
+  const expected = ${JSON.stringify({ cwd, copied, receipt, dev: before.dev, ino: before.ino, identity })};
+  expect(project === expected.cwd || (project.startsWith(expected.cwd + "/.mutation-") && project.includes("/sandbox/"))).toBe(true);
+  const metadata = await lstat(cli);
+  expect(metadata.isFile()).toBe(true);
+  expect(metadata.isSymbolicLink()).toBe(false);
+  expect(await realpath(cli)).toBe(cli);
+  expect(metadata.nlink).toBe(1);
+  if (cli !== expected.copied) expect([metadata.dev, metadata.ino]).not.toEqual([expected.dev, expected.ino]);
+  const sourceText = (await Bun.file(cli).text()).replace("// @ts-nocheck\\n", "");
+  expect(new Bun.CryptoHasher("sha256").update(sourceText).digest("hex")).toBe(expected.identity);
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-source-mode-")));
+  try {
+    const database = await registerTestDevice(root);
+    await Bun.write(root + "/config/operator/config.json", JSON.stringify({ superAgent: { host: "opencode" } }), { createPath: true });
+    await mkdir(root + "/config/opencode", { recursive: true });
+    await symlink(project + "/skills", root + "/config/opencode/skills");
+    await writeGuideSkills(root + "/home/.agents/skills");
+    await Bun.write(root + "/home/.agents/skills/code-review/SKILL.md", "# Test upstream review\\n", { createPath: true });
+    await writeOpenCodePlugin(root + "/config");
+    await mkdir(root + "/tools", { recursive: true });
+    await symlink(cli, root + "/tools/operator");
+    await symlink(process.execPath, root + "/tools/bun");
+    for (const tool of ["gh", "herdr", "opencode"]) {
+      const file = root + "/tools/" + tool;
+      await Bun.write(file, "#!" + process.execPath + "\\nprocess.exit(" + (tool === "gh" ? "0" : "99") + ");\\n");
+      await chmod(file, 0o755);
+    }
+    const foreign = root + "/foreign/operator";
+    await Bun.write(foreign, "#!" + process.execPath + "\\nprocess.exit(99);\\n", { createPath: true });
+    await chmod(foreign, 0o755);
+    const PATH = root + "/tools:" + root + "/foreign";
+    const selected = Bun.which("operator", { PATH });
+    const observed = { phase: "actual-readiness", cli, project, mode: metadata.mode & 0o777, links: metadata.nlink, dev: metadata.dev, ino: metadata.ino, selected, selectedRealpath: selected === null ? null : await realpath(selected), PATH, root, sourceIdentity: new Bun.CryptoHasher("sha256").update(sourceText).digest("hex") };
+    console.error(JSON.stringify(observed));
+    const child = Bun.spawn([process.execPath, cli, "ready", "--json"], {
+      cwd: project,
+      env: Environment.child({ HOME: root + "/home", XDG_CONFIG_HOME: root + "/config", XDG_STATE_HOME: root + "/state", PATH, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    console.error(stdout);
+    expect(code, stdout + stderr).toBe(0);
+    expect(await realpath(String(selected))).toBe(cli);
+    expect(JSON.parse(stdout)).toMatchObject({ reason: "ready", blockers: [] });
+    expect(await Bun.file(root + "/state/operator/operator.sqlite").arrayBuffer()).toEqual(database);
+    await Bun.write(expected.receipt, JSON.stringify({ ...observed, code, readiness: JSON.parse(stdout) }));
+    expect(count(1)).toBe(2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30000);
+`,
+  );
+  const baseline = Bun.spawn(
+    [process.execPath, "test", "--isolate", "src/lib/source-readiness-count.test.ts"],
+    {
+      cwd,
+      env: Environment.child({
+        HOME: root,
+        XDG_CONFIG_HOME: `${root}/config`,
+        XDG_STATE_HOME: `${root}/state`,
+      }),
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [baselineCode, baselineOut, baselineError] = await Promise.all([
+    baseline.exited,
+    new Response(baseline.stdout).text(),
+    new Response(baseline.stderr).text(),
+  ]);
+  console.error(baselineError);
+  expect(baselineCode, baselineOut + baselineError).toBe(0);
+  await rm(receipt);
+  const result = await mutate(cwd, ["src/lib/source-readiness-count.ts"]);
+  console.error(result.stderr);
+  expect(result.code, result.stdout + result.stderr).toBe(0);
+  expect(result.stdout).toContain("0 survivors, 0 untested, 0 incomplete");
+  const observed = z
+    .looseObject({
+      project: z.string(),
+      mode: z.number(),
+      links: z.number(),
+      selectedRealpath: z.string(),
+      cli: z.string(),
+      sourceIdentity: z.string(),
+      readiness: z.unknown(),
+    })
+    .parse(await Bun.file(receipt).json());
+  console.error(JSON.stringify({ phase: "retained-sandbox-receipt", ...observed }));
+  expect(observed.project).toStartWith(`${cwd}/.mutation-`);
+  expect(observed.project).toContain("/sandbox/");
+  expect(observed.mode).toBe(0o755);
+  expect(observed.links).toBe(1);
+  expect(observed.selectedRealpath).toBe(observed.cli);
+  expect(observed.sourceIdentity).toBe(identity);
+  expect(observed.readiness).toMatchObject({ reason: "ready", blockers: [] });
 });
 
 // Early in the file, so a broken reuse fails before the slow tests run.

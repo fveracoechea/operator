@@ -7,6 +7,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Environment } from "../environment/main.ts";
 import { contents, identity } from "./content.ts";
 import { isCodedError } from "../../lib/coded-error.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 const source = Bun.fileURLToPath(
   new URL(import.meta.url.endsWith(".ts") ? "../../../skills/" : "../../skills/", import.meta.url),
@@ -16,6 +17,15 @@ const source = Bun.fileURLToPath(
 export const OwnedSkills = {
   names() {
     return releaseNames(source);
+  },
+  /** Read release guides, not consumer edits, just as owned-copy checks use release content. */
+  async guides() {
+    const guides = [];
+    for (const name of WorkerKinds.names()) {
+      const { guide } = WorkerKinds.resolve(name);
+      guides.push({ guide, text: await Bun.file(`${source}${guide}`).text() });
+    }
+    return guides;
   },
   /** Content identities of the running release's skills, for a launch snapshot. */
   async identities() {

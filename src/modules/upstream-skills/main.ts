@@ -10,12 +10,33 @@ import { Environment } from "../environment/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { commitIdentity, installed, roster } from "./catalog.ts";
+import { guideReferences } from "./guide-references.ts";
 
 type Host = keyof ReturnType<typeof OperatorHome.resolve>["skillHosts"];
 const installerVersion = "1.8.1";
 const replacementPolicy =
   "The upstream installer owns replacement and its lock. It can replace local edits without an Operator preview. Inspect a failed or interrupted install before trying again.";
 const required = ["code-review"];
+
+type GuideIssue = {
+  reason: "guide_skill_unresolved" | "skill_link_unresolved";
+  host: Host;
+  guide: string;
+  skill: string;
+  file: string;
+  detail: string;
+};
+
+async function readableSkill(file: string, optional = false) {
+  try {
+    return (await stat(file)).isFile() && (await Bun.file(file).text()).trim().length > 0;
+  } catch (cause) {
+    if (isCodedError(cause) && (optional || ["ENOENT", "ENOTDIR", "ELOOP"].includes(cause.code)))
+      return false;
+    // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
+    throw cause;
+  }
+}
 
 function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
@@ -165,6 +186,43 @@ async function install(hosts: Host[]) {
 
 /** Delegates installation and lock ownership. Presence checks do not compare upstream revisions. */
 export const UpstreamSkills = {
+  /** Static resolution of every built-in guide. Optional show-me links never block a launch. */
+  checkGuides(paths: ReturnType<typeof OperatorHome.resolve>, host: Host) {
+    return fromPromise(
+      async () => {
+        OperatorHome.guardTemporaryTests(Environment.read(), [
+          paths.skillHosts[host],
+          paths.upstreamSkills[host],
+        ]);
+        const owned = new Set(await OwnedSkills.names());
+        const blockers: GuideIssue[] = [];
+        const warnings: GuideIssue[] = [];
+        for (const { guide, text } of await OwnedSkills.guides()) {
+          for (const { name, link } of guideReferences(text)) {
+            const optional = name === "show-me" && link !== null;
+            const file =
+              link === null
+                ? `${owned.has(name) ? paths.skillHosts[host] : paths.upstreamSkills[host]}/${name}/SKILL.md`
+                : path.resolve(paths.skillHosts[host], path.dirname(guide), link);
+            if (await readableSkill(file, optional)) continue;
+            const issue: GuideIssue = {
+              reason: optional ? "skill_link_unresolved" : "guide_skill_unresolved",
+              host,
+              guide,
+              skill: name,
+              file,
+              detail: optional
+                ? `${guide}: ${link} does not resolve. Read show-me by the absolute path in the brief when available.`
+                : `${guide} requires ${name}, but ${file} does not resolve to a readable, nonempty regular file. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
+            };
+            (optional ? warnings : blockers).push(issue);
+          }
+        }
+        return { blockers, warnings };
+      },
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    );
+  },
   replacementPolicy() {
     return replacementPolicy;
   },
@@ -187,15 +245,7 @@ export const UpstreamSkills = {
         const missing = [];
         for (const name of required) {
           const file = `${paths.upstreamSkills[host]}/${name}/SKILL.md`;
-          try {
-            if (!(await stat(file)).isFile() || (await Bun.file(file).text()).trim().length === 0)
-              missing.push(file);
-          } catch (cause) {
-            if (isCodedError(cause) && ["ENOENT", "ENOTDIR", "ELOOP"].includes(cause.code))
-              missing.push(file);
-            // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
-            else throw cause;
-          }
+          if (!(await readableSkill(file))) missing.push(file);
         }
         return missing;
       },

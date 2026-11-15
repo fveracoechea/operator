@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
-import { writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
+import {
+  writeClaudeHookSettings,
+  writeOpenCodePlugin,
+  writeGuideSkills,
+} from "./command-fixture.ts";
 import { chmod, cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -86,6 +90,7 @@ async function configure(host: string) {
   );
   await Bun.write(`${upstream}/placeholder`, "", { createPath: true });
   await symlink(`${root}/independent-code-review`, `${upstream}/code-review`);
+  await writeGuideSkills(upstream);
   // The global command of a source install is Bun's link to the running release's entry point.
   await mkdir(`${root}/tools`, { recursive: true });
   await symlink(cli, `${root}/tools/operator`);
@@ -125,6 +130,40 @@ test.each(["opencode", "claude-code"])(
   },
 );
 
+test("ready blocks on a guide that names an unresolved skill and warns on the show-me link", async () => {
+  const { upstream } = await configure("opencode");
+  await rm(`${upstream}/resolving-merge-conflicts`, { recursive: true });
+  for (const name of ["research", "prototype", "grilling", "tdd", "diagnosing-bugs", "pr"])
+    await Bun.write(`${upstream}/${name}/SKILL.md`, `# ${name}\n`, { createPath: true });
+  // The archived upstream page is not an installed skill.
+  await Bun.write(`${upstream}/show-me/SKILL.md`, "# Show me\n", { createPath: true });
+  const blocked = await run();
+  expect(blocked).toMatchObject({
+    code: 3,
+    output: {
+      reason: "not_ready",
+      blockers: [
+        expect.objectContaining({
+          reason: "guide_skill_unresolved",
+          skill: "resolving-merge-conflicts",
+          guide: "worker-agent/kinds/pr-feedback.md",
+        }),
+      ],
+      warnings: [expect.objectContaining({ reason: "skill_link_unresolved", skill: "show-me" })],
+    },
+  });
+  await Bun.write(`${upstream}/resolving-merge-conflicts/SKILL.md`, "# Resolve conflicts\n", {
+    createPath: true,
+  });
+  expect(await run()).toMatchObject({
+    code: 0,
+    output: { blockers: [], warnings: [expect.objectContaining({ skill: "show-me" })] },
+  });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
+});
+
 test("reports failed authentication, a missing host, changed owned assets, and a missing upstream skill together", async () => {
   const { folder, upstream } = await configure("opencode");
   await Bun.write(`${folder}/deep-modules/module-shape.md`, "personal edit\n");
@@ -139,7 +178,7 @@ test("reports failed authentication, a missing host, changed owned assets, and a
       { reason: "github_auth_failed" },
       { reason: "executable_missing", tool: "opencode" },
       { reason: "skill_copy_conflict" },
-      { reason: "upstream_skills_missing" },
+      { reason: "guide_skill_unresolved", skill: "code-review" },
     ],
   });
   expect(await Bun.file(`${folder}/deep-modules/module-shape.md`).text()).toBe("personal edit\n");
@@ -147,6 +186,39 @@ test("reports failed authentication, a missing host, changed owned assets, and a
     databaseBefore,
   );
 });
+
+// Root bypasses file modes, so it cannot exercise a denied skill read.
+test.skipIf(process.getuid?.() === 0)(
+  "an unreadable optional show-me link warns while required skill access still blocks",
+  async () => {
+    const { folder, upstream } = await configure("opencode");
+    const visual = `${folder}/show-me/SKILL.md`;
+    await Bun.write(visual, "# Linked visual skill\n", { createPath: true });
+    await Bun.write(`${upstream}/show-me/SKILL.md`, "# Usable absolute fallback\n", {
+      createPath: true,
+    });
+    await chmod(visual, 0);
+    expect(await run()).toMatchObject({
+      code: 0,
+      output: {
+        reason: "ready",
+        blockers: [],
+        warnings: [expect.objectContaining({ skill: "show-me", file: visual })],
+      },
+    });
+    await chmod(`${root}/independent-code-review/SKILL.md`, 0);
+    expect(await run()).toMatchObject({
+      code: 3,
+      output: { blockers: [expect.objectContaining({ reason: "upstream_io_failed" })] },
+    });
+    expect(await Bun.file(`${upstream}/show-me/SKILL.md`).text()).toBe(
+      "# Usable absolute fallback\n",
+    );
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
+  },
+);
 
 test.each([
   {
@@ -199,10 +271,10 @@ test("readiness checks every host that settings select, not only the SuperAgent 
   expect(result.code).toBe(3);
   expect(result.output).toMatchObject({
     reason: "not_ready",
-    blockers: [
-      { reason: "executable_missing", tool: "claude" },
-      { reason: "skills_missing" },
-      { reason: "upstream_skills_missing" },
-    ],
+    blockers: expect.arrayContaining([
+      expect.objectContaining({ reason: "executable_missing", tool: "claude" }) as unknown,
+      expect.objectContaining({ reason: "skills_missing" }) as unknown,
+      expect.objectContaining({ reason: "guide_skill_unresolved", host: "claude-code" }) as unknown,
+    ]) as unknown,
   });
 });
