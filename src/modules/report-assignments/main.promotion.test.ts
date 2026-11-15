@@ -31,7 +31,7 @@ test("a report supporting directory carries its checked type and needs corrected
   const sourceId = await device.source();
   await device.launch(sourceId);
   device.inPane(workerPane);
-  const file = await device.writeJson("folder-report.json", { ...draft, files: [device.root] });
+  const file = await device.writeReport("folder-report.md", { ...draft, files: [device.root] });
   const before = await Bun.file(device.paths.database).arrayBuffer();
   expect(await ReportAssignments.submit({ paths: device.paths, file })).toMatchObject({
     tag: "Err",

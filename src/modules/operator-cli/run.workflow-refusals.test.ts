@@ -124,7 +124,7 @@ test.each(["pane", "worktree"] as const)(
       key: "read",
       trackerKey: "github:example/one#11",
       instructions: "Investigate the module.",
-      completion: "report",
+      kind: "research",
       resources,
       dependencies: [],
     };
@@ -134,7 +134,7 @@ test.each(["pane", "worktree"] as const)(
       assignments: [assignment],
     });
     const worker = await device.dispatch(source, "read");
-    const report = await device.writeJson("report.json", {
+    const report = await device.writeReport("report.md", {
       conclusion: "Implement it.",
       evidence: ["src/a.ts:1"],
       unresolved: [],
