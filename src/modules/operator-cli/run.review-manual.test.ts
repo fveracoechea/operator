@@ -24,7 +24,7 @@ test("the migration renames the slack origin to manual", async () => {
     const migrations = readMigrationFiles({
       migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
     });
-    for (const migration of migrations.slice(0, 20)) {
+    for (const migration of migrations.slice(0, -1)) {
       for (const sql of migration.sql) db.exec(sql);
       db.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
         migration.hash,
@@ -47,6 +47,11 @@ test("the migration renames the slack origin to manual", async () => {
         .query("SELECT name FROM sqlite_master WHERE name IN ('slack_effects', 'slack_watches')")
         .all(),
     ).toEqual([]);
+    const columns = z.array(z.object({ name: z.string() }));
+    for (const table of ["assignments", "launches"])
+      expect(
+        columns.parse(db.query(`PRAGMA table_info(${table})`).all()).map(({ name }) => name),
+      ).toContain("kind");
   }
   expect(await device.next()).toMatchObject([{ origin: "manual" }, { origin: "assignment" }]);
 });

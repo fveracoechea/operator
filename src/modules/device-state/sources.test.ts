@@ -157,7 +157,9 @@ test("reset interrupts only selected running launches in its source", () => {
   expect(
     registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, []).tag,
   ).toBe("Ok");
-  db.exec("INSERT INTO assignments VALUES ('two', 'open', 'pr', 'running')");
+  db.exec(
+    "INSERT INTO assignments (source_id, key, completion, state) VALUES ('two', 'open', 'pr', 'running')",
+  );
   for (const [id, sourceId, state, attempt] of [
     ["missing", "one", "running", 1],
     ["other", "one", "running", 2],
@@ -454,7 +456,7 @@ test("a reset lists the retained worktrees and unmerged PRs of the abandoned ass
   using db = endedDatabase();
   registerSource(db, project.checkout, { ...source, id: "x", trackerKey: "X" }, []);
   db.exec(
-    "INSERT INTO assignments VALUES ('one', 'other', 'pr', 'pr-open'), ('one', 'merged', 'pr', 'merged')",
+    "INSERT INTO assignments (source_id, key, completion, state) VALUES ('one', 'other', 'pr', 'pr-open'), ('one', 'merged', 'pr', 'merged')",
   );
   await mkdir(`${root}/open`);
   await mkdir(`${root}/other`);

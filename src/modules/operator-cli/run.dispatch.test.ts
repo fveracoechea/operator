@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { writeOpenCodePlugin } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
+import { Database } from "bun:sqlite";
 
 let root = "";
 let checkout = "";
@@ -65,7 +66,7 @@ const plan = {
       key: "investigate",
       trackerKey: "github:example/one#11",
       instructions: "Read the module and report the gaps.",
-      completion: "report",
+      kind: "research",
       resources: "pane",
       dependencies: [],
     },
@@ -73,7 +74,7 @@ const plan = {
       key: "implement",
       trackerKey: "github:example/one#12",
       instructions: "Implement the accepted report.",
-      completion: "pr",
+      kind: "implementation",
       resources: "worktree",
       branch: "task/12-implement",
       profile: "careful",
@@ -83,7 +84,7 @@ const plan = {
       key: "follow",
       trackerKey: "github:example/one#13",
       instructions: "Use the accepted investigation.",
-      completion: "report",
+      kind: "research",
       resources: "pane",
       dependencies: ["investigate"],
     },
@@ -205,6 +206,296 @@ const launchOutput = z.object({
     branch: z.string().nullable(),
   }),
 });
+
+test("dispatch with a kind fixes the completion type and refuses a completion override", async () => {
+  const assignment = {
+    key: "investigate",
+    trackerKey: "github:example/one#11",
+    instructions: "Read the module and report the gaps.",
+    kind: "research",
+    dependencies: [],
+  };
+  await Bun.write(`${root}/plan.json`, JSON.stringify({ ...plan, assignments: [assignment] }));
+  const source = await register();
+  expect((await run(["source", "show", "--source", source])).output).toMatchObject({
+    data: { planned: [{ kind: "research", completion: "report", resources: "pane" }] },
+  });
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  expect(launched.output).toMatchObject({ data: { worktreePath: null, branch: null } });
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({
+      trackerKey: "github:example/one#20",
+      assignments: [{ ...assignment, completion: "pr" }],
+    }),
+  );
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const callsBefore = await herdrCalls();
+  expect(await run(["source", "register", "--file", `${root}/plan.json`])).toMatchObject({
+    code: 2,
+    output: { reason: "invalid_source_plan" },
+  });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect(await herdrCalls()).toEqual(callsBefore);
+});
+
+test("a plan assignment without a kind is refused at registration", async () => {
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({
+      ...plan,
+      assignments: [
+        {
+          key: "missing",
+          trackerKey: "APP-1",
+          instructions: "Read.",
+          dependencies: [],
+        },
+      ],
+    }),
+  );
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  expect(await run(["source", "register", "--file", `${root}/plan.json`])).toMatchObject({
+    code: 2,
+    output: { reason: "invalid_source_plan" },
+  });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect(await herdrCalls()).toEqual([]);
+});
+
+test("a launch keeps its kind snapshot after a settings edit", async () => {
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({
+      ...plan,
+      assignments: [
+        {
+          key: "answer",
+          trackerKey: "github:example/one#15",
+          instructions: "Answer the question.",
+          kind: "answer",
+          profile: "careful",
+          dependencies: [],
+        },
+      ],
+    }),
+  );
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const launched = await run(["dispatch", "--source", source, "--assignment", "answer"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  const data = launchOutput.parse(launched.output).data;
+  const expected = {
+    name: "answer",
+    completion: "report",
+    resources: "pane",
+    profile: "careful",
+    nextKind: null,
+    readsNote: false,
+    guide: `${root}/config/opencode/skills/worker-agent/kinds/answer.md`,
+    dispatchable: true,
+    workPhases: [{ name: "investigate", goal: "Answer the assigned question." }],
+  };
+  expect(launched.output).toMatchObject({ data: { kind: expected } });
+  const brief = await Bun.file(data.brief).text();
+  expect(brief).toContain(`Worker kind: \`answer\``);
+  expect(brief).toContain(`Read \`${expected.guide}\``);
+  expect(await Bun.file(expected.guide).exists()).toBe(true);
+  await Bun.write(
+    `${root}/config/operator/config.json`,
+    JSON.stringify({
+      superAgent: { host: "opencode", model: "test/writer" },
+      profiles: { careful: { model: "test/writer", reasoningEffort: "medium" } },
+    }),
+  );
+  expect((await run(["source", "show", "--source", source])).output).toMatchObject({
+    data: { launches: [{ kind: expected, model: "test/reasoner", reasoningEffort: "high" }] },
+  });
+  expect(await Bun.file(data.brief).text()).toBe(brief);
+});
+
+test("an existing assignment and its new launch keep a null kind and their old behavior", async () => {
+  const source = await register();
+  const legacy = {
+    trackerKey: plan.trackerKey,
+    assignments: [
+      {
+        key: "investigate",
+        trackerKey: "github:example/one#11",
+        instructions: "Read the module.",
+        completion: "report",
+        resources: "pane",
+        dependencies: [],
+      },
+    ],
+  };
+  const database = new Database(`${root}/state/operator/operator.sqlite`);
+  database.query("UPDATE sources SET plan = ? WHERE id = ?").run(JSON.stringify(legacy), source);
+  database
+    .query("DELETE FROM assignments WHERE source_id = ? AND key != 'investigate'")
+    .run(source);
+  database.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(source);
+  database.close();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(launched).toMatchObject({
+    code: 0,
+    output: { data: { kind: null, branch: null, worktreePath: null } },
+  });
+  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).not.toContain(
+    "Worker kind:",
+  );
+  expect((await run(["source", "show", "--source", source])).output).toMatchObject({
+    data: { planned: [{ kind: null, completion: "report" }], launches: [{ kind: null }] },
+  });
+});
+
+test.each(["review", "pr-feedback"])("%s cannot be plainly dispatched", async (kind) => {
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({
+      ...plan,
+      assignments: [
+        {
+          key: "implement",
+          trackerKey: "APP-2",
+          instructions: "Handle this PR.",
+          kind,
+          branch: "task/12-implement",
+          dependencies: [],
+        },
+      ],
+    }),
+  );
+  const source = await register();
+  const next = await run(["next", "--source", source]);
+  expect(next).toMatchObject({
+    code: 0,
+    output: {
+      data: {
+        sources: [
+          {
+            actions: [
+              {
+                assignment: "implement",
+                action: "owner_attention",
+                reason: "kind_not_dispatchable",
+                next: { decider: "super-agent" },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  expect(JSON.stringify(next.output)).not.toContain("operator dispatch");
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+    code: 4,
+    output: {
+      reason: "kind_not_dispatchable",
+      state: { kind },
+      next: { decider: "super-agent", question: expect.any(String) as unknown },
+    },
+  });
+  expect(await herdrCalls()).toEqual([]);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+});
+
+test.each([
+  ["research", "report", "pane", null, false],
+  ["answer", "report", "pane", null, false],
+  ["prototype", "report", "worktree", null, false],
+  ["implementation", "pr", "worktree", "review", "promotion"],
+])(
+  "%s resolves its default resources and installed guide",
+  async (kind, completion, resources, nextKind, readsNote) => {
+    await Bun.write(
+      `${root}/plan.json`,
+      JSON.stringify({
+        ...plan,
+        assignments: [
+          {
+            key: "work",
+            trackerKey: "APP-2",
+            instructions: "Do the assigned work.",
+            kind,
+            branch: resources === "worktree" ? "task/work" : undefined,
+            dependencies: [],
+          },
+        ],
+      }),
+    );
+    const source = await register();
+    expect((await run(["herdr", "install"])).code).toBe(0);
+    const launched = await run(["dispatch", "--source", source, "--assignment", "work"]);
+    expect(launched.code, launched.stderr).toBe(0);
+    const guide = `${root}/config/opencode/skills/worker-agent/kinds/${String(kind)}.md`;
+    expect(launched.output).toMatchObject({
+      data: {
+        kind: { name: kind, completion, resources, profile: null, nextKind, readsNote, guide },
+      },
+    });
+    expect(await Bun.file(guide).exists()).toBe(true);
+    expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
+      `Read \`${guide}\``,
+    );
+  },
+);
+
+test.each([
+  ["research", "worktree", "report"],
+  ["prototype", "pane", "report"],
+  ["implementation", "pane", "pr"],
+])(
+  "%s permits a %s resource override without changing completion",
+  async (kind, resources, completion) => {
+    await Bun.write(
+      `${root}/plan.json`,
+      JSON.stringify({
+        ...plan,
+        assignments: [
+          {
+            key: "work",
+            trackerKey: "APP-2",
+            instructions: "Do the assigned work.",
+            kind,
+            resources,
+            branch: resources === "worktree" || completion === "pr" ? "task/work" : undefined,
+            dependencies: [],
+          },
+        ],
+      }),
+    );
+    const source = await register();
+    expect((await run(["herdr", "install"])).code).toBe(0);
+    const launched = await run(["dispatch", "--source", source, "--assignment", "work"]);
+    expect(launched.code, launched.stderr).toBe(0);
+    expect(launched.output).toMatchObject({
+      data: { kind: { name: kind, resources, completion } },
+    });
+    if (completion === "pr") {
+      expect(launched.output).toMatchObject({ data: { worktreePath: null, branch: null } });
+      await tool(
+        "gh",
+        `#!${process.execPath}\nawait Bun.write(${JSON.stringify(`${root}/github-called`)}, "unexpected"); process.exit(99);\n`,
+      );
+      expect(await run(["pr", "associate"])).toMatchObject({
+        code: 4,
+        output: { reason: "pr_worktree_unrecorded" },
+      });
+      expect(await Bun.file(`${root}/github-called`).exists()).toBe(false);
+      expect((await run(["source", "show", "--source", source])).output).toMatchObject({
+        data: {
+          pullRequests: [],
+          assignments: [{ key: "work", completion: "pr", state: "running" }],
+        },
+      });
+    }
+  },
+);
 
 test("herdr install writes one stable manifest in device state and links it once", async () => {
   const first = await run(["herdr", "install"]);

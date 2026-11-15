@@ -20,7 +20,6 @@ import {
   pruneSource,
   type StoredSource,
   type Supervisor,
-  type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 
 import {
@@ -144,7 +143,7 @@ export const DeviceState = {
     paths: Paths,
     checkout: string,
     source: StoredSource,
-    assignments: StoredAssignment[],
+    assignments: Parameters<typeof registerSource>[3],
   ) {
     return writing(
       paths,

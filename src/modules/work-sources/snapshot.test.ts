@@ -24,7 +24,7 @@ const input = {
       ],
     }),
   },
-  assignments: [{ sourceId: "one", key: "read", completion: "report", state: "ready" }],
+  assignments: [{ sourceId: "one", key: "read", kind: null, completion: "report", state: "ready" }],
   launches: [],
   pullRequests: [],
   reports: [],
@@ -58,6 +58,7 @@ test("rejects malformed plans, unknown states, mismatched parents and assignment
           ...input.assignments[0],
           sourceId: "one",
           key: "other",
+          kind: null,
           completion: "report",
           state: "ready",
         },
@@ -67,13 +68,15 @@ test("rejects malformed plans, unknown states, mismatched parents and assignment
   expect(() =>
     decodeSource({
       ...input,
-      assignments: [{ sourceId: "one", key: "read", completion: "pr", state: "ready" }],
+      assignments: [{ sourceId: "one", key: "read", kind: null, completion: "pr", state: "ready" }],
     }),
   ).toThrow();
 });
 
 test("source state and end-time invariants reject incomplete or unpersisted transitions", () => {
-  const completed = [{ sourceId: "one", key: "read", completion: "report", state: "completed" }];
+  const completed = [
+    { sourceId: "one", key: "read", kind: null, completion: "report", state: "completed" },
+  ];
   expect(() => decodeSource({ ...input, assignments: completed })).toThrow();
   expect(() =>
     decodeSource({ ...input, source: { ...input.source, state: "finished", endedAt: "later" } }),
@@ -93,7 +96,9 @@ test("source state and end-time invariants reject incomplete or unpersisted tran
     decodeSource({
       ...input,
       source: { ...input.source, state: "reset", endedAt: "later" },
-      assignments: [{ sourceId: "one", key: "read", completion: "report", state: "abandoned" }],
+      assignments: [
+        { sourceId: "one", key: "read", kind: null, completion: "report", state: "abandoned" },
+      ],
     }).state,
   ).toBe("reset");
 });
@@ -148,6 +153,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     profile: null,
     release: JSON.stringify({ version: "1" }),
     skills: "[]",
+    kind: null,
     herdrSocket: null,
     workspaceId: null,
     tabId: null,
@@ -167,7 +173,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
   };
   const source = { ...input.source, plan };
   function row(state: string) {
-    return [{ sourceId: "one", key: "change", completion: "pr", state }];
+    return [{ sourceId: "one", key: "change", kind: null, completion: "pr", state }];
   }
   const open = {
     source,
@@ -224,6 +230,7 @@ test("a stored report belongs to a started report assignment and one of its laun
     profile: null,
     release: JSON.stringify({ version: "1.0.0" }),
     skills: "[]",
+    kind: null,
     herdrSocket: "/herdr.sock",
     workspaceId: "w1",
     tabId: "w1:t1",
@@ -261,7 +268,9 @@ test("a stored report belongs to a started report assignment and one of its laun
   const valid = {
     ...input,
     source: { ...input.source, state: "finished", endedAt: "later" },
-    assignments: [{ sourceId: "one", key: "read", completion: "report", state: "completed" }],
+    assignments: [
+      { sourceId: "one", key: "read", kind: null, completion: "report", state: "completed" },
+    ],
     launches: [launch],
     reports: [report],
   };
@@ -326,7 +335,9 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
   };
   const merged = {
     source: { ...input.source, plan, state: "finished", endedAt: "now" },
-    assignments: [{ sourceId: "one", key: "change", completion: "pr", state: "merged" }],
+    assignments: [
+      { sourceId: "one", key: "change", kind: null, completion: "pr", state: "merged" },
+    ],
     launches: [],
     pullRequests: [pr],
     reports: [],
@@ -359,7 +370,9 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
   const open = {
     ...merged,
     source: { ...merged.source, state: "open", endedAt: null },
-    assignments: [{ sourceId: "one", key: "change", completion: "pr", state: "pr-open" }],
+    assignments: [
+      { sourceId: "one", key: "change", kind: null, completion: "pr", state: "pr-open" },
+    ],
   };
   expect(() => decodeSource(open)).toThrow();
   expect(() =>
@@ -407,6 +420,7 @@ test("a promoted PR assignment joins the plan with the accepted report as its de
     profile: undefined,
     dependencies: ["read"],
     completion: "pr",
+    kind: null,
     resources: "worktree",
     branch: "task/build",
     internalReview: undefined,
@@ -432,7 +446,7 @@ test("a promoted PR assignment joins the plan with the accepted report as its de
     { reports: [storedReport("read", { decision: "returned" })] },
     {
       assignments: [
-        { sourceId: "one", key: "read", completion: "report", state: "reported" },
+        { sourceId: "one", key: "read", kind: null, completion: "report", state: "reported" },
         assignment,
       ],
     },

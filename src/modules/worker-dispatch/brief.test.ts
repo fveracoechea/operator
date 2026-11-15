@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { superAgentMessages } from "../../lib/superagent-messages.ts";
 import { renderBrief } from "./brief.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 const input = {
   sourceId: "source-1",
@@ -38,6 +39,38 @@ test("the brief carries the task, resources, results, and earlier history", () =
   ])
     expect(brief).toContain(text);
   expect(brief).toContain("## Follow-up instructions\n\n- None.");
+});
+
+test.each(["research", "answer", "prototype", "implementation", "review", "pr-feedback"] as const)(
+  "%s has a shipped guide and its brief links the resolved absolute path",
+  async (name) => {
+    const kind = WorkerKinds.resolve(name);
+    const guide = Bun.fileURLToPath(
+      new URL(`../../../skills/worker-agent/kinds/${name}.md`, import.meta.url),
+    );
+    expect(kind.guide).toBe(`worker-agent/kinds/${name}.md`);
+    expect(await Bun.file(guide).exists()).toBe(true);
+    expect((await Bun.file(guide).text()).trim().length).toBeGreaterThan(30);
+    const brief = renderBrief({ ...input, kind: { ...kind, guide } });
+    expect(brief).toContain(`Worker kind: \`${name}\`. Read \`${guide}\`.`);
+  },
+);
+
+test("kind guides honor pane overrides and require the conflict-resolution skill", async () => {
+  const prototype = await Bun.file(
+    new URL("../../../skills/worker-agent/kinds/prototype.md", import.meta.url),
+  ).text();
+  expect(prototype).toContain("When the brief gives a worktree");
+  expect(prototype).toContain("For pane resources, change no project files.");
+  const feedback = await Bun.file(
+    new URL("../../../skills/worker-agent/kinds/pr-feedback.md", import.meta.url),
+  ).text();
+  expect(feedback).toContain("Load `resolving-merge-conflicts`");
+});
+
+test("an explicit null kind preserves the legacy brief without a guide", () => {
+  expect(renderBrief({ ...input, kind: null })).toBe(renderBrief(input));
+  expect(renderBrief({ ...input, kind: null })).not.toContain("Worker kind:");
 });
 
 test("read-only work forbids project changes, and the brief names no runtime agent", () => {
@@ -129,7 +162,7 @@ test("a report brief names the submission, resume, and authority rules", () => {
   for (const text of [
     "`operator report submit --file <path> --json`",
     "`operator report resume --json`",
-    "Use `person` only for an answer that the person gave.",
+    "Human answers record only the person's own answers.",
     "Submission does not complete the assignment.",
     "when a question is outside its delegated authority, or when that authority is unclear",
     "A SuperAgent answer is a SuperAgent decision, not a human answer",
@@ -296,9 +329,9 @@ ${authority}
 ## Results and reporting
 
 - Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
-- Write a JSON report outside the project checkout with \`conclusion\`, \`evidence\`, \`unresolved\`, and optional \`decisions\` and \`files\`.
-- \`evidence\` and \`unresolved\` are lists of short text. \`files\` lists absolute paths of detailed supporting files.
-- Each decision has \`question\`, \`answer\`, and \`by\`. Use \`person\` only for an answer that the person gave. Use \`super-agent\` for a SuperAgent decision.
+- Write a Markdown report outside the checkout with headings \`## Conclusion\`, \`## Evidence\`, \`## Unresolved points\`, \`## Supporting files\`, \`## Human answers\`, and \`## SuperAgent decisions\`.
+- Write the conclusion as prose. Other sections use \`- \` bullets, or \`- None.\` when empty. Supporting files use absolute paths.
+- Decision bullets read \`<question> Answer: <answer>\`. Human answers record only the person's own answers. SuperAgent decisions stay in their own section.
 - Submit it from this pane with \`operator report submit --file <path> --json\`. Your SuperAgent's coordination wait returns it, so send no message.
 - Operator stores the report and copies of the supporting files in \`/state/reports\`.
 - Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.

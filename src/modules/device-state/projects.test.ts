@@ -63,7 +63,7 @@ test("project management preserves scope and leaves a cleanup obligation after a
       }).tag,
     ).toBe("Ok");
   db.exec(
-    "INSERT INTO sources VALUES ('source', 'owner/one', 'APP-1', 'open', 'now', NULL, '{}', NULL, NULL); INSERT INTO assignments VALUES ('source', 'task', 'report', 'ready')",
+    "INSERT INTO sources VALUES ('source', 'owner/one', 'APP-1', 'open', 'now', NULL, '{}', NULL, NULL); INSERT INTO assignments (source_id, key, completion, state) VALUES ('source', 'task', 'report', 'ready')",
   );
   expect(listProjects(db)).toMatchObject({
     tag: "Ok",

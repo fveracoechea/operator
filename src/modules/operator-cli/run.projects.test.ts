@@ -475,7 +475,7 @@ test("open sources block move and removal atomically without repository or state
           key: "task",
           trackerKey: "TASK-1",
           instructions: "Read only",
-          completion: "report",
+          kind: "research",
           resources: "pane",
           dependencies: [],
         },

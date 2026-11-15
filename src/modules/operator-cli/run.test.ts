@@ -57,13 +57,24 @@ test("version reports the running release without project release selection", as
   ).toEqual([".operator/install/selection.json", "state/operator/operator.sqlite"]);
 });
 
-function expectHelp(text: string) {
-  expect(text).toStartWith("Usage: operator --help | --version [--json]\n");
-  expect(text).toContain("operator review add <pr-url> [--slack-thread permalink] [--json]");
-  expect(text).toContain("operator review wait [--timeout seconds] [--all] [--json]");
-  expect(text).toEndWith("operator opencode hook\n");
+/** Check the changed command contracts rather than duplicating the entire help catalog. */
+function expectHelp(output: string) {
+  expect(output).toStartWith("Usage: operator --help | --version [--json]\n");
+  expect(output).toContain("operator review add <pr-url> [--slack-thread permalink] [--json]");
+  expect(output).toContain("operator review wait [--timeout seconds] [--all] [--json]");
+  expect(output).toEndWith("operator opencode hook\n");
   for (const removed of ["review ingest", "review slack-done", "review slack-drop", "[--slack]"])
-    expect(text).not.toContain(removed);
+    expect(output).not.toContain(removed);
+  expect(output).toContain("operator question ask --key key --file path|- [--json]");
+  expect(output).toContain(
+    "operator question answer --source id --assignment key --key key --by super-agent|person --file path|- [--json]",
+  );
+  expect(output).toContain(
+    "operator message send --source id --assignment key --key key --file path|- [--json]",
+  );
+  expect(output).toContain("operator message ack --key key [--file path|-] [--json]");
+  expect(output).toContain("operator report submit --file path|- [--json]");
+  expect(output).not.toContain("--text");
 }
 
 test("help names only the available commands", async () => {

@@ -6,14 +6,13 @@ const defaultTimeoutSeconds = 300;
 
 // The worker's commands take no assignment selector, because its pane is the selector.
 const commands = {
-  ask: { required: ["--file"], optional: [] },
+  ask: { required: ["--key", "--file"], optional: [] },
   wait: { required: ["--key"], optional: ["--timeout"] },
   withdraw: { required: ["--key"], optional: [] },
   escalate: { required: ["--source", "--assignment", "--key"], optional: [] },
-  // An answer takes a text file or the text itself.
   answer: {
-    required: ["--source", "--assignment", "--key", "--by"],
-    optional: ["--file", "--text"],
+    required: ["--source", "--assignment", "--key", "--by", "--file"],
+    optional: [],
   },
 } as const;
 type Command = keyof typeof commands;
@@ -59,13 +58,12 @@ function authority(value: string | undefined) {
   return authorities.find((known) => known === value) ?? null;
 }
 
-/** A timeout is whole seconds. An answer names its authority, and takes its file or its text. */
+/** A timeout is whole seconds. An answer names its authority. */
 function shaped(command: Command, values: Record<string, string>) {
   const timeout = values["--timeout"];
   if (timeout !== undefined && !/^\d{1,5}$/.test(timeout)) return false;
   if (command !== "answer") return true;
-  const authorized = authority(values["--by"]) !== null;
-  return authorized && Object.hasOwn(values, "--file") !== Object.hasOwn(values, "--text");
+  return authority(values["--by"]) !== null;
 }
 
 export function questionArgs(args: string[]) {
@@ -79,7 +77,6 @@ export function questionArgs(args: string[]) {
   return {
     command,
     file: values["--file"] ?? "",
-    text: values["--text"] ?? null,
     key: values["--key"] ?? "",
     sourceId: values["--source"] ?? "",
     assignment: values["--assignment"] ?? "",

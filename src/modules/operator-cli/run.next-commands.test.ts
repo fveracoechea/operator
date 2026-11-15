@@ -23,7 +23,7 @@ test.each(["read docs", "read 'docs'; touch injected; $(touch injected); `touch 
           key,
           trackerKey: "github:example/one#21",
           instructions: "Report the gaps.",
-          completion: "report",
+          kind: "research",
           resources: "pane",
           dependencies: [],
         },
