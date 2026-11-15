@@ -4,8 +4,11 @@ Read the tracker with its existing tools, then supply a JSON plan to `operator s
 The CLI reads no tracker.
 
 The top-level fields are `trackerKey` and `assignments`, with optional `intent` and `internalReview`.
-Each assignment supplies `key`, `trackerKey`, `instructions`, `completion`, `resources`, and `dependencies`.
-`completion` is `pr` or `report`.
+Each assignment supplies `key`, `trackerKey`, `instructions`, `kind`, and `dependencies`.
+Use `research`, `answer`, `prototype`, or `implementation` for plain dispatch.
+`review` and `pr-feedback` are transition kinds.
+The kind fixes completion and supplies default resources and a start profile.
+Override `resources` or `profile` when needed, never `completion`.
 Use `pane` for read-only reports.
 Use `worktree` and a Git `branch` name for PRs and reports that change project files.
 An optional `profile` names an existing device start profile.
@@ -30,7 +33,7 @@ A plan with one report and one PR that waits on it:
       "key": "diagnose",
       "trackerKey": "github:acme/app#41/diagnose",
       "instructions": "Reproduce the guest checkout failure and report its cause with evidence. Change no files.",
-      "completion": "report",
+      "kind": "research",
       "resources": "pane",
       "dependencies": []
     },
@@ -38,7 +41,7 @@ A plan with one report and one PR that waits on it:
       "key": "fix",
       "trackerKey": "github:acme/app#41/fix",
       "instructions": "Fix the cause from the diagnose report, with a test that fails before the fix. Ask the person before you change the checkout API.",
-      "completion": "pr",
+      "kind": "implementation",
       "resources": "worktree",
       "branch": "fix/guest-checkout",
       "dependencies": ["diagnose"]

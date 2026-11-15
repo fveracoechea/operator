@@ -16,6 +16,7 @@ _Avoid_: Operator as a role, Super Agent
 
 **WorkerAgent**:
 An agent that a SuperAgent gives work to and that reports to that SuperAgent, not directly to the person.
+It follows the work phases of its worker kind.
 Implementation, review, reading, investigation, research, triage, planning, and prototyping are tasks, not separate roles or a closed list.
 _Avoid_: Operative, Crew member, Agent as a role
 
@@ -128,11 +129,18 @@ Each registration has a new identity, and a source is ended when it is finished 
 A work source that `operator ask` registers from one research question, with one read-only report assignment that it dispatches at once.
 
 **Assignment**:
-One independently scheduled unit of delegated work with a brief, dependencies, a start profile, resource needs, and an explicit PR or report completion type.
+One independently scheduled unit of delegated work with a worker kind, a brief, dependencies, a start profile, and resource needs.
 Native subagents remain within their parent WorkerAgent's assignment unless their work needs independent scheduling or acceptance.
 
+**Worker kind**:
+A named set of work phases, one kind guide, one completion type, default resources, a default start profile, and the next kind that a WorkerAgent follows.
+The built-in kinds are research, answer, prototype, implementation, review, and pr-feedback.
+An assignment from before kinds has a null kind and keeps its existing behavior.
+_Avoid_: role, task type, general kind
+
 **Completion type**:
-The assignment's choice of PR merge or accepted report as its completion contract.
+The worker kind's fixed choice of PR merge or accepted report as the assignment's completion contract.
+Resources and the start profile can be overridden, but completion cannot.
 It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent may do.
 
 **PR assignment**:
@@ -157,7 +165,8 @@ The person's own words for a plan or an assignment, copied verbatim by the Super
 The brief shows it as the acceptance criteria, and an assignment's intent wins over the plan's.
 
 **Dispatch**:
-The CLI's launch of a WorkerAgent through Herdr with a resolved start profile and a brief from the running release's template.
+The CLI's launch of a WorkerAgent through Herdr with a named kind, a resolved start profile, and a brief from the running release's template.
+Each launch keeps a snapshot of its resolved kind, so later settings edits affect only later launches.
 An assignment that changes project files uses an isolated worktree, while read-only work can use a project-workspace pane.
 
 **Report**:

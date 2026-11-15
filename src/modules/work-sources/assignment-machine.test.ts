@@ -139,6 +139,36 @@ test("a reached running cap holds only ready work whose dependencies are met", (
   ).toMatchObject({ action: "replace_worker", reason: "launch_failed" });
 });
 
+test("a transition-only kind blocks its plain start without blocking a later handoff or replacement", () => {
+  expect(decideAssignment({ assignment: child, dependencies: [], dispatchable: false })).toEqual({
+    action: "owner_attention",
+    reason: "kind_not_dispatchable",
+    blockers: [],
+  });
+  for (const dispatchable of [true, undefined])
+    expect(decideAssignment({ assignment: child, dependencies: [], dispatchable })).toMatchObject({
+      action: "ready_assignment",
+      reason: "assignment_ready",
+    });
+  const open: AssignmentState = { key: "child", completion: "pr", state: "pr-open" };
+  expect(
+    decideAssignment({
+      assignment: open,
+      dependencies: [],
+      dispatchable: false,
+      handoff: "running",
+    }),
+  ).toMatchObject({ action: "wait", reason: "internal_review_handoff" });
+  expect(
+    decideAssignment({
+      assignment: open,
+      dependencies: [],
+      dispatchable: false,
+      launch: "interrupted",
+    }),
+  ).toMatchObject({ action: "replace_worker", reason: "worker_interrupted" });
+});
+
 test("a failed or interrupted launch offers a replacement, and activity never proves a result", () => {
   const running: AssignmentState = { key: "one", completion: "report", state: "running" };
   expect(decideAssignment({ assignment: running, dependencies: [], launch: "failed" })).toEqual({

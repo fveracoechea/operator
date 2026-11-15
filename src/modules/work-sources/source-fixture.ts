@@ -49,6 +49,7 @@ export function storedSource(
     assignments: planned.map((row) => ({
       sourceId,
       key: row.key,
+      kind: null,
       completion: row.completion,
       state: row.state,
     })),
@@ -85,6 +86,7 @@ export function storedLaunch(
     profile: null,
     release: JSON.stringify({ version: "1.0.0" }),
     skills: "[]",
+    kind: null,
     herdrSocket: "/herdr.sock",
     workspaceId: "w1",
     tabId: "w1:t1",
@@ -183,7 +185,7 @@ export function storedPromotion(
 ) {
   const { state = "running", ...promotion } = change;
   return {
-    assignment: { sourceId, key: assignment, completion: "pr", state },
+    assignment: { sourceId, key: assignment, kind: null, completion: "pr", state },
     promotion: {
       sourceId,
       assignment,

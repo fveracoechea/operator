@@ -5,14 +5,14 @@ const report = {
   key: "read",
   trackerKey: "APP-2",
   instructions: "Read the code.",
-  completion: "report",
+  kind: "research",
   resources: "pane",
   dependencies: [],
 };
 const pr = {
   ...report,
   key: "fix",
-  completion: "pr",
+  kind: "implementation",
   resources: "worktree",
   branch: "task/fix",
 };
@@ -26,19 +26,24 @@ function assignments(...rows: Record<string, unknown>[]) {
   return { trackerKey: "APP-1", assignments: rows };
 }
 
-test("a PR assignment needs a worktree and its branch", () => {
+test("a PR assignment needs its branch and permits a pane resource override", () => {
   expect(planSchema.parse(assignments(pr)).assignments).toEqual([
     {
       key: "fix",
       trackerKey: "APP-2",
       instructions: "Read the code.",
       completion: "pr",
+      kind: "implementation",
       resources: "worktree",
       branch: "task/fix",
       dependencies: [],
     },
   ]);
-  expect(planSchema.safeParse(assignments({ ...pr, resources: "pane" })).success).toBe(false);
+  expect(planSchema.parse(assignments({ ...pr, resources: "pane" })).assignments[0]).toMatchObject({
+    kind: "implementation",
+    completion: "pr",
+    resources: "pane",
+  });
   expect(planSchema.safeParse(assignments({ ...pr, completion: "merge" })).success).toBe(false);
 });
 
