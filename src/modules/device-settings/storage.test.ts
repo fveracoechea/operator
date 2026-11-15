@@ -170,6 +170,31 @@ test("reads the present settings and gives an absent file a fixed identity", asy
     text,
     config: { superAgent: { host: "opencode" }, workerAgent: {} },
   });
+  for (const channel of ["C0REVIEW", "G0123", "D0123"]) {
+    const stored = JSON.stringify({
+      superAgent: { host: "opencode" },
+      review: { channel, assignments: true, repos: ["owner/repo"], authors: ["Author"] },
+    });
+    await Bun.write(home.config, stored);
+    await chmod(home.config, 0o444);
+    expect(await readConfig(home)).toMatchObject({
+      exists: true,
+      text: stored,
+      config: {
+        superAgent: { host: "opencode" },
+        review: { assignments: true, repos: ["owner/repo"], authors: ["Author"] },
+      },
+    });
+    expect((await readConfig(home)).config.review).not.toHaveProperty("channel");
+    expect(await Bun.file(home.config).text()).toBe(stored);
+    await chmod(home.config, 0o644);
+  }
+  for (const channel of ["prefixC0123", "C0123suffix", "C1", "X0123", "Caa", 7, null]) {
+    await Bun.write(home.config, JSON.stringify({ review: { channel } }));
+    await expect(readConfig(home)).rejects.toThrow();
+  }
+  await Bun.write(home.config, JSON.stringify({ review: { channel: "C0123", unrelated: true } }));
+  await expect(readConfig(home)).rejects.toThrow();
 });
 
 test("does not treat a failure other than a missing file as absent settings", async () => {

@@ -153,7 +153,7 @@ test("a new request is inserted once, and a repeated add changes nothing", () =>
     repository: "example/one",
     number: 7,
     url,
-    origin: "slack",
+    origin: "manual",
     state: "queued",
   };
   const added = apply(home.paths, target, "add", () => ({ insert }));
@@ -182,7 +182,7 @@ test("an unregistered repository is refused and nothing is recorded", () => {
 });
 
 test("the payload reads the decided transition and the current request, and its rows are recorded", () => {
-  seedRequest(home.paths, { slackChannel: "C1", slackTs: "1.5" });
+  seedRequest(home.paths);
   const seen: unknown[] = [];
   const started = apply(home.paths, target, "start", (transition, current) => {
     seen.push(transition, current.request?.state);
@@ -201,7 +201,6 @@ test("the payload reads the decided transition and the current request, and its 
           detail: null,
         },
       ],
-      effects: [{ key: "k", kind: "reply", content: "hi" }],
     };
   });
   expect(seen).toEqual([{ launchState: "starting", lease: "hold" }, "queued"]);
@@ -215,10 +214,6 @@ test("the payload reads the decided transition and the current request, and its 
         operations: [{ threadId: "T", kind: "reply" }],
       },
     },
-  });
-  expect(DeviceState.readSlack(home.paths, "C1")).toMatchObject({
-    tag: "Ok",
-    value: { effects: [{ kind: "reply", content: "hi", threadTs: "1.5" }] },
   });
 });
 
@@ -404,7 +399,8 @@ test("a queued request with no rounds shows round one and no reviewer", () => {
     url,
     repository: "example/one",
     number: 7,
-    origin: "slack",
+    origin: "manual",
+    slackThread: null,
     assignment: null,
     state: "queued",
     head: null,

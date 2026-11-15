@@ -434,14 +434,14 @@ test("an unregistered or closed PR is refused without the caller's project conte
   const herdrBefore = await herdrCalls();
   const other = "https://github.com/example/two/pull/3";
   await github({ pulls: [pull(), pull({ number: 3, url: other })] });
-  for (const args of [
-    ["review", "add", other],
-    ["review", "start", other],
-  ])
-    expect(await run(args, checkout)).toMatchObject({
-      code: 3,
-      output: { reason: "review_repository_unregistered" },
-    });
+  expect(await run(["review", "add", other], checkout)).toMatchObject({
+    code: 2,
+    output: { reason: "review_author_excluded" },
+  });
+  expect(await run(["review", "start", other], checkout)).toMatchObject({
+    code: 3,
+    output: { reason: "review_repository_unregistered" },
+  });
   expect(await run(["review", "add", "https://gitlab.com/example/one/pull/7"])).toMatchObject({
     code: 2,
     output: { reason: "review_url_invalid" },

@@ -198,7 +198,11 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   const model = host === "opencode" ? "test/reasoner" : "precise-model";
   await Bun.write(
     `${root}/config/operator/config.json`,
-    JSON.stringify({ superAgent: { host, model }, workerAgent: { host, model } }),
+    JSON.stringify({
+      superAgent: { host, model },
+      workerAgent: { host, model },
+      review: { repos: ["example/one"], authors: ["author", "me"] },
+    }),
     { createPath: true },
   );
   await cp(Bun.fileURLToPath(new URL("../../../skills", import.meta.url)), `${root}/release`, {

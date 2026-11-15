@@ -89,7 +89,7 @@ function bullet(finding: Finding & { short: string }) {
     : `${label} · \`${finding.path}:${finding.line}\``;
 }
 
-/** The status words of a review, shared by the GitHub body and the Slack reply. */
+/** The status words of a posted review. */
 export function status(event: ReviewEvent, blockers: number) {
   if (event === "APPROVE") return "Approved";
   if (event === "REQUEST_CHANGES") return "Changes requested";

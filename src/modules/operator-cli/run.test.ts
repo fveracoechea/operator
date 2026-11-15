@@ -14,7 +14,6 @@ const versionOutput = z.object({
 });
 const cli = new URL("../../cli.ts", import.meta.url).pathname;
 const roots: string[] = [];
-
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -61,6 +60,11 @@ test("version reports the running release without project release selection", as
 /** Check the changed command contracts rather than duplicating the entire help catalog. */
 function expectHelp(output: string) {
   expect(output).toStartWith("Usage: operator --help | --version [--json]\n");
+  expect(output).toContain("operator review add <pr-url> [--slack-thread permalink] [--json]");
+  expect(output).toContain("operator review wait [--timeout seconds] [--all] [--json]");
+  expect(output).toEndWith("operator opencode hook\n");
+  for (const removed of ["review ingest", "review slack-done", "review slack-drop", "[--slack]"])
+    expect(output).not.toContain(removed);
   expect(output).toContain("operator question ask --key key --file path|- [--json]");
   expect(output).toContain(
     "operator question answer --source id --assignment key --key key --by super-agent|person --file path|- [--json]",
@@ -129,6 +133,10 @@ test.each(
     ["wake", "check"],
     ["unknown"],
     ["--version", "--version"],
+    ["review", "ingest", "--input", "-"],
+    ["review", "slack-done", "id", "--input", "-"],
+    ["review", "slack-drop", "id", "--person-instructed"],
+    ["review", "wait", "--slack"],
   ].map((args) => ({ args })),
 )("rejects removed or invalid command %j without writes or external effects", async ({ args }) => {
   const root = await mkdtemp(join(tmpdir(), "operator-cli-refusal-"));

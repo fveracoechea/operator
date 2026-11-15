@@ -32,7 +32,6 @@ import {
   type HeadLimit,
   type ReviewEvent,
 } from "./review-body.ts";
-import { roundEffects } from "./slack-effects.ts";
 import { decideReview, headMoveLimit } from "./review-machine.ts";
 import {
   apply,
@@ -351,7 +350,7 @@ function complete(
     paths,
     target,
     "posted",
-    (_transition, current) => ({
+    () => ({
       update: {
         failureReason: null,
         failureDetail: null,
@@ -360,8 +359,6 @@ function complete(
         resolvedThreads: JSON.stringify(resolvedAfterPost(pr, reopened)),
       },
       operations,
-      // The same write ends the round and records its Slack effects, so a crash loses neither.
-      effects: roundEffects(current.rounds, round, target.url),
     }),
     { event: round.event },
   )

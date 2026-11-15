@@ -46,13 +46,11 @@ const usage = `Usage: operator --help | --version [--json]
        operator cleanup --source id --assignment key [--person-instructed] [--json]
        operator handoff --source id --assignment key [--json]
        operator internal-review skip --source id --assignment key --person-instructed [--json]
-       operator review add | post | skip | cleanup <pr-url> [--json]
+       operator review add <pr-url> [--slack-thread permalink] [--json]
+       operator review post | skip | cleanup <pr-url> [--json]
        operator review start <pr-url> [--profile name] [--json]
        operator review next [--json]
-       operator review wait [--timeout seconds] [--slack] [--all] [--json]
-       operator review ingest --input path|- [--json]
-       operator review slack-done <effect-id> --input path|- [--json]
-       operator review slack-drop <effect-id> --person-instructed [--json]
+       operator review wait [--timeout seconds] [--all] [--json]
        operator claude hook
        operator opencode hook`;
 

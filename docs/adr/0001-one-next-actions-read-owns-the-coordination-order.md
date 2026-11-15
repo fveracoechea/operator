@@ -18,7 +18,7 @@ PR ownership and report acceptance needed one answer about what could run next.
 One read of next actions owns the coordination order.
 The same recorded state and observed facts give the same applicable actions and waits.
 The CLI reports ready assignments, idle workers with PR actions, reports awaiting acceptance, interrupted workers that need attention, failed cleanup, and ended sources.
-Review waits also report the applicable review and Slack transport actions.
+Review waits also report the applicable review actions.
 Agents invoke the named CLI operations rather than keep a separate schedule or perform the CLI's mechanical steps themselves.
 
 Herdr activity is an observation, not completion evidence.
