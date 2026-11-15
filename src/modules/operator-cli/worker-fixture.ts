@@ -8,6 +8,7 @@ import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 import { fixtureCommand, writeClaudeHookSettings, writeOpenCodePlugin } from "./command-fixture.ts";
+import { reportInput } from "./report-input-fixture.ts";
 
 const command = fixtureCommand();
 const gitEnv = {
@@ -191,6 +192,12 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     return file;
   }
 
+  async function writeText(name: string, text: string) {
+    const file = `${root}/drafts/${name}`;
+    await Bun.write(file, text, { createPath: true });
+    return file;
+  }
+
   async function herdrCalls() {
     const file = Bun.file(`${root}/herdr-calls.jsonl`);
     if (!(await file.exists())) return [];
@@ -252,6 +259,9 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     register,
     dispatch,
     writeJson,
+    writeText,
+    writeReport: (name: string, value: Parameters<typeof reportInput>[0]) =>
+      writeText(name, reportInput(value)),
     herdrCalls,
     setHerdr,
     next,

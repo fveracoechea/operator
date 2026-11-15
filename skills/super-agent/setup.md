@@ -25,7 +25,7 @@ Use `operator ready --json` to check current static prerequisites, including a p
 Resolve every returned blocker before delegated work.
 The check follows skill links and requires complete owned contents, upstream `code-review` presence, both commit hook groups on Claude Code, and the current plugin version on OpenCode.
 It launches no host or probe and writes no readiness record.
-Slack tools are not a core prerequisite on either host. Only the Slack review workflow needs them, on Claude Code.
+Slack tools are optional on either host. Use your own tools when the person asks for a Slack check or status reply.
 A ready result does not prove host loading or provider access.
 
 Every command first checks existing device-state compatibility.

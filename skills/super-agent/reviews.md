@@ -7,7 +7,7 @@ The PR repository must be a registered project.
 The CLI never reviews from your checkout instead.
 
 ```sh
-operator review add <pr-url> --json
+operator review add <pr-url> [--slack-thread permalink] --json
 operator review start <pr-url> [--profile name] --json
 operator review wait [--timeout seconds] [--all] --json
 operator review next --json
@@ -15,9 +15,16 @@ operator review skip <pr-url> --json
 operator review cleanup <pr-url> --json
 ```
 
-`add` records a manual request and needs no Slack tools.
-To watch a Slack channel for PRs, load the `slack-pr-review-workflow` skill.
-It needs Claude Code with the Slack MCP tools.
+On the person's request, sweep GitHub for review requests:
+
+```sh
+gh search prs --state=open --draft=false --review-requested=@me
+```
+
+For each eligible PR, run `review add`, then `review start`.
+`add` applies the device's `review.repos` and `review.authors` policy, using GitHub logins.
+For a Slack check, read the channel with your own tools and pass its thread permalink to `add`.
+Operator schedules no Slack reads.
 `start` creates the reviewer worktree at the PR head in the repository's Herdr workspace and starts the reviewer.
 The reviewer writes a draft and posts it with `operator review post <pr-url> --json`.
 Do not post for it.
@@ -49,6 +56,9 @@ Run it again after you act on its rows.
   `stale: true` means seven days without author activity.
   It is a flag, not a state.
   An approval cleans up the reviewer.
+  When the row has `slackThread`, reply once in that thread with one short status line and the review link.
+  Use your own tools, with no draft. Do not repeat a reply for the same posted round.
+  Operator keeps no acknowledgement or retry record.
   A renewed request after approval gives `replace_reviewer`, and the replacement gets a new worktree.
   If that cleanup kept unlanded work, the renewed request keeps the `reviewer_work_kept` attention until the person runs `operator review cleanup`.
   If that cleanup failed, a renewed request goes to the recorded reviewer while it still runs, and to a replacement otherwise.
@@ -60,7 +70,3 @@ Run it again after you act on its rows.
 
 `review skip <pr-url>` ends one PR's request on the person's instruction.
 A skip never names an author.
-
-A skip or a close keeps the request's pending Slack effects.
-`operator review slack-drop <effect-id> --person-instructed --json` drops one pending effect unsent, only on the person's instruction.
-The `slack-pr-review-workflow` skill names its refusals.

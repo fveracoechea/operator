@@ -39,7 +39,7 @@ function listing(directory: string) {
 async function submitted(keys?: string[]) {
   const sourceId = await device.source(keys);
   const launch = await device.launch(sourceId);
-  const file = await device.writeJson("report.json", draft);
+  const file = await device.writeReport("report.md", draft);
   const pane = device.inPane(workerPane);
   okValue(await ReportAssignments.submit({ paths: device.paths, file }));
   pane.mockRestore();
@@ -86,7 +86,7 @@ test("a worker submits a numbered report with copied supporting files", async ()
   const log = `${device.root}/drafts/run.log`;
   await Bun.write(notes, "first notes\n");
   await Bun.write(log, "log\n");
-  const file = await device.writeJson("report.json", { ...draft, files: [notes, log] });
+  const file = await device.writeReport("report.md", { ...draft, files: [notes, log] });
   const { reports, directory } = device.assignmentFiles(sourceId);
   // A destination that a stopped publish left behind is replaced.
   await Bun.write(`${reports}/1/stale.md`, "stale\n");
@@ -157,7 +157,7 @@ A SuperAgent decision is not a human answer.
       conclusion: draft.conclusion,
       evidence: draft.evidence,
       unresolved: draft.unresolved,
-      decisions: draft.decisions,
+      decisions: draft.decisions.toReversed(),
       files: [`${reports}/1/files/notes.md`, `${reports}/1/files/run.log`],
       decision: null,
       decidedAt: null,
@@ -195,7 +195,7 @@ test("submission needs the worker's own Herdr pane and reads no file without it"
     });
     mock.restore();
   }
-  const file = await device.writeJson("report.json", draft);
+  const file = await device.writeReport("report.md", draft);
   for (const [pane, server] of [
     ["w1:p9", socket],
     [workerPane, "/elsewhere.sock"],
@@ -217,14 +217,23 @@ test("invalid or unreadable submissions are refusals that change nothing", async
   device.inPane(workerPane);
   const broken = `${device.root}/drafts/broken.json`;
   await Bun.write(broken, "{broken");
-  const invalid = await device.writeJson("invalid.json", { ...draft, evidence: [] });
+  const invalid = await device.writeReport("invalid.md", { ...draft, evidence: [] });
   const folder = `${device.root}/drafts/folder`;
   await mkdir(folder, { recursive: true });
-  const withFolder = await device.writeJson("folder.json", { ...draft, files: [folder] });
+  const withFolder = await device.writeReport("folder.md", { ...draft, files: [folder] });
 
   for (const file of [broken, invalid]) {
     const result = await ReportAssignments.submit({ paths: device.paths, file });
-    expect(result).toMatchObject({ tag: "Err", error: { reason: "invalid_report_input" } });
+    expect(result).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "invalid_report_input",
+        next: {
+          command: "operator report submit --file <path|->",
+          why: "Correct the report headings and content, then submit it again.",
+        },
+      },
+    });
     expect(result.tag === "Err" && result.error.detail.endsWith(" Nothing changed.")).toBe(true);
   }
   const missing = await ReportAssignments.submit({
@@ -248,7 +257,7 @@ test("invalid or unreadable submissions are refusals that change nothing", async
 test("a decision that changes before the write publishes no report", async () => {
   const sourceId = await device.source();
   await device.launch(sourceId);
-  const file = await device.writeJson("report.json", draft);
+  const file = await device.writeReport("report.md", draft);
   const { reports, directory } = device.assignmentFiles(sourceId);
   const original = DeviceState.readReport;
   // The first read sees a returned report 4, so it decides report 5, and the write decides 1.
@@ -358,7 +367,7 @@ test("a returned report resumes the live worker with its follow-up", async () =>
   });
 
   // The resumed worker submits report 2.
-  const file = await device.writeJson("second.json", draft);
+  const file = await device.writeReport("second.md", draft);
   expect(okValue(await ReportAssignments.submit({ paths: device.paths, file }))).toMatchObject({
     data: { report: 2, file: `${device.assignmentFiles(sourceId).reports}/2/report.md` },
   });
@@ -577,7 +586,7 @@ test("acceptance cleans the worker worktree from the controlling checkout", asyn
     worktreePath: worktree,
     branch: "task/read",
   });
-  const file = await device.writeJson("report.json", draft);
+  const file = await device.writeReport("report.md", draft);
   device.inPane(workerPane);
   okValue(await ReportAssignments.submit({ paths: device.paths, file }));
   mock.restore();
@@ -601,7 +610,7 @@ test("acceptance cleans the worker worktree from the controlling checkout", asyn
 test("a worktree cleanup defect fails the cleanup", async () => {
   const sourceId = await device.source();
   const launch = await device.launch(sourceId, "read", { worktreePath: "/gone" });
-  const file = await device.writeJson("report.json", draft);
+  const file = await device.writeReport("report.md", draft);
   device.inPane(workerPane);
   okValue(await ReportAssignments.submit({ paths: device.paths, file }));
   mock.restore();
@@ -664,7 +673,7 @@ test("acceptance reports the accepted report of its own assignment", async () =>
   // The other assignment's report is listed after the accepted one.
   const { sourceId } = await submitted(["read", "zeta"]);
   await device.launch(sourceId, "zeta", { paneId: "w1:p2" });
-  const file = await device.writeJson("later.json", { ...draft, conclusion: "Later." });
+  const file = await device.writeReport("later.md", { ...draft, conclusion: "Later." });
   device.inPane("w1:p2");
   okValue(await ReportAssignments.submit({ paths: device.paths, file }));
   mock.restore();
@@ -770,7 +779,7 @@ test("a file system failure during resume or acceptance is a refusal", async () 
   });
   read.mockRestore();
   okValue(await ReportAssignments.resume({ paths: device.paths }));
-  const file = await device.writeJson("second.json", draft);
+  const file = await device.writeReport("second.md", draft);
   okValue(await ReportAssignments.submit({ paths: device.paths, file }));
   mock.restore();
   device.inPane(superPane);

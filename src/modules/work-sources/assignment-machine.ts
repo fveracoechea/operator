@@ -34,6 +34,8 @@ type Facts = {
   reviewing?: boolean;
   /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
   capReached?: boolean;
+  /** Kind eligibility for a plain start, not a replacement or internal review handoff. */
+  dispatchable?: boolean;
 };
 type Decision = {
   action:
@@ -50,6 +52,7 @@ type Decision = {
     | "ended";
   reason:
     | "assignment_ready"
+    | "kind_not_dispatchable"
     | "pr_feedback_loop"
     | "pr_wait_timed_out"
     | "pr_wait_stopped"
@@ -273,6 +276,10 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: ({ assignment }) => assignment.state !== "ready",
     decide: () => ({ action: "wait", reason: "assignment_active", blockers: [] }),
+  },
+  {
+    when: ({ dispatchable }) => dispatchable === false,
+    decide: () => ({ action: "owner_attention", reason: "kind_not_dispatchable", blockers: [] }),
   },
   {
     when: ({ assignment, dependencies }) => dependencyBlockers(assignment, dependencies).length > 0,

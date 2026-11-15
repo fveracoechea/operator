@@ -86,7 +86,7 @@ test.each([
   {
     name: "old-name retirement",
     file: "owned-skills/install.ts",
-    before: 'const retired = ["operator", "operative"];',
+    before: 'const retired = ["operator", "operative", "slack-pr-review-workflow"];',
     after: "const retired: string[] = [];",
     testFile: "operator-cli/run.skills.test.ts",
     pattern: "removes unchanged old-name managed roles",

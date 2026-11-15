@@ -29,7 +29,7 @@ function plan(profile: string | undefined) {
       key,
       trackerKey: `github:example/one#${number}`,
       instructions: `Implement ${key}. ${authority}`,
-      completion: "pr",
+      kind: "implementation",
       resources: "worktree",
       branch: `task/${number}-${key}`,
       dependencies: ["research"],
@@ -40,7 +40,7 @@ function plan(profile: string | undefined) {
       key: "research",
       trackerKey: "github:example/one#31",
       instructions: `Read the module and report the approach. ${authority}`,
-      completion: "report",
+      kind: "research",
       resources: "pane",
       dependencies: [],
     },
@@ -213,7 +213,7 @@ async function supervise(
           interrupt = undefined;
           await d.exec(["herdr", "pane", "exit", worker.paneId, "w1"], d.main);
         } else if (worker.worktreePath === null) {
-          const file = await d.writeJson(`${key}.json`, report);
+          const file = await d.writeReport(`${key}.md`, report);
           const submitted = await cli(["report", "submit", "--file", file], {
             pane: worker.paneId,
           });
