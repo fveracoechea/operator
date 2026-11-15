@@ -13,6 +13,7 @@ test("a stored launch decodes its complete resolved kind independently of the pl
     nextKind: null,
     readsNote: false,
     guide: "/owned/worker-agent/kinds/answer.md",
+    skillsToRead: [],
     dispatchable: true,
     workPhases: [{ name: "investigate", goal: "Answer the assigned question." }],
   } satisfies ReturnType<typeof WorkerKinds.resolve>;
