@@ -126,6 +126,35 @@ test("sandbox tests preserve the actual source readiness command in a private co
     .update(sourceText.replace("// @ts-nocheck\n", ""))
     .digest("hex");
   expect(await Bun.file(copied).text()).toBe(sourceText);
+  // Exercise the real outer annotation before the nested Stryker run copies this command again.
+  const { disableTypeChecks } = await import("@stryker-mutator/instrumenter");
+  const shebang = "#!/usr/bin/env bun\n";
+  const annotatedShebang = `${shebang}// @ts-nocheck\n`;
+  const canonicalSource = sourceText.startsWith(annotatedShebang)
+    ? shebang + sourceText.slice(annotatedShebang.length)
+    : sourceText;
+  const annotated = await disableTypeChecks(
+    { name: copied, content: canonicalSource, mutate: false },
+    { plugins: null },
+  );
+  expect(annotated.content).toBe(annotatedShebang + canonicalSource.slice(shebang.length));
+  const nested = await disableTypeChecks(annotated, { plugins: null });
+  expect(nested.content.replace("// @ts-nocheck\n", "")).toBe(
+    shebang + "// \n" + canonicalSource.slice(shebang.length),
+  );
+  const restored = shebang + annotated.content.slice(annotatedShebang.length);
+  expect(restored).toBe(canonicalSource);
+  expect(new Bun.CryptoHasher("sha256").update(restored).digest("hex")).toBe(identity);
+  console.error(
+    JSON.stringify({
+      phase: "outer-annotation-normalization",
+      annotatedHash: new Bun.CryptoHasher("sha256").update(annotated.content).digest("hex"),
+      nestedHash: new Bun.CryptoHasher("sha256").update(nested.content).digest("hex"),
+      restoredHash: identity,
+      removed: "// @ts-nocheck\n",
+    }),
+  );
+  await Bun.write(copied, restored);
   console.error(
     JSON.stringify({
       phase: "original-private-copy",
