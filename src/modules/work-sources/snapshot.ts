@@ -389,10 +389,7 @@ function promotionsValid(
 ) {
   return promotions.every(
     (promotion) =>
-      source.assignments.some(
-        (row) =>
-          row.key === promotion.report && row.completion === "report" && row.state === "completed",
-      ) &&
+      source.assignments.some((row) => row.key === promotion.report && row.state === "completed") &&
       source.reports.some(
         (report) =>
           report.assignment === promotion.report &&
