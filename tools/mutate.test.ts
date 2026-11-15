@@ -91,6 +91,29 @@ test("the repository's public script invokes the mutation CLI", async () => {
   expect(stdout).toStartWith("Usage: bun run mutate");
 });
 
+test("a mutant's first test failure stops before the next test's effects", async () => {
+  const cwd = await fixture({
+    "count.ts": "export function count(n: number) { return n + 1; }\n",
+  });
+  const receipt = path.join(cwd, "second-test-receipt.txt");
+  await Bun.write(receipt, "");
+  await Bun.write(
+    path.join(cwd, "count.test.ts"),
+    `import { expect, test } from "bun:test";
+import { count } from "./count.ts";
+test("the count is correct", () => expect(count(1)).toBe(2));
+test("the next test records its effect", async () => {
+  const receipt = ${JSON.stringify(receipt)};
+  await Bun.write(receipt, (await Bun.file(receipt).text()) + "reached\\n");
+});
+`,
+  );
+  const result = await mutate(cwd, ["count.ts"]);
+  expect(result.code, result.stdout + result.stderr).toBe(0);
+  expect(result.stdout).toContain("0 survivors, 0 untested, 0 incomplete");
+  expect(await Bun.file(receipt).text()).toBe("reached\n");
+});
+
 test("sandbox tests preserve the actual source readiness command in a private copy", async () => {
   const cwd = await fixture({});
   const repository = path.resolve(import.meta.dir, "..");
