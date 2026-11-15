@@ -15,8 +15,15 @@ afterEach(async () => {
 test("invalid obligation inputs expose their recovery without creating state", async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-obligation-input-"));
   const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
-  const input = { paths, cwd: root, sourceId: "unchecked", file: `${root}/input.json` };
-  for (const text of ["{broken", "{}"]) {
+  const input = {
+    paths,
+    cwd: root,
+    sourceId: "unchecked",
+    file: `${root}/input.json`,
+    key: "rule",
+    kind: "standing-rule",
+  };
+  for (const text of ["", "{}"]) {
     await Bun.write(input.file, text);
     const result = await Obligations.add(input);
     expect(result).toMatchObject({
@@ -24,8 +31,9 @@ test("invalid obligation inputs expose their recovery without creating state", a
       error: {
         reason: "invalid_obligation_input",
         next: {
-          decider: "super-agent",
-          question: "What corrected obligation input should be supplied in --file?",
+          command:
+            "operator obligation add --source <id> --key <key> --kind <kind> --file <path|->",
+          why: "Correct the obligation flags or summary and try again.",
         },
         state: { inputValid: false },
       },

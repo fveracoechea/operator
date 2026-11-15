@@ -36,7 +36,9 @@ test("unsupported readiness flags refuse before any observation", async () => {
 });
 
 test("reports a ready device as compact JSON or as indented text", async () => {
-  const check = spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers: [] }) as never);
+  const check = spyOn(Readiness, "check").mockReturnValue(
+    OkAsync({ blockers: [], warnings: [] }) as never,
+  );
   const { log } = quiet();
   const expected = {
     schemaVersion: 1,
@@ -44,6 +46,7 @@ test("reports a ready device as compact JSON or as indented text", async () => {
     outcome: "completed",
     reason: "ready",
     blockers: [],
+    warnings: [],
     data: { staticOnly: true },
   };
   process.exitCode = 7;
@@ -57,7 +60,7 @@ test("reports a ready device as compact JSON or as indented text", async () => {
 
 test("reports readiness blockers with exit code 3", async () => {
   const blockers = [{ reason: "executable_missing", tool: "herdr", detail: "missing" }];
-  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers }) as never);
+  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers, warnings: [] }) as never);
   const { log } = quiet();
   expect(await runReadiness(["ready"], paths, true)).toBe(true);
   expect(log).toHaveBeenLastCalledWith(
@@ -67,6 +70,7 @@ test("reports readiness blockers with exit code 3", async () => {
       outcome: "blocked",
       reason: "not_ready",
       blockers,
+      warnings: [],
       data: { staticOnly: true },
     }),
   );

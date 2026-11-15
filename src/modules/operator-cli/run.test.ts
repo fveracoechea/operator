@@ -74,6 +74,11 @@ function expectHelp(output: string) {
   );
   expect(output).toContain("operator message ack --key key [--file path|-] [--json]");
   expect(output).toContain("operator report submit --file path|- [--json]");
+  expect(output).toContain("operator pr round --file path|- [--json]");
+  expect(output).toContain("operator pr ready --file path|- [--json]");
+  expect(output).toContain(
+    "operator obligation add --source id --key key --kind kind [--reference ref] --file path|- [--json]",
+  );
   expect(output).not.toContain("--text");
 }
 

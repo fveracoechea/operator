@@ -20,6 +20,13 @@ beforeAll(async () => {
     "tsconfig.json",
   ])
     await cp(`${source}/${file}`, `${root}/${file}`, { recursive: true });
+  // The private typecheck probe must check these files even when Stryker annotated its inputs.
+  for (const name of ["main.ts", "main.test.ts"]) {
+    const file = `${root}/src/modules/readiness/${name}`;
+    const text = await Bun.file(file).text();
+    const directive = "// @ts-nocheck\n";
+    if (text.startsWith(directive)) await Bun.write(file, text.slice(directive.length));
+  }
   await symlink(`${source}/node_modules`, `${root}/node_modules`);
 });
 afterAll(async () => {
@@ -134,10 +141,18 @@ test.each([
   {
     name: "required upstream presence",
     file: "upstream-skills/main.ts",
-    before: 'const required = ["code-review"];',
-    after: "const required: string[] = [];",
+    before: "if (await readableSkill(file, optional)) continue;",
+    after: "continue;",
     testFile: "operator-cli/run.readiness.test.ts",
-    pattern: "reports failed authentication",
+    pattern: "ready blocks on a guide",
+  },
+  {
+    name: "optional show-me link warning",
+    file: "upstream-skills/main.ts",
+    before: 'const optional = name === "show-me" && link !== null;',
+    after: "const optional = false;",
+    testFile: "operator-cli/run.readiness.test.ts",
+    pattern: "ready blocks on a guide",
   },
   {
     name: "no host launch",

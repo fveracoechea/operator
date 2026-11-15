@@ -5,6 +5,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerTestDevice } from "../../../tools/device-fixture.ts";
+import { UpstreamSkills } from "../upstream-skills/main.ts";
+import { OperatorHome } from "../operator-home/main.ts";
+import { writeGuideSkills } from "./command-fixture.ts";
 
 const repository = new URL("../../../", import.meta.url).pathname;
 const cli = path.join(repository, "src/cli.ts");
@@ -150,6 +153,28 @@ test("documented command examples name only implemented commands", async () => {
   expect(
     await scan(["*.md", "docs/**/*.md", "skills/**/*.md", "agents/**/*.md"], markdownMentions),
   ).toEqual([]);
+});
+
+test("every skill named by a bundled kind guide resolves in the host fixture", async () => {
+  const paths = OperatorHome.resolve(
+    Environment.parse({ HOME: `${root}/guides`, NODE_ENV: "test" }),
+  );
+  await writeGuideSkills(paths.upstreamSkills.opencode);
+  await Bun.write(`${paths.upstreamSkills.opencode}/code-review/SKILL.md`, "# Fixture review\n", {
+    createPath: true,
+  });
+  await Bun.write(`${paths.skillHosts.opencode}/no-slop/SKILL.md`, "# Fixture no-slop\n", {
+    createPath: true,
+  });
+  await Bun.write(
+    `${paths.skillHosts.opencode}/show-me/SKILL.md`,
+    "# Fixture visual explanation\n",
+    { createPath: true },
+  );
+  expect(await UpstreamSkills.checkGuides(paths, "opencode")).toMatchObject({
+    tag: "Ok",
+    value: { blockers: [], warnings: [] },
+  });
 });
 
 test("next actions, refusals, and briefs name only implemented commands", async () => {

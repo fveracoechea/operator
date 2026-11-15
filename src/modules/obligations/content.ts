@@ -16,7 +16,7 @@ export const kinds = [
 /** An obligation is open until the SuperAgent closes it. */
 export const states = ["open", "closed"] as const;
 
-/** The SuperAgent's file. The key names the obligation within its source, so a retry cannot add it twice. */
+/** The flags and summary text. A key names one obligation within its source, so a retry cannot add it twice. */
 export const obligationSchema = z.strictObject({
   key: z
     .string()
