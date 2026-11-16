@@ -81,3 +81,27 @@ test("recovery treats a double-hyphen prefix as a flag, not a provenance value",
   expect(recoveryArgs(flags.with(1, "--unexpected"))).toBeNull();
   expect(recoveryArgs(flags.with(1, "source--"))).toMatchObject({ sourceId: "source--" });
 });
+
+test.each([
+  "",
+  "A".repeat(40),
+  "a".repeat(39),
+  "a".repeat(41),
+  "g".repeat(40),
+  ` ${"a".repeat(40)}`,
+])("recovery rejects the invalid authorized head %j", (head) => {
+  expect(recoveryArgs(flags.with(9, head))).toBeNull();
+});
+
+test("recovery preserves every character of an authorized hexadecimal head", () => {
+  const head = "0123456789abcdef0123456789abcdef01234567";
+  expect(recoveryArgs(flags.with(9, head))).toEqual({
+    operation: "internal_review_recover",
+    sourceId: "s",
+    assignment: "a",
+    launchId: "l",
+    number: 415,
+    head,
+    personInstructed: false,
+  });
+});

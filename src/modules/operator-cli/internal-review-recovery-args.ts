@@ -26,10 +26,9 @@ export function recoveryArgs(flags: string[]) {
     sourceId === undefined ||
     assignment === undefined ||
     launchId === undefined ||
-    head === undefined ||
     !Number.isSafeInteger(number) ||
     number < 1 ||
-    !/^[a-f0-9]{40}$/.test(head)
+    !head?.match(/^[a-f0-9]{40}$/)
   )
     return null;
   return {

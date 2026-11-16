@@ -37,12 +37,13 @@ function incompatible(detail: string) {
 }
 
 function retained(source: Source | undefined, input: Input) {
-  const planned = source?.planned.find((row) => row.key === input.assignment);
-  const launch = source?.launches.find((row) => row.id === input.launchId);
-  const pr = source?.pullRequests.find((row) => row.assignment === input.assignment);
+  const detail =
+    "The supplied assignment, launch, and PR do not identify one retained promoted draft. Nothing changed.";
+  if (source === undefined) return incompatible(detail);
+  const planned = source.planned.find((row) => row.key === input.assignment);
+  const launch = source.launches.find((row) => row.id === input.launchId);
+  const pr = source.pullRequests.find((row) => row.assignment === input.assignment);
   if (
-    // Stryker disable next-line ConditionalExpression: equivalent: an undefined source also makes planned undefined, so planned?.completion !== "pr" refuses it; retain this check to narrow source in the successful result
-    source === undefined ||
     planned?.completion !== "pr" ||
     launch?.worktreePath === undefined ||
     launch.worktreePath === null ||
@@ -50,9 +51,7 @@ function retained(source: Source | undefined, input: Input) {
     pr.number !== input.number ||
     launch.branch !== pr.branch
   )
-    return incompatible(
-      "The supplied assignment, launch, and PR do not identify one retained promoted draft. Nothing changed.",
-    );
+    return incompatible(detail);
   return Ok({ source, planned, launch: { ...launch, worktreePath: launch.worktreePath }, pr });
 }
 
