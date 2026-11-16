@@ -1,6 +1,5 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import { OperatorHome } from "../operator-home/main.ts";
-import { DeviceState } from "../device-state/main.ts";
 import { dispatchDevice, git, removeDevices } from "./dispatch-fixture.ts";
 import { WorkerDispatch } from "./main.ts";
 
@@ -9,50 +8,6 @@ afterEach(() => {
   setSystemTime();
 });
 afterAll(removeDevices);
-
-test.each(["stacked", "blocked", "relayed"] as const)(
-  "a replacement derives its base from the associated PR's %s relay",
-  async (state) => {
-    await using device = await dispatchDevice();
-    expect(await WorkerDispatch.dispatch(device.request("parent"))).toMatchObject({ tag: "Ok" });
-    const [parent] = await device.launches("parent");
-    device.associate(parent?.id ?? "", 5, "task/parent");
-    const parentTree = parent?.worktreePath ?? "";
-    git(parentTree, "push", "-q", "-u", "local", "task/parent");
-    expect(await WorkerDispatch.dispatch(device.request("child"))).toMatchObject({ tag: "Ok" });
-    const [child] = await device.launches("child");
-    expect(
-      DeviceState.associatePullRequest(device.paths, child?.id ?? "", {
-        number: 6,
-        url: "https://github.com/example/one/pull/6",
-        branch: "task/child",
-        relay: JSON.stringify({
-          parent: { assignment: "parent", number: 5, branch: "task/parent" },
-          state,
-          blocker:
-            state === "blocked"
-              ? { reason: "relay_conflict", detail: "Resolve the conflict." }
-              : null,
-        }),
-      }),
-    ).toMatchObject({ tag: "Ok" });
-    // A relay can finish before the parent's owner records its already observed merge.
-    if (state !== "relayed") device.merged(parent?.id ?? "", 5);
-    device.exited(child?.paneId ?? "");
-    device.reopening();
-    const result = await WorkerDispatch.dispatch(device.request("child"));
-    expect(result).toMatchObject({ tag: "Ok" });
-    const brief = await Bun.file(
-      OperatorHome.assignmentFiles(device.paths, {
-        repository: "example/one",
-        sourceId: device.sourceId,
-        assignment: "child",
-      }).brief,
-    ).text();
-    expect(brief).toContain(state === "relayed" ? "Base: `default branch`" : "Base: `task/parent`");
-    expect(brief.includes("## Stack")).toBe(state !== "relayed");
-  },
-);
 
 test("a PR child starts at its one open parent's pushed head and targets its branch", async () => {
   await using device = await dispatchDevice();

@@ -302,6 +302,19 @@ test("a child starts on the open parent's branch and is relayed onto main after 
     pullRequest: { stack: { state: "relayed" } },
   });
 
+  // Relay completion precedes the parent's own merge reconciliation.
+  const shown = await (device as Device).run(["source", "show", "--source", source]);
+  expect(shown.output).toMatchObject({
+    data: {
+      assignments: expect.arrayContaining([
+        expect.objectContaining({ key: "parent", state: "pr-open" }),
+      ]),
+    },
+  });
+  const replacement = await replaceChild(source, child.paneId);
+  expect(replacement.brief).toContain("Base: `default branch`");
+  expect(replacement.brief).not.toContain("## Stack");
+
   // A repeated wait does not relay again. With the default branch as base, the PR is eligible.
   const again = await wait(child.worktree);
   expect(data(again.output)).toMatchObject({
