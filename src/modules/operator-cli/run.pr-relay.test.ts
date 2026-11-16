@@ -144,7 +144,7 @@ async function openChild(source: string, content = "child\n") {
   });
   const associated = await (device as Device).run(["pr", "associate"], { cwd: worktree });
   expect(associated.code, associated.stderr).toBe(0);
-  return { worktree, brief: owner.brief };
+  return { worktree, brief: owner.brief, paneId: owner.paneId };
 }
 
 /** GitHub squash-merges the parent into main, deletes its branch, and main moves on. */
@@ -161,14 +161,70 @@ async function mergeParent(
   await git(clone, "add", ".");
   await git(clone, "commit", "-q", "-m", "later");
   await git(clone, "push", "-q", "origin", "main", ":task/21-parent");
+  const mergeCommit = await git(clone, "rev-parse", "HEAD~1");
   await github((state) => {
     const parent = state.pulls.find((row) => row.number === 6);
-    if (parent !== undefined) Object.assign(parent, { state: "MERGED", head: parentHead });
+    if (parent !== undefined)
+      Object.assign(parent, { state: "MERGED", head: parentHead, mergeCommit });
   });
 }
 
 function wait(cwd: string) {
   return (device as Device).run(["pr", "wait", "--timeout", "0"], { cwd });
+}
+
+async function replaceChild(source: string, paneId: string) {
+  const current = device as Device;
+  expect((await current.exec(["herdr", "pane", "exit", paneId, "w1"], current.main)).code).toBe(0);
+  const replacement = await current.dispatch(source, "child");
+  return { paneId: replacement.paneId, brief: await Bun.file(replacement.brief).text() };
+}
+
+for (const conflict of [false, true]) {
+  test(`a replacement preserves the recorded ${conflict ? "blocked" : "pending"} relay base until retargeting succeeds`, async () => {
+    const { remote, source } = await stackedDevice();
+    const parent = await openParent(source);
+    const child = await openChild(source, conflict ? "child edit\n" : "child\n");
+    await mergeParent(
+      remote,
+      parent.head,
+      conflict ? { file: "shared.txt", text: "main edit\n" } : undefined,
+    );
+    const merged = await (device as Device).run(["pr", "merge"], { cwd: parent.worktree });
+    expect(merged.code, merged.stderr).toBe(0);
+    expect(merged.output).toMatchObject({ reason: "pr_merged", data: { state: "merged" } });
+    if (conflict)
+      expect((await wait(child.worktree)).output).toMatchObject({ reason: "relay_conflict" });
+    const replacement = await replaceChild(source, child.paneId);
+    expect(replacement.brief).toContain("Base: `task/21-parent`");
+    expect(replacement.brief).toContain(
+      "## Stack\n\nParent: `parent`, PR #6, branch `task/21-parent`.",
+    );
+    expect(await pull(8)).toMatchObject({ baseRefName: "task/21-parent" });
+    expect(await baseChanges()).toBe(0);
+    if (conflict) {
+      await git(child.worktree, "fetch", "-q", "origin", "main");
+      await git(
+        child.worktree,
+        "rebase",
+        "-q",
+        "-X",
+        "theirs",
+        "--onto",
+        "FETCH_HEAD",
+        parent.head,
+      );
+      await git(child.worktree, "push", "-q", "--force", "origin", "HEAD:task/22-child");
+    }
+    expect((await wait(child.worktree)).output).toMatchObject({
+      reason: "pr_events_observed",
+      data: { events: [{ kind: "parent_relayed" }] },
+    });
+    const relayed = await replaceChild(source, replacement.paneId);
+    expect(relayed.brief).toContain("Base: `default branch`");
+    expect(relayed.brief).not.toContain("## Stack");
+    expect(await pull(8)).toMatchObject({ baseRefName: "main" });
+  });
 }
 
 async function stack(assignment: string) {
