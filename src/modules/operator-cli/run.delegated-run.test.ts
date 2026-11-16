@@ -151,7 +151,14 @@ async function workPullRequest(key: string, worktree: string, options: { leaveNo
   });
   const eligible = resultSchema.parse((await run(["pr", "wait", "--timeout", "0"])).output);
   expect(eligible.data?.events).toContainEqual(expect.objectContaining({ kind: "merge_eligible" }));
-  if (options.leaveNotes) await Bun.write(`${worktree}/notes.txt`, "unlanded\n");
+  if (options.leaveNotes) {
+    await Bun.write(`${worktree}/notes.txt`, "unlanded\n");
+    // Only reconciliation of an external merge reaches cleanup with dirty local work.
+    await github((state) => {
+      const pull = state.pulls.find((row) => row.number === number) as Pull;
+      Object.assign(pull, { state: "MERGED", mergeCommit: `merge-${fixed}` });
+    });
+  }
   expect(await run(["pr", "merge"])).toMatchObject({ code: 0, output: { reason: "pr_merged" } });
 }
 
@@ -344,5 +351,6 @@ test("unlanded work is the one human stop, and the run resumes at the recorded c
   const merges = (await Bun.file(`${device.root}/gh-calls.jsonl`).text())
     .split("\n")
     .filter((line) => line.includes('"PUT"'));
-  expect(merges).toHaveLength(2);
+  // One PR merged externally before reconciliation, so only the other needed a merge request.
+  expect(merges).toHaveLength(1);
 }, 120000);

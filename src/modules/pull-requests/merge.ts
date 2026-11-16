@@ -1,5 +1,7 @@
 import { ErrAsync, fromPromise, type AsyncResult } from "unthrown";
+import type { Refusal } from "../../lib/cli-result.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { Environment } from "../environment/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import {
@@ -16,12 +18,12 @@ import {
 } from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
-import { owned, reviewEnded } from "./internal-review.ts";
-import type { Refusal } from "../../lib/cli-result.ts";
+import { owned, reviewEnded, worktreeFacts } from "./internal-review.ts";
 
-type Request = { paths: Paths; cwd: string };
+type Request = { paths: Paths; cwd: string; sourceId?: string; assignment?: string };
 type Failure = Refusal;
 type Outcome = { reason: string; data: object };
+type Delivery = Extract<ReturnType<typeof DeviceState.claimDelivery>, { tag: "Ok" }>["value"];
 
 // A built release runs `cli.js`, and a source install runs `cli.ts`.
 const packageRoot = new URL("../../", import.meta.url);
@@ -32,16 +34,6 @@ async function entryPoint() {
   return (await Bun.file(built).exists())
     ? built
     : Bun.fileURLToPath(new URL("cli.ts", packageRoot));
-}
-
-async function localHead(worktree: string) {
-  const result = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", worktree, "rev-parse", "--verify", "HEAD"],
-    timeoutMs: 10000,
-  });
-  // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code, so the exit code check alone returns null
-  return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
 /**
@@ -136,6 +128,54 @@ function guarded(
   number: number,
   observed: Observation,
   local: string | null,
+  changed: boolean,
+): AsyncResult<Outcome, Failure> {
+  return DeviceState.readDelivery(input.paths, owner.launchId)
+    .toAsync()
+    .flatMap((outstanding) => {
+      if (outstanding === null) return eligible(input, owner, number, observed, local, changed);
+      return claimed(
+        input,
+        owner,
+        outstanding.head,
+        true,
+        (delivery) => {
+          if (observed.state === "MERGED") return verify(input, owner, number, delivery.head, null);
+          if (delivery.requestUuid === null)
+            return ErrAsync<Failure>({
+              reason: "pr_delivery_running",
+              detail:
+                "The earlier delivery has an unknown outcome and no request identity. An OPEN PR does not prove it stopped. No new merge was requested.",
+              next: {
+                decider: "super-agent",
+                question:
+                  "How can the earlier delivery's terminal outcome be established without submitting another merge?",
+              },
+            });
+          const uuid = delivery.requestUuid;
+          return fromPromise(async () => {
+            const refused = await requestMerge(
+              input,
+              { ...owner, launchId: delivery.launchId },
+              number,
+              { head: delivery.head, method: observed.mergeMethod },
+              uuid,
+            );
+            return await verify(input, owner, number, delivery.head, refused);
+          }, qualify).flatMap((answer) => answer);
+        },
+        outstanding.id,
+      );
+    });
+}
+
+function eligible(
+  input: Request,
+  owner: Owner,
+  number: number,
+  observed: Observation,
+  local: string | null,
+  changed: boolean,
 ) {
   const relay = owner.relay === null ? null : relaySchema.parse(JSON.parse(owner.relay));
   const decision = decideMerge({
@@ -145,12 +185,80 @@ function guarded(
     reviewEnded: reviewEnded(owner),
   });
   if (decision.result === "refused") return ErrAsync<Failure>(decision);
-  if (decision.result === "verify") return verify(input, owner, number, null, null);
-  // A refused or lost answer can follow a merge that landed, so every answer is verified.
-  return fromPromise(async () => {
-    const refused = await requestMerge(owner.repository, number, decision);
-    return await verify(input, owner, number, decision.head, refused);
-  }, qualify).flatMap((result) => result);
+  if (decision.result === "verify")
+    return claimed(input, owner, observed.head, true, () =>
+      verify(input, owner, number, observed.head, null),
+    );
+  if (changed)
+    return ErrAsync<Failure>({
+      reason: "pr_worktree_unclean",
+      detail:
+        "Commit and push changed and untracked work before delivery. Nothing was merged or removed.",
+      next: {
+        command: "operator pr wait --json",
+        why: "The owner must commit and push its changes before delivery.",
+      },
+    });
+  return claimed(input, owner, decision.head, false, () =>
+    worktreeFacts(owner.worktreePath).flatMap((facts) => {
+      if (facts.changed || facts.localHead !== decision.head) {
+        const released = DeviceState.finishDelivery(input.paths, owner.launchId, decision.head);
+        if (released.tag !== "Ok")
+          return ErrAsync<Failure>({
+            reason: "pr_defect",
+            detail: "Could not settle the prewrite refusal.",
+            next: {
+              decider: "super-agent",
+              question:
+                "How should the outstanding prewrite claim be reconciled after its state write failed?",
+            },
+          });
+        return ErrAsync<Failure>({
+          reason: "pr_worktree_unclean",
+          detail:
+            "The worktree changed during delivery. Reconcile it before retrying. Nothing was merged or removed.",
+          next: {
+            decider: "super-agent",
+            question: "How should the owner reconcile the worktree that changed during delivery?",
+          },
+        });
+      }
+      return fromPromise(async () => {
+        const refused = await requestMerge(input, owner, number, decision);
+        return await verify(input, owner, number, decision.head, refused);
+      }, qualify).flatMap((answer) => answer);
+    }),
+  );
+}
+
+function claimed(
+  input: Request,
+  owner: Owner,
+  head: string,
+  reconcile: boolean,
+  action: (delivery: Delivery) => AsyncResult<Outcome, Failure>,
+  resumeId?: string,
+) {
+  return DeviceState.claimDelivery(input.paths, {
+    launchId: owner.launchId,
+    head,
+    session: Environment.caller().session,
+    selected: input.sourceId !== undefined,
+    reconcile,
+    resumeId,
+  })
+    .toAsync()
+    .flatMap((delivery) =>
+      fromPromise(async () => {
+        const stop = DeviceState.holdDelivery(input.paths, delivery.launchId);
+        try {
+          return await action(delivery);
+        } finally {
+          stop();
+          DeviceState.suspendDelivery(input.paths, delivery.launchId);
+        }
+      }, qualify).flatMap((result) => result),
+    );
 }
 
 type Answer = Awaited<ReturnType<typeof mergePullRequest>>;
@@ -193,18 +301,80 @@ function refusal(answer: Exclude<Answer, { tag: "Ok" }>, read: boolean): Failure
  * report when GitHub does not show the merge, or null when the request reports it merged.
  */
 async function requestMerge(
-  repository: string,
+  input: Request,
+  owner: Owner,
   number: number,
   merge: { head: string; method: Observation["mergeMethod"] },
+  uuid?: string,
 ): Promise<Failure | null> {
-  let answer: Answer = await mergePullRequest(repository, { number, ...merge });
+  const repository = owner.repository;
+  let answer: Answer =
+    uuid === undefined
+      ? await mergePullRequest(repository, { number, ...merge })
+      : await readMergeRequest(repository, number, uuid);
   for (let reads = 0; ; reads += 1) {
-    if (answer.tag !== "Ok") return refusal(answer, reads > 0);
+    if (answer.tag !== "Ok") {
+      return requestRefusal(input, owner, merge.head, answer, uuid !== undefined || reads > 0);
+    }
+    if (answer.value.uuid !== null) {
+      const saved = DeviceState.recordDeliveryRequest(
+        input.paths,
+        owner.launchId,
+        answer.value.uuid,
+      );
+      if (saved.tag !== "Ok")
+        return {
+          reason: "pr_merge_unverified",
+          detail:
+            "The accepted request identity could not be saved. The delivery remains outstanding.",
+          next: {
+            decider: "super-agent",
+            question:
+              "How can the accepted merge request's outcome be established without another submission?",
+          },
+        };
+    }
+    if (answer.value.status === "failed") {
+      const released = DeviceState.finishDelivery(input.paths, owner.launchId, merge.head);
+      if (released.tag !== "Ok")
+        return {
+          reason: "pr_defect",
+          detail: "Could not settle the failed delivery.",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should the failed delivery's persisted claim be reconciled before retrying?",
+          },
+        };
+    }
     const next = followMergeRequest(answer.value, reads);
     if (next.result === "verify") return next.refusal;
     await Bun.sleep(mergeRequestReadMs);
     answer = await readMergeRequest(repository, number, next.uuid);
   }
+}
+
+function requestRefusal(
+  input: Request,
+  owner: Owner,
+  head: string,
+  answer: Exclude<Answer, { tag: "Ok" }>,
+  read: boolean,
+): Failure {
+  if (!read && answer.tag === "Err" && answer.error.reason === "github_failed") {
+    const released = DeviceState.finishDelivery(input.paths, owner.launchId, head);
+    if (released.tag !== "Ok")
+      return {
+        reason: "pr_defect",
+        detail: "Could not settle the refused delivery.",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the refused delivery's persisted claim be reconciled before retrying?",
+        },
+      };
+  }
+  return refusal(answer, read);
 }
 
 /**
@@ -229,8 +399,8 @@ export function merge(input: Request) {
           state: { pullRequest: null },
         });
       return observePullRequest(owner.repository, number).flatMap((observed) =>
-        fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
-          guarded(input, owner, number, observed, local),
+        worktreeFacts(owner.worktreePath).flatMap(({ localHead, changed }) =>
+          guarded(input, owner, number, observed, localHead, changed),
         ),
       );
     });

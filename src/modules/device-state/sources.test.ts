@@ -90,6 +90,51 @@ function endedDatabase() {
 }
 const target = { repository: project.repository, checkout: project.checkout, sourceId: "one" };
 
+test("reset and retention never discard an unresolved delivery after its process exits", async () => {
+  using db = endedDatabase();
+  insertRow(db, "launches", {
+    id: "delivery-launch",
+    source_id: "one",
+    assignment: "open",
+    attempt: 1,
+    state: "interrupted",
+  });
+  insertRow(db, "deliveries", {
+    id: "outstanding",
+    launch_id: "delivery-launch",
+    head: "h1",
+    selected: 0,
+    owner_pid: null,
+    lease_at: null,
+    ended_at: null,
+  });
+  const before = db.serialize();
+  expect(resetSource(db, target, () => Ok({ abandon: ["open"] }))).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_delivery_unresolved",
+      detail: expect.stringMatching(/\S/) as unknown,
+      next: { decider: "super-agent", question: expect.stringMatching(/\S/) as unknown },
+    },
+  });
+  expect(db.serialize()).toEqual(before);
+  root = await mkdtemp(path.join(tmpdir(), "operator-retain-delivery-"));
+  const paths = OperatorHome.resolve(Environment.parse({ HOME: root }));
+  const directory = OperatorHome.sourceDirectory(paths, {
+    repository: project.repository,
+    sourceId: "one",
+  });
+  await Bun.write(`${directory}/keep.txt`, "retained coordination evidence\n", {
+    createPath: true,
+  });
+  expect(pruneSource(db, paths, target, () => true)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_delivery_unresolved" },
+  });
+  expect(db.serialize()).toEqual(before);
+  expect(await Bun.file(`${directory}/keep.txt`).text()).toBe("retained coordination evidence\n");
+});
+
 test("reset checks source ownership inside its transaction", () => {
   using db = endedDatabase();
   const other = { ...project, repository: "owner/two", checkout: "/isolated/two" };

@@ -4,6 +4,29 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 import { migrationsFolder } from "./database.ts";
 import { idleForMigration, migrationBlockers } from "./migration-policy.ts";
 
+test("a delivery's live external request blocks future migration after its tables exist", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE internal_reviews (owner_pid INTEGER, lease_at TEXT); CREATE TABLE deliveries (owner_pid INTEGER, lease_at TEXT, ended_at TEXT)",
+  );
+  db.query("INSERT INTO deliveries VALUES (?, ?, NULL)").run(process.pid, new Date().toISOString());
+  expect(idleForMigration(db, 22).tag).toBe("Ok");
+  expect(idleForMigration(db, 23)).toMatchObject({
+    tag: "Err",
+    error: {
+      detail:
+        "Migration is waiting for an outstanding PR delivery to be reconciled. No handler ran.",
+    },
+  });
+  db.exec("UPDATE deliveries SET owner_pid = NULL, lease_at = NULL");
+  expect(idleForMigration(db, 23)).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_migration_blocked" },
+  });
+  db.exec("UPDATE deliveries SET ended_at = 'now'");
+  expect(idleForMigration(db, 23).tag).toBe("Ok");
+});
+
 test("idle guards cover active assignments on the whole device, not ready or ended work", () => {
   using db = new Database(":memory:");
   expect(idleForMigration(db, 1).tag).toBe("Ok");

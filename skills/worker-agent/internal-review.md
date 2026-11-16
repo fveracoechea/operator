@@ -92,6 +92,7 @@ Write no line-level review comments and no other PR comments.
 ## 6. Own the PR to its merge
 
 After the ready step, follow [pull-requests.md](pull-requests.md) from step 3 on: run `operator pr wait --json`, handle each result, and run the guarded merge on `merge_eligible`.
+For later bounded corrections, follow that topic's correction validation procedure; keep this review's rounds and original ready head unchanged.
 During the review, a wait reports the draft's feedback and failing checks, and never `merge_eligible`.
 
 The person can skip a running review. The SuperAgent records the skip, which marks the PR ready with no comment.

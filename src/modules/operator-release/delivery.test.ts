@@ -481,7 +481,7 @@ test("project registration uses installed migrations and ignores unrelated globa
     {
       using database = new Database(`${isolated.XDG_STATE_HOME}/operator/operator.sqlite`);
       database.exec(
-        "DROP TABLE obligations; DROP TABLE worker_messages; DROP TABLE internal_review_rounds; DROP TABLE internal_reviews; DROP TABLE worker_questions; DROP TABLE coordination_waits; DROP TABLE promotions; DROP TABLE review_thread_operations; DROP TABLE review_rounds; DROP TABLE review_requests; DROP TABLE cleanups; DROP TABLE reports; DROP TABLE pull_requests; DROP TABLE launches; DROP TABLE worktree_preparations; DROP TABLE assignments; DROP TABLE sources; DROP TABLE project_removals; DELETE FROM __drizzle_migrations WHERE created_at > (SELECT MIN(created_at) FROM __drizzle_migrations)",
+        "DROP TABLE deliveries; DROP TABLE delivery_validations; DROP TABLE obligations; DROP TABLE worker_messages; DROP TABLE internal_review_rounds; DROP TABLE internal_reviews; DROP TABLE worker_questions; DROP TABLE coordination_waits; DROP TABLE promotions; DROP TABLE review_thread_operations; DROP TABLE review_rounds; DROP TABLE review_requests; DROP TABLE cleanups; DROP TABLE reports; DROP TABLE pull_requests; DROP TABLE launches; DROP TABLE worktree_preparations; DROP TABLE assignments; DROP TABLE sources; DROP TABLE project_removals; DELETE FROM __drizzle_migrations WHERE created_at > (SELECT MIN(created_at) FROM __drizzle_migrations)",
       );
     }
     const migrated = await run(

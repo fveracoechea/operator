@@ -83,6 +83,11 @@ const idleGuards: { applied: number; busy: (client: Database) => boolean; detail
       ),
     detail: "Migration is waiting for a running internal review handoff to finish. No handler ran.",
   },
+  {
+    applied: 23,
+    busy: (client) => found(client, "SELECT 1 FROM deliveries WHERE ended_at IS NULL LIMIT 1"),
+    detail: "Migration is waiting for an outstanding PR delivery to be reconciled. No handler ran.",
+  },
 ];
 
 /** Future workflow owners extend these guards when they add launches, waits, or held records. */
@@ -117,6 +122,7 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
   [1794416062667, []],
   [1794606256754, []],
   [1794607188879, []],
+  [1794786731277, []],
 ]);
 
 /** Each policy names queries that find records the migration must not run past. */

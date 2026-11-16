@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 // Bun has no temporary-directory, symlink, permission, or recursive removal API.
 import {
   writeClaudeHookSettings,
@@ -40,8 +41,13 @@ function environment() {
   });
 }
 
-async function exec(args: string[], cwd = checkout) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+async function exec(args: string[], cwd = checkout, session = "supervisor-fixture") {
+  const child = Bun.spawn(args, {
+    cwd,
+    env: { ...environment(), OPENCODE_SESSION_ID: session },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -50,8 +56,8 @@ async function exec(args: string[], cwd = checkout) {
   return { code, stdout, stderr };
 }
 
-async function run(args: string[], cwd = checkout) {
-  const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
+async function run(args: string[], cwd = checkout, session = "supervisor-fixture") {
+  const result = await exec([process.execPath, cli, ...args, "--json"], cwd, session);
   const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
   expectWorkflowRefusal(args, output, result.stderr);
   return { code: result.code, output, stderr: result.stderr };
@@ -351,7 +357,7 @@ for (const host of ["opencode", "claude-code"] as const)
     });
   }, 90000);
 
-test("every merge refusal leaves GitHub and device state unchanged", async () => {
+test("every merge refusal leaves business state unchanged and retains only its delivery audit", async () => {
   const source = await setup("opencode");
   const worker = await openPullRequest(source, {});
   // An earlier wait reported eligibility. The merge still observes GitHub again.
@@ -372,6 +378,7 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
     [{ ...eligible, state: "CLOSED" }, "pr_not_open"],
   ];
   const before = await Bun.file(database()).arrayBuffer();
+  const beforeState = await shown(source);
   for (const [change, reason] of refusals) {
     await github({ pulls: [{ ...pull, head: worker.head, ...change }], queue: [] });
     expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
@@ -402,9 +409,42 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
       },
     },
   });
-  expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
+  expect(await shown(source)).toEqual(beforeState);
+  using audit = new Database(database());
+  expect(
+    audit.query("SELECT head, selected, ended_at IS NOT NULL AS ended FROM deliveries").all(),
+  ).toEqual([{ head: worker.head, selected: 0, ended: 1 }]);
   expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
   expect(await exists(worker.worktreePath)).toBe(true);
+}, 90000);
+
+test("only the supervising session selects an idle owner's delivery through the public CLI", async () => {
+  const source = await setup("opencode");
+  const worker = await openPullRequest(source);
+  const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+  expect(await run(command, checkout, "different-session")).toMatchObject({
+    code: 4,
+    output: { reason: "source_supervised_elsewhere" },
+  });
+  expect(await run(command)).toMatchObject({ code: 3, output: { reason: "pr_owner_busy" } });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  using db = new Database(database());
+  db.exec("UPDATE launches SET activity = 'idle'");
+  await Bun.write(`${worker.worktreePath}/keep.txt`, "uncommitted work\n");
+  expect(await run(command)).toMatchObject({ code: 3, output: { reason: "pr_worktree_unclean" } });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  await rm(`${worker.worktreePath}/keep.txt`);
+  expect(await run(command)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_merged", data: { number: 7, head: worker.head } },
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(1);
+  expect(db.query("SELECT head, session, selected FROM deliveries").get()).toEqual({
+    head: worker.head,
+    session: "supervisor-fixture",
+    selected: 1,
+  });
+  expect(await settled(source)).toMatchObject({ state: "done" });
 }, 90000);
 
 test("a PR that GitHub treats as stacked merges at its head and is verified", async () => {
@@ -489,6 +529,7 @@ test.each([false, true])(
         "pr_merged",
         "pr_merge_unchanged",
         "pr_owner_inactive",
+        "pr_delivery_running",
       ]);
     await held("cleanup-held");
     expect(await exists(worker.worktreePath)).toBe(true);
@@ -626,6 +667,8 @@ test("unlanded work and unknown ignored content stay until the person instructs 
   await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
   await Bun.write(`${worker.worktreePath}/.env.backup`, "ignored but unknown\n");
   await Bun.write(`${worker.worktreePath}/.env.local`, "TOKEN=changed\n");
+  // GitHub can merge externally despite dirty local work; reconciliation must still retain it.
+  await github({ queue: [{ state: "MERGED", mergeCommit: `merge-${worker.head}` }] });
   expect((await run(["pr", "merge"], worker.worktreePath)).code).toBe(0);
   const blocked = await settled(source);
   expect(blocked).toMatchObject({
@@ -764,6 +807,7 @@ test("the person's instruction covers only the blocked step that the person read
   const source = await setup("opencode");
   const worker = await openPullRequest(source);
   await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
+  await github({ queue: [{ state: "MERGED", mergeCommit: `merge-${worker.head}` }] });
   await github({ branches: { [branch]: "pushed-after-merge" } });
   expect((await run(["pr", "merge"], worker.worktreePath)).code).toBe(0);
   const blocked = await settled(source);

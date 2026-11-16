@@ -4,13 +4,13 @@ An obligation is something you owe the person in a source. Record it the moment 
 `operator next` shows each open obligation in the source's `owed` list until you close it. Read `owed` on every wake, and act on each item that the new facts make due.
 An obligation is not an action, so adding or closing one wakes no coordination wait.
 
-| Kind              | Record it when                                                                    | Close it when                                     |
-| ----------------- | --------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `pr-share`        | a PR must be shared for review, for example in a Slack thread                     | the share is posted                               |
-| `review-reply`    | a review, comment, or thread needs a reply or a status from you                   | the reply is sent                                 |
-| `merge-hold`      | the person said to hold a merge                                                   | the person releases the hold                      |
-| `standing-rule`   | the person gives a rule for the rest of the work, such as "only use dev:trane"    | the person withdraws it, or the source work ends  |
-| `person-decision` | the person decided in chat and no worker question or brief records it yet         | the decision is recorded where the work reads it  |
+| Kind              | Record it when                                                                 | Close it when                                    |
+| ----------------- | ------------------------------------------------------------------------------ | ------------------------------------------------ |
+| `pr-share`        | a PR must be shared for review, for example in a Slack thread                  | the share is posted                              |
+| `review-reply`    | a review, comment, or thread needs a reply or a status from you                | the reply is sent                                |
+| `merge-hold`      | the person said to hold a merge                                                | the person releases the hold                     |
+| `standing-rule`   | the person gives a rule for the rest of the work, such as "only use dev:trane" | the person withdraws it, or the source work ends |
+| `person-decision` | the person decided in chat and no worker question or brief records it yet      | the decision is recorded where the work reads it |
 
 Pass identifiers as flags and the summary as plain text from an external file or stdin:
 
@@ -29,7 +29,12 @@ An ended source keeps showing its open obligations, and it takes no new ones.
 
 ## Holds and answers
 
-A `merge-hold` does not stop `operator pr merge`. When the PR has an owner, also send it a steering message not to merge until you release the hold, as [steering.md](steering.md) says.
+An open `merge-hold` blocks new owner and supervisor merge requests in its source, even when its reference names one PR.
+It does not undo a merge that GitHub already performed.
+Also steer each affected owner to preserve the hold, as [steering.md](steering.md) says.
+Close the hold only when the person releases it, never because checks pass or delivery appears ready.
+Adding a hold during an outstanding delivery refuses and records no hold, even after the submitting process ends.
+Tell the person that the earlier attempt may still apply; reconcile it before promising an effective hold.
 
 A person's answer to a worker question needs no ledger entry. Record it with `--by person` as [questions.md](questions.md) says.
 Use `person-decision` only for a decision that has no question to answer yet, for example a choice for an assignment that you have not dispatched. Close it once the brief, a follow-up, or an answer carries the decision.

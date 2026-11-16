@@ -7,6 +7,7 @@ Decided in #228, #231, #232, and #233.
 Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
 Amended 2026-11-04 in #305: the merge also requires that an internal review of the PR ended ready or was skipped (ADR-0020).
 Amended 2026-11-04 in #320: the guarded merge uses GitHub's asynchronous merge endpoint, because the synchronous endpoint refuses a stacked PR.
+Amended 2026-11-15 in #414: the recorded supervisor may deliver idle-owner PRs through the same guarded path, with source-wide holds and correction validation.
 
 ## Context
 
@@ -32,14 +33,19 @@ The child PR stacks on the parent's branch, and the CLI coordinates the relay an
 A PR stacks on one parent branch, so a PR assignment with several open parent PRs waits until all but one merge. Amended in #250.
 A stacked PR is not merge eligible until its parent merged and its relay finished.
 Report dependencies instead require accepted completion.
-The PR owner invokes the CLI merge operation.
+The PR owner or the exact recorded supervising session invokes the same guarded merge operation.
+Supervisor delivery requires an owner recorded idle and no live PR wait, relay, or delivery job.
+It delivers the recorded assignment's PR without transferring ownership or taking over substantive work.
 It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.
-ADR-0020 added the draft condition, implemented in #316.
-It also refuses while an internal review of the PR has not ended ready or skipped. Amended in #305, implemented in #328.
+It also requires a clean pushed local head matching the PR and an internal review that ended ready or skipped.
+A current head different from the original ready head needs bounded correction validation, as ADR-0020 defines.
+An open merge hold blocks all PR delivery in its source, as ADR-0026 defines.
+The merge claim atomically records its actor, head, and provenance, because two delivery actors must not race.
+Active waits and relays block delivery, and waits respect delivery locks.
 It merges through GitHub's asynchronous merge endpoint as a direct merge pinned to the guarded head, because the synchronous endpoint refuses a PR that GitHub keeps in a stack, also after its relay.
 That endpoint also merges a stacked PR's open PRs below it, and the default branch base rules them out.
 It is used for every PR, not only after the synchronous endpoint refuses, because GitHub does not document that refusal's text. The cost is a merge that can wait up to two minutes of status reads, and no merge queue.
-GitHub CI and GitHub reviews are the gates, not a separate local gate declaration or a supervisor's claim.
+Current GitHub CI and genuine GitHub approval are gates; chat and a supervisor's claim cannot replace them.
 
 After verified merge, the CLI deletes the remote branch, closes the worker pane, and removes the worktree in that order without a separate approval grant.
 Failed cleanup remains visible in next actions.
@@ -63,6 +69,7 @@ Report assignments have a separate completion contract and support planning and 
 - Waiting for parent merge before any dependent starts was rejected in favor of PR stacking and explicit rebase handling.
 - Supervisor-written scripts and ledgers were rejected because the CLI must own the repeatable feedback, merge, and cleanup steps.
 - Retaining tracker recovery, write-path scheduling, and local gates was rejected because the sessions did not need them and existing tracker tools, Git conflicts, and CI already covered the retained work.
-- A blanket ban on agent merges was rejected in favor of a guarded merge by the owner WorkerAgent.
+- A blanket ban on agent merges was rejected in favor of one guarded merge path for authorized delivery actors.
+- Requiring a fresh owner session solely for delivery was rejected because an idle owner's PR can pass the same gates without another handoff.
 
 Related: ADR-0001 and ADR-0003, deterministic coordination; ADR-0012, reset and prune; ADR-0013, report completion and safe cleanup; ADR-0015, optional review requests; ADR-0016, mutation analysis does not join the gate; ADR-0017, worker ownership and guarded merge.

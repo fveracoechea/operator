@@ -205,7 +205,7 @@ test("reads a history that matches a prefix of the shipped migrations", () => {
       reason: "state_incompatible",
       detail:
         "Startup compatibility must apply the pending shipped migrations before this operation.",
-      state: { recordedMigrations: 2, shippedMigrations: 22 },
+      state: { recordedMigrations: 2, shippedMigrations: 23 },
       next: { decider: "person" },
     },
   });

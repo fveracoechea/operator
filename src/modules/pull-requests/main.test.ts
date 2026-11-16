@@ -23,6 +23,18 @@ afterEach(() => {
 
 type Device = Awaited<ReturnType<typeof prDevice>>;
 const parent = { assignment: "parent", number: 6, branch: "task/parent" };
+
+test("the public correction validation operation refuses a non-owner before GitHub reads", async () => {
+  await using device = await prDevice();
+  expect<unknown>(
+    await PullRequests.validate({
+      paths: device.paths,
+      cwd: device.checkout,
+      file: "missing-evidence.txt",
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_worktree_unrecorded" } });
+  expect(device.calls).toEqual([]);
+});
 function url(number: number) {
   return `https://github.com/${repository}/pull/${number}`;
 }

@@ -32,6 +32,7 @@ import {
   worktreeFacts,
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
+import { validate } from "./validation.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Request = { paths: Paths; cwd: string };
@@ -522,8 +523,11 @@ function wait(input: Request & { timeoutSeconds: number }) {
  * the cleanup that follows a verified merge, which the SuperAgent can repeat after a failure.
  */
 export const PullRequests = {
-  merge(input: Request) {
+  merge(input: Parameters<typeof merge>[0]) {
     return merge(input);
+  },
+  validate(input: Parameters<typeof validate>[0]) {
+    return validate(input);
   },
   cleanup(input: Parameters<typeof cleanup>[0]) {
     return cleanup(input);

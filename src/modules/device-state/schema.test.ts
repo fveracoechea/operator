@@ -9,6 +9,33 @@ import { z } from "zod";
 import * as schema from "./schema.ts";
 import { projects, projectRemovals } from "./schema.ts";
 
+test("delivery selection roundtrips as booleans rather than SQLite integers", () => {
+  using client = new Database(":memory:");
+  migrate(drizzle(client), { migrationsFolder });
+  const db = drizzle(client);
+  for (const selected of [true, false]) {
+    db.insert(schema.deliveries)
+      .values({
+        id: String(selected),
+        launchId: "l1",
+        head: "h1",
+        selected,
+        startedAt: "now",
+        requestUuid: "u1",
+      })
+      .run();
+  }
+  expect(
+    db
+      .select({ selected: schema.deliveries.selected, uuid: schema.deliveries.requestUuid })
+      .from(schema.deliveries)
+      .all(),
+  ).toEqual([
+    { selected: true, uuid: "u1" },
+    { selected: false, uuid: "u1" },
+  ]);
+});
+
 test("the shipped migration implements the Drizzle project schema", () => {
   using db = new Database(":memory:");
   migrate(drizzle(db), { migrationsFolder });
@@ -53,6 +80,6 @@ test("the Drizzle schema needs no migration beyond the shipped history", async (
     await Bun.file(`${migrationsFolder}/meta/${latest}_snapshot.json`).json(),
   );
   const current = snapshot.parse(await generateSQLiteDrizzleJson(schema));
-  expect(Object.keys(current.tables)).toHaveLength(19);
+  expect(Object.keys(current.tables)).toHaveLength(21);
   expect(current.tables).toEqual(shipped.tables);
 });

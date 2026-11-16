@@ -189,6 +189,33 @@ export const pullRequests = sqliteTable(
 );
 
 // The ordered disposal after a verified merge. A failure stays recorded until a retry finishes it.
+export const deliveries = sqliteTable("deliveries", {
+  requestUuid: text("request_uuid"),
+  id: text().primaryKey(),
+  launchId: text("launch_id")
+    .notNull()
+    .references(() => launches.id, { onDelete: "cascade" }),
+  head: text().notNull(),
+  readyHead: text("ready_head"),
+  session: text(),
+  selected: integer({ mode: "boolean" }).notNull(),
+  ownerPid: integer("owner_pid"),
+  leaseAt: text("lease_at"),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+});
+
+export const deliveryValidations = sqliteTable("delivery_validations", {
+  id: text().primaryKey(),
+  launchId: text("launch_id")
+    .notNull()
+    .references(() => launches.id, { onDelete: "cascade" }),
+  head: text().notNull(),
+  readyHead: text("ready_head").notNull(),
+  summary: text().notNull(),
+  validatedAt: text("validated_at").notNull(),
+});
+
 export const cleanups = sqliteTable(
   "cleanups",
   {

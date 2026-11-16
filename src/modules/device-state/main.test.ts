@@ -8,9 +8,103 @@ import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { DeviceState } from "./main.ts";
+import { insertRow } from "./state-fixture.ts";
 
 // Root ignores file modes, so a test of a denied access cannot run as root.
 const asRoot = process.getuid?.() === 0;
+
+test("delivery methods retain provenance, renew the claim, and release it", async () => {
+  const paths = await registered("delivery-methods");
+  expect(
+    DeviceState.reserveLaunch(paths, one.checkout, "owner/one", launchRow("l1", "change")).tag,
+  ).toBe("Ok");
+  expect(DeviceState.updateLaunch(paths, "l1", { state: "running", worktreePath: "/w" }).tag).toBe(
+    "Ok",
+  );
+  expect(
+    DeviceState.associatePullRequest(paths, "l1", {
+      number: 7,
+      url: "u",
+      branch: "task/change",
+      relay: null,
+    }).tag,
+  ).toBe("Ok");
+  using db = new Database(paths.database);
+  insertRow(db, "internal_reviews", {
+    source_id: "s1",
+    assignment: "change",
+    state: "ready",
+    ready_head: "reviewed",
+    implementer_launch_id: "l1",
+  });
+  expect(
+    DeviceState.recordDeliveryValidation(paths, {
+      launchId: "l1",
+      head: "h1",
+      readyHead: "reviewed",
+      summary: "Bounded correction passed current CI.",
+    }).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.claimDelivery(paths, {
+      launchId: "l1",
+      head: "h1",
+      session: null,
+      selected: false,
+    }),
+  ).toMatchObject({ tag: "Ok", value: { head: "h1", readyHead: "reviewed" } });
+  db.exec("UPDATE deliveries SET lease_at = '2000'");
+  jest.useFakeTimers();
+  try {
+    const stop = DeviceState.holdDelivery(paths, "l1");
+    jest.advanceTimersByTime(15000);
+    expect(db.query("SELECT lease_at > '2001' AS fresh FROM deliveries").get()).toEqual({
+      fresh: 1,
+    });
+    stop();
+    db.exec("UPDATE deliveries SET lease_at = '2000'");
+    jest.advanceTimersByTime(30000);
+    expect(db.query("SELECT lease_at FROM deliveries").get()).toEqual({ lease_at: "2000" });
+  } finally {
+    jest.useRealTimers();
+  }
+  expect(DeviceState.recordDeliveryRequest(paths, "l1", "remote-request").tag).toBe("Ok");
+  expect(DeviceState.suspendDelivery(paths, "l1").tag).toBe("Ok");
+  expect<unknown>(DeviceState.readDelivery(paths, "l1")).toMatchObject({
+    tag: "Ok",
+    value: {
+      requestUuid: "remote-request",
+      ownerPid: null,
+      head: "h1",
+      readyHead: "reviewed",
+      endedAt: null,
+    },
+  });
+  expect<unknown>(
+    DeviceState.claimDelivery(paths, {
+      launchId: "l1",
+      head: "h1",
+      session: null,
+      selected: false,
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
+  expect(
+    DeviceState.claimDelivery(paths, {
+      launchId: "l1",
+      head: "h1",
+      session: null,
+      selected: false,
+      reconcile: true,
+    }).tag,
+  ).toBe("Ok");
+  expect(DeviceState.finishDelivery(paths, "l1", "h1").tag).toBe("Ok");
+  expect<unknown>(DeviceState.readDelivery(paths, "l1")).toMatchObject({ tag: "Ok", value: null });
+  expect(db.query("SELECT owner_pid, head, ready_head FROM deliveries").get()).toEqual({
+    owner_pid: null,
+    head: "h1",
+    ready_head: "reviewed",
+  });
+});
 
 const root = await mkdtemp(path.join(tmpdir(), "operator-state-"));
 afterAll(async () => {

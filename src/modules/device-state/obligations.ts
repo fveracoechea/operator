@@ -1,8 +1,8 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import type { Result } from "unthrown";
+import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
-import { obligations, sources } from "./schema.ts";
+import { obligations, sources, deliveries, launches } from "./schema.ts";
 import { controlledSource } from "./sources.ts";
 
 export type ObligationRow = typeof obligations.$inferSelect;
@@ -55,14 +55,38 @@ export function changeObligation<E extends { reason: string; detail: string }>(
           .where(and(eq(obligations.sourceId, source.id), eq(obligations.key, key)))
           .get();
         const facts = { source, obligation: obligation ?? null };
-        return decide(facts).map((change) => {
+        return decide(facts).flatMap((change) => {
+          if (
+            change.insert?.kind === "merge-hold" &&
+            db
+              .select({
+                ownerPid: deliveries.ownerPid,
+                leaseAt: deliveries.leaseAt,
+                endedAt: deliveries.endedAt,
+              })
+              .from(deliveries)
+              .innerJoin(launches, eq(launches.id, deliveries.launchId))
+              .where(eq(launches.sourceId, source.id))
+              .all()
+              .some((row) => row.endedAt === null)
+          )
+            return Err({
+              reason: "pr_delivery_running",
+              detail:
+                "A delivery is already in flight, so a new hold cannot stop it. Wait for its observed result before recording another hold. Nothing changed.",
+              next: {
+                decider: "super-agent" as const,
+                question:
+                  "How should the person's hold be reconciled with the delivery already in flight?",
+              },
+            });
           if (change.insert) db.insert(obligations).values(change.insert).run();
           if (change.update)
             db.update(obligations)
               .set(change.update)
               .where(and(eq(obligations.sourceId, source.id), eq(obligations.key, key)))
               .run();
-          return { facts, change };
+          return Ok({ facts, change });
         });
       }),
     ),

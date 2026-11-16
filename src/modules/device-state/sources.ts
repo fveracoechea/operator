@@ -1,4 +1,4 @@
-import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray, isNull } from "drizzle-orm";
 // Bun has no synchronous file existence API for directories.
 import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
@@ -9,6 +9,7 @@ import {
   assignments,
   cleanups,
   coordinationWaits,
+  deliveries,
   internalReviewRounds,
   internalReviews,
   launches,
@@ -34,7 +35,33 @@ export type Supervisor = { pane: string | null; session: string | null };
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
-  | (ResultContext & { reason: "source_parent_open" | "source_not_found"; detail: string });
+  | (ResultContext & {
+      reason: "source_parent_open" | "source_not_found" | "pr_delivery_unresolved";
+      detail: string;
+    });
+
+export const unresolvedDelivery = {
+  reason: "pr_delivery_unresolved" as const,
+  detail:
+    "An outstanding delivery may still change GitHub. Reconcile it before ending, pruning, moving, or removing this work. Nothing changed.",
+  next: {
+    decider: "super-agent" as const,
+    question:
+      "How should the recorded outstanding delivery be reconciled before this lifecycle change?",
+  },
+};
+
+/** A process exit does not prove that its remote merge request ended. */
+export function hasPendingDelivery(db: Db, sourceIds: string[]) {
+  return (
+    db
+      .select({ id: deliveries.id })
+      .from(deliveries)
+      .innerJoin(launches, eq(launches.id, deliveries.launchId))
+      .where(and(inArray(launches.sourceId, sourceIds), isNull(deliveries.endedAt)))
+      .get() !== undefined
+  );
+}
 
 export function registerSource(
   client: Database,
@@ -383,8 +410,11 @@ export function resetSource<E extends { reason: string; detail: string }>(
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
       controlledSource(db, target).flatMap(
-        (source): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> =>
-          decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
+        (
+          source,
+        ): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> => {
+          if (hasPendingDelivery(db, [source.id])) return Err(unresolvedDelivery);
+          return decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
             const endedAt = new Date().toISOString();
             if (interrupted !== undefined)
               db.update(launches)
@@ -419,7 +449,8 @@ export function resetSource<E extends { reason: string; detail: string }>(
                 abandon.includes(row.assignment),
               ),
             };
-          }),
+          });
+        },
       ),
     ),
   );
@@ -444,6 +475,7 @@ export function pruneSource(
           { source: SourceRow; retained: RetainedResource[] } | null,
           SourceFailure | (ResultContext & { reason: "source_prune_failed"; detail: string })
         > => {
+          if (hasPendingDelivery(db, [source.id])) return Err(unresolvedDelivery);
           const facts = endFacts(db, source);
           if (!decide(facts)) return Ok(null);
           const retained = retainedResources(db, source.id);

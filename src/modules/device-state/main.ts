@@ -73,6 +73,15 @@ import { changeQuestion, readQuestion } from "./questions.ts";
 import { changeMessage, readMessage } from "./messages.ts";
 import { changeObligation, readObligations } from "./obligations.ts";
 import {
+  claimDelivery,
+  finishDelivery,
+  recordDeliveryValidation,
+  renewDelivery,
+  readDelivery,
+  recordDeliveryRequest,
+  suspendDelivery,
+} from "./deliveries.ts";
+import {
   changeReviewRequest,
   readReviewRequest,
   readReviewRequests,
@@ -246,6 +255,27 @@ export const DeviceState = {
   },
   worktreeOwners(paths: Paths) {
     return reading(paths, (client) => worktreeOwners(client));
+  },
+  claimDelivery(paths: Paths, input: Parameters<typeof claimDelivery>[1]) {
+    return writing(paths, (client) => claimDelivery(client, input));
+  },
+  readDelivery(paths: Paths, launchId: string) {
+    return reading(paths, (client) => readDelivery(client, launchId));
+  },
+  recordDeliveryRequest(paths: Paths, launchId: string, uuid: string) {
+    return writing(paths, (client) => recordDeliveryRequest(client, launchId, uuid));
+  },
+  suspendDelivery(paths: Paths, launchId: string) {
+    return writing(paths, (client) => suspendDelivery(client, launchId));
+  },
+  recordDeliveryValidation(paths: Paths, input: Parameters<typeof recordDeliveryValidation>[1]) {
+    return writing(paths, (client) => recordDeliveryValidation(client, input));
+  },
+  finishDelivery(paths: Paths, launchId: string, head: string) {
+    return writing(paths, (client) => finishDelivery(client, launchId, head));
+  },
+  holdDelivery(paths: Paths, launchId: string) {
+    return hold(() => writing(paths, (client) => renewDelivery(client, launchId)));
   },
   /**
    * With `review`, the association also queues the optional assignment-origin review request.

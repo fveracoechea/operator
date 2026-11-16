@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
@@ -6,6 +6,7 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
   assignments,
+  deliveries,
   cleanups,
   internalReviews,
   launches,
@@ -28,6 +29,7 @@ export type PullRequestFailure =
         | "pr_owned_elsewhere"
         | "pr_not_associated"
         | "pr_branch_mismatch"
+        | "pr_delivery_running"
         | "internal_review_not_recorded";
       detail: string;
     });
@@ -54,6 +56,7 @@ export function worktreeOwners(client: Database) {
           relay: pullRequests.relay,
           internalReview: launches.internalReview,
           reviewState: internalReviews.state,
+          readyHead: internalReviews.readyHead,
           implementerLaunchId: internalReviews.implementerLaunchId,
         })
         .from(launches)
@@ -305,6 +308,24 @@ export function recordPullRequestWait(
     checkHistory(client).flatMap((db) =>
       activeOwner(db, launchId).flatMap(
         ({ launch, source, assignment }): Result<PullRequestRow | null, PullRequestFailure> => {
+          if (
+            db
+              .select()
+              .from(deliveries)
+              .innerJoin(launches, eq(launches.id, deliveries.launchId))
+              .where(and(eq(launches.sourceId, source.id), eq(launches.assignment, assignment.key)))
+              .all()
+              .some((row) => row.deliveries.endedAt === null)
+          )
+            return Err({
+              reason: "pr_delivery_running",
+              detail:
+                "Delivery holds this assignment. Wait for it to end before another PR wait or relay. Nothing changed.",
+              next: {
+                command: "operator pr merge --json",
+                why: "Reconcile the outstanding delivery before starting another PR wait or relay.",
+              },
+            });
           const row = current(db, source.id, assignment.key);
           if (row === undefined || assignment.state !== "pr-open")
             return Err({
@@ -417,6 +438,24 @@ export function recordPullRequestMerge(
           eq(pullRequests.sourceId, source.id),
           eq(pullRequests.assignment, assignment.key),
         );
+        db.update(deliveries)
+          .set({ endedAt: now, ownerPid: null, leaseAt: null })
+          .where(
+            and(
+              inArray(
+                deliveries.launchId,
+                db
+                  .select({ id: launches.id })
+                  .from(launches)
+                  .where(
+                    and(eq(launches.sourceId, source.id), eq(launches.assignment, assignment.key)),
+                  ),
+              ),
+              eq(deliveries.head, merge.head),
+              isNull(deliveries.endedAt),
+            ),
+          )
+          .run();
         db.update(pullRequests)
           .set({ mergedHead: merge.head, mergeCommit: merge.mergeCommit, mergedAt: now })
           .where(key)

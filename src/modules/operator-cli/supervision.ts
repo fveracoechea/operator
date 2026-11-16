@@ -16,6 +16,9 @@ const coordination: Record<string, (args: string[]) => string | null> = {
     command === "send" || command === "ring" || command === "close" ? `message_${command}` : null,
   cleanup: () => "cleanup",
   handoff: () => "handoff",
+  pr: ([, command]) => (command === "merge" ? "pr_merge" : null),
+  obligation: ([, command]) =>
+    command === "add" || command === "close" ? `obligation_${command}` : null,
 };
 
 /** The operation and source of a coordination command, or null for any other arguments. */
