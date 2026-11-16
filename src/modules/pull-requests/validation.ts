@@ -52,12 +52,16 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
           });
         return worktreeFacts(owner.worktreePath).flatMap((facts) =>
           observePullRequest(owner.repository, number).flatMap((observed) => {
+            const checksPassing = mergeConditions(
+              observed,
+              // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent: checksPassing depends only on observed checks; stackRelayed and reviewEnded affect only unused merge conditions
+              { stackRelayed: true, reviewEnded: true },
+            ).checksPassing;
             if (
               facts.changed ||
               facts.localHead !== observed.head ||
               observed.state !== "OPEN" ||
-              // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent: checksPassing depends only on observed checks; stackRelayed and reviewEnded affect only unused merge conditions
-              !mergeConditions(observed, { stackRelayed: true, reviewEnded: true }).checksPassing
+              !checksPassing
             )
               return ErrAsync<Refusal>({
                 reason: "pr_validation_blocked",
@@ -74,38 +78,38 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
                   timeoutMs: 10000,
                 }),
               qualify,
-            ).flatMap((ancestry) => {
-              if (
-                // Stryker disable next-line ConditionalExpression: equivalent: non-completed invocations have no exitCode, so exitCode !== 0 already rejects them
-                ancestry.status !== "completed" ||
-                ancestry.exitCode !== 0
-              )
-                return ErrAsync<Refusal>({
-                  reason: "pr_validation_blocked",
-                  detail:
-                    "The ready head is not a known ancestor of this correction. Ask the SuperAgent to reconcile review provenance. Nothing was recorded.",
-                  next,
-                });
-              return DeviceState.recordDeliveryValidation(input.paths, {
-                launchId: owner.launchId,
-                head: observed.head,
-                readyHead,
-                summary,
-              }).map(() => ({
-                reason: "pr_validated",
-                data: {
-                  sourceId: owner.sourceId,
-                  assignment: owner.assignment,
-                  number,
+            ).flatMap(
+              (
+                ancestry: Awaited<ReturnType<typeof ToolInvocation.run>> & { exitCode?: number },
+              ) => {
+                if (ancestry.exitCode !== 0)
+                  return ErrAsync<Refusal>({
+                    reason: "pr_validation_blocked",
+                    detail:
+                      "The ready head is not a known ancestor of this correction. Ask the SuperAgent to reconcile review provenance. Nothing was recorded.",
+                    next,
+                  });
+                return DeviceState.recordDeliveryValidation(input.paths, {
+                  launchId: owner.launchId,
                   head: observed.head,
                   readyHead,
-                },
-                next: {
-                  command: "operator pr wait --json",
-                  why: "Correction validation preserves the review history; current GitHub merge guards still apply.",
-                },
-              }));
-            });
+                  summary,
+                }).map(() => ({
+                  reason: "pr_validated",
+                  data: {
+                    sourceId: owner.sourceId,
+                    assignment: owner.assignment,
+                    number,
+                    head: observed.head,
+                    readyHead,
+                  },
+                  next: {
+                    command: "operator pr wait --json",
+                    why: "Correction validation preserves the review history; current GitHub merge guards still apply.",
+                  },
+                }));
+              },
+            );
           }),
         );
       });

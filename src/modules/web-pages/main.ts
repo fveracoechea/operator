@@ -81,13 +81,13 @@ export const WebPages = {
       });
     return fromPromise(
       async () => {
-        const invocation = await ToolInvocation.run({
-          tool: opener,
-          args: [input.url],
-          timeoutMs: 5000,
-        });
-        // Stryker disable next-line ConditionalExpression: equivalent: non-completed outcomes have no exitCode, so they also fail the zero exit code check
-        if (invocation.status !== "completed" || invocation.exitCode !== 0)
+        const invocation: Awaited<ReturnType<typeof ToolInvocation.run>> & { exitCode?: number } =
+          await ToolInvocation.run({
+            tool: opener,
+            args: [input.url],
+            timeoutMs: 5000,
+          });
+        if (invocation.exitCode !== 0)
           return Err({
             reason:
               invocation.status === "unavailable"
