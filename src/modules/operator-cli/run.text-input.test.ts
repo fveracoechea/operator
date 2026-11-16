@@ -148,8 +148,8 @@ test("text commands refuse legacy JSON envelopes and removed inline flags", asyn
       "No.",
     ]),
   ).toMatchObject({ code: 2 });
-  expect((await device.next("read")).map((row) => row.action)).toEqual(["wait"]);
   expect(await device.herdrCalls()).toEqual(calls);
+  expect((await device.next("read")).map((row) => row.action)).toEqual(["wait"]);
 }, 120000);
 
 test("malformed report bullets and duplicate headings refuse without recording a report", async () => {
@@ -177,13 +177,13 @@ test("malformed report bullets and duplicate headings refuse without recording a
     });
     expect(result.output.state).toEqual({ inputValid: false });
   }
-  expect((await device.next("read")).map((row) => row.action)).toEqual(["wait"]);
   expect(
     await Bun.file(
       `${device.root}/state/operator/projects/example/one/sources/${source}/assignments/read/reports/1/report.md`,
     ).exists(),
   ).toBe(false);
   expect(await device.herdrCalls()).toEqual(calls);
+  expect((await device.next("read")).map((row) => row.action)).toEqual(["wait"]);
   const file = await device.writeText("report.md", report);
   expect(
     await device.run(["report", "submit", "--file", file], { pane: worker.paneId }),

@@ -10,6 +10,10 @@ afterEach(() => {
 });
 
 test("a SuperAgent command names the source and assignment that it changes", () => {
+  expect(ownChangeSelector(["abandon", "--source", "s1", "--assignment", "a"])).toEqual({
+    sourceId: "s1",
+    assignment: "a",
+  });
   expect(
     ownChangeSelector([
       "internal-review",
