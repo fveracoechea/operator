@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne, notExists, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import { checkHistory, transaction } from "./database.ts";
@@ -195,6 +196,32 @@ export function recoverInternalReview(client: Database, input: RecoveryInput) {
           ),
         )
         .all();
+      const newer = alias(launches, "newer_worktree_claim");
+      const collision = db
+        .select({ id: launches.id })
+        .from(launches)
+        .innerJoin(sources, eq(sources.id, launches.sourceId))
+        .where(
+          and(
+            eq(sources.state, "open"),
+            or(ne(launches.sourceId, input.sourceId), ne(launches.assignment, input.assignment)),
+            eq(launches.worktreePath, input.worktreePath),
+            inArray(launches.state, ["starting", "running"]),
+            notExists(
+              db
+                .select({ id: newer.id })
+                .from(newer)
+                .where(
+                  and(
+                    eq(newer.sourceId, launches.sourceId),
+                    eq(newer.assignment, launches.assignment),
+                    gt(newer.attempt, launches.attempt),
+                  ),
+                ),
+            ),
+          ),
+        )
+        .get();
       if (
         !matches(source, { repository: input.repository, state: "open" }) ||
         !matches(assignment, { completion: "pr", state: "pr-open" }) ||
@@ -219,7 +246,8 @@ export function recoverInternalReview(client: Database, input: RecoveryInput) {
           mergedHead: null,
           mergeCommit: null,
         }) ||
-        owners.length !== 1
+        owners.length !== 1 ||
+        collision !== undefined
       )
         return incompatible();
       if (audit !== undefined) {

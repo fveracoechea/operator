@@ -127,6 +127,7 @@ test("an audited retry preserves reviewer ownership, rounds, and external review
     attempt: 2,
     state: "running",
     internal_review: 1,
+    worktree_path: input.worktreePath,
   });
   insertRow(client, "internal_review_rounds", {
     source_id: input.sourceId,
@@ -227,6 +228,95 @@ test.each([
         why: "Read the assignment's current state before choosing another action.",
       },
     },
+  });
+  expect(client.serialize()).toEqual(before);
+});
+
+test.each(["starting", "running"])(
+  "a different latest %s launch claiming the recorded worktree refuses fresh recovery and retry",
+  (state) => {
+    for (const retry of [false, true]) {
+      using client = fixture();
+      if (retry) expect(recoverInternalReview(client, input)).toMatchObject({ tag: "Ok" });
+      insertRow(client, "launches", {
+        id: "collision",
+        source_id: input.sourceId,
+        assignment: "report",
+        attempt: 1,
+        state,
+        worktree_path: input.worktreePath,
+      });
+      const before = client.serialize();
+      expect(recoverInternalReview(client, input)).toMatchObject({
+        tag: "Err",
+        error: { reason: "internal_review_recovery_incompatible" },
+      });
+      expect(client.serialize()).toEqual(before);
+    }
+  },
+);
+
+test.each(["finished prior implementer", "superseded running", "closed source", "different path"])(
+  "inactive or unrelated worktree records do not prevent recovery: %s",
+  (scenario) => {
+    using client = fixture();
+    const prior = scenario === "finished prior implementer";
+    if (prior) client.exec("UPDATE launches SET attempt = 2");
+    let sourceId = input.sourceId;
+    if (scenario === "closed source") {
+      sourceId = "closed";
+      insertRow(client, "sources", { id: sourceId, repository: input.repository, state: "reset" });
+      insertRow(client, "assignments", {
+        source_id: sourceId,
+        key: "report",
+        completion: "report",
+        state: "completed",
+      });
+    }
+    insertRow(client, "launches", {
+      id: "other",
+      source_id: sourceId,
+      assignment: prior ? input.assignment : "report",
+      attempt: 1,
+      state: prior ? "finished" : "running",
+      worktree_path: scenario === "different path" ? "/isolated/other" : input.worktreePath,
+    });
+    if (scenario === "superseded running")
+      insertRow(client, "launches", {
+        id: "latest",
+        source_id: sourceId,
+        assignment: "report",
+        attempt: 2,
+        state: "finished",
+      });
+    expect(recoverInternalReview(client, input)).toMatchObject({
+      tag: "Ok",
+      value: { changed: true },
+    });
+  },
+);
+
+test("an active collision in another open source also refuses without a write", () => {
+  using client = fixture();
+  insertRow(client, "sources", { id: "other-source", repository: input.repository, state: "open" });
+  insertRow(client, "assignments", {
+    source_id: "other-source",
+    key: input.assignment,
+    completion: "pr",
+    state: "running",
+  });
+  insertRow(client, "launches", {
+    id: "other-source-launch",
+    source_id: "other-source",
+    assignment: input.assignment,
+    attempt: 1,
+    state: "running",
+    worktree_path: input.worktreePath,
+  });
+  const before = client.serialize();
+  expect(recoverInternalReview(client, input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "internal_review_recovery_incompatible" },
   });
   expect(client.serialize()).toEqual(before);
 });

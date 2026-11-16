@@ -172,6 +172,11 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
     await Bun.sleep(20);
   }
   expect(failed).toBe(true);
+  await Bun.write(`${worktree}/local-after-recovery`, "unlanded correction");
+  const unsafeRetry = await device.run(["handoff", "--source", source, "--assignment", "build"]);
+  expect(unsafeRetry.output.reason).toBe("pr_worktree_unclean");
+  expect(await Bun.file(`${worktree}/local-after-recovery`).text()).toBe("unlanded correction");
+  await rm(`${worktree}/local-after-recovery`);
   await device.setHerdr({ fail: {} });
   const handed = await device.run(["handoff", "--source", source, "--assignment", "build"]);
   expect(handed.code, handed.stderr).toBe(0);
