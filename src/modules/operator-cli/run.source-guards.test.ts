@@ -46,9 +46,9 @@ test.each([
   {
     name: "assignment kind requirement",
     file: "work-sources/plan.ts",
-    before: '"Name a built-in kind or a person-defined kind in device settings.",\n            ),',
+    before: "kind: z.enum([...WorkerKinds.names(), ...Object.keys(definitions)]),",
     after:
-      '"Name a built-in kind or a person-defined kind in device settings.",\n            ).default("research"),',
+      'kind: z.enum([...WorkerKinds.names(), ...Object.keys(definitions)]).default("research"),',
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "a plan assignment without a kind",
   },

@@ -132,14 +132,7 @@ export function configuredPlanSchema(
       assignments: z.array(
         z.strictObject({
           ...shared,
-          kind: z
-            .string()
-            .refine(
-              (name) =>
-                WorkerKinds.names().some((builtin) => builtin === name) ||
-                Object.hasOwn(definitions, name),
-              "Name a built-in kind or a person-defined kind in device settings.",
-            ),
+          kind: z.enum([...WorkerKinds.names(), ...Object.keys(definitions)]),
           resources: z.enum(["pane", "worktree"]).optional(),
           branch: branch.optional(),
           internalReview: z.boolean().optional(),

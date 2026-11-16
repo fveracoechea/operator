@@ -11,7 +11,7 @@ export function customKindCliTest(scenario: "settings" | "dispatch") {
         `${root}/tools/test-watchdog.ts`,
         `${root}/src/modules/operator-cli/run.${scenario}.test.ts`,
         "-t",
-        "person-defined",
+        "person-defined|dispatch with a kind fixes|cannot be plainly dispatched|a launch keeps its kind snapshot",
       ],
       {
         cwd: root,

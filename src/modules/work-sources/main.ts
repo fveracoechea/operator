@@ -1238,7 +1238,7 @@ function decideAssignmentRow(
   const decision = decideAssignment({
     assignment: current,
     dependencies,
-    dispatchable: assignment.kind === null || WorkerKinds.dispatchable(assignment.kind),
+    dispatchable: WorkerKinds.dispatchable(assignment.kind),
     // A start whose dispatching process stopped can be replaced.
     launch: launch?.abandoned === true ? "abandoned" : launch?.state,
     ...pullRequestFacts(pullRequest),

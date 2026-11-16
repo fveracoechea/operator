@@ -2,7 +2,6 @@ import { AgentHosts } from "../agent-hosts/main.ts";
 import { selectLaunch } from "./selection.ts";
 import type { DeviceConfig } from "./schema.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { z } from "zod";
 
 export async function validateGuides(
   config: DeviceConfig,
@@ -20,13 +19,7 @@ export async function validateGuides(
       ).some(Boolean)
     )
       // oxlint-disable-next-line unthrown/no-throw -- The settings boundary qualifies invalid installed-guide references like schema errors.
-      throw new z.ZodError([
-        {
-          code: "custom",
-          path: ["kinds", name, "guide"],
-          message: `No installed guide skill: ${definition.guide}.`,
-        },
-      ]);
+      throw new SyntaxError(`Kind ${name}: No installed guide skill: ${definition.guide}.`);
   }
 }
 
