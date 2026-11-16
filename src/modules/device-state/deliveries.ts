@@ -220,7 +220,7 @@ export function readDelivery(client: Database, launchId: string) {
 
 /** Save the remote request identity before another read; never overwrite the original actor. */
 export function recordDeliveryRequest(client: Database, launchId: string, uuid: string) {
-  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred transaction reaches the same writer reservation before any result
+  // Stryker disable next-line BooleanLiteral: no rule: each supported path performs one conditional update; Operator promises no refusal priority or winner among contending state writers
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(deliveries)
@@ -240,7 +240,7 @@ export function recordDeliveryRequest(client: Database, launchId: string, uuid: 
 
 /** Stop local ownership without pretending an uncertain external request has finished. */
 export function suspendDelivery(client: Database, launchId: string) {
-  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred transaction reaches the same writer reservation before any result
+  // Stryker disable next-line BooleanLiteral: no rule: each supported path performs one conditional update; Operator promises no refusal priority or winner among contending state writers
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(deliveries)
@@ -260,7 +260,7 @@ export function suspendDelivery(client: Database, launchId: string) {
 
 /** Release only this process's claim, retaining the head and caller as delivery evidence. */
 export function finishDelivery(client: Database, launchId: string, head: string) {
-  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred transaction reaches the same writer reservation before any result
+  // Stryker disable next-line BooleanLiteral: no rule: each supported path performs one conditional update; Operator promises no refusal priority or winner among contending state writers
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(deliveries)
@@ -281,7 +281,7 @@ export function finishDelivery(client: Database, launchId: string, head: string)
 
 /** Keep a long external merge request claimed until this process releases it. */
 export function renewDelivery(client: Database, launchId: string) {
-  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred transaction reaches the same writer reservation before any result
+  // Stryker disable next-line BooleanLiteral: no rule: each supported path performs one conditional update; Operator promises no refusal priority or winner among contending state writers
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(deliveries)
