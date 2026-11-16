@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 export const selectionSchema = z.strictObject({
   host: z.enum(["opencode", "claude-code"]).optional(),
@@ -17,6 +18,7 @@ export const settingsSchema = z.strictObject({
   $schema: z.literal("./config.schema.json").default("./config.schema.json"),
   superAgent: selectionSchema.default({}),
   workerAgent: selectionSchema.default({}),
+  kinds: WorkerKinds.customSchema().optional(),
   profiles: z
     .preprocess(
       (input, context) => {

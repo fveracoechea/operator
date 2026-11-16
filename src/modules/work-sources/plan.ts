@@ -51,7 +51,7 @@ export const storedPlanSchema = z
       z.union([
         z.strictObject({
           ...shared,
-          kind: z.enum(WorkerKinds.names()).nullable().default(null),
+          kind: z.string().nullable().default(null),
           completion: z.literal("pr"),
           resources: z.enum(["worktree", "pane"]),
           branch,
@@ -62,13 +62,13 @@ export const storedPlanSchema = z
         }),
         z.strictObject({
           ...shared,
-          kind: z.enum(WorkerKinds.names()).nullable().default(null),
+          kind: z.string().nullable().default(null),
           completion: z.literal("report"),
           resources: z.literal("pane"),
         }),
         z.strictObject({
           ...shared,
-          kind: z.enum(WorkerKinds.names()).nullable().default(null),
+          kind: z.string().nullable().default(null),
           completion: z.literal("report"),
           resources: z.literal("worktree"),
           branch,
@@ -120,42 +120,54 @@ export const storedPlanSchema = z
   });
 
 /** New plans name a kind. Completion is resolved, never supplied as an override. */
-export const planSchema = z
-  .strictObject({
-    trackerKey: key,
-    intent,
-    internalReview: z.boolean().optional(),
-    maxRunning: z.number().int().min(1).optional(),
-    assignments: z.array(
-      z.strictObject({
-        ...shared,
-        kind: z.enum(WorkerKinds.names()),
-        resources: z.enum(["pane", "worktree"]).optional(),
-        branch: branch.optional(),
-        internalReview: z.boolean().optional(),
-        adopt: z.number().int().min(1).optional(),
-      }),
-    ),
-  })
-  .transform((plan, context) => {
-    const parsed = storedPlanSchema.safeParse({
-      ...plan,
-      assignments: plan.assignments.map((assignment) => {
-        const kind = WorkerKinds.resolve(assignment.kind);
-        return {
-          ...assignment,
-          completion: kind.completion,
-          resources: assignment.resources ?? kind.resources,
-          profile: assignment.profile ?? kind.profile ?? undefined,
-        };
-      }),
+export function configuredPlanSchema(
+  definitions: z.infer<ReturnType<typeof WorkerKinds.customSchema>> = {},
+) {
+  return z
+    .strictObject({
+      trackerKey: key,
+      intent,
+      internalReview: z.boolean().optional(),
+      maxRunning: z.number().int().min(1).optional(),
+      assignments: z.array(
+        z.strictObject({
+          ...shared,
+          kind: z
+            .string()
+            .refine(
+              (name) =>
+                WorkerKinds.names().some((builtin) => builtin === name) ||
+                Object.hasOwn(definitions, name),
+              "Name a built-in kind or a person-defined kind in device settings.",
+            ),
+          resources: z.enum(["pane", "worktree"]).optional(),
+          branch: branch.optional(),
+          internalReview: z.boolean().optional(),
+          adopt: z.number().int().min(1).optional(),
+        }),
+      ),
+    })
+    .transform((plan, context) => {
+      const parsed = storedPlanSchema.safeParse({
+        ...plan,
+        assignments: plan.assignments.map((assignment) => {
+          const kind = WorkerKinds.resolve(assignment.kind, definitions);
+          return {
+            ...assignment,
+            completion: kind.completion,
+            resources: assignment.resources ?? kind.resources,
+            profile: assignment.profile ?? kind.profile ?? undefined,
+          };
+        }),
+      });
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) context.addIssue({ ...issue });
+        return z.NEVER;
+      }
+      return parsed.data;
     });
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) context.addIssue({ ...issue });
-      return z.NEVER;
-    }
-    return parsed.data;
-  });
+}
+export const planSchema = configuredPlanSchema();
 
 /**
  * The PR assignment that the SuperAgent supplies when it promotes an accepted report. Its
