@@ -252,31 +252,6 @@ export const internalReviews = sqliteTable(
   ],
 );
 
-// Append-only authorization for the promoted-launch defect recovery, retained until source prune.
-export const internalReviewRecoveries = sqliteTable(
-  "internal_review_recoveries",
-  {
-    sourceId: text("source_id").notNull(),
-    assignment: text().notNull(),
-    repository: text().notNull(),
-    implementerLaunchId: text("implementer_launch_id").notNull(),
-    number: integer().notNull(),
-    url: text().notNull(),
-    branch: text().notNull(),
-    worktreePath: text("worktree_path").notNull(),
-    head: text().notNull(),
-    personInstructed: integer("person_instructed", { mode: "boolean" }).notNull(),
-    authorizedAt: text("authorized_at").notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.sourceId, table.assignment] }),
-    foreignKey({
-      columns: [table.sourceId, table.assignment],
-      foreignColumns: [assignments.sourceId, assignments.key],
-    }).onDelete("cascade"),
-  ],
-);
-
 // Each round of an internal review, with the head it reviewed and its validated findings.
 export const internalReviewRounds = sqliteTable(
   "internal_review_rounds",

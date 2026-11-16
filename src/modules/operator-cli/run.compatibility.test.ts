@@ -139,6 +139,12 @@ test("startup upgrades matching older history before a state-free handler and ve
   });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
   expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
+  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+    readMigrationFiles({ migrationsFolder }).map(({ hash, folderMillis }) => ({
+      hash,
+      created_at: folderMillis,
+    })),
+  );
   expect(db.query("SELECT * FROM sources").all()).toEqual([]);
   const copies = await backups();
   expect(copies).toHaveLength(1);

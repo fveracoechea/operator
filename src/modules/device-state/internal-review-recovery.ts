@@ -14,8 +14,58 @@ import {
   pullRequests,
   internalReviews,
   internalReviewRounds,
-  internalReviewRecoveries,
+  workerMessages,
 } from "./schema.ts";
+
+const recoveryKey = "internal-review:recovery";
+const recoveryInstruction =
+  "Stop implementation and hand over this assignment for a fresh internal review.";
+const receiptSchema = z.strictObject({
+  sourceId: z.string(),
+  assignment: z.string(),
+  repository: z.string(),
+  implementerLaunchId: z.string(),
+  number: z.number().int().positive(),
+  url: z.string(),
+  branch: z.string(),
+  worktreePath: z.string(),
+  head: z.string(),
+  personInstructed: z.literal(true),
+  authorizedAt: z.iso.datetime(),
+});
+const messageSchema = z.strictObject({
+  version: z.literal(1),
+  instruction: z.literal(recoveryInstruction),
+  receipt: receiptSchema,
+});
+type RecoveryReceipt = Omit<z.infer<typeof receiptSchema>, "personInstructed"> & {
+  personInstructed: boolean;
+};
+
+function receiptFromMessage(
+  row: typeof workerMessages.$inferSelect,
+  repository: string,
+): RecoveryReceipt | null {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.message);
+  } catch {
+    return null;
+  }
+  const parsed = messageSchema.safeParse(decoded);
+  if (!parsed.success) return null;
+  const { receipt } = parsed.data;
+  return matches(row, {
+    key: recoveryKey,
+    sourceId: receipt.sourceId,
+    assignment: receipt.assignment,
+    launchId: receipt.implementerLaunchId,
+    sentAt: receipt.authorizedAt,
+    questionKey: null,
+  }) && receipt.repository === repository
+    ? receipt
+    : null;
+}
 
 type RecoveryInput = {
   repository: string;
@@ -85,11 +135,13 @@ function requiredReview(planText: string, promotionPolicy: boolean | null) {
 }
 
 function auditedRetry(
-  audit: typeof internalReviewRecoveries.$inferSelect,
+  message: typeof workerMessages.$inferSelect,
   review: typeof internalReviews.$inferSelect | undefined,
   input: RecoveryInput,
 ) {
+  const audit = receiptFromMessage(message, input.repository);
   return (
+    audit !== null &&
     matches(audit, {
       repository: input.repository,
       implementerLaunchId: input.launchId,
@@ -111,20 +163,24 @@ export function readInternalReviewRecovery(
   assignment: string,
 ) {
   return transaction(client, false, () =>
-    checkHistory(client).map(
-      (db) =>
-        db
-          .select()
-          .from(internalReviewRecoveries)
-          .where(
-            and(
-              eq(internalReviewRecoveries.repository, repository),
-              eq(internalReviewRecoveries.sourceId, sourceId),
-              eq(internalReviewRecoveries.assignment, assignment),
-            ),
-          )
-          .get() ?? null,
-    ),
+    checkHistory(client).flatMap((db) => {
+      const row = db
+        .select({ message: workerMessages, repository: sources.repository })
+        .from(workerMessages)
+        .innerJoin(sources, eq(sources.id, workerMessages.sourceId))
+        .where(
+          and(
+            eq(workerMessages.sourceId, sourceId),
+            eq(workerMessages.assignment, assignment),
+            eq(workerMessages.key, recoveryKey),
+            eq(sources.repository, repository),
+          ),
+        )
+        .get();
+      if (row === undefined) return Ok(null);
+      const receipt = receiptFromMessage(row.message, row.repository);
+      return receipt === null ? incompatible() : Ok(receipt);
+    }),
   );
 }
 
@@ -176,13 +232,14 @@ export function recoverInternalReview(client: Database, input: RecoveryInput) {
           ),
         )
         .get();
-      const audit = db
+      const message = db
         .select()
-        .from(internalReviewRecoveries)
+        .from(workerMessages)
         .where(
           and(
-            eq(internalReviewRecoveries.sourceId, input.sourceId),
-            eq(internalReviewRecoveries.assignment, input.assignment),
+            eq(workerMessages.sourceId, input.sourceId),
+            eq(workerMessages.assignment, input.assignment),
+            eq(workerMessages.key, recoveryKey),
           ),
         )
         .get();
@@ -250,8 +307,8 @@ export function recoverInternalReview(client: Database, input: RecoveryInput) {
         collision !== undefined
       )
         return incompatible();
-      if (audit !== undefined) {
-        if (!auditedRetry(audit, review, input)) return incompatible();
+      if (message !== undefined) {
+        if (!auditedRetry(message, review, input)) return incompatible();
         return Ok({ changed: false });
       }
       const latest = db
@@ -279,19 +336,28 @@ export function recoverInternalReview(client: Database, input: RecoveryInput) {
       )
         return incompatible();
       const now = new Date().toISOString();
-      db.insert(internalReviewRecoveries)
+      const receipt: z.infer<typeof receiptSchema> = {
+        sourceId: input.sourceId,
+        assignment: input.assignment,
+        repository: input.repository,
+        implementerLaunchId: input.launchId,
+        number: input.number,
+        url: input.url,
+        branch: input.branch,
+        worktreePath: input.worktreePath,
+        head: input.head,
+        personInstructed: true,
+        authorizedAt: now,
+      };
+      db.insert(workerMessages)
         .values({
           sourceId: input.sourceId,
           assignment: input.assignment,
-          repository: input.repository,
-          implementerLaunchId: input.launchId,
-          number: input.number,
-          url: input.url,
-          branch: input.branch,
-          worktreePath: input.worktreePath,
-          head: input.head,
-          personInstructed: true,
-          authorizedAt: now,
+          key: recoveryKey,
+          launchId: input.launchId,
+          message: JSON.stringify({ version: 1, instruction: recoveryInstruction, receipt }),
+          sentAt: now,
+          state: "pending",
         })
         .run();
       db.insert(internalReviews)

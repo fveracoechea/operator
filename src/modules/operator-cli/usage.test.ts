@@ -20,7 +20,10 @@ function capture() {
 function usageText(text: string | undefined) {
   const usage = String(text).split("\n");
   expect(usage[0]).toBe("Usage: operator --help | --version [--json]");
-  expect(usage).toHaveLength(53);
+  expect(usage).toHaveLength(54);
+  expect(usage).toContain(
+    "       operator internal-review recover --source id --assignment key --launch id --pr number --head sha --person-instructed [--json]",
+  );
 }
 
 test.each([

@@ -523,7 +523,9 @@ function wait(input: Request & { timeoutSeconds: number }) {
  * the cleanup that follows a verified merge, which the SuperAgent can repeat after a failure.
  */
 export const PullRequests = {
-  recoverReview,
+  recoverReview(input: Parameters<typeof recoverReview>[0]) {
+    return recoverReview(input);
+  },
   merge(input: Request) {
     return merge(input);
   },

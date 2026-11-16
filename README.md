@@ -476,6 +476,12 @@ That GitHub head proves that the worktree commit was pushed.
 
 One transaction rechecks the retained ownership and history, records the authorization receipt, and creates the missing reviewing record with a pending handoff.
 The result's `data.recovery` contains the retained provenance and authorization time.
+The receipt is the immutable body of a new pending system steering message, `internal-review:recovery`, under ADR-0033.
+Ordinary `message send` cannot use that reserved system key.
+The reviewer can read and acknowledge it with the normal message commands; acknowledgement and closure preserve the receipt.
+Recovery needs no schema migration, so an existing open assignment does not block startup through the device's idle migration guard.
+An older installation can still have other pending schema migrations, which require their ordinary supported upgrade conditions before this command can run.
+Recovery authorization does not waive those conditions or authorize a source reset.
 An exact retry returns the same receipt without another handoff, including after the reviewer starts.
 Changed provenance, ended sources or reviews, incompatible owners, existing unrelated review history, and ambiguous associations refuse without writes.
 Launch snapshots and existing review requests remain unchanged.

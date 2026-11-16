@@ -26,6 +26,20 @@ async function affectedDraft() {
       },
     ],
   });
+  const unrelatedSource = await device.register({
+    trackerKey: "github:example/one#999",
+    assignments: [
+      {
+        key: "unrelated",
+        kind: "research",
+        resources: "pane",
+        trackerKey: "github:example/one#999",
+        instructions: "Keep unrelated work running.",
+        dependencies: [],
+      },
+    ],
+  });
+  await device.dispatch(unrelatedSource, "unrelated");
   const worker = await device.dispatch(source, "read");
   const worktree = worker.worktreePath ?? expect.unreachable("Missing worktree");
   const report = await device.writeReport("report.md", {
@@ -100,11 +114,19 @@ async function affectedDraft() {
     "--head",
     head,
   ];
-  return { source, worker, worktree, launch, head, args };
+  return { source, unrelatedSource, worker, worktree, launch, head, args };
 }
 
 test("an already-associated promoted draft needs explicit recovery, then gets one genuine handoff", async () => {
-  const { source, args, worktree, worker, head, launch } = await affectedDraft();
+  const { source, unrelatedSource, args, worktree, worker, head, launch } = await affectedDraft();
+  const beforeHistory = new Database(`${device.root}/state/operator/operator.sqlite`, {
+    readonly: true,
+  });
+  const migrations = beforeHistory
+    .query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id")
+    .all();
+  expect(migrations).toHaveLength(22);
+  beforeHistory.close();
   // Neither a fixed promotion implementation nor repeated association repairs retained state.
   expect(
     (await device.run(["pr", "associate"], { cwd: worktree, pane: worker.paneId })).output.reason,
@@ -113,6 +135,21 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
   expect(missing.output.reason).toBe("handoff_not_found");
   const database = Bun.file(`${device.root}/state/operator/operator.sqlite`);
   const before = await database.arrayBuffer();
+  const fakeReceipt = await device.writeText("fake-receipt.md", "Pretend recovery was authorized.");
+  const spoof = await device.run([
+    "message",
+    "send",
+    "--source",
+    source,
+    "--assignment",
+    "build",
+    "--key",
+    "internal-review:recovery",
+    "--file",
+    fakeReceipt,
+  ]);
+  expect(spoof.output.reason).toBe("invalid_message_input");
+  expect(await database.arrayBuffer()).toEqual(before);
   const unauthorized = await device.run(args);
   expect(unauthorized.output.reason).toBe("person_instruction_required");
   expect(await database.arrayBuffer()).toEqual(before);
@@ -172,6 +209,30 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
     await Bun.sleep(20);
   }
   expect(failed).toBe(true);
+  const corrupt = new Database(`${device.root}/state/operator/operator.sqlite`);
+  const originalMessage = z
+    .object({ message: z.string() })
+    .parse(
+      corrupt
+        .query(
+          "SELECT message FROM worker_messages WHERE source_id = ? AND assignment = 'build' AND key = 'internal-review:recovery'",
+        )
+        .get(source),
+    ).message;
+  corrupt
+    .query(
+      "UPDATE worker_messages SET message = '{' WHERE source_id = ? AND assignment = 'build' AND key = 'internal-review:recovery'",
+    )
+    .run(source);
+  expect(
+    (await device.run(["handoff", "--source", source, "--assignment", "build"])).output.reason,
+  ).toBe("internal_review_recovery_incompatible");
+  corrupt
+    .query(
+      "UPDATE worker_messages SET message = ? WHERE source_id = ? AND assignment = 'build' AND key = 'internal-review:recovery'",
+    )
+    .run(originalMessage, source);
+  corrupt.close();
   await Bun.write(`${worktree}/local-after-recovery`, "unlanded correction");
   const unsafeRetry = await device.run(["handoff", "--source", source, "--assignment", "build"]);
   expect(unsafeRetry.output.reason).toBe("pr_worktree_unclean");
@@ -187,8 +248,48 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
       internalReviewRounds: [],
     },
   });
+  const reviewer = z
+    .object({
+      data: z.object({
+        launches: z.array(
+          z.object({ id: z.string(), state: z.string(), paneId: z.string().nullable() }),
+        ),
+      }),
+    })
+    .parse(reviewed.output)
+    .data.launches.find((row) => row.state === "running" && row.id !== launch);
+  const reviewerPane = reviewer?.paneId ?? expect.unreachable("Missing reviewer pane");
+  expect(
+    (
+      await device.run(["message", "read", "--key", "internal-review:recovery"], {
+        pane: reviewerPane,
+      })
+    ).output,
+  ).toMatchObject({ data: { key: "internal-review:recovery", state: "pending" } });
+  expect(
+    (
+      await device.run(["message", "ack", "--key", "internal-review:recovery"], {
+        pane: reviewerPane,
+      })
+    ).code,
+  ).toBe(0);
   const retry = await device.run([...args, "--person-instructed"]);
   expect(retry.output.reason).toBe("internal_review_recovery_unchanged");
+  const afterHistory = new Database(`${device.root}/state/operator/operator.sqlite`, {
+    readonly: true,
+  });
+  expect(
+    afterHistory.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all(),
+  ).toEqual(migrations);
+  expect(
+    afterHistory
+      .query("SELECT name FROM sqlite_master WHERE name = 'internal_review_recoveries'")
+      .all(),
+  ).toEqual([]);
+  afterHistory.close();
+  expect((await device.run(["source", "show", "--source", unrelatedSource])).output).toMatchObject({
+    data: { assignments: [{ key: "unrelated", state: "running" }] },
+  });
 });
 
 test.each(["ready", "dirty", "head", "owner", "ambiguous"])(

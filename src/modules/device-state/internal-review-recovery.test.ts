@@ -1,7 +1,16 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+// Bun has no temporary-directory creation or synchronous recursive removal API.
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { fromPromise } from "unthrown";
+import { z } from "zod";
+import { Environment } from "../environment/main.ts";
+import { OperatorHome } from "../operator-home/main.ts";
+import { DeviceState } from "./main.ts";
+import { Projects } from "../projects/main.ts";
+import { WorkerQuestions } from "../worker-questions/main.ts";
 import { migrationsFolder } from "./database.ts";
 import { insertRow, reservedCopy, busy } from "./state-fixture.ts";
 import { recoverInternalReview, readInternalReviewRecovery } from "./internal-review-recovery.ts";
@@ -85,6 +94,17 @@ test("recovery records the attested provenance and a real pending handoff withou
   expect(Date.parse(review?.started_at ?? "")).toBeGreaterThanOrEqual(before);
   expect(client.query("SELECT * FROM launches").get()).toEqual(launch);
   expect(client.query("SELECT * FROM internal_review_rounds").all()).toEqual([]);
+  expect(client.query("SELECT * FROM worker_messages").get()).toMatchObject({
+    key: "internal-review:recovery",
+    launch_id: input.launchId,
+    state: "pending",
+    sent_at: review?.started_at,
+    question_key: null,
+    acknowledged_at: null,
+    reply: null,
+    ended_at: null,
+    rung_at: null,
+  });
   expect(
     readInternalReviewRecovery(client, input.repository, input.sourceId, input.assignment),
   ).toMatchObject({
@@ -396,7 +416,7 @@ test.each(["ready", "skipped"])("an audited retry refuses an already %s review",
   expect(client.serialize()).toEqual(before);
 });
 
-test("review and audit writes roll back together if insertion fails", () => {
+test("review and steering message writes roll back together if insertion fails", () => {
   using client = fixture();
   client.exec(
     "CREATE TRIGGER reject_review BEFORE INSERT ON internal_reviews BEGIN SELECT RAISE(ABORT, 'test refusal'); END",
@@ -405,6 +425,180 @@ test("review and audit writes roll back together if insertion fails", () => {
   expect(recoverInternalReview(client, input)).toMatchObject({ tag: "Defect" });
   expect(client.serialize()).toEqual(before);
 });
+
+test.each(["occupied", "malformed", "wrong version", "wrong instruction", "missing receipt"])(
+  "a pre-existing %s reserved message refuses without a write",
+  (scenario) => {
+    using client = fixture();
+    const bodies: Record<string, string> = {
+      occupied: "Stop implementation",
+      malformed: "{",
+      "wrong version": JSON.stringify({ version: 2 }),
+      "wrong instruction": JSON.stringify({ version: 1, instruction: "Continue implementation" }),
+      "missing receipt": JSON.stringify({
+        version: 1,
+        instruction:
+          "Stop implementation and hand over this assignment for a fresh internal review.",
+      }),
+    };
+    insertRow(client, "worker_messages", {
+      source_id: input.sourceId,
+      assignment: input.assignment,
+      key: "internal-review:recovery",
+      launch_id: input.launchId,
+      message: bodies[scenario] ?? "",
+      state: "pending",
+      sent_at: new Date().toISOString(),
+    });
+    const before = client.serialize();
+    expect(
+      readInternalReviewRecovery(client, input.repository, input.sourceId, input.assignment),
+    ).toMatchObject({ tag: "Err", error: { reason: "internal_review_recovery_incompatible" } });
+    expect(recoverInternalReview(client, input)).toMatchObject({
+      tag: "Err",
+      error: { reason: "internal_review_recovery_incompatible" },
+    });
+    expect(client.serialize()).toEqual(before);
+  },
+);
+
+test.each([
+  ["sourceId", "other-source"],
+  ["assignment", "report"],
+  ["repository", "other/repo"],
+  ["implementerLaunchId", "other-launch"],
+  ["authorizedAt", "2026-01-01T00:00:00.000Z"],
+  ["personInstructed", false],
+])("a receipt with conflicting %s cannot authorize a retry", (field, value) => {
+  using client = fixture();
+  expect(recoverInternalReview(client, input)).toMatchObject({ tag: "Ok" });
+  const row = client.query<{ message: string }, []>("SELECT message FROM worker_messages").get();
+  const body = z
+    .object({
+      version: z.number(),
+      instruction: z.string(),
+      receipt: z.record(z.string(), z.unknown()),
+    })
+    .parse(JSON.parse(row?.message ?? "{}"));
+  body.receipt[field] = value;
+  client.query("UPDATE worker_messages SET message = ?").run(JSON.stringify(body));
+  const before = client.serialize();
+  expect(
+    readInternalReviewRecovery(client, input.repository, input.sourceId, input.assignment),
+  ).toMatchObject({ tag: "Err", error: { reason: "internal_review_recovery_incompatible" } });
+  expect(recoverInternalReview(client, input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "internal_review_recovery_incompatible" },
+  });
+  expect(client.serialize()).toEqual(before);
+});
+
+test.each([false, true])(
+  "the supported message lifecycle preserves the receipt (reply: %s)",
+  async (reply) => {
+    using client = fixture();
+    client.exec("UPDATE launches SET pane_id = 'worker-pane', herdr_socket = 'test-socket'");
+    expect(recoverInternalReview(client, input)).toMatchObject({ tag: "Ok" });
+    const root = mkdtempSync("/tmp/opencode/review-routing/message-lifecycle-");
+    try {
+      const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
+      mkdirSync(paths.stateRoot, { recursive: true });
+      client.exec(`VACUUM INTO '${paths.database}'`);
+      const target = {
+        by: "key" as const,
+        repository: input.repository,
+        checkout: "/checkout",
+        sourceId: input.sourceId,
+        assignment: input.assignment,
+      };
+      const key = "internal-review:recovery";
+      using environment = spyOn(Environment, "read").mockReturnValue(
+        Environment.parse({
+          HOME: root,
+          NODE_ENV: "test",
+          HERDR_SOCKET_PATH: "test-socket",
+          HERDR_PANE_ID: "worker-pane",
+        }),
+      );
+      using project = spyOn(Projects, "current").mockReturnValue(
+        fromPromise(
+          async () => ({
+            reason: "project_resolved" as const,
+            data: { repository: input.repository, checkout: "/checkout", registeredAt: "now" },
+          }),
+          (cause, defect) => defect(cause),
+        ),
+      );
+      const receipt = DeviceState.readInternalReviewRecovery(
+        paths,
+        input.repository,
+        input.sourceId,
+        input.assignment,
+      );
+      const read = DeviceState.readMessage(paths, target, key);
+      expect(read).toMatchObject({ tag: "Ok", value: { message: { state: "pending" } } });
+      const body = read.getOrNull()?.message?.message ?? "";
+      expect(JSON.parse(body)).toMatchObject({
+        version: 1,
+        instruction:
+          "Stop implementation and hand over this assignment for a fresh internal review.",
+        receipt: { implementerLaunchId: input.launchId, personInstructed: true },
+      });
+      const file = `${root}/reply.txt`;
+      await Bun.write(file, "Handing over");
+      expect(
+        await WorkerQuestions.acknowledge({ paths, key, file: reply ? file : null }),
+      ).toMatchObject({
+        tag: "Ok",
+        value: { reason: reply ? "message_replied" : "message_acknowledged" },
+      });
+      for (const state of reply ? ["replied", "closed"] : ["acknowledged"]) {
+        if (state === "closed") {
+          environment.mockReturnValue(Environment.parse({ HOME: root, NODE_ENV: "test" }));
+          expect(
+            await WorkerQuestions.close({
+              paths,
+              key,
+              cwd: "/checkout",
+              sourceId: input.sourceId,
+              assignment: input.assignment,
+            }),
+          ).toMatchObject({
+            tag: "Ok",
+            value: { reason: "message_closed" },
+          });
+        }
+        expect(DeviceState.readMessage(paths, target, key)).toMatchObject({
+          tag: "Ok",
+          value: { message: { message: body, state } },
+        });
+        expect(
+          DeviceState.readInternalReviewRecovery(
+            paths,
+            input.repository,
+            input.sourceId,
+            input.assignment,
+          ),
+        ).toEqual(receipt);
+        expect(DeviceState.recoverInternalReview(paths, input)).toMatchObject({
+          tag: "Ok",
+          value: { changed: false },
+        });
+      }
+      expect(
+        DeviceState.readInternalReviewRecovery(
+          paths,
+          "other/repo",
+          input.sourceId,
+          input.assignment,
+        ),
+      ).toMatchObject({ tag: "Ok", value: null });
+      expect(project).toHaveBeenCalledTimes(reply ? 1 : 0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("orphaned review round history refuses rather than inventing a new review", () => {
   using client = fixture();
