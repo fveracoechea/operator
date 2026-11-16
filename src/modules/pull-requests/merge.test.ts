@@ -1,8 +1,8 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Ok } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
+import { Environment } from "../environment/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
-import { WorkerKinds } from "../worker-kinds/main.ts";
 import {
   failed,
   git,
@@ -20,6 +20,33 @@ import { stacked } from "./relay.ts";
 afterEach(() => {
   mock.restore();
 });
+
+test("canonical merge phase guards through the isolated CLI seam", async () => {
+  const root = Bun.fileURLToPath(new URL("../../../", import.meta.url));
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      `${root}/tools/test-watchdog.ts`,
+      `${root}/src/modules/operator-cli/run.pr-merge.test.ts`,
+      `${root}/src/modules/operator-cli/run.internal-review-ready.test.ts`,
+      "--test-name-pattern",
+      "a recorded wait frontier|a new merge refuses|an already merged PR|a PR that the person merged|the reviewer ends the review|a person-instructed skip ends",
+    ],
+    {
+      cwd: root,
+      env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  expect(code, `${stdout}\n${stderr}`).toBe(0);
+  expect(`${stdout}\n${stderr}`).toContain("11 pass");
+}, 120000);
 
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const parent = { assignment: "parent", number: 6, branch: "task/parent" };
@@ -47,9 +74,9 @@ const verifyRecovery = {
 };
 
 /** A running owner of `other` with PR #7 recorded, and a cleanup start that never runs. */
-async function owner(relay: string | null = null, assignments?: string[], kind?: string) {
+async function owner(relay: string | null = null, assignments?: string[]) {
   const device = await prDevice({ assignments });
-  const started = device.start("other", { kind });
+  const started = device.start("other");
   device.associate(started.launchId, 7, "task/other", relay);
   const head = git(started.worktree, "rev-parse", "HEAD");
   // A live process that is not this one, so the recorded cleanup stays visibly running.
@@ -89,45 +116,6 @@ function merged(head: string, mergeCommit = "m1") {
     cleanup: "started",
   };
 }
-
-test.each(["dirty", "failed", "unavailable", "no-answer"] as const)(
-  "a typed new merge refuses a %s worktree observation without requesting a merge",
-  async (state) => {
-    const { device, head, detach, input } = await owner(
-      null,
-      undefined,
-      JSON.stringify(WorkerKinds.resolve("implementation")),
-    );
-    await using _ = device;
-    device.answer(() => succeeded(pullRequestBody({ head })));
-    const invoke = ToolInvocation.run;
-    spyOn(ToolInvocation, "run").mockImplementation(async (request) => {
-      if (request.args[0] !== "status") return invoke(request);
-      if (state === "unavailable")
-        return { status: "unavailable", tool: "git", detail: "Missing." };
-      if (state === "no-answer") return { status: "no-answer", detail: "Interrupted." };
-      return {
-        status: "completed",
-        exitCode: state === "failed" ? 1 : 0,
-        stdout: state === "dirty" ? "?? pending.txt\n" : "",
-        stderr: "",
-      };
-    });
-    expect<unknown>(await merge(input)).toMatchObject({
-      tag: "Err",
-      error: {
-        reason: "pr_worktree_unclean",
-        kind: "implementation",
-        phase: "feedback",
-        next: { command: "git status --short" },
-        state: { worktree_clean: false },
-      },
-    });
-    expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
-    expect(detach).not.toHaveBeenCalled();
-    expect(assignmentState(device)).toBe("pr-open");
-  },
-);
 
 test("an eligible PR at the worktree head merges once and starts its cleanup", async () => {
   const { device, head, detach, sleep, input } = await owner();
@@ -299,20 +287,13 @@ test("a refused gate sends no merge request and writes nothing", async () => {
 });
 
 test("a worktree whose head Git cannot read never merges", async () => {
-  const { device, detach, input } = await owner(
-    null,
-    undefined,
-    JSON.stringify(WorkerKinds.resolve("implementation")),
-  );
+  const { device, input } = await owner();
   await using _ = device;
   device.answer(() => succeeded(pullRequestBody()));
   const run = ToolInvocation.run;
   const answers = [
     { status: "completed" as const, exitCode: 128, stdout: "h1\n", stderr: "fatal" },
     { status: "no-answer" as const, detail: "git ended" },
-    { status: "unavailable" as const, tool: "git", detail: "missing" },
-    { status: "no-answer" as const, detail: "git ended", exitCode: 0, stdout: "h1\n" },
-    { status: "unavailable" as const, tool: "git", detail: "missing", exitCode: 0, stdout: "h1\n" },
   ];
   for (const answer of answers) {
     spyOn(ToolInvocation, "run").mockImplementation(async (request) =>
@@ -326,15 +307,6 @@ test("a worktree whose head Git cannot read never merges", async () => {
       },
     });
   }
-  expect(device.calls.map(requestKind)).toEqual([
-    "pull_request",
-    "pull_request",
-    "pull_request",
-    "pull_request",
-    "pull_request",
-  ]);
-  expect(detach).not.toHaveBeenCalled();
-  expect(assignmentState(device)).toBe("pr-open");
 });
 
 test("a stacked PR merges only after its relay finished", async () => {

@@ -18,6 +18,7 @@ import {
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import { owned, reviewEnded } from "./internal-review.ts";
+import { progressSchema } from "./wait-machine.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Request = { paths: Paths; cwd: string };
@@ -156,9 +157,14 @@ function guarded(
   }, qualify).flatMap((result) => result);
 }
 
-/** A current successful merge decision proves readiness; an existing merge needs no exit. */
+/** Earlier readiness is a phase witness, not a substitute for the fresh merge decision. */
 async function mergePhase(owner: Owner): Promise<Failure | null> {
   if (owner.kind === null) return null;
+  const ready =
+    owner.reviewState === null
+      ? owner.progress !== null &&
+        progressSchema.parse(JSON.parse(owner.progress)).eligibleHead !== null
+      : owner.reviewState === "ready" || owner.reviewState === "skipped";
   const status = await ToolInvocation.run({
     tool: "git",
     args: ["status", "--porcelain"],
@@ -169,7 +175,7 @@ async function mergePhase(owner: Owner): Promise<Failure | null> {
     {
       kind: WorkerKinds.snapshotSchema().parse(JSON.parse(owner.kind)),
       report: null,
-      pr: { associated: true, rounds: 0, ready: true, merged: false, parked: false },
+      pr: { associated: true, rounds: 0, ready, merged: false, parked: false },
       internalReview: owner.internalReview === true,
       reviewEnded: reviewEnded(owner),
       worktreeClean: status.status === "completed" && status.exitCode === 0 && status.stdout === "",

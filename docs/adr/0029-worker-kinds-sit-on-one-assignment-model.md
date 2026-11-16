@@ -49,7 +49,11 @@ An ended review stays in feedback after a newer head, without reopening review r
 The canonical merge lifecycle gathers the current GitHub and local facts once.
 Observing an associated PR does not require a historical eligibility receipt or a clean worktree.
 An already merged PR takes verification and cleanup, without requesting a new merge.
-A new merge requires the fresh merge gate to prove readiness, then the phase machine checks worktree cleanliness.
+A new merge requires both a recorded ready frontier and the fresh merge gate.
+An ended ready or skipped review proves that frontier.
+Without a review record, an earlier eligible wait observation proves it, even after a newer head.
+An earlier observation cannot override an active review.
+The phase machine also checks current worktree cleanliness.
 Cleanup independently retains unlanded work until the person authorizes its removal.
 
 For unguarded work, the phase in a result names the command frontier: the last declared work phase before the tail.

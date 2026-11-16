@@ -212,6 +212,14 @@ test("a phase exit command refuses until its guard holds, and names the next com
     state: { conditions: { notDraft: false } },
   });
   await Bun.write(github, JSON.stringify({ pulls: [{ ...pull, isDraft: false }] }));
+  expect((await device.run(["pr", "merge"], options)).output).toMatchObject({
+    reason: "pr_not_ready",
+    kind: "implementation",
+    phase: "feedback",
+    next: { command: "operator pr wait" },
+    state: { pr_ready: false },
+  });
+  expect(await Bun.file(github).json()).not.toHaveProperty("mergeRequests");
   expect((await device.run(["pr", "wait", "--timeout", "0"], options)).output).toMatchObject({
     reason: "pr_events_observed",
     data: { events: [{ kind: "merge_eligible", head }] },

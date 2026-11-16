@@ -217,7 +217,6 @@ export async function prDevice(options: { assignments?: string[] } = {}) {
       state?: "running" | "failed";
       add?: boolean;
       socket?: string | null;
-      kind?: string | null;
     } = {},
   ) {
     const branch = options.branch === undefined ? `task/${assignment}` : options.branch;
@@ -248,7 +247,6 @@ export async function prDevice(options: { assignments?: string[] } = {}) {
       profile: null,
       release: JSON.stringify({ version: "0.0.0" }),
       skills: "[]",
-      kind: options.kind ?? null,
       herdrSocket: options.socket === undefined ? `${root}/herdr.sock` : options.socket,
       workspaceId: null,
       tabId: null,

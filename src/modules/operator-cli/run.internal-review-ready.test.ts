@@ -178,7 +178,12 @@ async function dispatch(source: string, assignment = "implement") {
 }
 
 type Pull = Record<string, unknown> & { number: number };
-async function github(change: { pulls?: Pull[]; commentLost?: boolean; readyLost?: boolean }) {
+async function github(change: {
+  pulls?: Pull[];
+  commentLost?: boolean;
+  readyLost?: boolean;
+  mergeRefuse?: boolean;
+}) {
   const file = Bun.file(`${root}/github.json`);
   const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
   await Bun.write(file, JSON.stringify({ ...current, ...change }));
@@ -568,6 +573,20 @@ ${overview}
       state: { localHead: afterReady, prHead: third },
     },
   });
+  await github({
+    mergeRefuse: true,
+    pulls: [
+      pull({
+        head: afterReady,
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: { reason: "pr_merge_refused", phase: "feedback" },
+  });
 }, 180000);
 
 test("review input refuses malformed markdown and JSON before recording or publishing", async () => {
@@ -820,5 +839,19 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
       next: { decider: "super-agent" },
       state: { localHead: afterSkip, prHead: head },
     },
+  });
+  await github({
+    mergeRefuse: true,
+    pulls: [
+      pull({
+        head: afterSkip,
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: { reason: "pr_merge_refused", phase: "feedback" },
   });
 }, 180000);
