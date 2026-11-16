@@ -207,7 +207,9 @@ test("assignment ending reserves the writer before running even a refusing decis
 
 test("ending one assignment abandons its open conversations but retains an unselected PR separately", () => {
   using db = endedDatabase();
-  db.exec("INSERT INTO assignments VALUES ('one', 'keep', 'pr', 'pr-open')");
+  db.exec(
+    "INSERT INTO assignments (source_id, key, completion, state) VALUES ('one', 'keep', 'pr', 'pr-open')",
+  );
   insertRow(db, "launches", {
     id: "l1",
     source_id: "one",
