@@ -24,6 +24,28 @@ afterEach(() => {
 
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const parent = { assignment: "parent", number: 6, branch: "task/parent" };
+const passingConditions = {
+  approved: true,
+  checksPassing: true,
+  threadsResolved: true,
+  defaultBase: true,
+  notDraft: true,
+  stackRelayed: true,
+  reviewEnded: true,
+};
+const effectRecovery = {
+  decider: "super-agent",
+  question:
+    "How should GitHub's current state be inspected before repeating the unconfirmed request?",
+};
+const refusedRecovery = {
+  decider: "person",
+  question: "Which GitHub merge restriction must be resolved before this PR can merge?",
+};
+const verifyRecovery = {
+  command: "operator pr merge",
+  why: "Verify whether the earlier merge request landed.",
+};
 
 /** A running owner of `other` with PR #7 recorded, and a cleanup start that never runs. */
 async function owner(relay: string | null = null, assignments?: string[]) {
@@ -383,11 +405,25 @@ test.each(["identity", "failed", "refused", "prewrite"] as const)(
     await using _ = device;
     if (stage === "identity")
       spyOn(DeviceState, "recordDeliveryRequest").mockReturnValue(
-        Err({ reason: "state_busy", detail: "busy" }),
+        Err({
+          reason: "state_busy",
+          detail: "busy",
+          next: {
+            decider: "super-agent",
+            question: "How should the busy state writer be recovered?",
+          },
+        }),
       );
     else
       spyOn(DeviceState, "finishDelivery").mockReturnValue(
-        Err({ reason: "state_busy", detail: "busy" }),
+        Err({
+          reason: "state_busy",
+          detail: "busy",
+          next: {
+            decider: "super-agent",
+            question: "How should the busy state writer be recovered?",
+          },
+        }),
       );
     if (stage === "prewrite") {
       const run = ToolInvocation.run;
@@ -412,7 +448,11 @@ test.each(["identity", "failed", "refused", "prewrite"] as const)(
     }[stage];
     expect<unknown>(await merge(input)).toMatchObject({
       tag: "Err",
-      error: { reason: stage === "identity" ? "pr_merge_unverified" : "pr_defect", detail },
+      error: {
+        reason: stage === "identity" ? "pr_merge_unverified" : "pr_defect",
+        detail,
+        next: { decider: "super-agent", question: expect.stringMatching(/\S/) as unknown },
+      },
     });
     expect<unknown>(DeviceState.readDelivery(device.paths, launchId)).toMatchObject({
       tag: "Ok",
@@ -639,6 +679,13 @@ test("a merged PR without a merge commit is not recorded", async () => {
       reason: "pr_merge_unverified",
       detail:
         "GitHub does not report PR #7 merged at landed. Nothing was recorded. Repeat operator pr merge.",
+      next: verifyRecovery,
+      state: {
+        pullRequest: 7,
+        expectedHead: "landed",
+        observedState: "MERGED",
+        observedHead: "landed",
+      },
     },
   });
   expect(detach).not.toHaveBeenCalled();
@@ -653,6 +700,11 @@ test("an owner without a recorded PR reads nothing from GitHub", async () => {
     error: {
       reason: "pr_not_associated",
       detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
+      next: {
+        command: "operator pr associate",
+        why: "Associate the assignment's open PR before merging.",
+      },
+      state: { pullRequest: null },
     },
   });
   expect(device.calls).toEqual([]);
@@ -668,6 +720,13 @@ test("a refused gate sends no merge request and writes nothing", async () => {
       {
         reason: "pr_not_open",
         detail: `The PR is closed without a merge. Ask the SuperAgent. ${nothing}`,
+        result: "refused",
+        conditions: passingConditions,
+        next: {
+          decider: "super-agent",
+          question: "How should the closed PR assignment be resolved?",
+        },
+        state: { pullRequest: "CLOSED" },
       },
     ],
     [
@@ -675,6 +734,13 @@ test("a refused gate sends no merge request and writes nothing", async () => {
       {
         reason: "pr_merge_blocked",
         detail: `The PR needs an approving review decision. ${nothing}`,
+        result: "refused",
+        conditions: { ...passingConditions, approved: false },
+        next: {
+          command: "operator pr wait",
+          why: `The PR needs an approving review decision. ${nothing}`,
+        },
+        state: { conditions: { ...passingConditions, approved: false } },
       },
     ],
     [
@@ -682,6 +748,13 @@ test("a refused gate sends no merge request and writes nothing", async () => {
       {
         reason: "pr_head_mismatch",
         detail: `The PR head is elsewhere, but the worktree is at ${head}. Push or reconcile first. ${nothing}`,
+        result: "refused",
+        conditions: passingConditions,
+        next: {
+          decider: "super-agent",
+          question: "How should the worktree and PR heads be reconciled without losing commits?",
+        },
+        state: { localHead: head, prHead: "elsewhere" },
       },
     ],
   ] as const) {
@@ -726,6 +799,13 @@ test("a stacked PR merges only after its relay finished", async () => {
     error: {
       reason: "pr_merge_blocked",
       detail: "The PR needs a finished parent-merge relay. Nothing was merged or changed.",
+      result: "refused",
+      conditions: { ...passingConditions, stackRelayed: false },
+      next: {
+        command: "operator pr wait",
+        why: "The PR needs a finished parent-merge relay. Nothing was merged or changed.",
+      },
+      state: { conditions: { ...passingConditions, stackRelayed: false } },
     },
   });
   mock.restore();
@@ -757,22 +837,28 @@ test("every merge answer is verified against GitHub's state", async () => {
   const cases = [
     {
       answer: failed("Head branch was modified"),
-      error: { reason: "pr_merge_refused", detail: "github_refused: Head branch was modified" },
+      error: {
+        reason: "pr_merge_refused",
+        detail: "github_refused: Head branch was modified",
+        next: refusedRecovery,
+      },
     },
     {
       answer: uncertain("gh ended on SIGTERM"),
-      error: { reason: "github_uncertain", detail: "gh ended on SIGTERM" },
+      error: { reason: "github_uncertain", detail: "gh ended on SIGTERM", next: effectRecovery },
     },
     {
       answer: mergeRequest("merged"),
       error: {
         reason: "pr_merge_unverified",
         detail: `GitHub does not report PR #7 merged at ${head}. Nothing was recorded. Repeat operator pr merge.`,
+        next: verifyRecovery,
+        state: { pullRequest: 7, expectedHead: head, observedState: "OPEN", observedHead: head },
       },
     },
     {
       answer: mergeRequest("failed"),
-      error: { reason: "pr_merge_refused", detail: "Request failed." },
+      error: { reason: "pr_merge_refused", detail: "Request failed.", next: refusedRecovery },
     },
     {
       answer: mergeRequest("enqueued"),
@@ -780,6 +866,11 @@ test("every merge answer is verified against GitHub's state", async () => {
         reason: "pr_merge_unverified",
         detail:
           "GitHub put the PR in a merge queue: Request enqueued. Nothing was recorded. Repeat operator pr merge after it merges.",
+        next: {
+          command: "operator pr merge",
+          why: "Verify the queued merge after GitHub reports it merged.",
+        },
+        state: { mergeRequest: "enqueued" },
       },
     },
     {
@@ -787,6 +878,7 @@ test("every merge answer is verified against GitHub's state", async () => {
       error: {
         reason: "github_uncertain",
         detail: "GitHub did not describe the merge request in the expected form.",
+        next: effectRecovery,
       },
     },
   ];
@@ -797,10 +889,15 @@ test("every merge answer is verified against GitHub's state", async () => {
     trial.device.answer((args) =>
       requestKind(args) === "merge" ? answer : succeeded(pullRequestBody({ head: trial.head })),
     );
-    expect<unknown>(await merge(trial.input)).toEqual({
-      tag: "Err",
-      error: { ...error, detail: error.detail.replaceAll(head, trial.head) },
-    });
+    const expected = { ...error, detail: error.detail.replaceAll(head, trial.head) };
+    if (expected.state !== undefined && "expectedHead" in expected.state)
+      expected.state = {
+        pullRequest: 7,
+        expectedHead: trial.head,
+        observedState: "OPEN",
+        observedHead: trial.head,
+      };
+    expect<unknown>(await merge(trial.input)).toEqual({ tag: "Err", error: expected });
   }
 });
 
@@ -842,6 +939,11 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
       reason: "pr_merge_unverified",
       detail:
         "GitHub still runs the merge request: Request pending. Nothing was recorded. Repeat operator pr merge.",
+      next: {
+        command: "operator pr merge",
+        why: "Verify whether the background merge request landed.",
+      },
+      state: { mergeRequest: "pending" },
     },
   });
   expect(device.calls.filter((args) => requestKind(args) === "merge_read")).toHaveLength(120);
@@ -855,11 +957,12 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
         reason: "pr_merge_unverified",
         detail:
           "GitHub did not answer the merge request read: github_refused: Not Found. Nothing was recorded. Repeat operator pr merge.",
+        next: verifyRecovery,
       },
     ],
     [
       uncertain("gh ended on SIGTERM"),
-      { reason: "github_uncertain", detail: "gh ended on SIGTERM" },
+      { reason: "github_uncertain", detail: "gh ended on SIGTERM", next: effectRecovery },
     ],
   ] as const) {
     device.calls.length = 0;
@@ -889,6 +992,11 @@ test("an existing request without an identity remains blocked", async () => {
       reason: "pr_merge_unverified",
       detail:
         "GitHub still runs the merge request: GitHub already runs a merge request for this PR. Nothing was recorded. Repeat operator pr merge.",
+      next: {
+        command: "operator pr merge",
+        why: "Verify whether the background merge request landed.",
+      },
+      state: { mergeRequest: "pending" },
     },
   });
   expect(device.calls.map(requestKind)).toEqual(["pull_request", "merge", "pull_request"]);
@@ -921,7 +1029,14 @@ test("a merge request that throws is a defect unless GitHub shows the merge", as
   });
   expect<unknown>(await merge(input)).toEqual({
     tag: "Err",
-    error: { reason: "pr_defect", detail: "Error: boom" },
+    error: {
+      reason: "pr_defect",
+      detail: "Error: boom",
+      next: {
+        decider: "super-agent",
+        question: "How should the unexpected merge failure be investigated before another request?",
+      },
+    },
   });
 });
 
@@ -944,7 +1059,15 @@ test("a cleanup that cannot start fails after the merge is recorded", async () =
   });
   expect<unknown>(await merge(input)).toEqual({
     tag: "Err",
-    error: { reason: "pr_io_failed", detail: "Error: ENOENT: no bun" },
+    error: {
+      reason: "pr_io_failed",
+      detail: "Error: ENOENT: no bun",
+      next: {
+        decider: "super-agent",
+        question: "How should the PR worktree IO failure be corrected without losing work?",
+      },
+      state: { code: "ENOENT" },
+    },
   });
   expect(assignmentState(device)).toBe("merged");
   expect<unknown>(DeviceState.readDelivery(device.paths, launchId)).toMatchObject({

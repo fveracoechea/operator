@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { contents, info, same, verdict, writable, type Contents } from "./content.ts";
 import { writeFile } from "../../lib/write-file.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
 export type Host = keyof Paths["skillHosts"];
@@ -40,7 +41,7 @@ type Copy = {
   current: Contents | null;
   action: ReturnType<typeof verdict>;
 };
-type Refusal = {
+type Refusal = RefusalContext & {
   reason: "skills_release_invalid" | "skill_copy_conflict" | "skills_missing";
   detail: string;
 };
@@ -68,6 +69,11 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
   if (names.length === 0)
     return {
       reason: "skills_release_invalid" as const,
+      next: {
+        decider: "person",
+        question: "Which intact Operator release should supply the bundled skills?",
+      },
+      state: { source: request.source, skills: 0 },
       detail: "The running release has no owned skills.",
     };
   const copies: Copy[] = [];
@@ -97,6 +103,12 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
   if (conflicts.length)
     return {
       reason: "skill_copy_conflict" as const,
+      next: {
+        decider: "person",
+        question:
+          "Which conflicting skill contents or external links should be retained before installation continues?",
+      },
+      state: { paths: conflicts.map((copy) => copy.destination) },
       detail: `Preserve these skill paths and resolve their contents or external wiring: ${conflicts.map((copy) => copy.destination).join(", ")}`,
     };
   // Only check mode refuses a missing copy, because copy mode installs it.
@@ -106,6 +118,12 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
   if (missing.length)
     return {
       reason: "skills_missing" as const,
+      next: {
+        decider: "person",
+        question:
+          "Should the missing skill paths be restored by Operator installation or by their external configuration owner?",
+      },
+      state: { paths: missing.map((copy) => copy.destination) },
       detail: `These skill paths are missing: ${missing.map((copy) => copy.destination).join(", ")}`,
     };
   return { copies };
@@ -165,6 +183,10 @@ export async function install(request: Request) {
   )
     return {
       reason: "skill_copy_conflict" as const,
+      next: {
+        decider: "person" as const,
+        question: "Which configuration owns the externally managed skill ledger or lock?",
+      },
       detail: "The device owned-content ledger or lock is externally managed.",
     };
   if (request.check) {
@@ -184,6 +206,12 @@ export async function install(request: Request) {
     if (!(await changeCopy(copy)))
       return {
         reason: "skill_copy_conflict" as const,
+        next: {
+          decider: "person" as const,
+          question:
+            "Which concurrently changed skill contents should be retained before installation continues?",
+        },
+        state: { path: copy.destination },
         detail: `Skill contents changed during installation: ${copy.destination}`,
       };
     if (copy.released === null) delete recorded.entries[copy.destination];

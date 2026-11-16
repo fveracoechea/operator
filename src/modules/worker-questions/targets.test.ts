@@ -45,7 +45,14 @@ test("a worker command outside a Herdr pane refuses", () => {
 });
 
 test("stop carries a refusal into another result, and the time is an ISO timestamp", () => {
-  const refusal = { reason: "x", detail: "y" };
+  const refusal = {
+    reason: "x",
+    detail: "y",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should the simulated target failure be corrected?",
+    },
+  };
   expect(stop(Err(refusal))).toMatchObject({ tag: "Err", error: refusal });
   expect(now()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 });

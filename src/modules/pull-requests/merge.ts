@@ -1,5 +1,5 @@
 import { ErrAsync, fromPromise, type AsyncResult } from "unthrown";
-import type { ResultContext } from "../../lib/cli-result.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
@@ -21,7 +21,7 @@ import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import { owned, reviewEnded, worktreeFacts } from "./internal-review.ts";
 
 type Request = { paths: Paths; cwd: string; sourceId?: string; assignment?: string };
-type Failure = { reason: string; detail: string } & ResultContext;
+type Failure = Refusal;
 type Outcome = { reason: string; data: object };
 type Delivery = Extract<ReturnType<typeof DeviceState.claimDelivery>, { tag: "Ok" }>["value"];
 
@@ -107,6 +107,16 @@ function verify(
       request ?? {
         reason: "pr_merge_unverified",
         detail: `GitHub does not report PR #${number} merged at ${head ?? observed.head}. Nothing was recorded. Repeat operator pr merge.`,
+        next: {
+          command: "operator pr merge",
+          why: "Verify whether the earlier merge request landed.",
+        },
+        state: {
+          pullRequest: number,
+          expectedHead: head,
+          observedState: observed.state,
+          observedHead: observed.head,
+        },
       },
     );
   });
@@ -174,8 +184,7 @@ function eligible(
     stackRelayed: relay === null || relay.state === "relayed",
     reviewEnded: reviewEnded(owner),
   });
-  if (decision.result === "refused")
-    return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
+  if (decision.result === "refused") return ErrAsync<Failure>(decision);
   if (decision.result === "verify")
     return claimed(input, owner, observed.head, true, () =>
       verify(input, owner, number, observed.head, null),
@@ -198,6 +207,11 @@ function eligible(
           return ErrAsync<Failure>({
             reason: "pr_defect",
             detail: "Could not settle the prewrite refusal.",
+            next: {
+              decider: "super-agent",
+              question:
+                "How should the outstanding prewrite claim be reconciled after its state write failed?",
+            },
           });
         return ErrAsync<Failure>({
           reason: "pr_worktree_unclean",
@@ -249,17 +263,37 @@ function claimed(
 
 type Answer = Awaited<ReturnType<typeof mergePullRequest>>;
 
-function refusal(answer: Exclude<Answer, { tag: "Ok" }>, read: boolean) {
-  if (answer.tag === "Defect") return { reason: "pr_defect", detail: String(answer.cause) };
-  if (answer.error.reason !== "github_failed")
-    return { reason: answer.error.reason, detail: answer.error.detail };
+function refusal(answer: Exclude<Answer, { tag: "Ok" }>, read: boolean): Failure {
+  if (answer.tag === "Defect")
+    return {
+      reason: "pr_defect",
+      detail: String(answer.cause),
+      next: {
+        decider: "super-agent",
+        question: "How should the unexpected merge failure be investigated before another request?",
+      },
+    };
+  if (answer.error.reason !== "github_failed") return answer.error;
   // GitHub accepted the request before a read failed, so the merge can still land.
   return read
     ? {
+        ...answer.error,
         reason: "pr_merge_unverified",
         detail: `GitHub did not answer the merge request read: ${answer.error.detail}. Nothing was recorded. Repeat operator pr merge.`,
+        next: {
+          command: "operator pr merge",
+          why: "Verify whether the earlier merge request landed.",
+        },
       }
-    : { reason: "pr_merge_refused", detail: answer.error.detail };
+    : {
+        ...answer.error,
+        reason: "pr_merge_refused",
+        detail: answer.error.detail,
+        next: {
+          decider: "person",
+          question: "Which GitHub merge restriction must be resolved before this PR can merge?",
+        },
+      };
 }
 
 /**
@@ -293,12 +327,25 @@ async function requestMerge(
           reason: "pr_merge_unverified",
           detail:
             "The accepted request identity could not be saved. The delivery remains outstanding.",
+          next: {
+            decider: "super-agent",
+            question:
+              "How can the accepted merge request's outcome be established without another submission?",
+          },
         };
     }
     if (answer.value.status === "failed") {
       const released = DeviceState.finishDelivery(input.paths, owner.launchId, merge.head);
       if (released.tag !== "Ok")
-        return { reason: "pr_defect", detail: "Could not settle the failed delivery." };
+        return {
+          reason: "pr_defect",
+          detail: "Could not settle the failed delivery.",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should the failed delivery's persisted claim be reconciled before retrying?",
+          },
+        };
     }
     const next = followMergeRequest(answer.value, reads);
     if (next.result === "verify") return next.refusal;
@@ -317,7 +364,15 @@ function requestRefusal(
   if (!read && answer.tag === "Err" && answer.error.reason === "github_failed") {
     const released = DeviceState.finishDelivery(input.paths, owner.launchId, head);
     if (released.tag !== "Ok")
-      return { reason: "pr_defect", detail: "Could not settle the refused delivery." };
+      return {
+        reason: "pr_defect",
+        detail: "Could not settle the refused delivery.",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the refused delivery's persisted claim be reconciled before retrying?",
+        },
+      };
   }
   return refusal(answer, read);
 }
@@ -337,6 +392,11 @@ export function merge(input: Request) {
         return ErrAsync<Failure>({
           reason: "pr_not_associated",
           detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
+          next: {
+            command: "operator pr associate",
+            why: "Associate the assignment's open PR before merging.",
+          },
+          state: { pullRequest: null },
         });
       return observePullRequest(owner.repository, number).flatMap((observed) =>
         worktreeFacts(owner.worktreePath).flatMap(({ localHead, changed }) =>

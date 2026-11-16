@@ -1,8 +1,9 @@
 import { Err, Ok, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
 import { GithubApi } from "../github-api/main.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
-export type GithubFailure = {
+export type GithubFailure = RefusalContext & {
   reason: "github_failed" | "github_uncertain" | "github_invalid_response";
   detail: string;
 };
@@ -282,14 +283,20 @@ function fields(target: Target) {
   return ["-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${target.number}`];
 }
 
+const readRecovery = {
+  decider: "super-agent" as const,
+  question:
+    "How should the failed or unreadable GitHub review read be corrected before continuing?",
+};
+
 function unanswered(
   outcome:
     | { status: "failed"; code: string; detail: string }
     | { status: "uncertain"; detail: string },
 ): GithubFailure {
   return outcome.status === "failed"
-    ? { reason: "github_failed", detail: `${outcome.code}: ${outcome.detail}` }
-    : { reason: "github_uncertain", detail: outcome.detail };
+    ? { reason: "github_failed", detail: `${outcome.code}: ${outcome.detail}`, next: readRecovery }
+    : { reason: "github_uncertain", detail: outcome.detail, next: readRecovery };
 }
 
 /** One read of the facts that a review post needs. Reads are not effects. */
@@ -308,6 +315,7 @@ export function readPullRequest(target: Target) {
     return facts === null
       ? Err({
           reason: "github_invalid_response",
+          next: readRecovery,
           detail: `GitHub did not describe PR #${target.number} of ${target.repository} in the expected form.`,
         })
       : Ok(facts);

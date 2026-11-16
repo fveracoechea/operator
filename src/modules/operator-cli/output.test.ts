@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { failure, respond } from "./output.ts";
+import { failure, printRefusal, respond } from "./output.ts";
 import { Err, Ok } from "unthrown";
 
 afterEach(() => {
@@ -10,25 +10,32 @@ afterEach(() => {
 test("emits a machine-readable refusal only when JSON is selected", () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
-  failure("config_resolve", "unsupported_effort", "unsupported", 3, true);
+  const context = {
+    next: { command: "operator host models --host opencode", why: "Choose an advertised effort." },
+  };
+  failure("config_resolve", "unsupported_effort", "unsupported", 3, true, context);
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
     schemaVersion: 1,
     operation: "config_resolve",
     outcome: "refused",
     reason: "unsupported_effort",
     blockers: [{ reason: "unsupported_effort", detail: "unsupported" }],
+    ...context,
   });
-  expect(error).toHaveBeenCalledWith("operator: unsupported");
+  expect(error).toHaveBeenCalledWith("operator: unsupported_effort: unsupported");
+  expect(error).toHaveBeenCalledWith("next: operator host models --host opencode");
   expect(process.exitCode).toBe(3);
   log.mockClear();
-  failure("config_resolve", "unsupported_effort", "unsupported", 3, false);
+  failure("config_resolve", "unsupported_effort", "unsupported", 3, false, context);
   expect(log).not.toHaveBeenCalled();
 });
 
 test("marks invalid input separately from a refused operation", () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
   spyOn(console, "error").mockImplementation(() => {});
-  failure("config_plan", "invalid_settings_edit", "bad input", 2, true);
+  failure("config_plan", "invalid_settings_edit", "bad input", 2, true, {
+    next: { command: "operator --help", why: "Correct the edit syntax." },
+  });
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({ outcome: "invalid" });
   expect(process.exitCode).toBe(2);
 });
@@ -111,4 +118,71 @@ test("respond passes refusal context without inventing unchecked state", () => {
   ]);
   expect(log).not.toHaveBeenCalled();
   expect(process.exitCode).toBe(3);
+});
+
+test("respond reports a defect with the command's decision context and no checked facts", () => {
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  respond({
+    operation: "ready",
+    result: { tag: "Defect", cause: new Error("injected") },
+    exitCodes: {},
+    defect: "readiness_defect",
+    json: true,
+  });
+  expect(log.mock.calls).toEqual([
+    [
+      JSON.stringify({
+        schemaVersion: 1,
+        operation: "ready",
+        outcome: "refused",
+        reason: "readiness_defect",
+        blockers: [{ reason: "readiness_defect", detail: "Error: injected" }],
+        next: {
+          decider: "super-agent",
+          question: "How should readiness_defect be corrected before retrying ready?",
+        },
+      }),
+    ],
+  ]);
+  expect(error.mock.calls).toEqual([
+    ["operator: readiness_defect: Error: injected"],
+    ["next: super-agent decides: How should readiness_defect be corrected before retrying ready?"],
+  ]);
+  expect(process.exitCode).toBe(1);
+});
+
+test("grouped refusals retain indexed decisions and only their owning checked facts", () => {
+  const { log, error } = {
+    log: spyOn(console, "log").mockImplementation(() => {}),
+    error: spyOn(console, "error").mockImplementation(() => {}),
+  };
+  process.exitCode = 7;
+  printRefusal("blocked", "first\nsecond", [
+    { next: { command: "operator next\n--wait", why: "Observe the assignment." } },
+    { next: { decider: "person", question: "Keep\u2028this?" }, state: { found: false } },
+    { next: { why: "Nothing\rleft." }, state: {} },
+  ]);
+  expect(error.mock.calls).toEqual([
+    ["operator: blocked: first second"],
+    ["next: [1] operator next --wait; [2] person decides: Keep this?; [3] Nothing left."],
+    ['state: [2]={"found":false} [3]={}'],
+  ]);
+  expect(log).not.toHaveBeenCalled();
+  expect(process.exitCode).toBe(7);
+  error.mockClear();
+  printRefusal("blocked", "no facts", [
+    { next: { decider: "super-agent", question: "Which source?" } },
+  ]);
+  expect(error.mock.calls).toEqual([
+    ["operator: blocked: no facts"],
+    ["next: [1] super-agent decides: Which source?"],
+  ]);
+  error.mockClear();
+  printRefusal("blocked", "empty checked facts", { next: { why: "Nothing left." }, state: {} });
+  expect(error.mock.calls).toEqual([
+    ["operator: blocked: empty checked facts"],
+    ["next: Nothing left."],
+    ["state: "],
+  ]);
 });

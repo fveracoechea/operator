@@ -131,7 +131,15 @@ test.each([
   const pane = observePane();
   event(name, json);
   expect(await observe({ paths })).toEqual(
-    Err({ reason: "herdr_event_invalid", detail: "Herdr did not describe a supported event." }),
+    Err({
+      reason: "herdr_event_invalid",
+      detail: "Herdr did not describe a supported event.",
+      next: {
+        decider: "super-agent",
+        question: "Which valid Herdr plugin event should this hook receive?",
+      },
+      state: { eventValid: false },
+    }),
   );
   expect(pane).not.toHaveBeenCalled();
 });
@@ -140,7 +148,15 @@ test("an event without a name is refused", async () => {
   const pane = observePane();
   event(undefined, JSON.stringify({ event: "x", data: { pane_id: "p1" } }));
   expect(await observe({ paths })).toEqual(
-    Err({ reason: "herdr_event_invalid", detail: "Herdr named no plugin event." }),
+    Err({
+      reason: "herdr_event_invalid",
+      detail: "Herdr named no plugin event.",
+      next: {
+        decider: "super-agent",
+        question: "Why did Herdr invoke the hook without naming its plugin event?",
+      },
+      state: { pluginEvent: null },
+    }),
   );
   expect(pane).not.toHaveBeenCalled();
 });
@@ -221,6 +237,11 @@ test.each([
   expect(await installPlugin({ paths })).toEqual(
     Err({
       reason: "herdr_plugin_conflict",
+      next: {
+        decider: "person",
+        question:
+          "Which installation should own the existing Herdr plugin id? Preserve the other plugin until you decide.",
+      },
       detail: "Herdr already links plugin operator from another directory. It was not replaced.",
     }),
   );
@@ -229,7 +250,14 @@ test.each([
 });
 
 test("a Herdr failure is returned", async () => {
-  const failure = { reason: "herdr_failed" as const, detail: "failed" };
+  const failure = {
+    reason: "herdr_failed" as const,
+    detail: "failed",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should the failed Herdr read be inspected?",
+    },
+  };
   spyOn(Herdr, "plugins").mockReturnValue(ErrAsync(failure));
   expect(await installPlugin({ paths })).toEqual(Err(failure));
   expect(await Bun.file(manifest).exists()).toBe(false);

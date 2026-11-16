@@ -8,17 +8,18 @@ import { OwnedSkills } from "../owned-skills/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { UpstreamSkills } from "../upstream-skills/main.ts";
 import { fromPromise, Ok } from "unthrown";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 type Blocker =
-  | {
+  | (RefusalContext & {
       reason: "executable_missing";
       tool: "gh" | "herdr" | "opencode" | "claude";
       detail: string;
-    }
-  | {
+    })
+  | (RefusalContext & {
       reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";
       detail: string;
-    }
+    })
   | Extract<Awaited<ReturnType<typeof DeviceSettings.show>>, { tag: "Err" }>["error"]
   | Extract<Awaited<ReturnType<typeof OwnedSkills.install>>, { tag: "Err" }>["error"]
   | Extract<Awaited<ReturnType<typeof UpstreamSkills.checkGuides>>, { tag: "Err" }>["error"]
@@ -50,7 +51,13 @@ async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: H
   const tool = host === "opencode" ? "opencode" : "claude";
   const flag = host === "opencode" ? "--opencode" : "--claude";
   if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
-    blockers.push({ reason: "executable_missing", tool, detail: `Install ${tool} on PATH.` });
+    blockers.push({
+      reason: "executable_missing",
+      tool,
+      detail: `Install ${tool} on PATH.`,
+      next: { decider: "person", question: `Which installation should provide ${tool} on PATH?` },
+      state: { tool, executable: null },
+    });
   const owned = await OwnedSkills.install({ paths, hosts: [host], check: true });
   // Stryker disable next-line ArrowFunction,ObjectLiteral: equivalent: map on a Defect never calls its function
   if (owned.tag === "Defect") return owned.map((): Checked => ({ blockers, warnings }));
@@ -92,6 +99,11 @@ function checkHosts(paths: ReturnType<typeof OperatorHome.resolve>, only: Host |
           blockers: [
             {
               reason: "host_unconfigured" as const,
+              next: {
+                command: "operator config show",
+                why: "Inspect settings, then plan the intended superAgent.host selection.",
+              },
+              state: { superAgentHost: null },
               detail: "Set superAgent.host in device settings.",
             },
           ],
@@ -134,6 +146,11 @@ export const Readiness = {
           if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
             blockers.push({
               reason: "executable_missing",
+              next: {
+                decider: "person",
+                question: `Which installation should provide ${tool} on PATH?`,
+              },
+              state: { tool, executable: null },
               tool,
               detail: `Install ${tool} on PATH.`,
             });
@@ -154,6 +171,11 @@ export const Readiness = {
           if (auth.status !== "completed" || auth.exitCode !== 0)
             blockers.push({
               reason: "github_auth_failed",
+              next: {
+                command: "gh auth login --hostname github.com",
+                why: "Authenticate the intended GitHub account before running Operator workflows.",
+              },
+              state: { authenticationConfirmed: false },
               detail: "Run gh auth login for github.com.",
             });
         }

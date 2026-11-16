@@ -163,7 +163,14 @@ test.each([
   ["review_not_found", 3],
 ])("refuses %s with exit code %d", async (reason, code) => {
   spyOn(ReviewRequests, "skip").mockReturnValue(
-    ErrAsync({ reason, detail: "not skipped" }) as never,
+    ErrAsync({
+      reason,
+      detail: "not skipped",
+      next: {
+        decider: "super-agent",
+        question: "How should this simulated review refusal be resolved?",
+      },
+    }),
   );
   const { log, error } = quiet();
   expect(await runReviews(["review", "skip", url], paths, true)).toBe(true);
@@ -171,7 +178,10 @@ test.each([
     operation: "review_skip",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not skipped");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not skipped`);
+  expect(error).toHaveBeenCalledWith(
+    "next: super-agent decides: How should this simulated review refusal be resolved?",
+  );
   expect(process.exitCode).toBe(code);
 });
 test("reports a review defect with exit code 1", async () => {
@@ -184,6 +194,6 @@ test("reports a review defect with exit code 1", async () => {
     operation: "review_add",
     reason: "review_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: review_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });

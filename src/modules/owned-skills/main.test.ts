@@ -45,7 +45,14 @@ test("an unreadable ledger is an operational refusal without host writes", async
   await Bun.write(input.paths.ownedSkills, "{broken", { createPath: true });
   expect(await OwnedSkills.install(input)).toMatchObject({
     tag: "Err",
-    error: { reason: "skills_ledger_invalid" },
+    error: {
+      reason: "skills_ledger_invalid",
+      next: {
+        decider: "person",
+        question:
+          "How should the invalid skill ledger be recovered while preserving installed contents?",
+      },
+    },
   });
   expect(await Bun.file(`${input.paths.skillHosts.opencode}/bun/SKILL.md`).exists()).toBe(false);
   expect(await Bun.file(input.paths.ownedSkills).text()).toBe("{broken");
@@ -153,7 +160,18 @@ test.each([
   try {
     expect(
       await OwnedSkills.install({ paths: paths(), hosts: ["opencode"], check: false }),
-    ).toEqual(Err({ reason: "skills_io_failed", detail: "Error: failed" }));
+    ).toEqual(
+      Err({
+        reason: "skills_io_failed",
+        detail: "Error: failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the skill installation IO failure be corrected while preserving installed contents?",
+        },
+        state: { code },
+      }),
+    );
   } finally {
     spy.mockRestore();
   }

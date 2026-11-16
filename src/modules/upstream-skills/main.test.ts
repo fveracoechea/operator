@@ -41,7 +41,23 @@ test("guide content resolves owned skills, upstream links, and warning-only visu
     expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
       tag: "Ok",
       value: {
-        blockers: [{ skill: "tdd", file: skill, reason: "guide_skill_unresolved" }],
+        blockers: [
+          {
+            skill: "tdd",
+            file: skill,
+            reason: "guide_skill_unresolved",
+            next: {
+              command: "operator install --opencode",
+              why: "Restore the required guide skill, or update its consumer-owned link.",
+            },
+            state: {
+              host: "opencode",
+              guide: "worker-agent/kinds/answer.md",
+              skill: "tdd",
+              file: skill,
+            },
+          },
+        ],
         warnings: [{ skill: "show-me", file: visual, reason: "skill_link_unresolved" }],
       },
     });
@@ -104,6 +120,67 @@ test("guide content resolves owned skills, upstream links, and warning-only visu
     guides.mockRestore();
   }
 });
+
+test.each([
+  ["opencode", "--opencode"],
+  ["claude-code", "--claude"],
+] as const)(
+  "required guide recovery targets %s and preserves optional warnings",
+  async (host, flag) => {
+    const input = paths();
+    const guide = "worker-agent/kinds/implementation.md";
+    const guides = spyOn(OwnedSkills, "guides").mockResolvedValue([
+      { guide, text: "Load `tdd`. Read [show-me](../../show-me/SKILL.md)." },
+    ]);
+    const file = `${input.upstreamSkills[host]}/tdd/SKILL.md`;
+    const other = host === "opencode" ? "claude-code" : "opencode";
+    await Bun.write(`${input.upstreamSkills[other]}/tdd/SKILL.md`, "# Other host\n", {
+      createPath: true,
+    });
+    try {
+      for (const contents of [null, " \n", "# Current skill\n"]) {
+        if (contents !== null) await Bun.write(file, contents, { createPath: true });
+        const result = await UpstreamSkills.checkGuides(input, host);
+        expect(result.tag).toBe("Ok");
+        if (result.tag !== "Ok") return expect.unreachable("guide check refused");
+        expect(result.value.blockers).toEqual(
+          contents === "# Current skill\n"
+            ? []
+            : [
+                {
+                  reason: "guide_skill_unresolved",
+                  host,
+                  guide,
+                  skill: "tdd",
+                  file,
+                  detail: `${guide} requires tdd, but ${file} does not resolve to a readable, nonempty regular file. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
+                  next: {
+                    command: `operator install ${flag}`,
+                    why: "Restore the required guide skill, or update its consumer-owned link.",
+                  },
+                  state: { host, guide, skill: "tdd", file },
+                },
+              ],
+        );
+        expect(result.value.warnings).toEqual([
+          {
+            reason: "skill_link_unresolved",
+            host,
+            guide,
+            skill: "show-me",
+            file: `${input.skillHosts[host]}/show-me/SKILL.md`,
+            detail: `${guide}: ../../show-me/SKILL.md does not resolve. Read show-me by the absolute path in the brief when available.`,
+          },
+        ]);
+      }
+      expect(await Bun.file(`${input.upstreamSkills[other]}/tdd/SKILL.md`).text()).toBe(
+        "# Other host\n",
+      );
+    } finally {
+      guides.mockRestore();
+    }
+  },
+);
 
 test("only the linked visual skill is optional, while required relative targets must resolve", async () => {
   const input = paths();
@@ -394,79 +471,128 @@ test("installs every source at its resolved commit with a positive roster and re
   }
 });
 
+const cloneRecovery = {
+  decider: "super-agent" as const,
+  question: "Why can the upstream repository's current revision not be read before installation?",
+};
+const revisionRecovery = {
+  decider: "super-agent" as const,
+  question: "Which valid full upstream commit should supply the selected skills?",
+};
+
 test.each([
   [
     "clone unavailable",
     { clone: { status: "unavailable", tool: "git", detail: "absent" } },
     "Cannot read the current revision of mattpocock/skills. No installer was invoked.",
     1,
+    cloneRecovery,
+    "mattpocock/skills",
   ],
   [
     "clone failed",
     { clone: { status: "completed", exitCode: 128, stdout: "", stderr: "denied" }, at: 1 },
     "Cannot read the current revision of cursor/plugins. No installer was invoked.",
     3,
+    cloneRecovery,
+    "cursor/plugins",
   ],
   [
     "clone unfinished",
     { clone: unfinished, at: 2 },
     "Cannot read the current revision of humanlayer/skills. No installer was invoked.",
     5,
+    cloneRecovery,
+    "humanlayer/skills",
   ],
   [
     "revision unfinished",
     { revision: unfinished },
     "Cannot resolve a full commit of mattpocock/skills. No installer was invoked.",
     2,
+    revisionRecovery,
+    "mattpocock/skills",
   ],
   [
     "revision unavailable",
     { revision: { status: "no-answer", detail: "interrupted" }, at: 1 },
     "Cannot resolve a full commit of cursor/plugins. No installer was invoked.",
     4,
+    revisionRecovery,
+    "cursor/plugins",
   ],
   [
     "revision failed",
     { revision: { status: "completed", exitCode: 1, stdout: commit, stderr: "" }, at: 2 },
     "Cannot resolve a full commit of humanlayer/skills. No installer was invoked.",
     6,
+    revisionRecovery,
+    "humanlayer/skills",
   ],
-] as const)("a %s resolution stops before any installer", async (_name, answers, detail, count) => {
-  const { calls, spy } = upstream(answers);
-  try {
-    expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(
-      Err({ reason: "upstream_resolution_failed", detail }),
-    );
-    expect(calls).toHaveLength(count);
-  } finally {
-    spy.mockRestore();
-  }
-});
+] as const)(
+  "a %s resolution stops before any installer",
+  async (_name, answers, detail, count, next, repository) => {
+    const { calls, spy } = upstream(answers);
+    try {
+      expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(
+        Err({ reason: "upstream_resolution_failed", detail, next, state: { repository } }),
+      );
+      expect(calls).toHaveLength(count);
+    } finally {
+      spy.mockRestore();
+    }
+  },
+);
 
 test.each([
   [
     { status: "unavailable", tool: "bun", detail: "bun is not on the path." },
     0,
-    { reason: "upstream_installer_unavailable", detail: "bun is not on the path." },
+    {
+      reason: "upstream_installer_unavailable",
+      detail: "bun is not on the path.",
+      next: {
+        decider: "super-agent",
+        question: "Which available Bun runtime should run the pinned upstream skill installer?",
+      },
+    },
   ],
   [
     { status: "no-answer", detail: "bun x ended on SIGTERM." },
     1,
     {
       reason: "upstream_install_unconfirmed",
+      next: {
+        decider: "person",
+        question:
+          "Which installed upstream skill contents should be retained before retrying an unconfirmed installer?",
+      },
       detail: `cursor/plugins: bun x ended on SIGTERM. ${policy}`,
     },
   ],
   [
     { status: "completed", exitCode: 1, stdout: "", stderr: "lock held" },
     2,
-    { reason: "upstream_install_failed", detail: `humanlayer/skills: lock held ${policy}` },
+    {
+      reason: "upstream_install_failed",
+      detail: `humanlayer/skills: lock held ${policy}`,
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the upstream installer failure be corrected while preserving installed skills?",
+      },
+    },
   ],
   [
     done('[{"name":"code-review","status":"installed"}]'),
     0,
     {
       reason: "upstream_install_unconfirmed",
+      next: {
+        decider: "person",
+        question:
+          "Which installed upstream skill contents should be retained before retrying an unconfirmed installer?",
+      },
       detail: `mattpocock/skills: The installer did not confirm every selected skill. ${policy}`,
     },
   ],
@@ -494,6 +620,10 @@ test("an invalid commit, an empty owned catalog, an owned-only roster, or a repe
     spy.mockRestore();
     const invalid = Err({
       reason: "upstream_catalog_invalid" as const,
+      next: {
+        decider: "super-agent" as const,
+        question: "Which upstream catalog entry must be corrected before installation?",
+      },
       detail:
         "A complete owned catalog and a nonempty roster for each upstream source are required. No installer was invoked.",
     });
@@ -512,6 +642,11 @@ test("an invalid commit, an empty owned catalog, an owned-only roster, or a repe
       Err({
         reason: "upstream_catalog_invalid",
         detail: "More than one upstream source selects unslop. No installer was invoked.",
+        next: {
+          decider: "super-agent",
+          question: "Which upstream source should own the repeatedly selected skill?",
+        },
+        state: { skill: "unslop" },
       }),
     );
     expect(repeated.calls.filter((call) => call.tool === "bun")).toEqual([]);
@@ -530,6 +665,11 @@ test("a pinned folder that the upstream repository moved is an invalid catalog",
         reason: "upstream_catalog_invalid",
         detail:
           "humanlayer/skills has no skill at plugins/show-me/skills/show-me. No installer was invoked.",
+        next: {
+          decider: "super-agent",
+          question: "Why is the required skill absent from the resolved upstream catalog?",
+        },
+        state: { repository: "humanlayer/skills", folder: "plugins/show-me/skills/show-me" },
       }),
     );
     expect(calls.filter((call) => call.tool === "bun")).toEqual([]);
@@ -574,7 +714,16 @@ test.each(["ENOENT", "ENOTDIR", "EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "EL
     );
     try {
       expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(
-        Err({ reason: "upstream_io_failed", detail: "Error: io" }),
+        Err({
+          reason: "upstream_io_failed",
+          detail: "Error: io",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should the upstream skill IO failure be corrected while preserving installed skills?",
+          },
+          state: { code },
+        }),
       );
     } finally {
       spy.mockRestore();
@@ -586,7 +735,15 @@ test("a syntax error is an invalid catalog and other failures stay defects", asy
   const spy = spyOn(ToolInvocation, "run").mockRejectedValue(new SyntaxError("bad"));
   try {
     expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(
-      Err({ reason: "upstream_catalog_invalid", detail: "SyntaxError: bad" }),
+      Err({
+        reason: "upstream_catalog_invalid",
+        detail: "SyntaxError: bad",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the invalid upstream skill catalog be investigated before running an installer?",
+        },
+      }),
     );
     for (const cause of [Object.assign(new Error("reset"), { code: "ECONNRESET" }), null]) {
       spy.mockRejectedValue(cause);

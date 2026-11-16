@@ -192,7 +192,14 @@ test.each([
   ["report_missing", 3],
 ])("refuses %s with exit code %d", async (reason, code) => {
   spyOn(ReportAssignments, "resume").mockReturnValue(
-    ErrAsync({ reason, detail: "not resumed" }) as never,
+    ErrAsync({
+      reason,
+      detail: "not resumed",
+      next: {
+        decider: "super-agent",
+        question: "How should this simulated report refusal be resolved?",
+      },
+    }),
   );
   const { log, error } = quiet();
   expect(await runReports(["report", "resume"], paths, true)).toBe(true);

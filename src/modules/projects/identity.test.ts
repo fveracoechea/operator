@@ -53,20 +53,40 @@ test("validates explicit identities and matching choices without changing the su
   const remotes = ["fork/repo", "upstream/repo"];
   expect(selectRepository(remotes)).toEqual({
     reason: "repository_choice_required",
+    next: {
+      decider: "super-agent",
+      question: "Which GitHub identity should control this checkout?",
+    },
+    state: { repositories: remotes },
     detail:
       "Several GitHub identities match. Repeat with --repository owner/repository. Choices: fork/repo, upstream/repo. Remote names have no authority.",
   });
   expect(selectRepository(remotes, "UPSTREAM/REPO")).toEqual({ repository: "upstream/repo" });
   const invalid = {
     reason: "repository_choice_invalid",
+    next: {
+      decider: "super-agent",
+      question: "Which matching owner/repository should --repository name?",
+    },
     detail:
       "--repository must name owner/repository and match a github.com remote in this checkout.",
   } as const;
-  expect(selectRepository(remotes, "other/repo")).toEqual(invalid);
-  expect(selectRepository(remotes, "not an identity")).toEqual(invalid);
+  expect(selectRepository(remotes, "other/repo")).toEqual({
+    ...invalid,
+    state: { choice: "other/repo", repositories: remotes },
+  });
+  expect(selectRepository(remotes, "not an identity")).toEqual({
+    ...invalid,
+    state: { choice: "not an identity", repositories: remotes },
+  });
   expect(selectRepository(["upstream/repo"])).toEqual({ repository: "upstream/repo" });
   const missing = {
     reason: "github_remote_missing",
+    next: {
+      decider: "super-agent",
+      question: "Which github.com remote should identify this checkout?",
+    },
+    state: { repositories: [] },
     detail: "This checkout has no github.com remote. Add a matching remote before registration.",
   } as const;
   expect(selectRepository([])).toEqual(missing);

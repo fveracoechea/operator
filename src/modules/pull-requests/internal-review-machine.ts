@@ -1,6 +1,6 @@
 // The internal review of a PR assignment: reviewing with at most two rounds, then ready or
 // skipped. This decides the associate, handoff, round, ready, and skip events. ADR-0003, ADR-0020.
-import type { ResultContext } from "../../lib/cli-result.ts";
+import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 
 type Review = { state: string; rounds: { head: string }[] };
 type Disposition = { round: number; finding: number; disposition: "applied" | "declined" };
@@ -65,8 +65,71 @@ type Rule<F> = { when: (facts: F) => boolean; refuse: (facts: F) => Refusal };
 
 const unchanged = "Nothing was changed.";
 
-function refused(reason: string, detail: string, context: ResultContext = {}): Refusal {
-  return { result: "refused", reason, detail, ...context };
+const recovery = {
+  pr_draft_required: {
+    command: "gh pr ready --undo",
+    why: "Convert the PR to a draft before associating it for internal review.",
+  },
+  pr_worktree_unclean: {
+    decider: "super-agent",
+    question:
+      "Which local changes should be committed and pushed, or removed, before continuing the review?",
+  },
+  pr_worktree_unsynced: {
+    decider: "super-agent",
+    question: "How should the worktree and PR heads be reconciled without losing commits?",
+  },
+  pr_handed_off: { why: "This launch handed off the PR. No PR work remains for it." },
+  internal_review_ended: {
+    command: "operator pr wait",
+    why: "The internal review ended; continue the PR feedback loop.",
+  },
+  internal_review_round_limit: {
+    decider: "super-agent",
+    question: "How should the remaining findings be disposed without a third review round?",
+  },
+  internal_review_round_head: {
+    decider: "super-agent",
+    question: "Which round-one fixes must be committed and pushed before round two?",
+  },
+  pr_not_open: {
+    decider: "super-agent",
+    question: "How should the closed PR assignment be resolved?",
+  },
+  internal_review_round_missing: {
+    decider: "super-agent",
+    question:
+      "Where is the first review round's findings file to record with operator pr round --file?",
+  },
+  internal_review_summary_invalid: {
+    decider: "super-agent",
+    question: "How should the summary name each recorded finding exactly once?",
+  },
+  internal_review_summary_incomplete: {
+    decider: "super-agent",
+    question: "What disposition belongs to each omitted finding?",
+  },
+  internal_review_second_round_required: {
+    decider: "super-agent",
+    question: "Where are the second round's findings on the pushed blocker fixes?",
+  },
+  internal_review_head_missing: {
+    decider: "super-agent",
+    question: "Which commit should this worktree review?",
+  },
+  person_instruction_required: {
+    decider: "person",
+    question: "May this command run on your explicit instruction?",
+  },
+  internal_review_not_recorded: { why: "No internal review exists to skip." },
+} satisfies Record<string, NextStep>;
+
+function refused(
+  reason: keyof typeof recovery,
+  detail: string,
+  context: Partial<ResultContext> = {},
+): Refusal {
+  return { result: "refused", reason, detail, ...context, next: context.next ?? recovery[reason] };
 }
 
 // With internal review off, the association behaves as before ADR-0020.
@@ -256,13 +319,7 @@ const skipRules: Rule<SkipFacts>[] = [
       refused(
         "person_instruction_required",
         `Skip an internal review only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. ${unchanged}`,
-        {
-          next: {
-            decider: "person",
-            question: "May this command run on your explicit instruction?",
-          },
-          state: { personInstructed: false },
-        },
+        { state: { personInstructed: false } },
       ),
   },
   {
@@ -271,7 +328,7 @@ const skipRules: Rule<SkipFacts>[] = [
       refused(
         "internal_review_not_recorded",
         `The assignment has no internal review to skip. ${unchanged}`,
-        { next: { why: "No internal review exists to skip." }, state: { review: null } },
+        { state: { review: null } },
       ),
   },
   {

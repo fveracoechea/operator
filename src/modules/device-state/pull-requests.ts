@@ -17,11 +17,12 @@ import {
 import type { StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
 import { abandonConversations } from "./sources.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
   | StateFailure
-  | {
+  | (RefusalContext & {
       reason:
         | "pr_owner_inactive"
         | "pr_already_associated"
@@ -31,7 +32,7 @@ export type PullRequestFailure =
         | "pr_delivery_running"
         | "internal_review_not_recorded";
       detail: string;
-    };
+    });
 
 /** The latest launch of each assignment that recorded a worktree, with its owning records. */
 export function worktreeOwners(client: Database) {
@@ -133,6 +134,7 @@ export function activeOwner(db: Db, launchId: string) {
   )
     return Err<PullRequestFailure>({
       reason: "pr_owner_inactive",
+      next: { command: "operator next", why: "Read the current PR owner before continuing." },
       detail:
         "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
     });
@@ -198,6 +200,11 @@ export function associatePullRequest(
               ? Ok({ row: existing, changed: false })
               : Err({
                   reason: "pr_already_associated",
+                  next: {
+                    command: "operator pr wait",
+                    why: "Continue the assignment's existing PR rather than associating another.",
+                  },
+                  state: { pullRequest: existing.number },
                   detail: `Assignment ${assignment.key} already owns PR #${existing.number}. Nothing was changed.`,
                 });
           const owned = db
@@ -221,6 +228,11 @@ export function associatePullRequest(
           if (owned !== undefined)
             return Err({
               reason: "pr_owned_elsewhere",
+              next: {
+                decider: "super-agent",
+                question: "Which assignment should retain ownership of this PR?",
+              },
+              state: { pullRequest: pr.number, ownedElsewhere: true },
               detail: `PR #${pr.number} belongs to another open PR assignment. Nothing was changed.`,
             });
           const row: PullRequestRow = {
@@ -309,17 +321,32 @@ export function recordPullRequestWait(
               reason: "pr_delivery_running",
               detail:
                 "Delivery holds this assignment. Wait for it to end before another PR wait or relay. Nothing changed.",
+              next: {
+                command: "operator pr merge --json",
+                why: "Reconcile the outstanding delivery before starting another PR wait or relay.",
+              },
             });
           const row = current(db, source.id, assignment.key);
           if (row === undefined || assignment.state !== "pr-open")
             return Err({
               reason: "pr_not_associated",
+              next: {
+                command: "operator pr associate",
+                why: "Associate the assignment's open PR before waiting.",
+              },
+              state: { pullRequest: null },
               detail: "Run operator pr associate after you open the PR. Nothing was changed.",
             });
           // Only the PR's own branch reaches the PR, so another branch cannot answer its loop.
           if (launch.branch !== row.branch)
             return Err({
               reason: "pr_branch_mismatch",
+              next: {
+                decider: "super-agent",
+                question:
+                  "How should the recorded launch and PR branches be reconciled without losing work?",
+              },
+              state: { launchBranch: launch.branch, prBranch: row.branch },
               detail: `This launch is on ${launch.branch ?? "no branch"}, but PR #${row.number} is on ${row.branch}. Nothing was changed.`,
             });
           const change = decide({ ...row, relayHeld: relayHeld(row) });
@@ -400,6 +427,10 @@ export function recordPullRequestMerge(
         if (row === undefined || assignment.state !== "pr-open" || row.number !== merge.number)
           return Err<PullRequestFailure>({
             reason: "pr_not_associated",
+            next: {
+              decider: "super-agent",
+              question: "Why does the observed merge not match the assignment's recorded open PR?",
+            },
             detail: `PR #${merge.number} is not the open PR of assignment ${assignment.key}. Nothing was changed.`,
           });
         const now = new Date().toISOString();

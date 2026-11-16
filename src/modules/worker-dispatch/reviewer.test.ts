@@ -212,6 +212,10 @@ test("a start with no free name refuses before it records anything", async () =>
   expect(await launchReviewer(request())).toEqual(
     Err({
       reason: "launch_name_exhausted",
+      next: {
+        decider: "super-agent",
+        question: "Which unused reviewer name and branch should this request use?",
+      },
       detail: "No free reviewer name or branch remains. Nothing was launched.",
     }),
   );
@@ -223,6 +227,11 @@ test("a first start refuses a PR that moved, and a replacement keeps the recorde
     Err({
       reason: "review_head_moved",
       detail: `PR #7 moved to ${project.head} after it was read. Start the reviewer again. Nothing was launched.`,
+      next: {
+        command: "operator review wait",
+        why: "Observe the current PR head before starting its reviewer again.",
+      },
+      state: { expectedHead: project.base, fetchedHead: project.head },
     }),
   );
   expect(recorded).toEqual([]);
@@ -241,6 +250,11 @@ test("a replacement whose recorded head Git does not hold refuses as a moved PR"
     Err({
       reason: "review_head_moved",
       detail: `PR #7 moved to ${project.head} after it was read. Start the reviewer again. Nothing was launched.`,
+      next: {
+        command: "operator review wait",
+        why: "Observe the current PR head before starting its reviewer again.",
+      },
+      state: { expectedHead: unknown, fetchedHead: project.head },
     }),
   );
 });
@@ -251,6 +265,11 @@ test("a missing remote or PR ref refuses the start", async () => {
     Err({
       reason: "review_fetch_failed",
       detail: "The controlling checkout has no remote for example/one. Nothing was launched.",
+      next: {
+        decider: "super-agent",
+        question: "Which matching remote should provide this PR's head?",
+      },
+      state: { repository: "example/one", remote: null },
     }),
   );
   spyOn(Projects, "githubRemote").mockReturnValue(OkAsync("origin"));
@@ -261,6 +280,10 @@ test("a missing remote or PR ref refuses the start", async () => {
     Err({
       reason: "review_fetch_failed",
       detail: "Git could not fetch PR #8 from origin. Nothing was launched.",
+      next: {
+        command: "operator review next",
+        why: "Inspect the failed reviewer start before retrying its PR fetch.",
+      },
     }),
   );
   expect(recorded).toEqual([]);
@@ -324,6 +347,11 @@ test("a changed recorded worktree stays, and the start refuses", async () => {
     Err({
       reason: "review_worktree_changed",
       detail: `The recorded reviewer worktree ${worktree} has changes and is not at the PR head ${project.head}. Ask the person what to keep. Nothing was launched.`,
+      next: {
+        decider: "person",
+        question: "Which local reviewer changes must be kept before the worktree can move?",
+      },
+      state: { worktree, expectedHead: project.head, status: "?? notes.md" },
     }),
   );
   expect(git(worktree, "rev-parse", "HEAD")).toBe(project.base);
@@ -340,6 +368,10 @@ test("a recorded worktree that Git cannot move refuses the start", async () => {
     Err({
       reason: "review_worktree_changed",
       detail: `Git could not move ${worktree} to the PR head ${project.head}. Nothing was launched.`,
+      next: {
+        decider: "super-agent",
+        question: "Why could Git not move the clean reviewer worktree to the observed PR head?",
+      },
     }),
   );
   expect(doubles.openWorktree).not.toHaveBeenCalled();
@@ -361,7 +393,14 @@ test("a recorded worktree that is gone is created again on its branch", async ()
 });
 
 test("a refused record stops the start before Herdr creates anything", async () => {
-  const refusal = { reason: "state_failed", detail: "The record was refused." };
+  const refusal = {
+    reason: "state_failed",
+    detail: "The record was refused.",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should the simulated record failure be corrected?",
+    },
+  };
   expect(await launchReviewer(request({ record: () => Err(refusal) }))).toEqual(Err(refusal));
   expect(doubles.createWorkspace).not.toHaveBeenCalled();
   expect(doubles.createWorktree).not.toHaveBeenCalled();
@@ -390,7 +429,14 @@ test("a Git process that cannot start is an I/O failure", async () => {
 });
 
 test("Herdr failures stop the start", async () => {
-  const refusal = { reason: "herdr_failed" as const, detail: "refused" };
+  const refusal = {
+    reason: "herdr_failed" as const,
+    detail: "refused",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should the failed reviewer prompt be inspected?",
+    },
+  };
   spyOn(Herdr, "prompt").mockReturnValue(ErrAsync(refusal));
   expect(await launchReviewer(request())).toEqual(Err(refusal));
 });
@@ -417,6 +463,10 @@ test("a fetch that fails refuses the start, even with an earlier fetched PR ref"
     Err({
       reason: "review_fetch_failed",
       detail: "Git could not fetch PR #7 from origin. Nothing was launched.",
+      next: {
+        command: "operator review next",
+        why: "Inspect the failed reviewer start before retrying its PR fetch.",
+      },
     }),
   );
   expect(recorded).toEqual([]);

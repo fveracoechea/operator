@@ -113,7 +113,14 @@ test("an event that is not the plugin's JSON is refused", async () => {
   ])
     expect(await OpenCodePlugin.answer({ event, paths })).toMatchObject({
       tag: "Err",
-      error: { reason: "opencode_hook_event_invalid" },
+      error: {
+        reason: "opencode_hook_event_invalid",
+        next: {
+          decider: "super-agent",
+          question: "Which valid OpenCode plugin event should this invocation receive?",
+        },
+        state: { eventValid: false },
+      },
     });
 });
 
@@ -140,7 +147,15 @@ test("an unreadable plugin file is a filesystem failure, not a defect", async ()
   await chmod(file, 0o000);
   expect(await OpenCodePlugin.install({ paths, check: true })).toMatchObject({
     tag: "Err",
-    error: { reason: "opencode_plugin_io_failed" },
+    error: {
+      reason: "opencode_plugin_io_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the OpenCode plugin IO failure be corrected without replacing external contents?",
+      },
+      state: { code: "EACCES" },
+    },
   });
 });
 

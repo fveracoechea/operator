@@ -67,6 +67,11 @@ function fetchHead(input: ReviewerLaunch) {
           if (remote === null)
             return Err<Failure>({
               reason: "review_fetch_failed",
+              next: {
+                decider: "super-agent",
+                question: "Which matching remote should provide this PR's head?",
+              },
+              state: { repository: input.repository, remote: null },
               detail: `The controlling checkout has no remote for ${input.repository}. Nothing was launched.`,
             });
           const ref = `refs/remotes/${remote}/pr/${input.number}`;
@@ -87,12 +92,21 @@ function fetchHead(input: ReviewerLaunch) {
           if (head === null)
             return Err<Failure>({
               reason: "review_fetch_failed",
+              next: {
+                command: "operator review next",
+                why: "Inspect the failed reviewer start before retrying its PR fetch.",
+              },
               detail: `Git could not fetch PR #${input.number} from ${remote}. Nothing was launched.`,
             });
           return head === input.head
             ? Ok(head)
             : Err<Failure>({
                 reason: "review_head_moved",
+                next: {
+                  command: "operator review wait",
+                  why: "Observe the current PR head before starting its reviewer again.",
+                },
+                state: { expectedHead: input.head, fetchedHead: head },
                 detail: `PR #${input.number} moved to ${head} after it was read. Start the reviewer again. Nothing was launched.`,
               });
         },
@@ -123,6 +137,10 @@ function names(input: ReviewerLaunch) {
       return chosen === null
         ? Err<Failure>({
             reason: "launch_name_exhausted",
+            next: {
+              decider: "super-agent",
+              question: "Which unused reviewer name and branch should this request use?",
+            },
             detail: "No free reviewer name or branch remains. Nothing was launched.",
           })
         : Ok({
@@ -150,11 +168,21 @@ function reusable(input: ReviewerLaunch) {
       if (status !== "")
         return Err<Failure>({
           reason: "review_worktree_changed",
+          next: {
+            decider: "person",
+            question: "Which local reviewer changes must be kept before the worktree can move?",
+          },
+          state: { worktree: path, expectedHead: input.head, status },
           detail: `The recorded reviewer worktree ${path} has changes and is not at the PR head ${input.head}. Ask the person what to keep. Nothing was launched.`,
         });
       return (await git(path, ["reset", "--quiet", "--hard", input.head])) === null
         ? Err<Failure>({
             reason: "review_worktree_changed",
+            next: {
+              decider: "super-agent",
+              question:
+                "Why could Git not move the clean reviewer worktree to the observed PR head?",
+            },
             detail: `Git could not move ${path} to the PR head ${input.head}. Nothing was launched.`,
           })
         : Ok(path);
@@ -288,6 +316,11 @@ export function moveReviewer(input: {
           if (remote === null)
             return Err<Failure>({
               reason: "review_fetch_failed",
+              next: {
+                decider: "super-agent",
+                question: "Which matching remote should provide this PR's head?",
+              },
+              state: { repository: input.repository, remote: null },
               detail: `The controlling checkout has no remote for ${input.repository}.`,
             });
           const ref = `refs/remotes/${remote}/pr/${input.number}`;
@@ -305,10 +338,19 @@ export function moveReviewer(input: {
           )
             return Err<Failure>({
               reason: "review_fetch_failed",
+              next: {
+                command: "operator review wait",
+                why: "Retry the failed PR-head fetch before moving the reviewer.",
+              },
               detail: `Git could not fetch ${input.to} of PR #${input.number} from ${remote}.`,
             });
           const changed = Err<Failure>({
             reason: "review_worktree_changed",
+            next: {
+              decider: "person",
+              question: "Which local reviewer work must be kept before the worktree can move?",
+            },
+            state: { worktree: input.worktree, expectedHead: input.from },
             detail: `The reviewer worktree ${input.worktree} is missing, changed, or not at ${input.from}. Ask the person what to keep.`,
           });
           const path = await realPathOrNull(input.worktree);
@@ -329,6 +371,11 @@ export function moveReviewer(input: {
           return moved === null
             ? Err<Failure>({
                 reason: "review_worktree_changed",
+                next: {
+                  decider: "super-agent",
+                  question:
+                    "Why could Git not move the clean reviewer worktree to the observed PR head?",
+                },
                 detail: `Git could not move ${path} to ${input.to}.`,
               })
             : Ok({ mode });

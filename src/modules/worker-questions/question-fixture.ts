@@ -49,7 +49,14 @@ export async function questionDevice() {
     spyOn(Herdr, "prompt").mockImplementation((input) => {
       doorbells.push(input);
       return herdr.fails
-        ? ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent exited 1: gone" })
+        ? ErrAsync({
+            reason: "herdr_failed" as const,
+            detail: "herdr agent exited 1: gone",
+            next: {
+              decider: "super-agent",
+              question: "How should the failed question doorbell be inspected before retrying?",
+            },
+          })
         : OkAsync(null);
     });
     return spyOn(Environment, "read").mockReturnValue({

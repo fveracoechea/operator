@@ -112,7 +112,15 @@ function existing(paths: Paths, missing: string) {
     (): Result<void, StateFailure> =>
       databaseExists(paths.database)
         ? Ok(undefined)
-        : Err({ reason: "state_missing", detail: missing }),
+        : Err({
+            reason: "state_missing",
+            detail: missing,
+            next: {
+              command: "operator project register",
+              why: "Register a project explicitly to initialize device state.",
+            },
+            state: { databaseExists: false },
+          }),
     (cause, defect) =>
       cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
   )().flatMap((result) => result);
@@ -491,6 +499,11 @@ export const DeviceState = {
     if (cleaned.tag === "Err")
       return Err({
         reason: "project_cleanup_pending" as const,
+        next: {
+          decider: "super-agent" as const,
+          question:
+            "How should the pending project removal failure be corrected while preserving its remaining state?",
+        },
         detail: `Project records were removed, but file cleanup is still pending. Repeat project remove ${repository} --person-instructed after resolving the path or I/O failure. ${cleaned.error.detail}`,
       });
     return cleaned.map(() => ({ reason: "project_removed" as const, data: { repository } }));

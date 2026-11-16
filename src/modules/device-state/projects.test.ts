@@ -190,6 +190,11 @@ test("a source holds its project until it has ended with a final state", () => {
         error: {
           reason: "project_source_open",
           detail: `End every open source before ${action} this project.`,
+          next: {
+            command: "operator next",
+            why: `End the project's open sources before ${action} its registration.`,
+          },
+          state: { repository: "owner/one", sourceOpen: true },
         },
       };
     }
@@ -220,6 +225,10 @@ test("an open cleanup holds its project, and a done cleanup does not", () => {
     error: {
       reason: "project_cleanup_open",
       detail: "Finish every open cleanup with operator cleanup first. Read operator next for it.",
+      next: {
+        command: "operator next",
+        why: "Finish the project's open cleanup before changing its registration.",
+      },
     },
   };
   expect(moveProject(db, "owner/one", "/alternate")).toMatchObject(open);
@@ -243,7 +252,16 @@ test("an unfinished review request holds its project until it ends and its clean
     state: "approved",
     cleanup_state: null,
   });
-  const open = { tag: "Err", error: { reason: "project_review_open" } };
+  const open = {
+    tag: "Err",
+    error: {
+      reason: "project_review_open",
+      next: {
+        command: "operator review next",
+        why: "Finish the project's open reviews and reviewer cleanup before changing its registration.",
+      },
+    },
+  };
   for (const [state, cleanup] of [
     ["approved", null],
     ["closed", "pending"],
@@ -299,6 +317,11 @@ test("each registration and move refusal names the recorded fact", () => {
       reason: "controller_identity_mismatch",
       detail:
         "This checkout is recorded as owner/two. Restore its remote identity before use. It was not re-registered as owner/one.",
+      next: {
+        decider: "super-agent",
+        question: "How should the controlling checkout's recorded remote identity be restored?",
+      },
+      state: { expected: "owner/two", actual: "owner/one" },
     },
   });
   expect(
@@ -309,6 +332,11 @@ test("each registration and move refusal names the recorded fact", () => {
       reason: "controller_mismatch",
       detail:
         "Use the recorded controlling checkout at /one. To change it, run operator project move from a matching main clone when no source is open.",
+      next: {
+        command: "operator project list",
+        why: "Locate the recorded controlling checkout before continuing.",
+      },
+      state: { expected: "/one", actual: "/moved" },
     },
   });
   expect(moveProject(db, "owner/two", "/one")).toMatchObject({
@@ -316,6 +344,11 @@ test("each registration and move refusal names the recorded fact", () => {
     error: {
       reason: "controller_identity_mismatch",
       detail: "This checkout is already recorded as owner/one. Its identity was not changed.",
+      next: {
+        decider: "super-agent",
+        question: "How should this checkout's recorded remote identity be restored?",
+      },
+      state: { expected: "owner/one", actual: "owner/two" },
     },
   });
   expect(moveProject(db, "owner/absent", "/absent")).toMatchObject({
@@ -323,6 +356,11 @@ test("each registration and move refusal names the recorded fact", () => {
     error: {
       reason: "project_not_registered",
       detail: "Register this identity explicitly before moving it.",
+      next: {
+        command: "operator project register",
+        why: "Register this identity explicitly before moving it.",
+      },
+      state: { repository: "owner/absent", registered: false },
     },
   });
   // A move to the recorded checkout is a move of the same identity.
@@ -335,6 +373,11 @@ test("each registration and move refusal names the recorded fact", () => {
     error: {
       reason: "project_not_registered",
       detail: "This identity is not registered and has no pending removal.",
+      next: {
+        command: "operator project list",
+        why: "Choose a registered project; this identity has no pending removal.",
+      },
+      state: { repository: "owner/absent", registered: false },
     },
   });
   expect(removeProject(db, "owner/two").tag).toBe("Ok");
@@ -345,6 +388,12 @@ test("each registration and move refusal names the recorded fact", () => {
     error: {
       reason: "project_cleanup_pending",
       detail: "Finish project remove owner/two before registering it again.",
+      next: {
+        decider: "person",
+        question:
+          "May the pending removal of this project be completed before it is registered again?",
+      },
+      state: { repository: "owner/two", removalPending: true },
     },
   });
 });

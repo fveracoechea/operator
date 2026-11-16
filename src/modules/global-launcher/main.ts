@@ -16,20 +16,21 @@ import {
   pinnedSpecifier,
   type Destination,
 } from "./plan.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 type Installed = {
   reason: "launcher_installed" | "launcher_current";
   data: { command: string; runs: string };
 };
 type Failure =
-  | {
+  | (RefusalContext & {
       reason:
         | "launcher_unsupported"
         | "launcher_version_unpinned"
         | "launcher_conflict"
         | "launcher_bun_failed";
       detail: string;
-    }
+    })
   | ReturnType<typeof qualify<never>>;
 
 const missingCommand =
@@ -42,14 +43,39 @@ const globalManifest = z.looseObject({
   dependencies: z.record(z.string(), z.string()).optional(),
 });
 
-function qualify<T>(cause: Error, defect: (cause: Error) => T) {
+function qualify<T>(
+  cause: Error,
+  defect: (cause: Error) => T,
+):
+  | T
+  | (RefusalContext & {
+      reason: "launcher_global_manifest_invalid" | "launcher_io_failed";
+      detail: string;
+    }) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-    return { reason: "launcher_global_manifest_invalid" as const, detail: String(cause) };
+    return {
+      reason: "launcher_global_manifest_invalid" as const,
+      detail: String(cause),
+      next: {
+        decider: "person" as const,
+        question:
+          "How should Bun's invalid global manifest be repaired while preserving installed packages?",
+      },
+    };
   if (
     isCodedError(cause) &&
     ["EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ENOTDIR", "ELOOP"].includes(cause.code)
   )
-    return { reason: "launcher_io_failed" as const, detail: String(cause) };
+    return {
+      reason: "launcher_io_failed" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the launcher IO failure be corrected without replacing external contents?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 
@@ -108,7 +134,7 @@ async function globalInstall(listing: string) {
   return { root: resolved === null ? null : { reported, real: resolved }, specifier };
 }
 
-type CommandBlocker = {
+type CommandBlocker = RefusalContext & {
   reason: "executable_missing" | "executable_mismatch" | "installation_unpinned";
   tool: "operator";
   detail: string;
@@ -118,7 +144,18 @@ type CommandBlocker = {
 async function commandBlockers(): Promise<CommandBlocker[]> {
   const found = Bun.which("operator", { PATH: Environment.read().PATH });
   if (found === null)
-    return [{ reason: "executable_missing", tool: "operator", detail: missingCommand }];
+    return [
+      {
+        reason: "executable_missing",
+        tool: "operator",
+        detail: missingCommand,
+        next: {
+          decider: "person",
+          question: "Which pinned Operator installation should provide the global command on PATH?",
+        },
+        state: { executable: null },
+      },
+    ];
   const running = await realpath(runningPackage);
   const entries = await Promise.all(
     ["src/cli.ts", "cli.js"].map((entry) => realPathOrNull(`${running}/${entry}`)),
@@ -132,6 +169,12 @@ async function commandBlockers(): Promise<CommandBlocker[]> {
   if (!reached.some((path) => path !== null && entries.includes(path)))
     blockers.push({
       reason: "executable_mismatch",
+      next: {
+        decider: "person",
+        question:
+          "Should the conflicting Operator command be retained or replaced so hooks run this release?",
+      },
+      state: { executable: found, runningPackage: running },
       tool: "operator",
       detail: `${found} on PATH does not run this Operator release at ${running}. Hooks and agents would run another release. Remove or replace that command, then reinstall the launcher or the source package.`,
     });
@@ -140,6 +183,12 @@ async function commandBlockers(): Promise<CommandBlocker[]> {
   if (specifier !== null && !pinnedSpecifier(specifier, version))
     blockers.push({
       reason: "installation_unpinned",
+      next: {
+        decider: "person",
+        question:
+          "Which exact release version or full source commit should pin this Operator installation?",
+      },
+      state: { specifier, version },
       tool: "operator",
       detail: `The manifest beside ${running} names ${specifier}, so a Bun update can move the device release. Reinstall with an exact JSR version or a full 40-character source commit.`,
     });
@@ -214,17 +263,26 @@ export const GlobalLauncher = {
         if (gathered === null)
           return Err({
             reason: "launcher_bun_failed" as const,
+            next: {
+              decider: "super-agent" as const,
+              question: "Why can Bun not report the global folders needed for the launcher?",
+            },
             detail: "bun pm could not report its global folders. No launcher was written.",
           });
         const { binDirectory, decision } = gathered;
-        if (decision.action === "refuse")
-          return Err({ reason: decision.reason, detail: decision.detail });
+        if (decision.action === "refuse") return Err(decision);
         const data = { command: decision.command, runs: decision.runs };
         if (decision.action === "unchanged")
           return Ok({ reason: "launcher_current" as const, data });
         if (!(await write(binDirectory, decision.command, decision.text)))
           return Err({
             reason: "launcher_conflict" as const,
+            next: {
+              decider: "person" as const,
+              question:
+                "Which concurrently created launcher should be retained? Operator did not replace it.",
+            },
+            state: { command: decision.command },
             detail: `${decision.command} appeared while the launcher was written. It was not changed.`,
           });
         return Ok({ reason: "launcher_installed" as const, data });

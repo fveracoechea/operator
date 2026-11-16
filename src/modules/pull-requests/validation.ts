@@ -5,6 +5,7 @@ import { observePullRequest } from "./github.ts";
 import { owned, worktreeFacts } from "./internal-review.ts";
 import { qualify, resolveOwner, type Paths } from "./owner.ts";
 import { mergeConditions } from "./wait-machine.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
 const next = {
   decider: "super-agent" as const,
@@ -23,7 +24,7 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
         readyHead === null ||
         (owner.reviewState !== "ready" && owner.reviewState !== "skipped")
       )
-        return ErrAsync({
+        return ErrAsync<Refusal>({
           reason: "pr_validation_blocked",
           detail:
             "Validation needs an associated PR with an ended internal review and recorded ready head. Nothing was recorded.",
@@ -43,7 +44,7 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
           (cause, defect) => (cause instanceof SyntaxError ? null : defect(cause)),
         )().getOr(false);
         if (summary.length === 0 || summary.length > 4000 || json)
-          return ErrAsync({
+          return ErrAsync<Refusal>({
             reason: "pr_validation_blocked",
             detail:
               "Describe the bounded correction and its validation in 1 to 4000 plain-text characters, not JSON. Nothing was recorded.",
@@ -58,7 +59,7 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
               // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent: checksPassing depends only on observed checks; stackRelayed and reviewEnded affect only unused merge conditions
               !mergeConditions(observed, { stackRelayed: true, reviewEnded: true }).checksPassing
             )
-              return ErrAsync({
+              return ErrAsync<Refusal>({
                 reason: "pr_validation_blocked",
                 detail:
                   "Validation requires a clean pushed PR head, an open PR, and at least one current check with every check passing. Nothing was recorded.",
@@ -79,7 +80,7 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
                 ancestry.status !== "completed" ||
                 ancestry.exitCode !== 0
               )
-                return ErrAsync({
+                return ErrAsync<Refusal>({
                   reason: "pr_validation_blocked",
                   detail:
                     "The ready head is not a known ancestor of this correction. Ask the SuperAgent to reconcile review provenance. Nothing was recorded.",

@@ -529,7 +529,14 @@ test("prune reports what it pruned before a failure, and a changed source stays"
   prune.mockImplementation((p, target, decide) =>
     target.sourceId === first
       ? original(p, target, decide)
-      : Err({ reason: "source_prune_failed" as const, detail: "The folder is busy." }),
+      : Err({
+          reason: "source_prune_failed" as const,
+          detail: "The folder is busy.",
+          next: {
+            decider: "super-agent",
+            question: "When is the simulated folder ready to prune?",
+          },
+        }),
   );
   expect(await WorkSources.prune({ paths, cwd: checkout })).toMatchObject({
     tag: "Err",
@@ -540,7 +547,11 @@ test("prune reports what it pruned before a failure, and a changed source stays"
   });
 
   prune.mockImplementation(() =>
-    Err({ reason: "source_prune_failed" as const, detail: "The folder is busy." }),
+    Err({
+      reason: "source_prune_failed" as const,
+      detail: "The folder is busy.",
+      next: { decider: "super-agent", question: "When is the simulated folder ready to prune?" },
+    }),
   );
   expect(await WorkSources.prune({ paths, cwd: checkout })).toMatchObject({
     tag: "Err",
@@ -608,7 +619,14 @@ test("prune names every source it pruned before a failure", async () => {
   const original = DeviceState.pruneSource;
   spyOn(DeviceState, "pruneSource").mockImplementation((p, target, decide) =>
     target.sourceId === ids[2]
-      ? Err({ reason: "source_prune_failed" as const, detail: "Busy." })
+      ? Err({
+          reason: "source_prune_failed" as const,
+          detail: "Busy.",
+          next: {
+            decider: "super-agent",
+            question: "When is the simulated folder ready to prune?",
+          },
+        })
       : original(p, target, decide),
   );
   const result = await WorkSources.prune({ paths, cwd: checkout });

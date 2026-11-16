@@ -5,9 +5,65 @@ import {
 } from "./internal-review-machine.ts";
 import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
 
+const expectedRecovery: Record<string, object> = {
+  pr_draft_required: {
+    command: "gh pr ready --undo",
+    why: "Convert the PR to a draft before associating it for internal review.",
+  },
+  pr_worktree_unclean: {
+    decider: "super-agent",
+    question:
+      "Which local changes should be committed and pushed, or removed, before continuing the review?",
+  },
+  pr_worktree_unsynced: {
+    decider: "super-agent",
+    question: "How should the worktree and PR heads be reconciled without losing commits?",
+  },
+  pr_handed_off: { why: "This launch handed off the PR. No PR work remains for it." },
+  internal_review_ended: {
+    command: "operator pr wait",
+    why: "The internal review ended; continue the PR feedback loop.",
+  },
+  internal_review_round_limit: {
+    decider: "super-agent",
+    question: "How should the remaining findings be disposed without a third review round?",
+  },
+  internal_review_round_head: {
+    decider: "super-agent",
+    question: "Which round-one fixes must be committed and pushed before round two?",
+  },
+  pr_not_open: {
+    decider: "super-agent",
+    question: "How should the closed PR assignment be resolved?",
+  },
+  internal_review_round_missing: {
+    decider: "super-agent",
+    question:
+      "Where is the first review round's findings file to record with operator pr round --file?",
+  },
+  internal_review_summary_invalid: {
+    decider: "super-agent",
+    question: "How should the summary name each recorded finding exactly once?",
+  },
+  internal_review_summary_incomplete: {
+    decider: "super-agent",
+    question: "What disposition belongs to each omitted finding?",
+  },
+  internal_review_second_round_required: {
+    decider: "super-agent",
+    question: "Where are the second round's findings on the pushed blocker fixes?",
+  },
+  internal_review_head_missing: {
+    decider: "super-agent",
+    question: "Which commit should this worktree review?",
+  },
+};
+
 function decideInternalReview(...args: Parameters<typeof internalReviewDecision>) {
   const result = internalReviewDecision(...args);
   if (args[0].event === "skip" && result.result === "refused") expectRefusalContext(result);
+  if (args[0].event !== "skip" && result.result === "refused")
+    expect<unknown>(result.next).toEqual(expectedRecovery[result.reason]);
   return result;
 }
 
@@ -191,6 +247,10 @@ test("one round without an applied blocker ends the review", () => {
   expect(one("blocker", "applied")).toEqual({
     result: "refused",
     reason: "internal_review_second_round_required",
+    next: {
+      decider: "super-agent",
+      question: "Where are the second round's findings on the pushed blocker fixes?",
+    },
     detail:
       "Round 1 had a blocker that you applied, so its fixes need round 2. Push them, then record round 2 with a fresh subagent. Nothing was changed.",
   });
@@ -370,6 +430,7 @@ test("only the launch that the handoff ended loses its PR commands", () => {
   expect(decideOwnership({ implementer: true })).toEqual({
     result: "refused",
     reason: "pr_handed_off",
+    next: { why: "This launch handed off the PR. No PR work remains for it." },
     detail:
       "This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. Nothing was changed.",
   });

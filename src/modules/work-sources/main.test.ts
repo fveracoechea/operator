@@ -21,6 +21,26 @@ test("failure reasons remain a closed union", () => {
   type Failure = Extract<Awaited<ReturnType<typeof WorkSources.register>>, { tag: "Err" }>["error"];
   expectTypeOf<Failure["reason"]>().not.toEqualTypeOf<string>();
 });
+
+test("invalid internal-review findings name the exact file correction decision", () => {
+  for (const text of [
+    "{broken",
+    JSON.stringify({
+      findings: [{ axis: "Other", severity: "blocker", location: "a.ts:1", claim: "Fix." }],
+    }),
+  ]) {
+    expect(WorkSources.parseFindings(text)).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "internal_review_findings_invalid",
+        next: {
+          command: "operator pr round --file <path|->",
+          why: "Correct the markdown findings and record the round again.",
+        },
+      },
+    });
+  }
+});
 test("missing files and invalid plans are failures without project lookup or implicit database creation", async () => {
   const spy = spyOn(Projects, "current");
   try {

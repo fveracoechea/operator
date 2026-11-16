@@ -9,7 +9,7 @@ const next = z.union([
 ]);
 
 /** Owning tests check nonempty recovery fields as well as each guard's specific facts. */
-export function expectRefusalContext(value: ResultContext & { reason: string }) {
+export function expectRefusalContext(value: Partial<ResultContext> & { reason: string }) {
   z.looseObject({ next, state: z.record(z.string(), z.unknown()).optional() }).parse(value);
 }
 export const workflowOutputSchema = z.looseObject({

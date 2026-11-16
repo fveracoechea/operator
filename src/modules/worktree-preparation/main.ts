@@ -8,9 +8,10 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import { approvedEnvFile, copyEnvFiles } from "./env-files.ts";
 import { classifyIgnored } from "./generated.ts";
 import { installedUnchanged, recordInstalled } from "./installed.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
-type Failure = { reason: string; detail: string };
+type Failure = Refusal;
 
 async function git(cwd: string, args: string[]) {
   const result = await ToolInvocation.run({
@@ -124,7 +125,16 @@ function qualify<T>(cause: CodedError, defect: (cause: CodedError) => T) {
       cause.code,
     )
   )
-    return { reason: "preparation_io_failed" as const, detail: String(cause) };
+    return {
+      reason: "preparation_io_failed" as const,
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the worktree preparation IO failure be corrected without losing local files?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 
@@ -154,7 +164,16 @@ function prepareProject(
     .flatMap((outcome) =>
       DeviceState.finishPreparation(paths, worktree, outcome).flatMap(() =>
         outcome.state === "failed"
-          ? Err<Failure>({ reason: "preparation_failed", detail: outcome.detail })
+          ? Err<Failure>({
+              reason: "preparation_failed",
+              detail: outcome.detail,
+              next: {
+                decider: "super-agent",
+                question:
+                  "How should this worktree's recorded preparation failure be corrected before launching its worker?",
+              },
+              state: { worktree, preparation: outcome.state },
+            })
           : Ok({
               reason: "worktree_prepared",
               data: { worktree, repository: project.repository, detail: outcome.detail },

@@ -2,6 +2,7 @@ import type { Result } from "unthrown";
 import { ReviewRequests } from "../review-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
 const reviewCommands = ["add", "start", "post", "skip", "cleanup", "next", "wait"] as const;
 const deviceCommands: readonly string[] = ["next", "wait"];
@@ -129,7 +130,7 @@ export async function runReviews(
   const input = { paths, url: parsed.url };
   const operations: Record<
     (typeof reviewCommands)[number],
-    () => PromiseLike<Result<{ reason: string; data: unknown }, { reason: string; detail: string }>>
+    () => PromiseLike<Result<{ reason: string; data: unknown }, Refusal>>
   > = {
     add: () => ReviewRequests.add({ ...input, slackThread: parsed.slackThread }),
     start: () => ReviewRequests.start({ ...input, profile: parsed.profile }),

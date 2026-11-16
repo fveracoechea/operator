@@ -108,7 +108,7 @@ test("an unexpected path failure is a startup defect", async () => {
       blockers: [expect.anything()],
     }),
   ]);
-  expect(output.error).toHaveBeenCalledWith("operator: Error: injected");
+  expect(output.error).toHaveBeenCalledWith("operator: startup_defect: Error: injected");
   expect(process.exitCode).toBe(1);
 });
 
@@ -127,11 +127,20 @@ test.each([true, false])("an unsupported Bun stops startup, json %p", async (jso
             outcome: "failed",
             reason: "unsupported_bun",
             blockers: [{ reason: "unsupported_bun", required: "<1", actual: Bun.version }],
+            next: {
+              decider: "super-agent",
+              question: "Which supported Bun runtime should run this command?",
+            },
+            state: { required: "<1", actual: Bun.version },
           },
         ]
       : [],
   );
-  expect(output.error).toHaveBeenCalledWith(expect.stringContaining("<1"));
+  expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
+    `operator: unsupported_bun: Bun <1 is required; running ${Bun.version}.`,
+    "next: super-agent decides: Which supported Bun runtime should run this command?",
+    `state: required="<1" actual="${Bun.version}"`,
+  ]);
   expect(process.exitCode).toBe(1);
   expect(checked).not.toHaveBeenCalled();
 });
@@ -139,7 +148,13 @@ test.each([true, false])("an unsupported Bun stops startup, json %p", async (jso
 test("an incompatible state stops startup with its own exit code", async () => {
   spyOn(Environment, "read").mockReturnValue(environment);
   release(">=1");
-  compatibility(Err({ reason: "state_missing", detail: "No state." }) as never);
+  compatibility(
+    Err({
+      reason: "state_missing",
+      detail: "No state.",
+      next: { command: "operator project register", why: "Initialize the isolated device." },
+    }),
+  );
   const output = capture();
   expect(await startup(["ready"], true)).toBeNull();
   expect(lines(output.log)).toEqual([
@@ -161,7 +176,7 @@ test("a compatibility defect is a startup defect", async () => {
   expect(lines(output.log)).toEqual([
     expect.objectContaining({ operation: "startup", reason: "startup_defect" }),
   ]);
-  expect(output.error).toHaveBeenCalledWith("operator: Error: injected");
+  expect(output.error).toHaveBeenCalledWith("operator: startup_defect: Error: injected");
   expect(process.exitCode).toBe(1);
 });
 

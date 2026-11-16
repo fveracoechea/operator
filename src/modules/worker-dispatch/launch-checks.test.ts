@@ -135,8 +135,19 @@ test("static readiness blockers refuse the start and name each blocker", async (
     OkAsync({
       warnings: [],
       blockers: [
-        { reason: "github_auth_failed" as const, detail: "a" },
-        { reason: "host_unconfigured" as const, detail: "b" },
+        {
+          reason: "github_auth_failed" as const,
+          detail: "a",
+          next: {
+            command: "gh auth login --hostname github.com",
+            why: "Authenticate the intended account.",
+          },
+        },
+        {
+          reason: "host_unconfigured" as const,
+          detail: "b",
+          next: { command: "operator config show", why: "Inspect the host settings." },
+        },
       ],
     }),
   );
@@ -220,7 +231,11 @@ test.skipIf(asRoot)("a linked manifest that cannot be read is a filesystem failu
 });
 
 test("a Herdr plugin list failure passes through", async () => {
-  const failure = { reason: "herdr_unavailable" as const, detail: "gone" };
+  const failure = {
+    reason: "herdr_unavailable" as const,
+    detail: "gone",
+    next: { decider: "super-agent" as const, question: "How should Herdr be made available?" },
+  };
   spyOn(Herdr, "plugins").mockReturnValue(ErrAsync(failure));
   expect(await launchSettings(paths, "/checkout", undefined)).toMatchObject({
     tag: "Err",
@@ -277,7 +292,14 @@ test("a root tab rename that Herdr refuses fails the workspace start", async () 
   spyOn(Herdr, "createWorkspace").mockReturnValue(
     OkAsync({ workspaceId: "w9", tabId: "t9", paneId: "p9" }),
   );
-  const failure = { reason: "herdr_failed" as const, detail: "herdr tab rename exited 1: refused" };
+  const failure = {
+    reason: "herdr_failed" as const,
+    detail: "herdr tab rename exited 1: refused",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should the failed rename be inspected before retrying?",
+    },
+  };
   spyOn(Herdr, "renameTab").mockReturnValue(ErrAsync(failure));
   expect(await ensureWorkspace("/checkout", "example/one", null)).toMatchObject({
     tag: "Err",
@@ -328,7 +350,16 @@ test("a reopened worktree with no finished preparation is prepared now", async (
     tag: "Ok",
     value: "worktree_unregistered",
   });
-  prepare.mockReturnValue(ErrAsync({ reason: "preparation_failed", detail: "install failed" }));
+  prepare.mockReturnValue(
+    ErrAsync({
+      reason: "preparation_failed",
+      detail: "install failed",
+      next: {
+        decider: "super-agent",
+        question: "How should the simulated preparation failure be corrected?",
+      },
+    }),
+  );
   expect(await preparedAgain(paths, worktree)).toMatchObject({
     tag: "Err",
     error: {
@@ -357,7 +388,14 @@ test("a missing reopened worktree or unreadable state is refused", async () => {
       detail: `The recorded worktree ${root}/gone no longer exists.`,
     },
   });
-  const failure = { reason: "state_busy" as const, detail: "locked" };
+  const failure = {
+    reason: "state_busy" as const,
+    detail: "locked",
+    next: {
+      decider: "super-agent" as const,
+      question: "When has the simulated state operation finished?",
+    },
+  };
   spyOn(DeviceState, "readPreparation").mockReturnValue(Err(failure));
   const prepare = spyOn(WorktreePreparation, "prepare");
   expect(await preparedAgain(paths, root)).toMatchObject({ tag: "Err", error: failure });

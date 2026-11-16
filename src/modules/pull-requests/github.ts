@@ -417,9 +417,14 @@ function mergeRequestResult(answer: Awaited<ReturnType<typeof GithubApi.call>>) 
     return Err<GithubEffectFailure>({
       reason: "github_failed",
       detail: `${answer.code}: ${answer.detail}`,
+      next: effectRecovery,
     });
   if (answer.status === "uncertain")
-    return Err<GithubEffectFailure>({ reason: "github_uncertain", detail: answer.detail });
+    return Err<GithubEffectFailure>({
+      reason: "github_uncertain",
+      detail: answer.detail,
+      next: effectRecovery,
+    });
   const parsed = mergeRequestAnswer.safeParse(answer.value.body);
   // An unreadable answer can follow an accepted request, so the merge stays uncertain.
   return parsed.success
@@ -431,6 +436,7 @@ function mergeRequestResult(answer: Awaited<ReturnType<typeof GithubApi.call>>) 
     : Err<GithubEffectFailure>({
         reason: "github_uncertain",
         detail: "GitHub did not describe the merge request in the expected form.",
+        next: effectRecovery,
       });
 }
 
@@ -591,15 +597,20 @@ export function postComment(repository: string, number: number, body: string) {
     (cause, defect) => defect(cause),
   ).flatMap((answer): Result<{ id: string; url: string }, GithubEffectFailure> => {
     if (answer.status === "failed")
-      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+      return Err({
+        reason: "github_failed",
+        detail: `${answer.code}: ${answer.detail}`,
+        next: effectRecovery,
+      });
     if (answer.status === "uncertain")
-      return Err({ reason: "github_uncertain", detail: answer.detail });
+      return Err({ reason: "github_uncertain", detail: answer.detail, next: effectRecovery });
     const parsed = postedAnswer.safeParse(answer.value.body);
     return parsed.success
       ? Ok({ id: parsed.data.node_id, url: parsed.data.html_url })
       : Err({
           reason: "github_uncertain",
           detail: "GitHub answered the comment post in an unknown form.",
+          next: effectRecovery,
         });
   });
 }
@@ -626,14 +637,19 @@ export function updateComment(id: string, body: string) {
     (cause, defect) => defect(cause),
   ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
     if (answer.status === "failed")
-      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+      return Err({
+        reason: "github_failed",
+        detail: `${answer.code}: ${answer.detail}`,
+        next: effectRecovery,
+      });
     if (answer.status === "uncertain")
-      return Err({ reason: "github_uncertain", detail: answer.detail });
+      return Err({ reason: "github_uncertain", detail: answer.detail, next: effectRecovery });
     const parsed = updateAnswer.safeParse(answer.value.body);
     if (!parsed.success)
       return Err({
         reason: "github_uncertain",
         detail: "GitHub answered the comment update in an unknown form.",
+        next: effectRecovery,
       });
     const errors = parsed.data.errors ?? [];
     if (errors.length > 0 || parsed.data.data === null)
@@ -641,6 +657,7 @@ export function updateComment(id: string, body: string) {
         reason: "github_failed",
         detail:
           errors.map((error) => error.message).join(" ") || "GitHub kept the earlier comment.",
+        next: effectRecovery,
       });
     return Ok(undefined);
   });

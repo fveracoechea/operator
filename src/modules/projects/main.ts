@@ -58,11 +58,20 @@ export const Projects = {
     if (repository === null)
       return Err({
         reason: "repository_choice_invalid" as const,
+        next: {
+          command: "operator project list",
+          why: "Choose the explicit registered owner/repository identity to remove.",
+        },
         detail: "Removal requires an explicit owner/repository identity.",
       });
     if (!input.personInstructed)
       return Err({
         reason: "person_instruction_required" as const,
+        next: {
+          decider: "person" as const,
+          question: "May this project be removed on your explicit instruction?",
+        },
+        state: { personInstructed: false },
         detail:
           "Remove a project only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority.",
       });

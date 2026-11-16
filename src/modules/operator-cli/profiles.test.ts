@@ -35,7 +35,14 @@ test("rejects malformed profile commands before any host metadata request", asyn
 
 test("formats metadata refusals and owns their exit status", async () => {
   spyOn(AgentHosts, "models").mockReturnValue(
-    ErrAsync({ reason: "host_metadata_failed", detail: "invalid metadata" } as const),
+    ErrAsync({
+      reason: "host_metadata_failed",
+      detail: "invalid metadata",
+      next: {
+        command: "operator host models --host opencode",
+        why: "Read valid model metadata before selecting a profile.",
+      },
+    } as const),
   );
   const log = spyOn(console, "log").mockImplementation(() => {});
   spyOn(console, "error").mockImplementation(() => {});
@@ -57,7 +64,11 @@ test("formats metadata refusals and owns their exit status", async () => {
 
 test("keeps non-JSON metadata refusal output on stderr", async () => {
   spyOn(AgentHosts, "models").mockReturnValue(
-    ErrAsync({ reason: "host_unavailable", detail: "host missing" } as const),
+    ErrAsync({
+      reason: "host_unavailable",
+      detail: "host missing",
+      next: { decider: "super-agent", question: "Which available host should this profile use?" },
+    } as const),
   );
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
@@ -70,7 +81,7 @@ test("keeps non-JSON metadata refusal output on stderr", async () => {
   );
   expect(await runProfiles(["host", "models", "--host", "opencode"], paths, false)).toBe(true);
   expect(log).not.toHaveBeenCalled();
-  expect(error).toHaveBeenCalledWith("operator: host missing");
+  expect(error).toHaveBeenCalledWith("operator: host_unavailable: host missing");
   expect(process.exitCode).toBe(3);
   process.exitCode = 0;
 });
@@ -199,7 +210,14 @@ test("rejects host model flags that only launch resolution takes", async () => {
 
 test("reports a settings refusal and a host defect with their exit codes", async () => {
   const resolve = spyOn(DeviceSettings, "resolve").mockReturnValue(
-    ErrAsync({ reason: "invalid_settings", detail: "bad file" }) as never,
+    ErrAsync({
+      reason: "invalid_settings",
+      detail: "bad file",
+      next: {
+        command: "operator config show",
+        why: "Inspect and correct the invalid settings file.",
+      },
+    }) as never,
   );
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
@@ -208,7 +226,7 @@ test("reports a settings refusal and a host defect with their exit codes", async
     operation: "config_resolve",
     reason: "invalid_settings",
   });
-  expect(error).toHaveBeenLastCalledWith("operator: bad file");
+  expect(error).toHaveBeenCalledWith("operator: invalid_settings: bad file");
   expect(process.exitCode).toBe(2);
   resolve.mockReturnValue(fromSafePromise(() => Promise.reject(new Error("boom"))) as never);
   expect(await runProfiles(["config", "resolve"], isolated, true)).toBe(true);
@@ -216,7 +234,7 @@ test("reports a settings refusal and a host defect with their exit codes", async
     operation: "config_resolve",
     reason: "settings_defect",
   });
-  expect(error).toHaveBeenLastCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: settings_defect: Error: boom");
   expect(process.exitCode).toBe(1);
   process.exitCode = 0;
 });

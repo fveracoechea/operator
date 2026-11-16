@@ -75,6 +75,12 @@ test("only a file-system code is an I/O failure, and any other error is a defect
   for (const code of ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR"])
     expect(qualify(coded(code), defect)).toEqual({
       reason: "review_io_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the review IO failure be corrected while preserving its recorded progress?",
+      },
+      state: { code },
       detail: `Error: failed ${code}`,
     });
   expect(qualify(coded("EBUSY"), defect)).toEqual({ defect: "failed EBUSY" });
@@ -90,6 +96,11 @@ test("a PR URL gives its target, and any other text is refused", () => {
     tag: "Err",
     error: {
       reason: "review_url_invalid",
+      next: {
+        decider: "super-agent",
+        question: "Which full GitHub pull request URL should this review command use?",
+      },
+      state: { url: "https://github.com/example/one/issues/7" },
       detail:
         "Give a GitHub pull request URL, such as https://github.com/owner/repository/pull/7, not https://github.com/example/one/issues/7.",
     },
@@ -104,6 +115,8 @@ test("only an open PR gets a review", async () => {
     tag: "Err",
     error: {
       reason: "review_pr_not_open",
+      next: { why: "The PR is not open. No review remains to post." },
+      state: { pullRequest: 7, state: "MERGED" },
       detail: "PR #7 is merged, so it gets no review. Nothing changed.",
     },
   });
@@ -386,6 +399,10 @@ test("a record writes only while this process holds the request", () => {
     error: {
       reason: "review_lease_lost",
       detail: "Another process took this review request. Nothing more was recorded.",
+      next: {
+        command: "operator review wait",
+        why: "Let the process that owns the review request finish.",
+      },
     },
   });
   expect(readRequest(home.paths, "r2", other).request?.failureReason).toBeNull();

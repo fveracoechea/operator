@@ -87,10 +87,18 @@ test("another session, also one in the supervising pane, is refused with the sup
 test("a supervision check that cannot read its source passes the failure on", async () => {
   project();
   caller("ses-1");
-  const failure = { reason: "source_not_found" as const, detail: "missing" };
+  const failure = {
+    reason: "source_not_found" as const,
+    detail: "missing",
+    next: { command: "operator next", why: "Choose an existing source." },
+  };
   spyOn(DeviceState, "readSupervisor").mockReturnValue(Err(failure));
   expect(await WorkSources.checkSupervisor(input)).toMatchObject({ tag: "Err", error: failure });
-  const unregistered = { reason: "project_not_registered" as const, detail: "none" };
+  const unregistered = {
+    reason: "project_not_registered" as const,
+    detail: "none",
+    next: { command: "operator project register", why: "Register the controlling checkout." },
+  };
   spyOn(Projects, "current").mockReturnValue(ErrAsync(unregistered));
   expect(await WorkSources.checkSupervisor(input)).toMatchObject({
     tag: "Err",

@@ -59,14 +59,23 @@ test.each([
   ["launcher_global_manifest_invalid", 1],
   ["launcher_io_failed", 1],
 ] as const)("refuses %s with exit code %d", async (reason, code) => {
-  spyOn(GlobalLauncher, "install").mockReturnValue(ErrAsync({ reason, detail: "not installed" }));
+  spyOn(GlobalLauncher, "install").mockReturnValue(
+    ErrAsync({
+      reason,
+      detail: "not installed",
+      next: {
+        decider: "super-agent",
+        question: "How should the simulated launcher failure be corrected?",
+      },
+    }),
+  );
   const { log, error } = quiet();
   expect(await runLauncher(["install", "launcher", "--json"], true)).toBe(true);
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
     operation: "install_launcher",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not installed");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not installed`);
   expect(process.exitCode).toBe(code);
 });
 
@@ -80,6 +89,6 @@ test("reports a launcher defect with exit code 1", async () => {
     operation: "install_launcher",
     reason: "launcher_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: launcher_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });

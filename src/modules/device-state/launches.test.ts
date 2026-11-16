@@ -621,6 +621,11 @@ test("a preparation names its running path, and a finished one is not abandoned"
     error: {
       reason: "preparation_running",
       detail: "Another preparation of /wt is still running.",
+      next: {
+        command: "operator next --wait",
+        why: "Let the current worktree preparation finish.",
+      },
+      state: { worktree: "/wt", preparation: "running" },
     },
   });
   finishPreparation(db, "/wt", { state: "prepared", detail: "done" });

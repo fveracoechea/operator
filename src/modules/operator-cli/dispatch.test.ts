@@ -139,7 +139,14 @@ test.each([
   ["assignment_blocked", 3],
 ])("refuses %s with exit code %d", async (reason, code) => {
   spyOn(WorkerDispatch, "observe").mockReturnValue(
-    ErrAsync({ reason, detail: "not observed" }) as never,
+    ErrAsync({
+      reason,
+      detail: "not observed",
+      next: {
+        decider: "super-agent",
+        question: "How should this simulated dispatch refusal be resolved?",
+      },
+    }),
   );
   const { log, error } = quiet();
   expect(await runDispatch(["herdr", "event", "--json"], paths, true)).toBe(true);
@@ -147,7 +154,10 @@ test.each([
     operation: "herdr_event",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not observed");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not observed`);
+  expect(error).toHaveBeenCalledWith(
+    "next: super-agent decides: How should this simulated dispatch refusal be resolved?",
+  );
   expect(process.exitCode).toBe(code);
 });
 

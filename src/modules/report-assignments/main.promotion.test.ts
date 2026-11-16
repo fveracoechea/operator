@@ -409,7 +409,14 @@ test("a refused Herdr rename restores the branch and records nothing", async () 
   device.inPane(superPane);
   herdr([launch.name]);
   spyOn(Herdr, "renameAgent").mockReturnValue(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent rename exited 1" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "herdr agent rename exited 1",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed agent rename be inspected before retrying?",
+      },
+    }),
   );
   expect(await promote(sourceId)).toMatchObject({ error: { reason: "herdr_failed" } });
   expect(await git(["symbolic-ref", "--short", "HEAD"], worktree)).toBe("report/read");
@@ -421,7 +428,14 @@ test("a refused tab rename restores the agent name and the branch and records no
   device.inPane(superPane);
   const called = herdr([launch.name]);
   called.tab.mockReturnValue(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "herdr tab rename exited 1" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "herdr tab rename exited 1",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed tab rename be inspected before retrying?",
+      },
+    }),
   );
   expect(await promote(sourceId)).toMatchObject({ error: { reason: "herdr_failed" } });
   expect(called.agent.mock.calls.at(-1)).toEqual([{ paneId: workerPane, name: launch.name }]);
@@ -435,7 +449,14 @@ test("a refused promotion names each rename that it could not restore", async ()
   const called = herdr([launch.name]);
   called.agent.mockImplementation(({ name }) =>
     name === launch.name
-      ? ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent rename exited 1" })
+      ? ErrAsync({
+          reason: "herdr_failed" as const,
+          detail: "herdr agent rename exited 1",
+          next: {
+            decider: "super-agent",
+            question: "How should the failed agent rename be inspected before retrying?",
+          },
+        })
       : OkAsync(undefined),
   );
   const change = DeviceState.changeReport;
@@ -463,7 +484,14 @@ test("a refused Herdr rename names the branch that it could not restore", async 
   // Another branch takes the report's name before the undo, so the branch cannot go back.
   called.agent.mockImplementation(() => {
     Bun.spawnSync(["git", "-C", worktree, "branch", "report/read"]);
-    return ErrAsync({ reason: "herdr_failed" as const, detail: "herdr agent rename exited 1" });
+    return ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "herdr agent rename exited 1",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed agent rename be inspected before retrying?",
+      },
+    });
   });
   expect(await promote(sourceId)).toMatchObject({
     error: {

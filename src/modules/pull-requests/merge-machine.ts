@@ -1,5 +1,6 @@
 import type { MergeRequest, Observation } from "./github.ts";
 import { mergeConditions, type MergeConditions } from "./wait-machine.ts";
+import type { RefusalContext, Refusal as Failure } from "../../lib/cli-result.ts";
 
 // A stacked PR merges only after its parent merged and its relay finished, and a PR with an
 // internal review only after that review ended ready or skipped.
@@ -9,7 +10,7 @@ type Facts = {
   stackRelayed: boolean;
   reviewEnded: boolean;
 };
-type Refusal = {
+type Refusal = RefusalContext & {
   result: "refused";
   reason: "pr_not_open" | "pr_merge_blocked" | "pr_head_mismatch";
   detail: string;
@@ -42,6 +43,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       result: "refused",
       reason: "pr_not_open",
       detail: `The PR is closed without a merge. Ask the SuperAgent. ${nothing}`,
+      next: {
+        decider: "super-agent",
+        question: "How should the closed PR assignment be resolved?",
+      },
+      state: { pullRequest: "CLOSED" },
       conditions: mergeConditions(facts.observed, facts),
     }),
   },
@@ -56,6 +62,8 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       result: "refused",
       reason: "pr_merge_blocked",
       detail: blocked(mergeConditions(facts.observed, facts)),
+      next: { command: "operator pr wait", why: blocked(mergeConditions(facts.observed, facts)) },
+      state: { conditions: mergeConditions(facts.observed, facts) },
       conditions: mergeConditions(facts.observed, facts),
     }),
   },
@@ -66,6 +74,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       result: "refused",
       reason: "pr_head_mismatch",
       detail: `The PR head is ${facts.observed.head}, but the worktree is at ${facts.localHead ?? "no commit"}. Push or reconcile first. ${nothing}`,
+      next: {
+        decider: "super-agent",
+        question: "How should the worktree and PR heads be reconciled without losing commits?",
+      },
+      state: { localHead: facts.localHead, prHead: facts.observed.head },
       conditions: mergeConditions(facts.observed, facts),
     }),
   },
@@ -101,7 +114,7 @@ export const mergeRequestReadMs = 1000;
 
 type MergeRequestStep =
   | { result: "read"; uuid: string }
-  | { result: "verify"; refusal: { reason: string; detail: string } | null };
+  | { result: "verify"; refusal: Failure | null };
 
 /**
  * The next step after one state of a background merge request. Every final state and every
@@ -110,13 +123,28 @@ type MergeRequestStep =
 export function followMergeRequest(request: MergeRequest, reads: number): MergeRequestStep {
   if (request.status === "merged") return { result: "verify", refusal: null };
   if (request.status === "failed")
-    return { result: "verify", refusal: { reason: "pr_merge_refused", detail: request.message } };
+    return {
+      result: "verify",
+      refusal: {
+        reason: "pr_merge_refused",
+        detail: request.message,
+        next: {
+          decider: "person",
+          question: "Which GitHub merge restriction must be resolved before this PR can merge?",
+        },
+      },
+    };
   if (request.status === "enqueued")
     return {
       result: "verify",
       refusal: {
         reason: "pr_merge_unverified",
         detail: `GitHub put the PR in a merge queue: ${request.message} Nothing was recorded. Repeat operator pr merge after it merges.`,
+        next: {
+          command: "operator pr merge",
+          why: "Verify the queued merge after GitHub reports it merged.",
+        },
+        state: { mergeRequest: request.status },
       },
     };
   if (request.uuid !== null && reads < mergeRequestReads)
@@ -126,6 +154,11 @@ export function followMergeRequest(request: MergeRequest, reads: number): MergeR
     refusal: {
       reason: "pr_merge_unverified",
       detail: `GitHub still runs the merge request: ${request.message} Nothing was recorded. Repeat operator pr merge.`,
+      next: {
+        command: "operator pr merge",
+        why: "Verify whether the background merge request landed.",
+      },
+      state: { mergeRequest: request.status },
     },
   };
 }

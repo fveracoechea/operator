@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no recursive removal API.
 import { rm } from "node:fs/promises";
 import { WorkSources } from "../work-sources/main.ts";
+import { DeviceState } from "../device-state/main.ts";
 import { WorkerQuestions } from "./main.ts";
 import { okValue, questionDevice, superPane, workerPane } from "./question-fixture.ts";
 
@@ -42,6 +43,49 @@ function wait(key = "scope", timeoutSeconds = 0) {
   device.inPane(workerPane);
   return WorkerQuestions.wait({ paths: device.paths, key, timeoutSeconds });
 }
+
+test("a pane reread retargeted to another assignment refuses the missing question with its recovery", async () => {
+  const sourceId = await device.source();
+  device.launch(sourceId);
+  const target = {
+    by: "key",
+    repository: "example/one",
+    checkout: device.checkout,
+    sourceId,
+    assignment: "later",
+  } as const;
+  const reread = DeviceState.readQuestion(device.paths, target, "scope");
+  expect(reread).toMatchObject({
+    tag: "Ok",
+    value: { assignment: { key: "later" }, question: null },
+  });
+  const read = DeviceState.readQuestion;
+  const observed = spyOn(DeviceState, "readQuestion").mockReturnValue(reread);
+  device.inPane(workerPane);
+  const file = await device.write("q.md", "Which scope?");
+  expect(await WorkerQuestions.ask({ paths: device.paths, key: "scope", file })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "question_defect",
+      detail: "The question is not recorded.",
+      next: {
+        decider: "super-agent",
+        question: "Why is the changed question missing from its recorded assignment?",
+      },
+    },
+  });
+  expect(observed).toHaveBeenCalledTimes(1);
+  observed.mockRestore();
+  expect(read(device.paths, { ...target, assignment: "read" }, "scope")).toMatchObject({
+    tag: "Ok",
+    value: { question: { state: "open", question: "Which scope?" } },
+  });
+  expect(read(device.paths, target, "scope")).toMatchObject({
+    tag: "Ok",
+    value: { question: null },
+  });
+  expect(device.doorbells).toEqual([]);
+});
 
 test("an asked question replaces the idle worker in next actions until the SuperAgent answers", async () => {
   const { sourceId, result, askedAt } = await asked();

@@ -21,6 +21,10 @@ import type { ResultContext } from "../../lib/cli-result.ts";
 
 type Claimed = Extract<ReturnType<typeof DeviceState.claimCleanup>, { tag: "Ok" }>["value"];
 type Failure = ResultContext & { reason: string; detail: string };
+const cleanupRecovery = {
+  decider: "super-agent" as const,
+  question: "How should this cleanup failure be corrected without repeating an uncertain effect?",
+};
 type StepResult =
   | { done: true; outcome: string }
   | (Pick<ResultContext, "next"> & {
@@ -59,7 +63,10 @@ function value<T>(
 ): { ok: true; value: T } | { ok: false; error: Failure } {
   if (result.tag === "Ok") return { ok: true, value: result.value };
   if (result.tag === "Err") return { ok: false, error: result.error };
-  return { ok: false, error: { reason: "cleanup_defect", detail: String(result.cause) } };
+  return {
+    ok: false,
+    error: { reason: "cleanup_defect", detail: String(result.cause), next: cleanupRecovery },
+  };
 }
 
 function failed(error: Failure): StepResult {
@@ -68,11 +75,7 @@ function failed(error: Failure): StepResult {
     state: "failed",
     reason: "cleanup_failed",
     detail: `${error.reason}: ${error.detail}`,
-    next: error.next ?? {
-      decider: "super-agent",
-      question:
-        "How should this cleanup failure be corrected without repeating an uncertain effect?",
-    },
+    next: error.next,
     checked: error.state,
   };
 }
@@ -111,6 +114,7 @@ async function remoteStep(facts: Claimed, personInstructed: boolean): Promise<St
   if (after.value === null) return { done: true, outcome: "deleted" };
   return failed({
     reason: "github_failed",
+    next: cleanupRecovery,
     state: { remoteBranchExists: true },
     detail:
       `The branch ${branch} still exists after the deletion request. ${answer.ok ? (answer.value ?? "") : answer.error.detail}`.trim(),
@@ -295,6 +299,7 @@ async function removeWorktree(checkout: string, real: string, force: boolean) {
         ok: false as const,
         error: {
           reason: "git_failed",
+          next: cleanupRecovery,
           detail: `git worktree remove failed: ${(removed?.stderr ?? "Git did not answer.").trim()}`,
           state: { removalConfirmed: false },
         },
@@ -335,7 +340,13 @@ async function worktreeStep(
   // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent: every decision but dispose returned above, and inspection decides dispose only for a real path
   if (inspection.real === null || inspection.decision.action !== "dispose")
     // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: this type guard is unreachable, as the line before explains
-    return failed({ reason: "cleanup_defect", detail: "The worktree inspection has no path." });
+    return failed({
+      // Stryker disable next-line StringLiteral: equivalent: worktreeStep returned for every inspection decision except dispose. inspectWorktree returns dispose only with a real path. The immediately preceding conditional and object literal already carry original equivalent proofs; these are the nested reason/detail strings introduced onto separate lines.
+      reason: "cleanup_defect",
+      // Stryker disable next-line StringLiteral: equivalent: worktreeStep returned for every inspection decision except dispose. inspectWorktree returns dispose only with a real path. The immediately preceding conditional and object literal already carry original equivalent proofs; these are the nested reason/detail strings introduced onto separate lines.
+      detail: "The worktree inspection has no path.",
+      next: cleanupRecovery,
+    });
   const removed = await removeWorktree(facts.checkout, inspection.real, inspection.decision.force);
   if (!removed.ok) return failed(removed.error);
   // The local branch goes only while it still names the inspected head.

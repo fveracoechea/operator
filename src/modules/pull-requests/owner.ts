@@ -2,15 +2,16 @@ import { isCodedError } from "../../lib/coded-error.ts";
 import { realPathOrNull } from "../../lib/real-path.ts";
 // Bun has no realpath API.
 import { realpath } from "node:fs/promises";
-import { Err, ErrAsync, Ok, fromPromise } from "unthrown";
+import { Err, ErrAsync, Ok, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import type { Refusal, RefusalContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
-type OwnerFailure = {
+type OwnerFailure = RefusalContext & {
   reason:
     | "pr_worktree_unrecorded"
     | "pr_owner_inactive"
@@ -27,7 +28,15 @@ export function qualify<C, T>(cause: C, defect: (cause: C) => T) {
     isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "ELOOP"].includes(cause.code)
   )
-    return { reason: "pr_io_failed", detail: String(cause) };
+    return {
+      reason: "pr_io_failed",
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question: "How should the PR worktree IO failure be corrected without losing work?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 
@@ -46,6 +55,11 @@ async function recorded(cwd: string, owners: Owners): Promise<Recorded | OwnerFa
     return {
       reason: "pr_worktree_unrecorded",
       detail: `Run PR commands inside the recorded worktree of your assignment. ${nothing}`,
+      next: {
+        command: "operator next",
+        why: "Locate the assignment's recorded worktree before running a PR command.",
+      },
+      state: { gitTopLevel: null },
     };
   const real = await realpath(top);
   const matches: Recorded[] = [];
@@ -58,6 +72,11 @@ async function recorded(cwd: string, owners: Owners): Promise<Recorded | OwnerFa
     matches[0] ?? {
       reason: "pr_worktree_unrecorded",
       detail: `${real} is not the recorded worktree of an assignment. ${nothing}`,
+      next: {
+        command: "operator next",
+        why: "Locate the assignment's recorded worktree before running a PR command.",
+      },
+      state: { worktree: real, recorded: false },
     }
   );
 }
@@ -73,6 +92,17 @@ function running(owner: Recorded): Owner | OwnerFailure {
     : {
         reason: "pr_owner_inactive",
         detail: `This worktree belongs to assignment ${owner.assignment}, which has no running PR owner. ${nothing}`,
+        next: {
+          decider: "super-agent",
+          question: "Which recorded owner should continue this PR assignment?",
+        },
+        state: {
+          assignment: owner.assignmentState,
+          source: owner.sourceState,
+          launch: owner.launchState,
+          completion: owner.completion,
+          branch,
+        },
       };
 }
 
@@ -106,6 +136,12 @@ async function find(paths: Paths, cwd: string, owners: Owners): Promise<Owner | 
     return {
       reason: "pr_repository_mismatch",
       detail: `This worktree is not a worktree of the registered ${owner.repository} checkout. ${nothing}`,
+      next: {
+        decider: "super-agent",
+        question:
+          "How should this worktree's repository mismatch be resolved while preserving its work?",
+      },
+      state: { repository: owner.repository, matches: false },
     };
   const head = await git(owner.worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   return head === owner.branch
@@ -113,6 +149,11 @@ async function find(paths: Paths, cwd: string, owners: Owners): Promise<Owner | 
     : {
         reason: "pr_branch_mismatch",
         detail: `The worktree must be on the recorded branch ${owner.branch}, not ${head ?? "a detached HEAD"}. ${nothing}`,
+        next: {
+          decider: "super-agent",
+          question: "How should the recorded PR branch be restored without losing local work?",
+        },
+        state: { expected: owner.branch, actual: head },
       };
 }
 
@@ -127,7 +168,7 @@ function selectedOwner(input: { paths: Paths; cwd: string } & Selector) {
         const caller = Environment.caller();
         return supervisor.session !== null && supervisor.session === caller.session
           ? Ok(project)
-          : Err({
+          : Err<Refusal>({
               reason: "source_supervised_elsewhere",
               detail: `Only the recorded supervising session may select delivery for source ${input.sourceId}. ${nothing}`,
               next: {
@@ -147,7 +188,7 @@ function selectedOwner(input: { paths: Paths; cwd: string } & Selector) {
                 row.assignment === input.assignment,
             );
             if (owner?.worktreePath === null || owner === undefined)
-              return Err({
+              return Err<Refusal>({
                 reason: "pr_worktree_unrecorded",
                 detail: `Assignment ${input.assignment} has no recorded PR worktree. ${nothing}`,
                 next: {
@@ -166,7 +207,7 @@ function selectedOwner(input: { paths: Paths; cwd: string } & Selector) {
 }
 
 function invalidSelection() {
-  return ErrAsync({
+  return ErrAsync<Refusal>({
     reason: "pr_selector_invalid",
     detail: `Supply both source and assignment for selected delivery. ${nothing}`,
     next: {
@@ -176,7 +217,9 @@ function invalidSelection() {
   });
 }
 
-export function resolveOwner(input: { paths: Paths; cwd: string } & Partial<Selector>) {
+export function resolveOwner(
+  input: { paths: Paths; cwd: string } & Partial<Selector>,
+): AsyncResult<Owner, Refusal> {
   if (input.sourceId !== undefined)
     return input.assignment === undefined
       ? invalidSelection()

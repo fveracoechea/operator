@@ -118,6 +118,7 @@ test("waits and relays refuse an unfinished delivery after its process exits", (
       reason: "pr_delivery_running",
       detail:
         "Delivery holds this assignment. Wait for it to end before another PR wait or relay. Nothing changed.",
+      next: { command: "operator pr merge --json", why: expect.stringMatching(/\S/) as unknown },
     },
   });
   expect(db.query("SELECT progress FROM pull_requests").get()).toEqual({
@@ -297,7 +298,10 @@ test("one PR belongs to one open assignment, and a stale or report owner changes
     error: { reason: "pr_owned_elsewhere" },
   });
   expect(associatePullRequest(db, "l3", { ...pr, number: 9 })).toMatchObject({
-    error: { reason: "pr_owner_inactive" },
+    error: {
+      reason: "pr_owner_inactive",
+      next: { command: "operator next", why: "Read the current PR owner before continuing." },
+    },
   });
   interrupt(db, "p2");
   expect(associatePullRequest(db, "l2", { ...pr, number: 9 })).toMatchObject({
@@ -518,6 +522,11 @@ test("association records idle progress, names the owning PR, and asks for a rev
     error: {
       reason: "pr_already_associated",
       detail: "Assignment change already owns PR #7. Nothing was changed.",
+      next: {
+        command: "operator pr wait",
+        why: "Continue the assignment's existing PR rather than associating another.",
+      },
+      state: { pullRequest: 7 },
     },
   });
   expect(associatePullRequest(db, "l2", pr)).toMatchObject({
@@ -525,6 +534,11 @@ test("association records idle progress, names the owning PR, and asks for a rev
     error: {
       reason: "pr_owned_elsewhere",
       detail: "PR #7 belongs to another open PR assignment. Nothing was changed.",
+      next: {
+        decider: "super-agent",
+        question: "Which assignment should retain ownership of this PR?",
+      },
+      state: { pullRequest: 7, ownedElsewhere: true },
     },
   });
   const other = {
@@ -561,6 +575,11 @@ test("a wait needs the PR row and the PR open state, and names a missing branch"
     error: {
       reason: "pr_not_associated",
       detail: "Run operator pr associate after you open the PR. Nothing was changed.",
+      next: {
+        command: "operator pr associate",
+        why: "Associate the assignment's open PR before waiting.",
+      },
+      state: { pullRequest: null },
     },
   };
   db.exec("UPDATE assignments SET state = 'pr-open' WHERE key = 'change'");
@@ -577,6 +596,12 @@ test("a wait needs the PR row and the PR open state, and names a missing branch"
     error: {
       reason: "pr_branch_mismatch",
       detail: "This launch is on no branch, but PR #7 is on task/change. Nothing was changed.",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the recorded launch and PR branches be reconciled without losing work?",
+      },
+      state: { launchBranch: null, prBranch: "task/change" },
     },
   });
   db.exec("UPDATE launches SET branch = 'task/change'");
@@ -701,6 +726,10 @@ test("a merge refuses an unknown launch, an unassociated PR, another PR number, 
       error: {
         reason: "pr_not_associated",
         detail: `PR #${number} is not the open PR of assignment change. Nothing was changed.`,
+        next: {
+          decider: "super-agent",
+          question: "Why does the observed merge not match the assignment's recorded open PR?",
+        },
       },
     };
   }

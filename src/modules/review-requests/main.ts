@@ -130,6 +130,11 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
                   ? started.error
                   : {
                       reason: "launch_defect",
+                      next: {
+                        decider: "super-agent" as const,
+                        question:
+                          "How should the unexpected reviewer launch failure be investigated?",
+                      },
                       detail: `The start stopped: ${String(started.cause)}`,
                     };
               return apply(input.paths, target, "start_failed", () => ({
@@ -138,6 +143,7 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
                 .toAsync()
                 .flatMap(() =>
                   ErrAsync<Failure>({
+                    ...error,
                     reason: "launch_failed",
                     detail: `${error.reason}: ${error.detail} The reviewer start is recorded as failed. Read operator review next.`,
                   }),
@@ -213,11 +219,17 @@ function cleanupTarget(paths: Paths, target: Target) {
     if (request !== null)
       return Err<Failure>({
         reason: "review_request_open",
+        next: {
+          command: "operator review next",
+          why: "Finish the open review request before cleaning up its reviewer.",
+        },
+        state: { reviewState: request.state },
         detail: `The review request of PR #${target.number} is ${request.state}. Only an approved, closed, or skipped request, or one with kept reviewer work, is cleaned up. Nothing changed.`,
       });
     return snapshot.ended === null
       ? Err<Failure>({
           reason: "review_cleanup_unchanged",
+          next: { why: "No reviewer cleanup remains for this PR." },
           detail: `No approved, closed, or skipped request of PR #${target.number} has a reviewer cleanup left.`,
         })
       : claimCleanup(paths, target, snapshot.ended.id);

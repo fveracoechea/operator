@@ -55,6 +55,12 @@ test("matching content needs no write, and other content is a conflict", () => {
     expect(decideLauncher({ ...facts, destination })).toEqual({
       action: "refuse",
       reason: "launcher_conflict",
+      next: {
+        decider: "person",
+        question:
+          "Should the existing launcher path be retained or removed before Operator writes its launcher?",
+      },
+      state: { command: "/home/person/.bun/bin/operator" },
       detail:
         "/home/person/.bun/bin/operator already exists with other content. It was not changed. Remove it yourself if it is not needed, then install the launcher again.",
     });
@@ -94,28 +100,57 @@ test("refusals check the release before the destination and name the exact insta
   expect(decideLauncher({ ...facts, ...occupied, built: false })).toEqual({
     action: "refuse",
     reason: "launcher_unsupported",
+    next: {
+      decider: "person",
+      question:
+        "Should this source installation expose Bun's global command, or should a pinned built release supply Operator?",
+    },
+    state: { built: false, packageRoot: "/real/global/node_modules/@fveracoechea/operator" },
     detail:
       "The running Operator at /real/global/node_modules/@fveracoechea/operator is not a built release. A source installation from bun add -g at a full commit gets its operator command from Bun.",
   });
   expect(decideLauncher({ ...facts, ...occupied, globalRoot: null })).toEqual({
     action: "refuse",
     reason: "launcher_unsupported",
+    next: {
+      command: install,
+      why: "Install the exact built release into Bun's global package folder before installing its launcher.",
+    },
+    state: { packageRoot: "/real/global/node_modules/@fveracoechea/operator", expectedRoot: null },
     detail: `The running Operator at /real/global/node_modules/@fveracoechea/operator is not Bun's global package. Run ${install}, then run this command from that package.`,
   });
   expect(decideLauncher({ ...facts, ...occupied, specifier: null })).toEqual({
     action: "refuse",
     reason: "launcher_version_unpinned",
+    next: {
+      command: install,
+      why: "Pin the global package to the running release before installing its launcher.",
+    },
+    state: { specifier: null, version: "1.2.3" },
     detail: `Bun's global manifest names no specifier for @fveracoechea/operator, not the exact running version. Run ${install}.`,
   });
   const elsewhere = decideLauncher({ ...facts, ...occupied, packageRoot: "/tmp/copy" });
   expect(elsewhere).toEqual({
     action: "refuse",
     reason: "launcher_unsupported",
+    next: {
+      command: install,
+      why: "Install the exact built release into Bun's global package folder before installing its launcher.",
+    },
+    state: {
+      packageRoot: "/tmp/copy",
+      expectedRoot: "/real/global/node_modules/@fveracoechea/operator",
+    },
     detail: `The running Operator at /tmp/copy is not Bun's global package at /real/global/node_modules/@fveracoechea/operator. Run ${install}, then run this command from that package.`,
   });
   expect(decideLauncher({ ...facts, ...occupied, specifier: "^1.2.3" })).toEqual({
     action: "refuse",
     reason: "launcher_version_unpinned",
+    next: {
+      command: install,
+      why: "Pin the global package to the running release before installing its launcher.",
+    },
+    state: { specifier: "^1.2.3", version: "1.2.3" },
     detail: `Bun's global manifest names ^1.2.3 for @fveracoechea/operator, not the exact running version. Run ${install}.`,
   });
 });

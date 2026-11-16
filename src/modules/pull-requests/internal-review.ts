@@ -8,8 +8,14 @@ import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
-type Failure = { reason: string; detail: string };
+type Failure = Refusal;
+const handoffRecovery = {
+  decider: "super-agent" as const,
+  question:
+    "How should the failed internal-review handoff be recovered from its recorded progress?",
+};
 type Claimed = Extract<ReturnType<typeof DeviceState.claimHandoff>, { tag: "Ok" }>["value"];
 
 // A built release runs `cli.js`, and a source install runs `cli.ts`.
@@ -99,25 +105,34 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
   if (Environment.read().HERDR_SOCKET_PATH !== (implementer.herdrSocket ?? undefined))
     return {
       reason: "herdr_session_mismatch",
+      next: {
+        decider: "super-agent",
+        question: "Which pane of the recorded Herdr session should retry this handoff?",
+      },
+      state: {
+        expectedSocket: implementer.herdrSocket,
+        actualSocket: Environment.read().HERDR_SOCKET_PATH ?? null,
+      },
       detail: "Run operator handoff in a pane of the Herdr session that started the implementer.",
     };
   const closed = await Herdr.closePane(implementer.paneId);
   if (closed.tag === "Ok") return null;
   return closed.tag === "Err"
     ? closed.error
-    : { reason: "handoff_defect", detail: String(closed.cause) };
+    : { reason: "handoff_defect", detail: String(closed.cause), next: handoffRecovery };
 }
 
 type Step = { ok: true; reviewer: object | null } | { ok: false; error: Failure };
 
-function failure<T>(
-  result:
-    | { tag: "Err"; error: Failure }
-    | { tag: "Defect"; cause: unknown }
-    | { tag: "Ok"; value: T },
+function failure(
+  result: { tag: "Err"; error: Failure } | { tag: "Defect"; cause: unknown },
 ): Failure {
   if (result.tag === "Err") return result.error;
-  return { reason: "handoff_defect", detail: result.tag === "Defect" ? String(result.cause) : "" };
+  return {
+    reason: "handoff_defect",
+    detail: String(result.cause),
+    next: handoffRecovery,
+  };
 }
 
 async function runHandoff(request: HandoffRequest, facts: Claimed): Promise<Step> {
@@ -131,7 +146,14 @@ async function runHandoff(request: HandoffRequest, facts: Claimed): Promise<Step
   if (decision.result !== "handoff")
     return {
       ok: false,
-      error: { reason: "handoff_defect", detail: "The handoff event decided no handoff." },
+      // Stryker disable next-line ObjectLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+      error: {
+        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+        reason: "handoff_defect",
+        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+        detail: "The handoff event decided no handoff.",
+        next: handoffRecovery,
+      },
     };
   if (decision.closePane) {
     const closed = await closeImplementer(facts);
@@ -236,6 +258,14 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
                     ? decision
                     : {
                         reason: "internal_review_defect",
+                        // Stryker disable next-line ObjectLiteral: equivalent: round calls the pure machine with the fixed round event. Its decision is round or refused for every typed fact. The nested unexpected-event fallback is unreachable; recorded ordinary refusals remain tested through the real machine.
+                        next: {
+                          // Stryker disable next-line StringLiteral: equivalent: round calls the pure machine with the fixed round event. Its decision is round or refused for every typed fact. The nested unexpected-event fallback is unreachable; recorded ordinary refusals remain tested through the real machine.
+                          decider: "super-agent",
+                          question:
+                            // Stryker disable next-line StringLiteral: equivalent: round calls the pure machine with the fixed round event. Its decision is round or refused for every typed fact. The nested unexpected-event fallback is unreachable; recorded ordinary refusals remain tested through the real machine.
+                            "How should the unexpected review-round decision be investigated?",
+                        },
                         detail: "The round event decided no round.",
                       },
                 );

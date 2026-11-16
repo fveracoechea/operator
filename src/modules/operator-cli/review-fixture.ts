@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect } from "bun:test";
+import { expectRefusalOutput, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 // Bun has no temporary-directory, symlink, permission, or recursive copy API.
 import { chmod, cp, mkdir, mkdtemp, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -92,9 +93,11 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   /** Review commands run from the device root, which is no checkout. */
   async function run(args: string[], cwd = root) {
     const result = await exec([...command.argv, ...args, "--json"], cwd);
+    const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
+    expectRefusalOutput(output, result.stderr);
     return {
       code: result.code,
-      output: z.looseObject({}).parse(JSON.parse(result.stdout)),
+      output,
       stderr: result.stderr,
     };
   }

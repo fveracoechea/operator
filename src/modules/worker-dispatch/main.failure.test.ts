@@ -41,6 +41,11 @@ test("a defect during the start is recorded as a failed launch", async () => {
       reason: "launch_failed",
       detail:
         "launch_defect: Dispatch stopped: TypeError: boom The launch is recorded as failed. Read operator next before a replacement.",
+      next: {
+        command: "operator next",
+        why: "Read the recorded launch action before starting a replacement.",
+      },
+      state: { launch: "failed" },
     },
   });
   expect(await device.launches("read")).toMatchObject([
@@ -70,7 +75,14 @@ test("a brief that cannot be written fails the recorded start", async () => {
 test("a tab rename that Herdr refuses fails the start after the worktree is recorded", async () => {
   await using device = await dispatchDevice();
   device.herdr.renameTab.mockReturnValue(
-    ErrAsync({ reason: "herdr_failed", detail: "herdr tab rename exited 1: refused" }),
+    ErrAsync({
+      reason: "herdr_failed",
+      detail: "herdr tab rename exited 1: refused",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed rename be inspected before retrying?",
+      },
+    }),
   );
   expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({
     tag: "Err",

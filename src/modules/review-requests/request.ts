@@ -1,4 +1,5 @@
 import { isCodedError } from "../../lib/coded-error.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 import { Err, Ok, type OkOf, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
@@ -16,10 +17,9 @@ import {
   type ReviewTransition,
 } from "./review-machine.ts";
 import { headLimitSchema } from "./review-body.ts";
-import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
-export type Failure = { reason: string; detail: string } & ResultContext;
+export type Failure = Refusal;
 export type Snapshot = OkOf<ReturnType<typeof DeviceState.readReviewRequest>>;
 export type Row = NonNullable<Snapshot["request"]>;
 export type Round = Snapshot["rounds"][number];
@@ -55,7 +55,16 @@ export function qualify<C, T>(cause: C, defect: (cause: C) => T) {
       cause.code,
     )
   )
-    return { reason: "review_io_failed", detail: String(cause) };
+    return {
+      reason: "review_io_failed",
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question:
+          "How should the review IO failure be corrected while preserving its recorded progress?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 
@@ -64,6 +73,11 @@ export function parseTarget(url: string): Result<Target, Failure> {
   return target === null
     ? Err({
         reason: "review_url_invalid",
+        next: {
+          decider: "super-agent",
+          question: "Which full GitHub pull request URL should this review command use?",
+        },
+        state: { url },
         detail: `Give a GitHub pull request URL, such as https://github.com/owner/repository/pull/7, not ${url}.`,
       })
     : Ok(target);
@@ -75,6 +89,8 @@ export function openPullRequest(target: Target) {
       ? Ok(pr)
       : Err({
           reason: "review_pr_not_open",
+          next: { why: "The PR is not open. No review remains to post." },
+          state: { pullRequest: target.number, state: pr.state },
           detail: `PR #${target.number} is ${pr.state.toLowerCase()}, so it gets no review. Nothing changed.`,
         }),
   );
@@ -222,6 +238,10 @@ export function record(paths: Paths, target: Target, id: string, change: Payload
       ? Ok({ update: change.update, round: change.round, operations: change.operations })
       : Err<Failure>({
           reason: "review_lease_lost",
+          next: {
+            command: "operator review wait",
+            why: "Let the process that owns the review request finish.",
+          },
           detail: "Another process took this review request. Nothing more was recorded.",
         }),
   );

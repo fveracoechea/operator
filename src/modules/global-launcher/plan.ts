@@ -1,4 +1,5 @@
 import { OperatorRelease } from "../operator-release/main.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 // Bun installs under the alias, so the global package folder never changes on update.
 const { installed: PACKAGE_ALIAS, registry: REGISTRY_PACKAGE } = OperatorRelease.packageNames();
@@ -22,11 +23,11 @@ export type LauncherFacts = {
 
 export type LauncherDecision =
   | { action: "write" | "unchanged"; command: string; text: string; runs: string }
-  | {
+  | (RefusalContext & {
       action: "refuse";
       reason: "launcher_unsupported" | "launcher_version_unpinned" | "launcher_conflict";
       detail: string;
-    };
+    });
 
 /** The supported install command for one exact release. */
 export function exactInstall(version: string): string {
@@ -79,6 +80,12 @@ export function decideLauncher(facts: LauncherFacts): LauncherDecision {
     return {
       action: "refuse",
       reason: "launcher_unsupported",
+      next: {
+        decider: "person",
+        question:
+          "Should this source installation expose Bun's global command, or should a pinned built release supply Operator?",
+      },
+      state: { built: facts.built, packageRoot: facts.packageRoot },
       detail: `The running Operator at ${facts.packageRoot} is not a built release. A source installation from bun add -g at a full commit gets its operator command from Bun.`,
     };
   const expected = facts.globalRoot === null ? null : installedRoot(facts.globalRoot.real);
@@ -90,12 +97,22 @@ export function decideLauncher(facts: LauncherFacts): LauncherDecision {
     return {
       action: "refuse",
       reason: "launcher_unsupported",
+      next: {
+        command: install,
+        why: "Install the exact built release into Bun's global package folder before installing its launcher.",
+      },
+      state: { packageRoot: facts.packageRoot, expectedRoot: expected },
       detail: `The running Operator at ${facts.packageRoot} is not Bun's global package${expected === null ? "" : ` at ${expected}`}. Run ${install}, then run this command from that package.`,
     };
   if (facts.specifier !== `npm:${REGISTRY_PACKAGE}@${facts.version}`)
     return {
       action: "refuse",
       reason: "launcher_version_unpinned",
+      next: {
+        command: install,
+        why: "Pin the global package to the running release before installing its launcher.",
+      },
+      state: { specifier: facts.specifier, version: facts.version },
       detail: `Bun's global manifest names ${facts.specifier ?? "no specifier"} for ${PACKAGE_ALIAS}, not the exact running version. Run ${install}.`,
     };
   const text = launcherText(facts.globalRoot.reported);
@@ -106,6 +123,12 @@ export function decideLauncher(facts: LauncherFacts): LauncherDecision {
   return {
     action: "refuse",
     reason: "launcher_conflict",
+    next: {
+      decider: "person",
+      question:
+        "Should the existing launcher path be retained or removed before Operator writes its launcher?",
+    },
+    state: { command: facts.command },
     detail: `${facts.command} already exists with other content. It was not changed. Remove it yourself if it is not needed, then install the launcher again.`,
   };
 }

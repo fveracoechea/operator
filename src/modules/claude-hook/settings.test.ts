@@ -78,7 +78,14 @@ test("a file with one of the groups gets only the missing one", async () => {
       createPath: true,
     });
     const result = await installHook({ file, check: true });
-    expect(result).toMatchObject({ reason: "claude_hook_missing" });
+    expect(result).toMatchObject({
+      reason: "claude_hook_missing",
+      next: {
+        command: "operator install --claude",
+        why: "Install the missing Operator hook, or add the named hook groups through the settings owner.",
+      },
+      state: { file, missing: [other] },
+    });
     expect("detail" in result && result.detail).toContain(
       `on ${other}. Run operator install --claude, or add this ${other} group to ${file}: ${JSON.stringify(hookEntries[other])}`,
     );
@@ -92,7 +99,14 @@ test("a file with one of the groups gets only the missing one", async () => {
 
 test("check mode reports a missing hook and writes nothing", async () => {
   const result = await installHook({ file, check: true });
-  expect(result).toMatchObject({ reason: "claude_hook_missing" });
+  expect(result).toMatchObject({
+    reason: "claude_hook_missing",
+    next: {
+      command: "operator install --claude",
+      why: "Install the missing Operator hook, or add the named hook groups through the settings owner.",
+    },
+    state: { file, missing: ["PreToolUse", "Stop"] },
+  });
   expect("detail" in result && result.detail).toContain(
     `on PreToolUse and Stop. Run operator install --claude, or add this PreToolUse group to ${file}: ${JSON.stringify(hookEntries.PreToolUse)}, and add this Stop group to ${file}: ${JSON.stringify(hookEntries.Stop)}`,
   );
@@ -104,7 +118,15 @@ test("a linked settings file belongs to its owner, so install names the entry to
   await mkdir(`${root}/.claude`);
   await symlink(`${root}/dotfiles/settings.json`, file);
   const result = await installHook({ file, check: false });
-  expect(result).toMatchObject({ reason: "claude_settings_external" });
+  expect(result).toMatchObject({
+    reason: "claude_settings_external",
+    next: {
+      decider: "person",
+      question:
+        "Which external Claude Code settings owner should add the required Operator hook groups?",
+    },
+    state: { file, missing: ["PreToolUse", "Stop"] },
+  });
   expect("detail" in result && result.detail).toContain(
     `guard the SuperAgent's turn end, add this PreToolUse group to ${file}: ${JSON.stringify(hookEntries.PreToolUse)}, and add this Stop group`,
   );
@@ -136,7 +158,15 @@ test.each([
 ])("settings that are not a settings object are refused: %s", async (text) => {
   await Bun.write(file, text, { createPath: true });
   const result = await installHook({ file, check: false });
-  expect(result).toMatchObject({ reason: "claude_settings_invalid" });
+  expect(result).toMatchObject({
+    reason: "claude_settings_invalid",
+    next: {
+      decider: "person",
+      question:
+        "How should the invalid Claude Code settings be repaired without replacing external configuration?",
+    },
+    state: { file, valid: false },
+  });
   expect("detail" in result && result.detail).toContain(file);
   expect(await Bun.file(file).text()).toBe(text);
 });

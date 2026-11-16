@@ -25,6 +25,7 @@ export type SetChange = (stored: string | null) => string;
 
 const missing = {
   reason: "source_not_found",
+  next: { command: "operator next", why: "Choose an existing source in this project." },
   detail: "The source does not exist in this project.",
 } as const;
 

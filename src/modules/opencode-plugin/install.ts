@@ -3,6 +3,7 @@ import { lstat, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { isCodedError } from "../../lib/coded-error.ts";
 import { writeFile } from "../../lib/write-file.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 /**
  * The running release's plugin file. The release build ships it at the same path beside this
@@ -20,10 +21,10 @@ function versionOf(text: string | null) {
 
 type Outcome =
   | { reason: "installed" | "already_installed" }
-  | {
+  | (RefusalContext & {
       reason: "opencode_plugin_missing" | "opencode_plugin_outdated" | "opencode_plugin_external";
       detail: string;
-    };
+    });
 
 async function linked(file: string) {
   // A path that cannot be read is no link, and the write that follows reports its failure.
@@ -66,14 +67,29 @@ export async function installPlugin(input: { file: string; check: boolean }): Pr
     return installed === undefined
       ? {
           reason: "opencode_plugin_missing",
+          next: {
+            command: "operator install --opencode",
+            why: "Install the Operator plugin, or restore its consumer-owned link.",
+          },
+          state: { file: input.file, installed: null },
           detail: `OpenCode does not load the Operator plugin. Run operator install --opencode, or ${entry}`,
         }
       : {
           reason: "opencode_plugin_outdated",
+          next: {
+            command: "operator install --opencode",
+            why: "Update the Operator plugin, or update its consumer-owned link.",
+          },
+          state: { file: input.file, installed, required: version },
           detail: `${input.file} is Operator plugin version ${installed}, and this release runs version ${version}. Run operator install --opencode, or ${entry}`,
         };
   const external = {
     reason: "opencode_plugin_external" as const,
+    next: {
+      decider: "person" as const,
+      question: "Which external OpenCode configuration should link or copy the Operator plugin?",
+    },
+    state: { file: input.file },
     detail: `Operator does not change a linked, read-only, or unmanaged OpenCode plugin file. To keep commits free of Co-Authored-By trailers and guard the SuperAgent's turn end, ${entry}`,
   };
   if (

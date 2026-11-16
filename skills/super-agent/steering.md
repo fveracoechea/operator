@@ -12,7 +12,6 @@ The CLI rings the worker's doorbell: a fixed line that names the message key and
 The worker reads the message and acknowledges it, with a short reply when the message asks for one.
 
 - `read_reply` with `message_replied`: read `message.reply`, act on it, then run `operator message close --source <id> --assignment <key> --key <message> --json`.
-- `worker_attention` with `doorbell_failed`: Herdr refused the doorbell. Check the worker's pane, then run `operator message ring --source <id> --assignment <key> --key <message> --json`.
 - `worker_attention` with `message_unacknowledged`: the worker left the message pending for 15 minutes since its last ring. Check whether the worker is in a long turn before you ring again.
 
 A replied message, or a pending message that shows as `worker_attention`, replaces the idle-worker attention of its assignment.

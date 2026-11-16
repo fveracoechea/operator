@@ -31,11 +31,27 @@ function readEvent() {
     (cause, defect) =>
       // Stryker disable next-line ConditionalExpression: equivalent: JSON.parse and a zod parse throw only these errors
       cause instanceof SyntaxError || cause instanceof z.ZodError
-        ? { reason: "herdr_event_invalid", detail: "Herdr did not describe a supported event." }
+        ? {
+            reason: "herdr_event_invalid",
+            detail: "Herdr did not describe a supported event.",
+            next: {
+              decider: "super-agent" as const,
+              question: "Which valid Herdr plugin event should this hook receive?",
+            },
+            state: { eventValid: false },
+          }
         : defect(cause),
   )().flatMap((parsed) =>
     environment.HERDR_PLUGIN_EVENT === undefined
-      ? Err<Failure>({ reason: "herdr_event_invalid", detail: "Herdr named no plugin event." })
+      ? Err<Failure>({
+          reason: "herdr_event_invalid",
+          detail: "Herdr named no plugin event.",
+          next: {
+            decider: "super-agent",
+            question: "Why did Herdr invoke the hook without naming its plugin event?",
+          },
+          state: { pluginEvent: null },
+        })
       : Ok({
           name: environment.HERDR_PLUGIN_EVENT,
           data: parsed.data,
@@ -96,6 +112,11 @@ export function installPlugin(input: { paths: Paths }) {
       if (found.conflict)
         return Err<Failure>({
           reason: "herdr_plugin_conflict",
+          next: {
+            decider: "person",
+            question:
+              "Which installation should own the existing Herdr plugin id? Preserve the other plugin until you decide.",
+          },
           detail: `Herdr already links plugin ${pluginId} from another directory. It was not replaced.`,
         });
       const { written, directory, existing } = found;

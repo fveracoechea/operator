@@ -39,7 +39,7 @@ test("reports a ready device as compact JSON or as indented text", async () => {
   const check = spyOn(Readiness, "check").mockReturnValue(
     OkAsync({ blockers: [], warnings: [] }) as never,
   );
-  const { log } = quiet();
+  const { log, error } = quiet();
   const expected = {
     schemaVersion: 1,
     operation: "ready",
@@ -56,12 +56,21 @@ test("reports a ready device as compact JSON or as indented text", async () => {
   expect(process.exitCode).toBe(0);
   expect(await runReadiness(["ready"], paths, false)).toBe(true);
   expect(log).toHaveBeenLastCalledWith(JSON.stringify(expected, null, 2));
+  expect(error).not.toHaveBeenCalled();
 });
 
 test("reports readiness blockers with exit code 3", async () => {
-  const blockers = [{ reason: "executable_missing", tool: "herdr", detail: "missing" }];
+  const blockers = [
+    {
+      reason: "executable_missing",
+      tool: "herdr",
+      detail: "missing",
+      next: { decider: "person", question: "Which installation supplies herdr?" },
+      state: { tool: "herdr", executable: null },
+    },
+  ];
   spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers, warnings: [] }) as never);
-  const { log } = quiet();
+  const { log, error } = quiet();
   expect(await runReadiness(["ready"], paths, true)).toBe(true);
   expect(log).toHaveBeenLastCalledWith(
     JSON.stringify({
@@ -72,14 +81,67 @@ test("reports readiness blockers with exit code 3", async () => {
       blockers,
       warnings: [],
       data: { staticOnly: true },
+      next: {
+        decider: "super-agent",
+        question:
+          "Which readiness blockers should be resolved next, and which named person decisions must be requested?",
+      },
+      state: { blockers: ["executable_missing"] },
     }),
   );
+  expect(process.exitCode).toBe(3);
+  const text = [
+    ["operator: not_ready: [1] executable_missing (herdr): missing"],
+    ["next: [1] person decides: Which installation supplies herdr?"],
+    ['state: [1]={"tool":"herdr","executable":null}'],
+  ];
+  expect(error.mock.calls).toEqual(text);
+  log.mockClear();
+  error.mockClear();
+  expect(await runReadiness(["ready"], paths, false)).toBe(true);
+  expect(log).not.toHaveBeenCalled();
+  expect(error.mock.calls).toEqual(text);
+});
+
+test("text readiness preserves every owner context without adding absent facts", async () => {
+  const blockers = [
+    {
+      reason: "host_unconfigured" as const,
+      detail: "Choose\na host.",
+      next: { command: "operator config show", why: "Inspect the selected host." },
+    },
+    {
+      reason: "executable_missing" as const,
+      tool: "herdr" as const,
+      detail: "Install herdr.",
+      next: { decider: "person" as const, question: "Which installation?" },
+      state: { tool: "herdr", executable: null },
+    },
+  ];
+  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers, warnings: [] }));
+  const { log, error } = quiet();
+  expect(await runReadiness(["ready"], paths, false)).toBe(true);
+  expect(log).not.toHaveBeenCalled();
+  expect(error.mock.calls).toEqual([
+    [
+      "operator: not_ready: [1] host_unconfigured: Choose a host.; [2] executable_missing (herdr): Install herdr.",
+    ],
+    ["next: [1] operator config show; [2] person decides: Which installation?"],
+    ['state: [2]={"tool":"herdr","executable":null}'],
+  ]);
   expect(process.exitCode).toBe(3);
 });
 
 test("reports a readiness refusal and a defect with exit code 1", async () => {
   const check = spyOn(Readiness, "check").mockReturnValue(
-    ErrAsync({ reason: "state_io_failed", detail: "unreadable" }) as never,
+    ErrAsync({
+      reason: "state_io_failed",
+      detail: "unreadable",
+      next: {
+        decider: "super-agent",
+        question: "How should the isolated state failure be corrected?",
+      },
+    }) as never,
   );
   const { log, error } = quiet();
   expect(await runReadiness(["ready"], paths, true)).toBe(true);
@@ -87,7 +149,7 @@ test("reports a readiness refusal and a defect with exit code 1", async () => {
     operation: "ready",
     reason: "state_io_failed",
   });
-  expect(error).toHaveBeenLastCalledWith("operator: unreadable");
+  expect(error).toHaveBeenCalledWith("operator: state_io_failed: unreadable");
   expect(process.exitCode).toBe(1);
   check.mockReturnValue(fromSafePromise(() => Promise.reject(new Error("boom"))) as never);
   process.exitCode = 0;
@@ -95,7 +157,11 @@ test("reports a readiness refusal and a defect with exit code 1", async () => {
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "ready",
     reason: "readiness_defect",
+    next: {
+      decider: "super-agent",
+      question: "How should readiness_defect be corrected before retrying ready?",
+    },
   });
-  expect(error).toHaveBeenLastCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: readiness_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });

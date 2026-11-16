@@ -187,7 +187,16 @@ test("refuses unknown models, unknown efforts, and unavailable metadata", async 
         "opencode model selected does not advertise effort medium. Supported efforts: none advertised.",
     },
   });
-  mockModels.mockReturnValue(ErrAsync({ reason: "host_unavailable", detail: "missing" } as const));
+  mockModels.mockReturnValue(
+    ErrAsync({
+      reason: "host_unavailable",
+      detail: "missing",
+      next: {
+        decider: "super-agent",
+        question: "How should the simulated host failure be corrected?",
+      },
+    } as const),
+  );
   expect(await AgentHosts.resolve(input)).toMatchObject({
     tag: "Err",
     error: { reason: "host_unavailable" },
@@ -339,7 +348,14 @@ test("preserves session-creation defects and Herdr failures, and leaves Claude l
     stdout: JSON.stringify(session),
     stderr: "",
   });
-  const error = { reason: "herdr_no_answer" as const, detail: "inspect before retry" };
+  const error = {
+    reason: "herdr_no_answer" as const,
+    detail: "inspect before retry",
+    next: {
+      decider: "super-agent" as const,
+      question: "How should the unconfirmed host start be inspected before retrying?",
+    },
+  };
   const host = spyOn(Herdr, "startAgent").mockReturnValue(ErrAsync(error));
   expect(await AgentHosts.start(start)).toMatchObject({ tag: "Err", error });
   run.mockClear();

@@ -51,7 +51,14 @@ test("refuses an incomplete selection only where that selection names a model", 
 test("validates defaults and every extensible profile before an edit writes", async () => {
   const resolve = spyOn(AgentHosts, "resolve").mockImplementation((input) =>
     input.model === "bad"
-      ? ErrAsync({ reason: "unsupported_model", detail: "bad" } as const)
+      ? ErrAsync({
+          reason: "unsupported_model",
+          detail: "bad",
+          next: {
+            decider: "super-agent",
+            question: "Which supported model should this selection use?",
+          },
+        } as const)
       : OkAsync({ ...input, requestedModel: input.model, command: { tool: "opencode", args: [] } }),
   );
   const config = settingsSchema.parse({
