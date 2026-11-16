@@ -47,7 +47,14 @@ test("a worker pane and a SuperAgent selector read the same question by its key"
     value: { question: { key: "scope", state: "open", question: "Which scope?" } },
   });
   expect(readQuestion(db, { ...key, assignment: "missing" }, "scope")).toMatchObject({
-    error: { reason: "assignment_not_found" },
+    error: {
+      reason: "assignment_not_found",
+      next: {
+        command: "operator next",
+        why: "Read the available assignments before choosing a target.",
+      },
+      state: { sourceExists: true, assignmentExists: false },
+    },
   });
   expect(readQuestion(db, { ...key, checkout: "/moved" }, "scope")).toMatchObject({
     error: { reason: "controller_mismatch" },

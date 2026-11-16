@@ -1,4 +1,23 @@
+import { failure } from "./output.ts";
+
 type Release = { version: string; commit: string | null; artifactIdentity: string | null };
+
+const workflowGroups = new Set([
+  "dispatch",
+  "source",
+  "next",
+  "report",
+  "question",
+  "message",
+  "obligation",
+  "cleanup",
+]);
+
+export function workflowArguments(args: string[]) {
+  return (
+    workflowGroups.has(String(args[0])) || (args[0] === "internal-review" && args[1] === "skip")
+  );
+}
 
 const usage = `Usage: operator --help | --version [--json]
        operator config show | recover [--json]
@@ -83,7 +102,20 @@ export function runUsage(args: string[], release: Release, json: boolean) {
 }
 
 /** Reports arguments that no command accepts. */
-export function invalidArguments(json: boolean) {
+export function invalidArguments(json: boolean, args: string[]) {
+  if (workflowArguments(args)) {
+    failure(
+      "parse_arguments",
+      "invalid_arguments",
+      "The command arguments are not supported.",
+      2,
+      json,
+      {
+        next: { command: "operator --help", why: "Read the supported command syntax." },
+      },
+    );
+    return;
+  }
   if (json)
     console.log(
       JSON.stringify({

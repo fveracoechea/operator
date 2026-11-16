@@ -20,9 +20,21 @@ export function qualify<T>(cause: Error, defect: (cause: Error) => T, context: R
     return {
       reason: "invalid_report_input",
       detail: `${cause.message} Nothing changed.`,
-      ...context,
+      next: context.next ?? {
+        decider: "super-agent" as const,
+        question: "What corrected report input should be supplied in --file?",
+      },
+      state: { ...context.state, inputValid: false },
     };
   if (isCodedError(cause) && ioCodes.includes(cause.code))
-    return { reason: "report_io_failed", detail: String(cause) };
+    return {
+      reason: "report_io_failed",
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question: "How should the report IO failure be corrected before retrying?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }

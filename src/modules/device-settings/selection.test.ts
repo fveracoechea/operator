@@ -51,6 +51,11 @@ test.each(["missing", "constructor", "toString", "__proto__"])(
       expect(selectLaunch(config, { profile })).toEqual({
         reason: "profile_missing",
         detail: `Start profile ${profile} does not exist.`,
+        next: {
+          command: "operator config show",
+          why: "Read the configured start profiles before choosing a launch profile.",
+        },
+        state: { profile, exists: false },
       });
   },
 );
@@ -88,13 +93,16 @@ test("only the WorkerAgent role takes the WorkerAgent settings", () => {
   });
 });
 
-test.each([{}, { host: "opencode" }, { model: "provider/model" }])(
-  "does not infer a host or model from %j",
-  (superAgent) => {
-    expect(selectLaunch(settingsSchema.parse({ superAgent }), {})).toEqual({
-      reason: "selection_incomplete",
-      detail:
-        "Set a host and model in device settings or explicit launch overrides. Operator does not choose a model for you.",
-    });
-  },
-);
+test.each([
+  [{}, { hostConfigured: false, modelConfigured: false }],
+  [{ host: "opencode" }, { hostConfigured: true, modelConfigured: false }],
+  [{ model: "provider/model" }, { hostConfigured: false, modelConfigured: true }],
+])("does not infer a host or model from %j", (superAgent, state) => {
+  expect(selectLaunch(settingsSchema.parse({ superAgent }), {})).toEqual({
+    reason: "selection_incomplete",
+    next: { decider: "super-agent", question: "Which host and model should this launch use?" },
+    state,
+    detail:
+      "Set a host and model in device settings or explicit launch overrides. Operator does not choose a model for you.",
+  });
+});

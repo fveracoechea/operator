@@ -78,8 +78,14 @@ test("reset refuses an ended source and a running worker", () => {
     tag: "Err",
     error: {
       reason: "source_worker_running",
+      next: {
+        decider: "super-agent",
+        question:
+          "Should the active workers finish, or should their panes be closed before resetting the source?",
+      },
+      state: { runningWorkers: 2 },
       detail: expect.stringContaining(
-        "read (pane w1:p2), write (pane not created yet). Close each worker pane in Herdr",
+        "read (pane w1:p2), write (pane not created yet).",
       ) as unknown,
     },
   });

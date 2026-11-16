@@ -2,11 +2,23 @@ import { expect, test } from "bun:test";
 import {
   cleanupSteps,
   decidePane,
-  decideRemoteBranch,
-  decideWorktree,
+  decideRemoteBranch as remoteBranchDecision,
+  decideWorktree as worktreeDecision,
   nextStep,
   type WorktreeFacts,
 } from "./cleanup-machine.ts";
+import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
+
+function decideRemoteBranch(...args: Parameters<typeof remoteBranchDecision>) {
+  const result = remoteBranchDecision(...args);
+  if (result.action === "blocked") expectRefusalContext(result);
+  return result;
+}
+function decideWorktree(...args: Parameters<typeof worktreeDecision>) {
+  const result = worktreeDecision(...args);
+  if (result.action === "blocked") expectRefusalContext(result);
+  return result;
+}
 
 test("the steps run in the declared order and end after the worktree", () => {
   expect(cleanupSteps).toEqual(["remote_branch", "pane", "worktree"]);
@@ -93,11 +105,16 @@ test("unlanded work blocks until the person instructs a forced removal", () => {
 });
 
 test("a foreign checkout is never removed, even on the person's instruction", () => {
-  for (const change of [{ sameRepository: false }, { branch: "other" }, { branch: null }])
+  for (const [change, state] of [
+    [{ sameRepository: false }, { sameRepository: false }],
+    [{ branch: "other" }, { branch: "other", expectedBranch: "task/1" }],
+    [{ branch: null }, { branch: null, expectedBranch: "task/1" }],
+  ] as const)
     for (const personInstructed of [false, true])
       expect(decideWorktree({ ...clean, ...change, personInstructed })).toMatchObject({
         action: "blocked",
         reason: "cleanup_resource_mismatch",
+        state,
       });
 });
 
@@ -110,12 +127,19 @@ test("each blocked decision explains what the person must do", () => {
     action: "blocked",
     reason: "cleanup_unlanded_work",
     detail: `The remote branch task/1 is at h2, not at the merged head h1. ${person}`,
+    next: { decider: "person", question: "May the retained unlanded work be removed?" },
+    state: { found: "h2", expected: "h1", personInstructed: false },
   });
   expect(decideWorktree({ ...clean, branch: "other" })).toEqual({
     action: "blocked",
     reason: "cleanup_resource_mismatch",
     detail:
       "/w is no longer the recorded worktree on task/1. Operator never removes another checkout. Move it away, then repeat operator cleanup.",
+    next: {
+      decider: "person",
+      question: "How should the resource that differs from its recorded identity be handled?",
+    },
+    state: { branch: "other", expectedBranch: "task/1" },
   });
   expect(
     decideWorktree({ ...clean, landed: false, changed: ["a", "b"], unknownIgnored: ["c/"] }),
@@ -123,6 +147,8 @@ test("each blocked decision explains what the person must do", () => {
     action: "blocked",
     reason: "cleanup_unlanded_work",
     detail: `/w holds commits that are not in the merged head; changed or untracked a, b; ignored content that preparation did not write: c/. ${person}`,
+    next: { decider: "person", question: "May the retained unlanded work be removed?" },
+    state: { landed: false, changedFiles: 2, unknownIgnoredFiles: 1, personInstructed: false },
   });
   function names(count: number) {
     return Array.from({ length: count }, (_, i) => `f${i}`);

@@ -24,13 +24,22 @@ function invalidInput() {
       command: "operator obligation add --source <id> --key <key> --kind <kind> --file <path|->",
       why: "Correct the obligation flags or summary and try again.",
     },
+    state: { inputValid: false },
   });
 }
 
 /** File system failures are refusals. Any other error stays a defect. */
 function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (isCodedError(cause) && ioCodes.includes(cause.code))
-    return { reason: "obligation_io_failed", detail: String(cause) };
+    return {
+      reason: "obligation_io_failed",
+      detail: String(cause),
+      next: {
+        decider: "super-agent" as const,
+        question: "How should the obligation IO failure be corrected before retrying?",
+      },
+      state: { code: cause.code },
+    };
   return defect(cause);
 }
 

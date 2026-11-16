@@ -3,9 +3,10 @@ import type { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
-export type Failure = { reason: string; detail: string };
+export type Failure = ResultContext & { reason: string; detail: string };
 export type Target = Parameters<typeof DeviceState.readQuestion>[1];
 export type Selector = {
   paths: Paths;
@@ -35,6 +36,11 @@ export function workerPane(): Result<Target, Failure> {
   return socket === null || paneId === null
     ? Err({
         reason: "worker_pane_required",
+        next: {
+          decider: "super-agent",
+          question: "Which dispatched worker pane must run this command?",
+        },
+        state: socket === null ? { serverPresent: false } : { panePresent: false },
         detail:
           "Run this command in the Herdr pane that Operator dispatched for the assignment. Nothing changed.",
       })

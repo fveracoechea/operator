@@ -3,8 +3,9 @@ import { lstat, realpath } from "node:fs/promises";
 import { isCodedError } from "../../lib/coded-error.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { githubIdentity } from "./identity.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
-export type CheckoutFailure = {
+export type CheckoutFailure = ResultContext & {
   reason:
     | "git_unavailable"
     | "git_checkout_invalid"
@@ -21,6 +22,11 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
   if (bare.text === "true")
     return {
       reason: "bare_repository" as const,
+      next: {
+        decider: "super-agent",
+        question: "Which non-bare controlling checkout should run this command?",
+      },
+      state: { bare: true },
       detail: "A bare repository cannot be a controlling checkout. Use its main non-bare checkout.",
     };
   const top = await git(cwd, ["rev-parse", "--show-toplevel"]);
@@ -31,6 +37,11 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
     await lstat(`${checkout}/.operator`);
     return {
       reason: "legacy_project_state" as const,
+      next: {
+        decider: "person",
+        question: "How should the legacy checkout be retired with its old release?",
+      },
+      state: { legacyStatePresent: true },
       detail:
         "This checkout has legacy .operator state. Finish old work with the old release. Then the person must remove that folder before using this release. Operator does not migrate, delete, or repair it.",
     };
@@ -49,6 +60,11 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
     return {
       reason: "linked_checkout" as const,
       detail: `A linked worktree cannot control a project. Use the main checkout associated with ${common.text}.`,
+      next: {
+        command: `git --git-dir '${common.text.replaceAll("'", "'\\''")}' worktree list`,
+        why: "Locate the controlling checkout, then run the Operator command there.",
+      },
+      state: { gitDir: dir.text, commonDir: common.text },
     };
   const remotes = await git(checkout, ["remote", "-v"]);
   if ("reason" in remotes) return remotes;
@@ -80,10 +96,24 @@ export async function githubRemote(checkout: string, repository: string) {
 async function git(cwd: string, args: string[]): Promise<{ text: string } | CheckoutFailure> {
   const result = await ToolInvocation.run({ tool: "git", args, cwd, timeoutMs: 10000 });
   if (result.status !== "completed")
-    return { reason: "git_unavailable" as const, detail: result.detail };
+    return {
+      reason: "git_unavailable" as const,
+      detail: result.detail,
+      next: {
+        decider: "super-agent",
+        question: "How should the unavailable or unanswered Git checkout observation be recovered?",
+      },
+      state: { invocationStatus: result.status },
+    };
   if (result.exitCode !== 0)
     return {
       reason: "git_checkout_invalid" as const,
+      next: {
+        decider: "super-agent",
+        question:
+          "Which valid controlling checkout should run this command after the Git failure is corrected?",
+      },
+      state: { exitCode: result.exitCode },
       detail: result.stderr.trim() || "Git could not resolve this checkout.",
     };
   return { text: result.stdout.trim() };

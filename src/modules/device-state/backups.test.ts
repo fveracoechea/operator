@@ -50,6 +50,11 @@ test("a snapshot must match the locked history before it becomes a verified back
       reason: "state_backup_failed",
       detail:
         "The migration snapshot failed integrity or history verification. No migration or handler ran.",
+      next: {
+        decider: "super-agent",
+        question: "How should the backup failure be corrected before the upgrade is retried?",
+      },
+      state: { backupVerified: false },
     },
   });
   expect(verifiedBackups(paths("mismatch"))).toMatchObject({ tag: "Ok", value: [] });

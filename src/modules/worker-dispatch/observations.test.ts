@@ -59,6 +59,12 @@ test("qualifies each known filesystem failure and leaves every other cause a def
   for (const code of ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR"])
     expect(qualify(Object.assign(new Error(`failed ${code}`), { code }), defect)).toEqual({
       reason: "dispatch_io_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the dispatch IO failure be corrected without repeating an uncertain effect?",
+      },
+      state: { code },
       detail: `Error: failed ${code}`,
     });
   for (const code of ["EISDIR", "ELOOP"])
@@ -99,6 +105,12 @@ test("a folder that is not a Git checkout has no branch list", async () => {
     tag: "Err",
     error: {
       reason: "git_unavailable",
+      next: {
+        decider: "super-agent",
+        question:
+          "Which working Git installation and controlling checkout should run this command?",
+      },
+      state: { gitSucceeded: false },
       detail: "Git could not list the project branches. Nothing was launched.",
     },
   });
@@ -150,6 +162,12 @@ test("a parent branch with no upstream, or one gone from its remote, is unavaila
       tag: "Err",
       error: {
         reason: "parent_branch_unavailable",
+        next: {
+          decider: "super-agent",
+          question:
+            "Can the parent owner push its recorded branch before this dispatch is retried?",
+        },
+        state: { headResolved: false },
         detail: `Git could not fetch the pushed parent branch ${branch}. Its owner must push it with an upstream. Nothing was launched.`,
       },
     });
@@ -373,7 +391,16 @@ test(
     ]);
     expect(await waitForPreparation(paths(), `${root}/worktree`, since)).toMatchObject({
       tag: "Err",
-      error: { reason: "worktree_setup_failed", detail: "bun install failed" },
+      error: {
+        reason: "worktree_setup_failed",
+        detail: "bun install failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the recorded worktree preparation failure be corrected before retrying?",
+        },
+        state: { preparation: "failed" },
+      },
     });
     mock.restore();
     preparations([{ state: "running", detail: "", startedAt: since, abandoned: true }]);
@@ -381,6 +408,12 @@ test(
       tag: "Err",
       error: {
         reason: "worktree_setup_failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the recorded worktree preparation failure be corrected before retrying?",
+        },
+        state: { preparationAbandoned: true },
         detail: "The Herdr worktree hook stopped before it recorded a preparation outcome.",
       },
     });
@@ -396,6 +429,11 @@ test(
       tag: "Err",
       error: {
         reason: "worktree_missing",
+        next: {
+          decider: "super-agent",
+          question: "How should the recorded missing worktree be recovered?",
+        },
+        state: { worktreeExists: false },
         detail: `Herdr returned ${root}/missing, but it does not exist.`,
       },
     });
@@ -425,6 +463,11 @@ test(
       tag: "Err",
       error: {
         reason: "worktree_setup_unconfirmed",
+        next: {
+          command: "operator next",
+          why: "Read the current launch action before retrying its unconfirmed preparation.",
+        },
+        state: { completionConfirmed: false },
         detail:
           "The Herdr worktree hook did not record a finished preparation. Check the Operator Herdr plugin and its log.",
       },

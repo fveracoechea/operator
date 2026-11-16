@@ -184,6 +184,11 @@ test("each target refusal names what is missing and changes nothing", () => {
     tag: "Err",
     error: {
       reason: "worker_launch_not_found",
+      next: {
+        decider: "super-agent",
+        question: "Which dispatched worker pane must run this command?",
+      },
+      state: { launchFound: false },
       detail:
         "This pane holds no running WorkerAgent launch. Run the command in the pane that Operator dispatched for the assignment. Nothing changed.",
     },
@@ -210,6 +215,11 @@ test("each target refusal names what is missing and changes nothing", () => {
     tag: "Err",
     error: {
       reason: "assignment_not_found",
+      next: {
+        command: "operator next",
+        why: "Read the available assignments before choosing a target.",
+      },
+      state: { sourceExists: true, assignmentExists: false },
       detail: "Assignment missing does not exist in this source. Nothing changed.",
     },
   });

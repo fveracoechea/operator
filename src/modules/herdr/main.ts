@@ -1,8 +1,9 @@
 import { Err, Ok, fromPromise, fromThrowable, type Result } from "unthrown";
 import { z } from "zod";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
-type HerdrFailure = {
+type HerdrFailure = ResultContext & {
   reason: "herdr_unavailable" | "herdr_failed" | "herdr_no_answer" | "herdr_invalid_response";
   detail: string;
 };
@@ -75,10 +76,23 @@ function call(args: string[], timeoutMs: number, absent?: string) {
     (cause, defect) => defect(cause),
   ).flatMap((result): Result<string | null, HerdrFailure> => {
     if (result.status === "unavailable")
-      return Err({ reason: "herdr_unavailable", detail: result.detail });
+      return Err({
+        reason: "herdr_unavailable",
+        detail: result.detail,
+        next: {
+          decider: "super-agent",
+          question: "How should Herdr be made available before this workflow continues?",
+        },
+        state: { invocationStatus: result.status },
+      });
     if (result.status === "no-answer")
       return Err({
         reason: "herdr_no_answer",
+        next: {
+          decider: "super-agent",
+          question: "How should the unconfirmed Herdr result be inspected before another request?",
+        },
+        state: { invocationStatus: result.status },
         detail: `${result.detail} Inspect Herdr before a retry, because the effect can exist.`,
       });
     if (result.exitCode === 0) return Ok(result.stdout);
@@ -86,6 +100,12 @@ function call(args: string[], timeoutMs: number, absent?: string) {
     if (absent !== undefined && refused?.error.code === absent) return Ok(null);
     return Err({
       reason: "herdr_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the failed Herdr command and any existing effect be inspected before another request?",
+      },
+      state: { exitCode: result.exitCode },
       detail: `${command} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim()}`,
     });
   });
@@ -97,6 +117,11 @@ function answer<T>(args: string[], stdout: string, schema: z.ZodType<T>) {
     ? Ok(parsed)
     : Err<HerdrFailure>({
         reason: "herdr_invalid_response",
+        next: {
+          decider: "super-agent",
+          question: "How should the unconfirmed Herdr result be inspected before another request?",
+        },
+        state: { responseValid: false },
         detail: `herdr ${args.slice(0, 2).join(" ")} returned an unexpected response.`,
       });
 }

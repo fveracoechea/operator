@@ -89,7 +89,8 @@ async function runUnit(unit: MutationUnit, counts: Counts): Promise<void> {
         unit,
         ownRunner ? [...unit.tests, runner] : unit.tests,
       ),
-      // A mutant that hangs ends soon after the time of a clean run. Bail makes most mutants faster.
+      // The full CLI baseline exceeds Stryker's five-minute default.
+      dryRunTimeoutMinutes: 30,
       timeoutFactor: 1.5,
       timeoutMS: 2000,
       concurrency: 1,
@@ -124,6 +125,18 @@ async function runUnit(unit: MutationUnit, counts: Counts): Promise<void> {
         counts.killed++;
       } else if (mutant.status === "Ignored") {
         counts.ignored++;
+        console.log(
+          JSON.stringify({
+            unit: unit.name,
+            id: mutant.id,
+            status: mutant.status,
+            mutatorName: mutant.mutatorName,
+            location: mutant.location,
+            replacement: mutant.replacement,
+            original: originalText(unit.source, mutant.location),
+            statusReason: mutant.statusReason,
+          }),
+        );
       } else {
         // A timeout, runtime error, compile error, or pending result has no verdict.
         counts.incomplete++;

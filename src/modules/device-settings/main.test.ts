@@ -44,10 +44,29 @@ test("qualifies invalid input separately from unexpected defects", async () => {
   await Bun.write(paths.config, "{invalid", { createPath: true });
   const invalid = await DeviceSettings.show(paths);
   expect(invalid.tag).toBe("Err");
-  if (invalid.tag === "Err") expect(invalid.error.reason).toBe("invalid_settings");
+  expect(invalid).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "invalid_settings",
+      next: {
+        decider: "super-agent",
+        question:
+          "What corrected device settings should be supplied before this workflow continues?",
+      },
+      state: { settingsValid: false },
+    },
+  });
   expect(await DeviceSettings.resolve({ paths, cwd: root })).toMatchObject({
     tag: "Err",
-    error: { reason: "invalid_settings" },
+    error: {
+      reason: "invalid_settings",
+      next: {
+        decider: "super-agent",
+        question:
+          "What corrected device settings should be supplied before this workflow continues?",
+      },
+      state: { settingsValid: false },
+    },
   });
   const defect = await DeviceSettings.show({ ...paths, config: "\0" });
   expect(defect.tag).toBe("Defect");
@@ -64,7 +83,18 @@ test("keeps settings read failures in the same operational channel for show and 
     await DeviceSettings.show(unreadable),
     await DeviceSettings.resolve({ paths: unreadable, cwd: root }),
   ])
-    expect(result).toMatchObject({ tag: "Err", error: { reason: "settings_io_failed" } });
+    expect(result).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "settings_io_failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the device settings IO failure be corrected without overwriting settings?",
+        },
+        state: { code: "EISDIR" },
+      },
+    });
   expect(await Bun.file(marker).text()).toBe("preserved");
 });
 

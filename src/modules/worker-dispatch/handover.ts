@@ -54,6 +54,11 @@ function renameBranch(checkout: string, from: string, to: string) {
       ? Ok(undefined)
       : Err({
           reason: "promotion_branch_failed",
+          next: {
+            decider: "super-agent",
+            question: "How should the branch rename be verified before promotion is retried?",
+          },
+          state: { renameConfirmed: false },
           detail: `git branch -m ${from} ${to} failed: ${result.status === "completed" ? result.stderr.trim() : result.detail} Nothing changed.`,
         }),
   );
@@ -69,6 +74,11 @@ function liveWorker(launch: Launch, callerSocket: string | null) {
   if (callerSocket !== launch.herdrSocket)
     return ErrAsync<Failure>({
       reason: "promotion_herdr_server",
+      next: {
+        decider: "super-agent",
+        question: "Which recorded Herdr server must run this promotion?",
+      },
+      state: { serverMatches: false },
       detail: `Pane ${launch.paneId} belongs to another Herdr server. Promote in a pane of that server. Nothing changed.`,
     });
   return Herdr.agentNames().map((agents) => (agents.includes(launch.name) ? agents : null));
@@ -86,6 +96,12 @@ function restore(refused: Result<unknown, Failure>, steps: Step[]) {
       ? Ok(undefined)
       : Err({
           reason: "promotion_undo_failed",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should the unconfirmed promotion renames be verified and restored before retrying?",
+          },
+          state: { unconfirmedRestorations: stayed.length },
           detail: `The promotion was not recorded (${reason}), and these renames stayed: ${stayed.join(" ")} Restore them, then promote again.`,
         }),
   );
@@ -121,6 +137,11 @@ export function handOver(input: {
       return names === null
         ? Err<Failure>({
             reason: "launch_name_exhausted",
+            next: {
+              decider: "super-agent",
+              question: "Which unused branch and worktree names should this assignment use?",
+            },
+            state: { namesAvailable: false },
             detail: "No free launch name or branch remains. Nothing changed.",
           })
         : Ok({ name: names.name, branch: names.branch ?? input.assignment.branch });
@@ -189,6 +210,6 @@ export function handOver(input: {
           return labelled.map(() => taken);
         }
         return Ok(taken);
-      }).flatMap((result) => result);
+      }).flatMap((result): Result<Handover, Failure> => result);
     });
 }

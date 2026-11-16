@@ -5,7 +5,7 @@ import { z } from "zod";
 import { fromThrowable, Err, Ok, type Result } from "unthrown";
 import { OperatorHome } from "../operator-home/main.ts";
 import { historySchema, openDatabase } from "./database.ts";
-import { qualifyStateFailure, type StateFailure } from "./failures.ts";
+import { qualifyStateFailure, stateFailure, type StateFailure } from "./failures.ts";
 import type { Database } from "bun:sqlite";
 import { syncPath } from "./sync.ts";
 
@@ -110,11 +110,13 @@ export function createBackup(
       // Stryker disable next-line BooleanLiteral: equivalent: this connection only reads, and query_only refuses nothing a read needs
       using backup = openDatabase(files.database, true);
       if (JSON.stringify(backupHistory(backup)) !== JSON.stringify(history))
-        return Err<StateFailure>({
-          reason: "state_backup_failed",
-          detail:
+        return Err<StateFailure>(
+          stateFailure(
+            "state_backup_failed",
             "The migration snapshot failed integrity or history verification. No migration or handler ran.",
-        });
+            { backupVerified: false },
+          ),
+        );
       const receipt = {
         identity,
         verifiedAt: new Date().toISOString(),
