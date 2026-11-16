@@ -164,6 +164,124 @@ async function register() {
   return z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
 }
 
+test("a valid person-defined kind in linked device settings can be named in a plan", async () => {
+  const configFile = `${root}/config/operator/config.json`;
+  const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+  const definition = {
+    completion: "report",
+    resources: "pane",
+    guide: "audit/SKILL.md",
+    workPhases: [
+      { name: "inspect", goal: "Inspect the assigned evidence.", guard: "worktree_clean" },
+    ],
+  };
+  await Bun.write(
+    `${root}/home/.agents/skills/audit/SKILL.md`,
+    "# Audit\nInspect the evidence.\n",
+    { createPath: true },
+  );
+  const text = JSON.stringify({ ...config, kinds: { audit: definition } });
+  await Bun.write(`${root}/managed.json`, text);
+  await rm(configFile);
+  await symlink(`${root}/managed.json`, configFile);
+  await chmod(`${root}/managed.json`, 0o444);
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({
+      ...plan,
+      assignments: [{ ...plan.assignments[0], kind: "audit" }],
+    }),
+  );
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const dispatched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(dispatched.code, dispatched.stderr).toBe(0);
+  const launch = z
+    .object({
+      data: z.object({
+        kind: z.looseObject({ name: z.string(), guide: z.string() }),
+        brief: z.string(),
+      }),
+    })
+    .parse(dispatched.output).data;
+  expect(launch.kind).toMatchObject({
+    name: "audit",
+    completion: "report",
+    resources: "pane",
+    workPhases: definition.workPhases,
+    guide: `${root}/home/.agents/skills/audit/SKILL.md`,
+  });
+  expect(await Bun.file(launch.brief).text()).toContain("audit");
+  expect(await Bun.file(`${root}/managed.json`).text()).toBe(text);
+  await chmod(`${root}/managed.json`, 0o644);
+  await Bun.write(
+    `${root}/managed.json`,
+    JSON.stringify({
+      ...config,
+      kinds: { audit: { ...definition, workPhases: [{ name: "changed", goal: "Changed work." }] } },
+    }),
+  );
+  expect((await run(["source", "show", "--source", source])).output).toMatchObject({
+    data: { launches: [{ kind: launch.kind }] },
+  });
+});
+
+test.each([
+  { rule: "built-in name reuse", name: "research", change: {} },
+  { rule: "invalid completion", name: "audit", change: { completion: "task" } },
+  { rule: "no work phase", name: "audit", change: { workPhases: [] } },
+  { rule: "no installed guide", name: "audit", change: { guide: "missing/SKILL.md" } },
+  {
+    rule: "unknown guard",
+    name: "audit",
+    change: { workPhases: [{ name: "inspect", goal: "Inspect.", guard: "shell_command" }] },
+  },
+  { rule: "cross-completion next kind", name: "audit", change: { nextKind: "implementation" } },
+])(
+  "registration and dispatch revalidate person-defined kinds without side effects: $rule",
+  async ({ name, change }) => {
+    const source = await register();
+    await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", {
+      createPath: true,
+    });
+    const configFile = `${root}/config/operator/config.json`;
+    const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+    await Bun.write(
+      configFile,
+      JSON.stringify({
+        ...config,
+        kinds: {
+          [name]: {
+            completion: "report",
+            resources: "pane",
+            guide: "audit/SKILL.md",
+            workPhases: [{ name: "inspect", goal: "Inspect." }],
+            ...change,
+          },
+        },
+      }),
+    );
+    const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+    const calls = await herdrCalls();
+    for (const command of [
+      ["source", "register", "--file", `${root}/plan.json`],
+      ["dispatch", "--source", source, "--assignment", "investigate"],
+    ]) {
+      const result = await run(command);
+      expect(result.code, JSON.stringify(result)).toBe(3);
+      expect(result.output).toMatchObject({
+        reason: "invalid_settings",
+        next: expect.any(Object) as unknown,
+        state: { settingsValid: false },
+      });
+      expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+        before,
+      );
+      expect(await herdrCalls()).toEqual(calls);
+    }
+  },
+);
+
 async function herdrState() {
   return z
     .object({
@@ -181,6 +299,75 @@ async function herdrState() {
     })
     .parse(await Bun.file(`${root}/herdr-state.json`).json());
 }
+
+test("a person-defined kind needs its guide on the selected launch host", async () => {
+  const configFile = `${root}/config/operator/config.json`;
+  const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+  await Bun.write(`${root}/home/.claude/skills/audit/SKILL.md`, "# Audit\n", { createPath: true });
+  await Bun.write(
+    configFile,
+    JSON.stringify({
+      ...config,
+      kinds: {
+        audit: {
+          completion: "report",
+          resources: "pane",
+          guide: "audit/SKILL.md",
+          workPhases: [{ name: "inspect", goal: "Inspect." }],
+        },
+      },
+    }),
+  );
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({ ...plan, assignments: [{ ...plan.assignments[0], kind: "audit" }] }),
+  );
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const result = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(result.code, result.stderr).toBe(3);
+  expect(result.output).toMatchObject({
+    reason: "invalid_settings",
+    state: { settingsValid: false },
+  });
+  expect(result.stderr).toContain("No installed guide skill for opencode");
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect((await herdrState()).agents).toEqual([]);
+});
+
+test("a person-defined kind cannot change a registered assignment's completion type", async () => {
+  const configFile = `${root}/config/operator/config.json`;
+  const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+  await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", { createPath: true });
+  const definition = {
+    completion: "report",
+    resources: "pane",
+    guide: "audit/SKILL.md",
+    workPhases: [{ name: "inspect", goal: "Inspect." }],
+  };
+  await Bun.write(configFile, JSON.stringify({ ...config, kinds: { audit: definition } }));
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({ ...plan, assignments: [{ ...plan.assignments[0], kind: "audit" }] }),
+  );
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  await Bun.write(
+    configFile,
+    JSON.stringify({ ...config, kinds: { audit: { ...definition, completion: "pr" } } }),
+  );
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const result = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(result.code, result.stderr).toBe(3);
+  expect(result.output).toMatchObject({
+    reason: "kind_completion_changed",
+    next: { decider: "super-agent" },
+    state: { kind: "audit", registeredCompletion: "report", configuredCompletion: "pr" },
+  });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect((await herdrState()).agents).toEqual([]);
+});
 
 async function herdrCalls() {
   const file = Bun.file(`${root}/herdr-calls.jsonl`);

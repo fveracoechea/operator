@@ -67,6 +67,155 @@ test("inspects default device settings without changing registered state or crea
   );
 });
 
+test("plans and applies a person-defined kind beside start profiles", async () => {
+  await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", { createPath: true });
+  const kind = {
+    completion: "report",
+    resources: "pane",
+    guide: "audit/SKILL.md",
+    workPhases: [{ name: "inspect", goal: "Inspect evidence." }],
+  };
+  const edit = ["--set", `kinds.audit=${JSON.stringify(kind)}`];
+  const planned = await run(["config", "plan", ...edit]);
+  expect(planned.code, planned.stderr).toBe(0);
+  const id = z.object({ data: z.object({ planId: z.string() }) }).parse(planned.output).data.planId;
+  expect((await run(["config", "apply", ...edit, "--plan", id])).code).toBe(0);
+  expect((await run(["config", "show"])).output).toMatchObject({
+    data: { config: { kinds: { audit: kind } } },
+  });
+  const remove = ["--unset", "kinds.audit"];
+  const removal = await run(["config", "plan", ...remove]);
+  const removalId = z.object({ data: z.object({ planId: z.string() }) }).parse(removal.output)
+    .data.planId;
+  expect((await run(["config", "apply", ...remove, "--plan", removalId])).code).toBe(0);
+  expect((await run(["config", "show"])).output).toMatchObject({ data: { config: { kinds: {} } } });
+});
+
+test("person-defined kinds can name built-in and custom next kinds with the same completion type", async () => {
+  await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", { createPath: true });
+  const definition = {
+    completion: "report",
+    resources: "pane",
+    guide: "audit/SKILL.md",
+    workPhases: [{ name: "inspect", goal: "Inspect." }],
+  };
+  const edits = [
+    "--set",
+    `kinds.audit=${JSON.stringify({ ...definition, nextKind: "followup" })}`,
+    "--set",
+    `kinds.followup=${JSON.stringify({ ...definition, nextKind: "answer" })}`,
+  ];
+  const planned = await run(["config", "plan", ...edits]);
+  expect(planned.code, planned.stderr).toBe(0);
+  const id = z.object({ data: z.object({ planId: z.string() }) }).parse(planned.output).data.planId;
+  expect((await run(["config", "apply", ...edits, "--plan", id])).code).toBe(0);
+  expect((await run(["config", "show"])).output).toMatchObject({
+    data: {
+      config: { kinds: { audit: { nextKind: "followup" }, followup: { nextKind: "answer" } } },
+    },
+  });
+});
+
+test.each([
+  { rule: "unsafe record name", name: "__proto__", change: {}, detail: "__proto__" },
+  { rule: "built-in name reuse", name: "research", change: {}, detail: "cannot be reused" },
+  {
+    rule: "invalid completion",
+    name: "audit",
+    change: { completion: "task" },
+    detail: "completion",
+  },
+  {
+    rule: "no work phase",
+    name: "audit",
+    change: { workPhases: [] },
+    detail: "at least one work phase",
+  },
+  {
+    rule: "no installed guide skill",
+    name: "audit",
+    change: { guide: "missing/SKILL.md" },
+    detail: "No installed guide skill",
+  },
+  {
+    rule: "guard outside the catalog",
+    name: "audit",
+    change: { workPhases: [{ name: "inspect", goal: "Inspect.", guard: "shell_command" }] },
+    detail: "guard",
+  },
+  {
+    rule: "next kind of another completion type",
+    name: "audit",
+    change: { nextKind: "implementation" },
+    detail: "same completion type",
+  },
+  {
+    rule: "unknown next kind",
+    name: "audit",
+    change: { nextKind: "missing" },
+    detail: "same completion type",
+  },
+  {
+    rule: "empty phase name",
+    name: "audit",
+    change: { workPhases: [{ name: "", goal: "Inspect." }] },
+    detail: "name",
+  },
+  {
+    rule: "empty phase goal",
+    name: "audit",
+    change: { workPhases: [{ name: "inspect", goal: "" }] },
+    detail: "goal",
+  },
+  {
+    rule: "guide path traversal",
+    name: "audit",
+    change: { guide: "../audit/SKILL.md" },
+    detail: "guide",
+  },
+])(
+  "a person-defined kind that breaks a validation rule is refused with next: $rule",
+  async ({ name, change, detail }) => {
+    await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", {
+      createPath: true,
+    });
+    const definition = {
+      completion: "report",
+      resources: "pane",
+      guide: "audit/SKILL.md",
+      workPhases: [{ name: "inspect", goal: "Inspect." }],
+      ...change,
+    };
+    const result = await run([
+      "config",
+      "plan",
+      "--set",
+      `kinds.${name}=${JSON.stringify(definition)}`,
+    ]);
+    expect(result.code, JSON.stringify(result)).toBe(2);
+    expect(result.output).toMatchObject({
+      reason: expect.stringMatching(/^invalid_settings/) as unknown,
+      next: expect.any(Object) as unknown,
+    });
+    expect(result.stderr).toContain(detail);
+    expect(await Bun.file(`${root}/config/operator/config.json`).exists()).toBe(false);
+    expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
+    await Bun.write(
+      `${root}/config/operator/config.json`,
+      JSON.stringify({ kinds: { [name]: definition } }),
+      { createPath: true },
+    );
+    const shown = await run(["config", "show"]);
+    expect(shown.code).toBe(2);
+    expect(shown.output).toMatchObject({
+      reason: "invalid_settings",
+      next: expect.any(Object) as unknown,
+      state: { settingsValid: false },
+    });
+    expect(shown.stderr).toContain(detail);
+  },
+);
+
 test.each(["XDG_CONFIG_HOME", "XDG_STATE_HOME", "HOME", "TMPDIR"])(
   "refuses invalid %s before a command can write",
   async (name) => {

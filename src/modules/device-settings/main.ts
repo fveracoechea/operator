@@ -7,6 +7,7 @@ import { editorSchemaText } from "./schema.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { selectLaunch, type SelectionRequest } from "./selection.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 type SettingsError = Error & { code?: unknown };
@@ -43,16 +44,48 @@ function qualify<T>(cause: SettingsError, defect: (cause: Error) => T): Settings
 
 function operate(action: () => Promise<SettingsOutcome>) {
   return fromPromise(action, (cause, defect) =>
-    cause instanceof Error ? qualify(cause, defect) : defect(cause),
+    cause instanceof Error || cause instanceof z.ZodError ? qualify(cause, defect) : defect(cause),
   ).flatMap((outcome) => ("detail" in outcome ? Err(outcome) : Ok(outcome)));
 }
 
 /** Device settings never depend on the current checkout. */
 export const DeviceSettings = {
+  kind(input: { paths: OperatorPaths; name: string; host: "opencode" | "claude-code" }) {
+    return fromPromise(
+      async () => {
+        const { config } = await readConfig(input.paths);
+        const kind = WorkerKinds.resolve(input.name, config.kinds);
+        if (!Object.hasOwn(config.kinds ?? {}, input.name))
+          return { ...kind, guide: `${input.paths.skillHosts[input.host]}/${kind.guide}` };
+        for (const root of [
+          input.paths.skillHosts[input.host],
+          input.paths.upstreamSkills[input.host],
+        ]) {
+          const guide = `${root}/${kind.guide}`;
+          if (await Bun.file(guide).exists()) return { ...kind, guide };
+        }
+        // oxlint-disable-next-line unthrown/no-throw -- The settings boundary qualifies a missing guide for the selected launch host.
+        throw new z.ZodError([
+          {
+            code: "custom",
+            path: ["kinds", input.name, "guide"],
+            message: `No installed guide skill for ${input.host}: ${kind.guide}.`,
+          },
+        ]);
+      },
+      (cause, defect) =>
+        cause instanceof Error || cause instanceof z.ZodError
+          ? qualify(cause, defect)
+          : defect(cause),
+    );
+  },
   resolve(input: SelectionRequest & { paths: OperatorPaths; cwd: string }) {
     return fromPromise(
       () => readConfig(input.paths),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) =>
+        cause instanceof Error || cause instanceof z.ZodError
+          ? qualify(cause, defect)
+          : defect(cause),
     )
       .flatMap(({ config }) => {
         const selected = selectLaunch(config, input);
@@ -73,7 +106,10 @@ export const DeviceSettings = {
         reason: "settings_read",
         data: await readConfig(paths),
       }),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) =>
+        cause instanceof Error || cause instanceof z.ZodError
+          ? qualify(cause, defect)
+          : defect(cause),
     );
   },
   plan(request: ChangeRequest) {
@@ -94,7 +130,10 @@ export const DeviceSettings = {
         const review = (await readConfig(paths)).config.review;
         return { repos: review?.repos ?? [], authors: review?.authors ?? [] };
       },
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) =>
+        cause instanceof Error || cause instanceof z.ZodError
+          ? qualify(cause, defect)
+          : defect(cause),
     );
   },
   /** The settings editor schema that a release ships and a settings edit writes. */

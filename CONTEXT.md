@@ -138,6 +138,7 @@ Native subagents remain within their parent WorkerAgent's assignment unless thei
 **Worker kind**:
 A named set of work phases, one kind guide, one completion type, default resources, a default start profile, and the next kind that a WorkerAgent follows.
 The built-in kinds are research, answer, prototype, implementation, review, and pr-feedback.
+The person can define more kinds in device settings.
 An assignment from before kinds has a null kind and keeps its existing behavior.
 _Avoid_: role, task type, general kind
 

@@ -1,6 +1,34 @@
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { selectLaunch } from "./selection.ts";
 import type { DeviceConfig } from "./schema.ts";
+import type { OperatorHome } from "../operator-home/main.ts";
+import { z } from "zod";
+
+export async function validateGuides(
+  config: DeviceConfig,
+  paths: ReturnType<typeof OperatorHome.resolve>,
+) {
+  for (const [name, definition] of Object.entries(config.kinds ?? {})) {
+    const roots = [
+      paths.skillHosts.opencode,
+      paths.upstreamSkills.opencode,
+      paths.skillHosts["claude-code"],
+    ];
+    if (
+      !(
+        await Promise.all(roots.map((root) => Bun.file(`${root}/${definition.guide}`).exists()))
+      ).some(Boolean)
+    )
+      // oxlint-disable-next-line unthrown/no-throw -- The settings boundary qualifies invalid installed-guide references like schema errors.
+      throw new z.ZodError([
+        {
+          code: "custom",
+          path: ["kinds", name, "guide"],
+          message: `No installed guide skill: ${definition.guide}.`,
+        },
+      ]);
+  }
+}
 
 export async function validateSelections(config: DeviceConfig, cwd: string) {
   const requests = [

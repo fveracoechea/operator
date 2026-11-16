@@ -593,34 +593,51 @@ function launch(request: Request, settings: Settings, resources: Resources) {
 function dispatch(request: DispatchRequest) {
   return assignmentFacts(request).flatMap((facts) =>
     launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
-      (settings) => {
-        const definition =
-          facts.planned.kind === null
-            ? null
-            : WorkerKinds.resolve(
-                facts.review?.state === "reviewing" ? "review" : facts.planned.kind,
-              );
-        const kind =
-          definition === null
-            ? null
-            : {
-                ...definition,
-                resources: facts.planned.resources,
-                profile: settings.launch.profile,
-                nextKind:
-                  definition.name === "implementation" && !facts.internalReview
-                    ? ("pr-feedback" as const)
-                    : definition.nextKind,
-                guide: `${request.paths.skillHosts[settings.launch.host]}/${definition.guide}`,
-                skillsToRead: definition.skillsToRead.map(
-                  (name) =>
-                    `${request.paths.upstreamSkills[settings.launch.host]}/${name}/SKILL.md`,
-                ),
-              };
-        return chooseResources(request, facts).flatMap((resources) =>
-          launch(request, { ...facts, ...settings, kind }, resources),
-        );
-      },
+      (settings) =>
+        (facts.planned.kind === null
+          ? OkAsync(null)
+          : DeviceSettings.kind({
+              paths: request.paths,
+              name: facts.review?.state === "reviewing" ? "review" : facts.planned.kind,
+              host: settings.launch.host,
+            })
+        ).flatMap((definition) => {
+          if (definition !== null && definition.completion !== facts.planned.completion)
+            return Err<Failure>({
+              reason: "kind_completion_changed",
+              detail: `Kind ${definition.name} no longer matches the registered completion type. Nothing was launched.`,
+              next: {
+                decider: "super-agent",
+                question:
+                  "Should the kind's original completion type be restored, or should this work use a new plan?",
+              },
+              state: {
+                kind: definition.name,
+                registeredCompletion: facts.planned.completion,
+                configuredCompletion: definition.completion,
+              },
+            });
+          const kind =
+            definition === null
+              ? null
+              : {
+                  ...definition,
+                  resources: facts.planned.resources,
+                  profile: settings.launch.profile,
+                  nextKind:
+                    definition.name === "implementation" && !facts.internalReview
+                      ? ("pr-feedback" as const)
+                      : definition.nextKind,
+                  guide: definition.guide,
+                  skillsToRead: definition.skillsToRead.map(
+                    (name) =>
+                      `${request.paths.upstreamSkills[settings.launch.host]}/${name}/SKILL.md`,
+                  ),
+                };
+          return chooseResources(request, facts).flatMap((resources) =>
+            launch(request, { ...facts, ...settings, kind }, resources),
+          );
+        }),
     ),
   );
 }
