@@ -51,7 +51,10 @@ test("prints text mode and preserves unexpected defects as exit 1", async () => 
     ),
   ).toBe(true);
   expect(log).not.toHaveBeenCalled();
-  expect(error).toHaveBeenCalledWith("operator: Error: unexpected");
+  expect(error).toHaveBeenCalledWith("operator: web_page_defect: Error: unexpected");
+  expect(error).toHaveBeenCalledWith(
+    "next: super-agent decides: How should web_page_defect be corrected before retrying web_open?",
+  );
   expect(process.exitCode).toBe(1);
 });
 
@@ -69,6 +72,10 @@ test("names a defect in JSON output", async () => {
       outcome: "refused",
       reason: "web_page_defect",
       blockers: [{ reason: "web_page_defect", detail: "Error: unexpected" }],
+      next: {
+        decider: "super-agent",
+        question: "How should web_page_defect be corrected before retrying web_open?",
+      },
     }),
   );
 });
