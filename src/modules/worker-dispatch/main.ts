@@ -9,6 +9,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
@@ -137,6 +138,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
                 (round) => round.assignment === input.assignment,
               ),
               readyHead: review.readyHead,
+              comment: review.commentUrl,
             };
       })
       // An adopted PR is read at each start until its owner associates it. ADR-0024.
@@ -318,6 +320,30 @@ function place(input: {
   }));
 }
 
+function briefPhase(settings: Facts & { kind: WorkerKind | null }) {
+  if (settings.kind === null) return undefined;
+  const report = settings.source.reports.findLast((row) => row.assignment === settings.planned.key);
+  return WorkerKinds.decidePhase({
+    kind: settings.kind,
+    report:
+      report === undefined
+        ? null
+        : {
+            returned: report.decision === "returned",
+            accepted: report.decision === "accepted",
+          },
+    pr: {
+      associated: settings.pullRequest !== null,
+      rounds: settings.review?.rounds.length ?? 0,
+      ready: settings.review?.state === "ready" || settings.review?.state === "skipped",
+      merged: settings.pullRequest !== null && settings.pullRequest.mergedAt !== null,
+      parked: false,
+    },
+    internalReview: settings.internalReview,
+    worktreeClean: true,
+  }).phase;
+}
+
 function writeBrief(
   request: Request,
   settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
@@ -332,6 +358,29 @@ function writeBrief(
   const promotion = settings.planned.promotion;
   return fromPromise(
     async () => {
+      const questions: NonNullable<Parameters<typeof renderBrief>[0]["questions"]> = [];
+      for (const row of settings.source.questions)
+        if (
+          row.assignment === settings.planned.key &&
+          row.state === "answered" &&
+          row.answer !== null &&
+          row.answeredBy !== null
+        )
+          questions.push({
+            key: row.key,
+            question: row.question,
+            answer: row.answer,
+            by: row.answeredBy,
+          });
+      const commit =
+        settings.pullRequest === null && settings.adoption === null
+          ? null
+          : await ToolInvocation.run({
+              tool: "git",
+              args: ["rev-parse", "--verify", "HEAD"],
+              cwd: placement.workingDirectory,
+              timeoutMs: 10000,
+            });
       const text = renderBrief({
         sourceId: request.sourceId,
         sourceTrackerKey: settings.planned.sourceTrackerKey,
@@ -339,6 +388,9 @@ function writeBrief(
         trackerKey: settings.planned.trackerKey,
         completion: settings.planned.completion,
         kind: settings.kind,
+        phase: briefPhase(settings),
+        head: commit?.status === "completed" && commit.exitCode === 0 ? commit.stdout.trim() : null,
+        questions,
         profile: settings.launch.profile,
         instructions: settings.planned.instructions,
         intent: settings.planned.intent,

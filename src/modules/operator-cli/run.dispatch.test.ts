@@ -310,11 +310,13 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
   expect(launched.output).toMatchObject({ data: { kind: expected } });
   const brief = await Bun.file(data.brief).text();
   expect(brief).toContain(`Worker kind: \`answer\``);
-  expect(brief).toContain(`Read \`${expected.guide}\``);
+  expect(brief).toContain(`Guide: \`${expected.guide}\``);
+  expect(brief).toContain("Phase: `investigate`");
+  expect(brief).not.toMatch(/operator |Grilling authority|Native subagents/);
   expect(await Bun.file(expected.guide).exists()).toBe(true);
   expect(await Bun.file(`${root}/config/opencode/skills/show-me/SKILL.md`).exists()).toBe(false);
   expect(brief).toContain(
-    `When the guide calls for it and the file exists, read skill by path: \`${root}/home/.agents/skills/show-me/SKILL.md\``,
+    `Skill: \`${root}/home/.agents/skills/show-me/SKILL.md\`. Read when the guide calls for it and the file exists.`,
   );
   await Bun.write(
     `${root}/config/operator/config.json`,
@@ -453,7 +455,7 @@ test.each([
     });
     expect(await Bun.file(guide).exists()).toBe(true);
     expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
-      `Read \`${guide}\``,
+      `Guide: \`${guide}\``,
     );
   },
 );
@@ -583,7 +585,9 @@ test("read-only report work gets a tab in the project workspace and a device-sta
   expect(data.brief.startsWith(`${root}/state/operator/projects/example/one/`)).toBe(true);
   const brief = await Bun.file(data.brief).text();
   expect(brief).toContain("Read the module and report the gaps.");
-  expect(brief).toContain(`controlling checkout \`${checkout}\``);
+  expect(brief).toContain(
+    `Resources: \`pane\`, \`${checkout}\`. Read-only; change no project files.`,
+  );
   expect(brief).not.toContain(data.name);
   expect(brief).not.toContain(data.paneId);
   const state = await herdrState();
@@ -697,7 +701,7 @@ test("worktree work prepares the new Herdr worktree before the agent starts", as
   expect(await Bun.file(`${worktree}/.env.local.backup`).exists()).toBe(false);
   expect(await Bun.file(`${worktree}/node_modules`).exists()).toBe(false);
   expect(data.brief.startsWith(worktree)).toBe(false);
-  expect(await Bun.file(data.brief).text()).toContain(`branch \`task/12-implement\``);
+  expect(await Bun.file(data.brief).text()).toContain(`Branch: \`task/12-implement\``);
   const calls = await herdrCalls();
   expect(calls.indexOf("worktree create")).toBeLessThan(calls.indexOf("agent start"));
   expect((await herdrState()).workspaces.map((row) => row.label)).toEqual([

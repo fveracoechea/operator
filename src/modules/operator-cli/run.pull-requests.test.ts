@@ -551,7 +551,7 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
   expect(replacement.worktreePath).toBe(worker.worktreePath);
   expect(await Bun.file(`${worker.worktreePath}/unlanded.txt`).text()).toBe("partial work\n");
   const brief = await Bun.file(replacement.brief).text();
-  expect(brief).toContain("PR #7 is already open for this assignment");
+  expect(brief).toContain("## Handoff\n\nPR #7:");
   expect(brief).not.toContain("operator pr associate");
   expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
   expect(await run(["pr", "wait", "--timeout", "0"], replacement.worktreePath)).toMatchObject({

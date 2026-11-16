@@ -313,9 +313,9 @@ for (const { host, profile } of [
     // No SuperAgent or WorkerAgent command needed a person flag or a grant.
     expect(argv).toContainEqual(["pr", "merge"]);
     expect(argv.flat()).not.toContain("--person-instructed");
-    // Each brief gives the worker the same authority for its routine steps.
+    // Authority and procedure belong to the worker guide, not copied protocol in briefs.
     for (const brief of run.briefs)
-      expect(brief).toContain("without asking for approval of each command or step");
+      expect(brief).not.toMatch(/## Grilling authority|## Native subagents|operator pr wait/);
     // Both PR briefs carry the accepted report's unresolved point.
     expect(run.briefs.filter((brief) => brief.includes(report.unresolved[0] ?? ""))).toHaveLength(
       2,

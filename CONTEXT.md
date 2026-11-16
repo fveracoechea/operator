@@ -160,8 +160,7 @@ Assignments whose recorded state and completion-type-specific dependency rules p
 _Avoid_: Crew frontier
 
 **Brief**:
-The device-state task instructions supplied to a WorkerAgent by an absolute reference at launch.
-It identifies the assignment's task, skills, resources, result locations, and reporting contract, with earlier reports and follow-up instructions for a replacement.
+The task instructions that the CLI renders for a WorkerAgent from record facts and kind data, with the SuperAgent's Task and the person's intent.
 
 **Intent**:
 The person's own words for a plan or an assignment, copied verbatim by the SuperAgent and kept apart from its instructions.

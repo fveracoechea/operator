@@ -117,6 +117,14 @@ test("a worker question stays in next actions until the SuperAgent answers it on
     },
   });
   expect(await device.herdrCalls()).not.toContain("pane send");
+  await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main);
+  const replacement = await device.dispatch(source, "investigate");
+  const brief = await Bun.file(replacement.brief).text();
+  expect(brief).toContain(
+    "## Questions answered for this assignment\n\n### `scope`\n\nBy: `person`",
+  );
+  expect(brief).toContain("> Is b.ts in scope?\n\nAnswer:\n\n> No, only a.ts.");
+  expect(brief).toContain("Phase: `investigate`");
 }, 120000);
 
 test("a SuperAgent answer needs its authority, and only the asking pane withdraws", async () => {
