@@ -50,7 +50,7 @@ function receiptFromMessage(
   try {
     decoded = JSON.parse(row.message);
   } catch {
-    return null;
+    // Invalid JSON leaves no receipt for the schema to accept below.
   }
   const parsed = messageSchema.safeParse(decoded);
   if (!parsed.success) return null;
@@ -253,6 +253,7 @@ export function recoverInternalReview(client: Database, input: RecoveryInput) {
           ),
         )
         .all();
+      // Stryker disable next-line StringLiteral: no rule: this private SQL correlation alias has no promised spelling; the empty quoted alias still binds the same newer-launch subquery
       const newer = alias(launches, "newer_worktree_claim");
       const collision = db
         .select({ id: launches.id })

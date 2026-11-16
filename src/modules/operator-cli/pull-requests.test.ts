@@ -35,6 +35,13 @@ function spies() {
     merge: spyOn(PullRequests, "merge").mockReturnValue(completed("pr_merged")),
     associate: spyOn(PullRequests, "associate").mockReturnValue(completed("pr_associated")),
     wait: spyOn(PullRequests, "wait").mockReturnValue(completed("pr_feedback")),
+    handoff: spyOn(PullRequests, "handoff").mockReturnValue(completed("handoff_completed")),
+    recover: spyOn(PullRequests, "recoverReview").mockReturnValue(
+      completed("internal_review_recovered"),
+    ),
+    skip: spyOn(PullRequests, "skipReview").mockReturnValue(completed("internal_review_skipped")),
+    round: spyOn(PullRequests, "round").mockReturnValue(completed("pr_round_recorded")),
+    ready: spyOn(PullRequests, "ready").mockReturnValue(completed("pr_ready")),
   };
 }
 
@@ -84,6 +91,9 @@ test.each([
   [["cleanup", "--source", "s", "--assignment"]],
   [["cleanup", "--source", "--json", "--assignment", "a"]],
   [["cleanup", "--source", "s", "--assignment", "a", "--other"]],
+  [["internal-review"]],
+  [["internal-review", "unknown", "--source", "s", "--assignment", "a"]],
+  [["internal-review", "skip", "--source", "s", "--assignment"]],
 ])("refuses %j before any pull request operation", async (args) => {
   const called = spies();
   expect(pullRequestArgs(args)).toBeNull();
@@ -114,7 +124,81 @@ test("passes each command to the matching pull request operation", async () => {
   expect(called.associate).toHaveBeenCalledWith({ paths, cwd });
   await runPullRequests(["pr", "wait", "--timeout", "12"], paths, true);
   expect(called.wait).toHaveBeenCalledWith({ paths, cwd, timeoutSeconds: 12 });
-  for (const spy of Object.values(called)) expect(spy).toHaveBeenCalledTimes(1);
+  for (const spy of [called.cleanup, called.merge, called.associate, called.wait])
+    expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test("routes an authorized internal review skip without invoking recovery or PR operations", async () => {
+  const called = spies();
+  const { log } = quiet();
+  const args = [
+    "internal-review",
+    "skip",
+    "--source",
+    "s",
+    "--assignment",
+    "a",
+    "--person-instructed",
+    "--json",
+  ];
+  const expected = {
+    operation: "internal_review_skip" as const,
+    sourceId: "s",
+    assignment: "a",
+    personInstructed: true,
+  };
+  expect(pullRequestArgs(args)).toEqual(expected);
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(called.skip).toHaveBeenCalledTimes(1);
+  expect(called.skip).toHaveBeenCalledWith({ paths, cwd: process.cwd(), ...expected });
+  for (const [name, spy] of Object.entries(called))
+    if (name !== "skip") expect(spy).not.toHaveBeenCalled();
+  expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+    operation: "internal_review_skip",
+    outcome: "completed",
+  });
+});
+
+test.each([
+  ["round", "pr_round", "findings.json"],
+  ["ready", "pr_ready", "summary.md"],
+] as const)("routes pr %s with its supplied file", async (command, operation, file) => {
+  const called = spies();
+  const { log } = quiet();
+  const args = ["pr", command, "--file", file, "--json"];
+  expect(pullRequestArgs(args)).toEqual({ operation, file });
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(called[command]).toHaveBeenCalledTimes(1);
+  expect(called[command]).toHaveBeenCalledWith({ paths, cwd: process.cwd(), file });
+  for (const [name, spy] of Object.entries(called))
+    if (name !== command) expect(spy).not.toHaveBeenCalled();
+  expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+    operation,
+    outcome: "completed",
+  });
+});
+
+test("routes handoff with its assignment and predecessor process", async () => {
+  const called = spies();
+  quiet();
+  expect(
+    await runPullRequests(
+      ["handoff", "--source", "s", "--assignment", "a", "--after-pid", "123"],
+      paths,
+      true,
+    ),
+  ).toBe(true);
+  expect(called.handoff).toHaveBeenCalledWith({
+    paths,
+    cwd: process.cwd(),
+    operation: "handoff",
+    sourceId: "s",
+    assignment: "a",
+    afterPid: 123,
+  });
+  expect(called.handoff).toHaveBeenCalledTimes(1);
+  for (const [name, spy] of Object.entries(called))
+    if (name !== "handoff") expect(spy).not.toHaveBeenCalled();
 });
 
 test("routes recovery with pinned provenance and authorization", async () => {

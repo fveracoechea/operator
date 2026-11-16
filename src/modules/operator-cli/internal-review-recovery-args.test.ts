@@ -51,3 +51,33 @@ test("recovery rejects duplicate, absent, unknown and invalid values", () => {
     ).toBeNull();
   expect(recoveryArgs([])).toBeNull();
 });
+
+test("recovery accepts the first PR number", () => {
+  expect(recoveryArgs(flags.with(7, "1"))).toEqual({
+    operation: "internal_review_recover",
+    sourceId: "s",
+    assignment: "a",
+    launchId: "l",
+    number: 1,
+    head: "a".repeat(40),
+    personInstructed: false,
+  });
+});
+
+test("recovery refuses an unknown flag even when it has a value", () => {
+  expect(recoveryArgs([...flags, "--unknown", "value"])).toBeNull();
+});
+
+test.each(["--source", "--assignment", "--launch", "--pr", "--head"])(
+  "recovery refuses a missing value for %s without throwing",
+  (flag) => {
+    const otherFlags = flags.toSpliced(flags.indexOf(flag), 2);
+    expect(recoveryArgs([...otherFlags, flag])).toBeNull();
+    expect(recoveryArgs([...otherFlags, flag, "--json"])).toBeNull();
+  },
+);
+
+test("recovery treats a double-hyphen prefix as a flag, not a provenance value", () => {
+  expect(recoveryArgs(flags.with(1, "--unexpected"))).toBeNull();
+  expect(recoveryArgs(flags.with(1, "source--"))).toMatchObject({ sourceId: "source--" });
+});

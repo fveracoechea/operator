@@ -3,7 +3,7 @@ function valuesOf(flags: string[]) {
   const rest = flags.values();
   for (const flag of rest) {
     if (values.has(flag)) return null;
-    if (flag === "--json" || flag === "--person-instructed") values.set(flag, "");
+    if (flag === "--json" || flag === "--person-instructed") values.set(flag, flag);
     else if (["--source", "--assignment", "--launch", "--pr", "--head"].includes(flag)) {
       const value = rest.next().value;
       if (value === undefined || value.startsWith("--")) return null;
@@ -21,11 +21,12 @@ export function recoveryArgs(flags: string[]) {
   const assignment = values.get("--assignment");
   const launchId = values.get("--launch");
   const number = Number(values.get("--pr"));
-  const head = values.get("--head") ?? "";
+  const head = values.get("--head");
   if (
     sourceId === undefined ||
     assignment === undefined ||
     launchId === undefined ||
+    head === undefined ||
     !Number.isSafeInteger(number) ||
     number < 1 ||
     !/^[a-f0-9]{40}$/.test(head)

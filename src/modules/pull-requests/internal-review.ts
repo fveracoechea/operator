@@ -135,6 +135,7 @@ function recoveryPullRequest(audit: RecoveryAudit) {
       const branch = await git(audit.worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
       if (
         found.length !== 1 ||
+        // Stryker disable next-line OptionalChaining: equivalent: openPullRequests returns a dense parsed array; found.length !== 1 short-circuits before pr is read unless index zero exists. The optional access narrows pr for TypeScript's noUncheckedIndexedAccess
         pr?.number !== audit.number ||
         pr.url !== audit.url ||
         pr.head !== audit.head ||

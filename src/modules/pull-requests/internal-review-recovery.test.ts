@@ -179,7 +179,8 @@ test.each([
   if (change === "draft") pr.draft = false;
   if (change === "head") pr.head = "b".repeat(40);
   if (change === "dirty") await Bun.write(`${owner.worktree}/untracked`, "local");
-  if (change === "local-head") input.head = "c".repeat(40);
+  if (change === "local-head")
+    git(owner.worktree, "commit", "--allow-empty", "-m", "local head not pushed");
   if (change === "owner") input.launchId = crypto.randomUUID();
   device.answer(() =>
     succeeded(recoveryBody(change === "missing" ? [] : change === "ambiguous" ? [pr, pr] : [pr])),
@@ -319,4 +320,75 @@ test("transactional refusal never starts a handoff", async () => {
   );
   expect(await recoverReview(input)).toMatchObject({ tag: "Err", error: { detail: "changed" } });
   expect(detach).not.toHaveBeenCalled();
+});
+
+test.each(["launchId", "sourceId", "assignment", "pullRequest"] as const)(
+  "recovery refuses a current owner with a different %s after retained lookup succeeds",
+  async (field) => {
+    await using device = await prDevice({ assignments: ["parent"] });
+    const { input, audit, record, detach } = await setup(device);
+    const owners = DeviceState.worktreeOwners(device.paths);
+    if (owners.tag !== "Ok") return expect.unreachable("Missing worktree owners");
+    const current = spyOn(DeviceState, "worktreeOwners").mockReturnValue(
+      Ok(
+        owners.value.map((owner) => ({
+          ...owner,
+          [field]: field === "pullRequest" ? 416 : "another-owner",
+        })),
+      ),
+    );
+    expect(await recoverReview(input)).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "internal_review_recovery_incompatible",
+        detail: "The current worktree owner differs from the authorized recovery. Nothing changed.",
+      },
+    });
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(current).toHaveBeenCalledTimes(1);
+    expect(record).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
+    expect(device.calls).toEqual([]);
+  },
+);
+
+test.each(["planned", "pullRequests"] as const)(
+  "recovery selects the authorized assignment rather than an earlier %s decoy",
+  async (collection) => {
+    await using device = await prDevice({ assignments: ["parent"] });
+    const { input, source, record, detach } = await setup(device);
+    if (collection === "planned") {
+      const target = source.planned[0];
+      if (target?.completion !== "pr") return expect.unreachable("Missing PR assignment");
+      source.planned.unshift({ ...target, key: "decoy", internalReview: false });
+    } else {
+      const target = source.pullRequests[0];
+      if (target === undefined) return expect.unreachable("Missing PR");
+      source.pullRequests.unshift({ ...target, assignment: "decoy", number: 416 });
+    }
+    expect(await recoverReview(input)).toMatchObject({
+      tag: "Ok",
+      value: { reason: "internal_review_recovered", data: { assignment: "parent", number: 415 } },
+    });
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(detach).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("recovery reads the requested source from the controlling checkout and preserves its refusal", async () => {
+  await using device = await prDevice({ assignments: ["parent"] });
+  const { input, show, audit, record, detach } = await setup(device);
+  const refusal = {
+    reason: "source_not_found" as const,
+    detail: "The requested source is unavailable.",
+    next: { command: "operator next", why: "Inspect the source." },
+  };
+  show.mockReturnValue(ErrAsync(refusal));
+  expect(await recoverReview({ ...input, cwd: `${device.checkout}/.` })).toEqual(Err(refusal));
+  expect(show).toHaveBeenCalledTimes(1);
+  expect(show).toHaveBeenCalledWith({ ...input, cwd: device.checkout });
+  expect(audit).not.toHaveBeenCalled();
+  expect(record).not.toHaveBeenCalled();
+  expect(detach).not.toHaveBeenCalled();
+  expect(device.calls).toEqual([]);
 });

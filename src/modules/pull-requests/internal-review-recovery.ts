@@ -41,6 +41,7 @@ function retained(source: Source | undefined, input: Input) {
   const launch = source?.launches.find((row) => row.id === input.launchId);
   const pr = source?.pullRequests.find((row) => row.assignment === input.assignment);
   if (
+    // Stryker disable next-line ConditionalExpression: equivalent: an undefined source also makes planned undefined, so planned?.completion !== "pr" refuses it; retain this check to narrow source in the successful result
     source === undefined ||
     planned?.completion !== "pr" ||
     launch?.worktreePath === undefined ||
@@ -72,6 +73,7 @@ async function observe(input: Input, owner: Owner, url: string) {
   const found = await openPullRequests(owner.repository, owner.branch);
   if (found.tag !== "Ok") return stop(found);
   const observed = found.value[0];
+  // Stryker disable next-line OptionalChaining: equivalent: openPullRequests returns a dense parsed array; length !== 1 short-circuits before observed is read unless index zero exists. The optional access narrows observed for TypeScript's noUncheckedIndexedAccess
   if (found.value.length !== 1 || observed?.number !== input.number || observed.url !== url)
     return incompatible(
       "Exactly one open PR must match the retained association. Nothing changed.",
