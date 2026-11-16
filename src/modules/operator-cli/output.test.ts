@@ -1,5 +1,12 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { failure, printRefusal, respond, outputContext, withOutputContext } from "./output.ts";
+import {
+  failure,
+  printRefusal,
+  respond,
+  outputContext,
+  withOutputContext,
+  printWorkerContext,
+} from "./output.ts";
 import { Err, Ok } from "unthrown";
 
 afterEach(() => {
@@ -48,6 +55,57 @@ test("a compact nonworker refusal with next has no fabricated kind or phase suff
   expect(error.mock.calls.map((call) => String(call[0]))).toEqual([
     "operator: guard: Not ready.",
     "next: operator ready",
+  ]);
+});
+
+test("plain worker context renders commands, decisions and completion without extra lines", async () => {
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  printWorkerContext();
+  expect(log).not.toHaveBeenCalled();
+  for (const { next, line } of [
+    { next: { command: "operator next\n--wait", why: "Wait." }, line: "operator next --wait" },
+    {
+      next: { decider: "super-agent", question: "Accept\nthe report?" },
+      line: "super-agent decides: Accept the report?",
+    },
+    { next: { why: "Nothing\nremains." }, line: "Nothing remains." },
+  ] as const) {
+    log.mockClear();
+    await withOutputContext(
+      () => ({ kind: "research", phase: "report", next }),
+      async () => printWorkerContext(),
+    );
+    expect(log.mock.calls).toEqual([["kind: research; phase: report"], [`next: ${line}`]]);
+  }
+  log.mockClear();
+  await withOutputContext(
+    () => ({ kind: "research", phase: "report" }),
+    async () => printWorkerContext(),
+  );
+  expect(log.mock.calls).toEqual([["kind: research; phase: report"]]);
+});
+
+test("grouped compact refusals include worker identity without replacing blocker recovery", async () => {
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  await withOutputContext(
+    () => ({
+      kind: "research",
+      phase: "investigate",
+      next: { command: "operator report submit --file <file>", why: "Submit." },
+    }),
+    async () => {
+      printRefusal("not_ready", "Missing.", [
+        {
+          next: { decider: "person", question: "Install?" },
+          state: { found: false },
+        },
+      ]);
+    },
+  );
+  expect(error.mock.calls).toEqual([
+    ["operator: not_ready: Missing. [kind=research phase=investigate]"],
+    ["next: [1] person decides: Install?"],
+    ['state: [1]={"found":false}'],
   ]);
 });
 

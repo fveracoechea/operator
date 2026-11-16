@@ -262,6 +262,122 @@ test("prototype results expose the command frontier, not observed reasoning prog
   });
 });
 
+test("a worker's compact readiness refusal names its kind and phase", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "github:example/one#383",
+    assignments: [
+      {
+        key: "read",
+        kind: "research",
+        trackerKey: "github:example/one#1",
+        instructions: "Read.",
+        dependencies: [],
+      },
+    ],
+  });
+  const worker = await device.dispatch(source, "read");
+  await rm(`${device.root}/upstream/code-review/SKILL.md`);
+  const result = await device.exec(
+    ["env", `HERDR_PANE_ID=${worker.paneId}`, `${device.root}/tools/operator`, "ready"],
+    device.main,
+  );
+  expect(result.code).toBe(3);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("[kind=research phase=investigate]");
+  expect(result.stderr).toContain("operator install --opencode");
+  expect(result.stderr).toContain("operator install --claude");
+  expect(result.stderr.trim().split("\n")).toHaveLength(3);
+});
+
+test("plain version and help retain their text and add the worker's next step", async () => {
+  device = await workerDevice();
+  const source = await device.register({
+    trackerKey: "github:example/one#383",
+    assignments: [
+      {
+        key: "read",
+        kind: "research",
+        trackerKey: "github:example/one#1",
+        instructions: "Read.",
+        dependencies: [],
+      },
+    ],
+  });
+  const worker = await device.dispatch(source, "read");
+  for (const flag of ["--version", "--help"]) {
+    const result = await device.exec(
+      ["env", `HERDR_PANE_ID=${worker.paneId}`, `${device.root}/tools/operator`, flag],
+      device.main,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.startsWith(flag === "--help" ? "Usage: operator" : "operator ")).toBe(
+      true,
+    );
+    expect(result.stdout).toContain("kind: research; phase: investigate\n");
+    expect(result.stdout).toContain("next: operator report submit --file <file>\n");
+  }
+});
+
+test("a typed PR worktree enforces phase guards without a registered caller pane", async () => {
+  device = await workerDevice({ github: true });
+  const source = await device.register({
+    trackerKey: "github:example/one#383",
+    assignments: [
+      {
+        key: "build",
+        kind: "implementation",
+        trackerKey: "github:example/one#1",
+        instructions: "Build.",
+        branch: "task/build",
+        dependencies: [],
+      },
+    ],
+  });
+  const worker = await device.dispatch(source, "build");
+  const cwd = worker.worktreePath ?? "";
+  await Bun.write(
+    `${device.root}/github.json`,
+    JSON.stringify({
+      pulls: [
+        {
+          number: 7,
+          url: "https://github.com/example/one/pull/7",
+          headRefName: "task/build",
+          headRepository: "example/one",
+          state: "OPEN",
+        },
+      ],
+    }),
+  );
+  await Bun.write(`${cwd}/pending.txt`, "uncommitted");
+  const refused = await device.run(["pr", "associate"], { cwd });
+  expect(refused).toMatchObject({
+    code: 4,
+    output: {
+      reason: "pr_worktree_unclean",
+      kind: "implementation",
+      phase: "build",
+      next: { command: "git status --short" },
+      state: { worktree_clean: false },
+    },
+  });
+  expect((await device.run(["source", "show", "--source", source])).output).toMatchObject({
+    data: { pullRequests: [] },
+  });
+  await rm(`${cwd}/pending.txt`);
+  expect(await device.run(["pr", "associate"], { cwd })).toMatchObject({
+    code: 0,
+    output: {
+      reason: "pr_associated",
+      kind: "implementation",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    },
+  });
+});
+
 test("PR guards and result context follow the canonical worktree owner, not the caller's other pane", async () => {
   device = await workerDevice({ github: true });
   const source = await device.register({

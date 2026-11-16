@@ -1,4 +1,4 @@
-import { failure, outputContext } from "./output.ts";
+import { failure, outputContext, printWorkerContext } from "./output.ts";
 
 type Release = { version: string; commit: string | null; artifactIdentity: string | null };
 
@@ -79,6 +79,7 @@ const usage = `Usage: operator --help | --version [--json]
 export function runUsage(args: string[], release: Release, json: boolean) {
   if (args.length === 1 && args[0] === "--help") {
     console.log(usage);
+    printWorkerContext();
     process.exitCode = 0;
     return true;
   }
@@ -100,6 +101,7 @@ export function runUsage(args: string[], release: Release, json: boolean) {
         })
       : `operator ${operatorVersion}`,
   );
+  if (!json) printWorkerContext();
   process.exitCode = 0;
   return true;
 }

@@ -66,8 +66,7 @@ export function failure(
         phase: context.phase,
       }),
     );
-  const phase = context.kind === undefined ? "" : ` [kind=${context.kind} phase=${context.phase}]`;
-  printRefusal(reason, `${detail}${phase}`, context);
+  printRefusal(reason, detail, context);
   process.exitCode = code;
 }
 
@@ -79,7 +78,9 @@ export function printRefusal(
 ) {
   const grouped = Array.isArray(context);
   const contexts = grouped ? context : [context];
-  console.error(oneLine(`operator: ${reason}: ${detail}`));
+  const worker = grouped ? outputContext() : { ...outputContext(), ...context };
+  const phase = worker.kind === undefined ? "" : ` [kind=${worker.kind} phase=${worker.phase}]`;
+  console.error(oneLine(`operator: ${reason}: ${detail}${phase}`));
   console.error(
     oneLine(
       `next: ${contexts
@@ -111,6 +112,14 @@ function nextText(next: NextStep) {
   if (next.command !== undefined) return next.command;
   if (next.decider !== undefined) return `${next.decider} decides: ${next.question}`;
   return next.why;
+}
+
+/** Help and version keep their plain text while sharing the worker result contract. */
+export function printWorkerContext() {
+  const context = outputContext();
+  if (context.kind === undefined) return;
+  console.log(oneLine(`kind: ${context.kind}; phase: ${context.phase}`));
+  if (context.next !== undefined) console.log(oneLine(`next: ${nextText(context.next)}`));
 }
 
 /** Prints one command result. A defect always exits 1 with the command's defect reason. */

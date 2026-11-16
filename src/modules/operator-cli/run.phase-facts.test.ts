@@ -222,6 +222,23 @@ test("a missing pane launch leaves ordinary reads untyped", async () => {
   expect(await run()).not.toHaveProperty("kind");
 });
 
+test.each(["missing-launch", "legacy-kind"] as const)(
+  "a typed PR target supplies context with a %s caller",
+  async (caller) => {
+    if (caller === "missing-launch") current.launch = null;
+    else required(current.launch).kind = null;
+    const wait = spyOn(PullRequests, "wait").mockReturnValue(
+      OkAsync({ reason: "pr_wait_timed_out", data: {} }) as never,
+    );
+    expect(await run(["pr", "wait", "--timeout", "0"])).toMatchObject({
+      kind: "implementation",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    });
+    expect(wait).toHaveBeenCalledTimes(1);
+  },
+);
+
 test.each(["socket", "pane"] as const)(
   "an absent worker %s leaves ordinary reads untyped",
   async (missing) => {

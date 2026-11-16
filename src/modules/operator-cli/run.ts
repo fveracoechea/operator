@@ -132,7 +132,6 @@ function recorded(
 /** Commands and results share the same phase decision over the launch's immutable kind. */
 async function withWorkerContext(args: string[], paths: OperatorPaths, run: () => Promise<void>) {
   let selected = worker(paths);
-  if (selected === null) return run();
   let event = eventOf(args);
   if (event !== undefined && event !== "submit" && event !== "resume") {
     const target = await PullRequests.workerTarget({ paths, cwd: process.cwd() });
@@ -144,6 +143,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
       event = undefined;
     }
   }
+  if (selected === null) return run();
   let clean = true;
   let head: string | null = null;
   if (selected.launch.worktreePath !== null) {
