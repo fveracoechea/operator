@@ -117,8 +117,34 @@ test("person-defined kinds can name built-in and custom next kinds with the same
 });
 
 test.each([
-  { rule: "unsafe record name", name: "__proto__", change: {}, detail: "__proto__" },
-  { rule: "built-in name reuse", name: "research", change: {}, detail: "cannot be reused" },
+  { rule: "leading invalid kind-name character", name: " audit", change: {}, detail: "audit" },
+  { rule: "trailing invalid kind-name character", name: "audit!", change: {}, detail: "audit" },
+  {
+    rule: "whitespace phase name",
+    name: "audit",
+    change: { workPhases: [{ name: " ", goal: "Inspect." }] },
+    detail: "name",
+  },
+  {
+    rule: "whitespace phase goal",
+    name: "audit",
+    change: { workPhases: [{ name: "inspect", goal: " " }] },
+    detail: "goal",
+  },
+  {
+    rule: "unsafe record name",
+    name: "__proto__",
+    change: {},
+    detail: "__proto__",
+    expectedPath: ["kinds"],
+  },
+  {
+    rule: "built-in name reuse",
+    name: "research",
+    change: {},
+    detail: "cannot be reused",
+    expectedPath: ["kinds", "research"],
+  },
   {
     rule: "invalid completion",
     name: "audit",
@@ -148,6 +174,7 @@ test.each([
     name: "audit",
     change: { nextKind: "implementation" },
     detail: "same completion type",
+    expectedPath: ["kinds", "audit", "nextKind"],
   },
   {
     rule: "unknown next kind",
@@ -175,7 +202,7 @@ test.each([
   },
 ])(
   "a person-defined kind that breaks a validation rule is refused with next: $rule",
-  async ({ name, change, detail }) => {
+  async ({ name, change, detail, expectedPath }) => {
     await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", {
       createPath: true,
     });
@@ -213,6 +240,71 @@ test.each([
       state: { settingsValid: false },
     });
     expect(shown.stderr).toContain(detail);
+    if (expectedPath) {
+      const output = z
+        .object({ blockers: z.tuple([z.object({ detail: z.string() })]) })
+        .parse(shown.output);
+      const issues = z
+        .array(z.object({ path: z.array(z.union([z.string(), z.number()])) }))
+        .parse(JSON.parse(output.blockers[0].detail));
+      expect(issues.map((issue) => issue.path)).toContainEqual([...expectedPath]);
+    }
+  },
+);
+
+test.each(["home/.agents/skills", "home/.claude/skills", "config/opencode/skills"])(
+  "person-defined settings accept a guide installed only in %s",
+  async (directory) => {
+    await Bun.write(`${root}/${directory}/audit/SKILL.md`, "# Audit\n", { createPath: true });
+    const definition = {
+      completion: "report",
+      resources: "pane",
+      guide: "audit/SKILL.md",
+      workPhases: [{ name: "inspect", goal: "Inspect." }],
+    };
+    const result = await run([
+      "config",
+      "plan",
+      "--set",
+      `kinds.audit=${JSON.stringify(definition)}`,
+    ]);
+    expect(result.code, result.stderr).toBe(0);
+  },
+);
+
+test.each([
+  ["--unset", "kinds"],
+  ["--unset", "kinds. audit"],
+  ["--unset", "kinds.audit!"],
+  ["--set", "kinds.audit.completion=report"],
+])("person-defined kind edits refuse unsupported field syntax: %j", async (action, field) => {
+  const result = await run(["config", "plan", action, field]);
+  expect(result.code).toBe(2);
+  expect(result.output).toMatchObject({ reason: "invalid_settings_edit" });
+  expect(result.stderr).toContain("Unsupported settings field");
+  expect(await Bun.file(`${root}/config/operator/config.json`).exists()).toBe(false);
+});
+
+test.each(["/audit/SKILL.md", "audit/SKILL.md.extra"])(
+  "person-defined guide syntax refuses a non-skill path even when installed: %s",
+  async (guide) => {
+    await Bun.write(`${root}/home/.agents/skills/${guide}`, "# Not a guide path\n", {
+      createPath: true,
+    });
+    const definition = {
+      completion: "report",
+      resources: "pane",
+      guide,
+      workPhases: [{ name: "inspect", goal: "Inspect." }],
+    };
+    const result = await run([
+      "config",
+      "plan",
+      "--set",
+      `kinds.audit=${JSON.stringify(definition)}`,
+    ]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("Name an installed guide skill as <skill>/SKILL.md.");
   },
 );
 

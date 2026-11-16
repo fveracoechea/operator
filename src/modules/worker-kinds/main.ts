@@ -10,15 +10,13 @@ const nameSchema = z.enum([
   "review",
   "pr-feedback",
 ]);
+const kindNameSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 const definitionSchema = z.object({
-  name: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  name: kindNameSchema,
   completion: z.enum(["report", "pr"]),
   resources: z.enum(["pane", "worktree"]),
   profile: z.string().nullable(),
-  nextKind: z
-    .string()
-    .regex(/^[a-z][a-z0-9-]{0,63}$/)
-    .nullable(),
+  nextKind: kindNameSchema.nullable(),
   readsNote: z.union([z.boolean(), z.literal("promotion")]),
   guide: z.string(),
   skillsToRead: z.array(z.string()).default([]),
@@ -46,11 +44,7 @@ const customSchema = definitionSchema
   .omit({ name: true })
   .extend({
     profile: z.string().nullable().default(null),
-    nextKind: z
-      .string()
-      .regex(/^[a-z][a-z0-9-]{0,63}$/)
-      .nullable()
-      .default(null),
+    nextKind: definitionSchema.shape.nextKind.default(null),
     readsNote: definitionSchema.shape.readsNote.default(false),
     dispatchable: z.literal(true).default(true),
     guide: z
@@ -190,7 +184,7 @@ export const WorkerKinds = {
   customSchema() {
     return customKindsSchema;
   },
-  dispatchable(name: string) {
+  dispatchable(name: string | null) {
     const builtin = nameSchema.safeParse(name);
     return !builtin.success || kinds[builtin.data].dispatchable;
   },

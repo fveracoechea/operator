@@ -44,7 +44,7 @@ function qualify<T>(cause: SettingsError, defect: (cause: Error) => T): Settings
 
 function operate(action: () => Promise<SettingsOutcome>) {
   return fromPromise(action, (cause, defect) =>
-    cause instanceof Error || cause instanceof z.ZodError ? qualify(cause, defect) : defect(cause),
+    cause instanceof Error ? qualify(cause, defect) : defect(cause),
   ).flatMap((outcome) => ("detail" in outcome ? Err(outcome) : Ok(outcome)));
 }
 
@@ -65,13 +65,9 @@ export const DeviceSettings = {
           if (await Bun.file(guide).exists()) return { ...kind, guide };
         }
         // oxlint-disable-next-line unthrown/no-throw -- The settings boundary qualifies a missing guide for the selected launch host.
-        throw new z.ZodError([
-          {
-            code: "custom",
-            path: ["kinds", input.name, "guide"],
-            message: `No installed guide skill for ${input.host}: ${kind.guide}.`,
-          },
-        ]);
+        throw new SyntaxError(
+          `Kind ${input.name}: No installed guide skill for ${input.host}: ${kind.guide}.`,
+        );
       },
       (cause, defect) =>
         cause instanceof Error || cause instanceof z.ZodError
@@ -82,10 +78,7 @@ export const DeviceSettings = {
   resolve(input: SelectionRequest & { paths: OperatorPaths; cwd: string }) {
     return fromPromise(
       () => readConfig(input.paths),
-      (cause, defect) =>
-        cause instanceof Error || cause instanceof z.ZodError
-          ? qualify(cause, defect)
-          : defect(cause),
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
     )
       .flatMap(({ config }) => {
         const selected = selectLaunch(config, input);
@@ -106,10 +99,7 @@ export const DeviceSettings = {
         reason: "settings_read",
         data: await readConfig(paths),
       }),
-      (cause, defect) =>
-        cause instanceof Error || cause instanceof z.ZodError
-          ? qualify(cause, defect)
-          : defect(cause),
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
     );
   },
   plan(request: ChangeRequest) {
@@ -130,10 +120,7 @@ export const DeviceSettings = {
         const review = (await readConfig(paths)).config.review;
         return { repos: review?.repos ?? [], authors: review?.authors ?? [] };
       },
-      (cause, defect) =>
-        cause instanceof Error || cause instanceof z.ZodError
-          ? qualify(cause, defect)
-          : defect(cause),
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
     );
   },
   /** The settings editor schema that a release ships and a settings edit writes. */

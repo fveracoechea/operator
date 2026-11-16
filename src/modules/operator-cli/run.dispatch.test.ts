@@ -208,6 +208,11 @@ test("a valid person-defined kind in linked device settings can be named in a pl
     name: "audit",
     completion: "report",
     resources: "pane",
+    profile: null,
+    nextKind: null,
+    readsNote: false,
+    skillsToRead: [],
+    dispatchable: true,
     workPhases: definition.workPhases,
     guide: `${root}/home/.agents/skills/audit/SKILL.md`,
   });
@@ -365,8 +370,26 @@ test("a person-defined kind cannot change a registered assignment's completion t
     next: { decider: "super-agent" },
     state: { kind: "audit", registeredCompletion: "report", configuredCompletion: "pr" },
   });
+  expect(result.stderr).toContain("Kind audit no longer matches the registered completion type");
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
   expect((await herdrState()).agents).toEqual([]);
+});
+
+test("a plan refuses a person-defined kind absent from device settings", async () => {
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({ ...plan, assignments: [{ ...plan.assignments[0], kind: "missing-kind" }] }),
+  );
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const result = await run(["source", "register", "--file", `${root}/plan.json`]);
+  expect(result.code).toBe(2);
+  expect(result.output).toMatchObject({
+    reason: "invalid_source_plan",
+    next: { decider: "super-agent" },
+  });
+  expect(result.stderr).toContain('"kind"');
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect(await herdrCalls()).toEqual([]);
 });
 
 async function herdrCalls() {
