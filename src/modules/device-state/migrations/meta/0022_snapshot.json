@@ -259,6 +259,13 @@
     "deliveries": {
       "name": "deliveries",
       "columns": {
+        "request_uuid": {
+          "name": "request_uuid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "id": {
           "name": "id",
           "type": "text",
@@ -280,8 +287,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "reviewed_head": {
-          "name": "reviewed_head",
+        "ready_head": {
+          "name": "ready_head",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -370,8 +377,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "reviewed_head": {
-          "name": "reviewed_head",
+        "ready_head": {
+          "name": "ready_head",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

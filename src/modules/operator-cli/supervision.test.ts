@@ -26,6 +26,8 @@ test("reads, worker commands, unscoped waits, and the person's instructions are 
     [],
     ["next", "--source", "s1"],
     ["next", "--wait"],
+    ["pr", "wait", "--source", "s1"],
+    ["obligation", "list", "--source", "s1"],
     ["source", "show", "--source", "s1"],
     ["source", "reset", "--source", "s1", "--person-instructed"],
     ["source", "take-over", "--source", "s1", "--person-instructed"],

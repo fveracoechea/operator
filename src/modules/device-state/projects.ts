@@ -3,7 +3,7 @@ import { Err, Ok, type Result } from "unthrown";
 import type { Database } from "bun:sqlite";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { cleanups, projectRemovals, projects, reviewRequests, sources } from "./schema.ts";
-import { deleteSourceRecords } from "./sources.ts";
+import { deleteSourceRecords, hasPendingDelivery, unresolvedDelivery } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type RegisteredProject = typeof projects.$inferSelect;
@@ -15,6 +15,7 @@ export type ProjectStateFailure =
         | "project_source_open"
         | "project_cleanup_open"
         | "project_review_open"
+        | "pr_delivery_unresolved"
         | "project_cleanup_pending";
       detail: string;
     };
@@ -164,15 +165,14 @@ export function removeProject(client: Database, repository: string) {
         });
       if (openCleanup(db, repository)) return Err(cleanupOpen);
       if (openReview(db, repository)) return Err(reviewOpen);
-      deleteSourceRecords(
-        db,
-        db
-          .select({ id: sources.id })
-          .from(sources)
-          .where(eq(sources.repository, repository))
-          .all()
-          .map((source) => source.id),
-      );
+      const sourceIds = db
+        .select({ id: sources.id })
+        .from(sources)
+        .where(eq(sources.repository, repository))
+        .all()
+        .map((source) => source.id);
+      if (hasPendingDelivery(db, sourceIds)) return Err(unresolvedDelivery);
+      deleteSourceRecords(db, sourceIds);
       // The project row's foreign key deletes its worktree preparations and review requests.
       db.insert(projectRemovals).values({ repository, removedAt: new Date().toISOString() }).run();
       db.delete(projects).where(eq(projects.repository, repository)).run();
@@ -205,6 +205,13 @@ export function moveProject(client: Database, repository: string, checkout: stri
           });
         if (openCleanup(db, repository)) return Err(cleanupOpen);
         if (openReview(db, repository)) return Err(reviewOpen);
+        const sourceIds = db
+          .select({ id: sources.id })
+          .from(sources)
+          .where(eq(sources.repository, repository))
+          .all()
+          .map((source) => source.id);
+        if (hasPendingDelivery(db, sourceIds)) return Err(unresolvedDelivery);
         db.update(projects).set({ checkout }).where(eq(projects.repository, repository)).run();
         return Ok({ reason: "project_moved", data: { ...project, checkout } });
       },

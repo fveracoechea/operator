@@ -99,6 +99,119 @@ const pr = {
   relay: null,
 };
 
+test("waits and relays refuse an unfinished delivery after its process exits", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+  insertRow(db, "deliveries", {
+    id: "d1",
+    launch_id: "l1",
+    head: "h1",
+    selected: 0,
+    started_at: "now",
+  });
+  expect<unknown>(
+    recordPullRequestWait(db, "l1", () => ({ progress: "new", waitState: "waiting" })),
+  ).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_delivery_running",
+      detail:
+        "Delivery holds this assignment. Wait for it to end before another PR wait or relay. Nothing changed.",
+    },
+  });
+  expect(db.query("SELECT progress FROM pull_requests").get()).toEqual({
+    progress: '{"seen":[],"failures":[],"eligibleHead":null}',
+  });
+  db.exec("UPDATE deliveries SET ended_at = 'done'");
+  expect(
+    recordPullRequestWait(db, "l1", () => ({ progress: "new", waitState: "waiting" })).tag,
+  ).toBe("Ok");
+});
+
+test("a replacement launch's wait cannot overtake the original launch's outstanding request", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+  insertRow(db, "launches", {
+    id: "old",
+    source_id: "s1",
+    assignment: "change",
+    state: "stopped",
+    attempt: 0,
+  });
+  insertRow(db, "deliveries", {
+    id: "d0",
+    launch_id: "old",
+    head: "original",
+    selected: 0,
+    started_at: "then",
+  });
+  expect<unknown>(
+    recordPullRequestWait(db, "l1", () => ({ progress: "new", waitState: "waiting" })),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
+});
+
+test("recording the actual merge settles its outstanding delivery atomically without rewriting history", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+  insertRow(db, "launches", {
+    id: "old",
+    source_id: "s1",
+    assignment: "change",
+    state: "stopped",
+    attempt: 0,
+  });
+  insertRow(db, "deliveries", {
+    id: "older-launch",
+    launch_id: "old",
+    head: "h1",
+    selected: 1,
+    session: "original-actor",
+    started_at: "then",
+  });
+  for (const [id, head, endedAt] of [
+    ["past", "h1", "past-end"],
+    ["current", "h1", null],
+    ["different-head", "h2", null],
+  ] as const) {
+    insertRow(db, "deliveries", {
+      id,
+      launch_id: "l1",
+      head,
+      ended_at: endedAt,
+      session: "original-actor",
+      selected: 1,
+      owner_pid: process.pid,
+      lease_at: "now",
+      started_at: "then",
+    });
+  }
+  expect(
+    recordPullRequestMerge(db, "l1", { number: 7, head: "h1", mergeCommit: "m1" }, () => "open"),
+  ).toMatchObject({ tag: "Ok", value: { changed: true } });
+  expect(
+    db.query("SELECT id, ended_at, owner_pid, session FROM deliveries ORDER BY id").all(),
+  ).toEqual([
+    {
+      id: "current",
+      ended_at: expect.any(String) as unknown,
+      owner_pid: null,
+      session: "original-actor",
+    },
+    { id: "different-head", ended_at: null, owner_pid: process.pid, session: "original-actor" },
+    {
+      id: "older-launch",
+      ended_at: expect.any(String) as unknown,
+      owner_pid: null,
+      session: "original-actor",
+    },
+    { id: "past", ended_at: "past-end", owner_pid: process.pid, session: "original-actor" },
+  ]);
+  expect(assignmentState(db, "change")).toEqual({ state: "merged" });
+});
+
 function assignmentState(db: Database, key: string) {
   return db.query("SELECT state FROM assignments WHERE key = ?").get(key);
 }

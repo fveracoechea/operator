@@ -16,17 +16,17 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
   return resolveOwner(input)
     .flatMap(owned)
     .flatMap((owner) => {
-      const reviewedHead = owner.reviewedHead;
+      const readyHead = owner.readyHead;
       const number = owner.pullRequest;
       if (
         number === null ||
-        reviewedHead === null ||
+        readyHead === null ||
         (owner.reviewState !== "ready" && owner.reviewState !== "skipped")
       )
         return ErrAsync({
           reason: "pr_validation_blocked",
           detail:
-            "Validation needs an associated PR with an ended internal review and recorded reviewed head. Nothing was recorded.",
+            "Validation needs an associated PR with an ended internal review and recorded ready head. Nothing was recorded.",
           next,
         });
       return fromPromise(
@@ -68,7 +68,7 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
               () =>
                 ToolInvocation.run({
                   tool: "git",
-                  args: ["merge-base", "--is-ancestor", reviewedHead, observed.head],
+                  args: ["merge-base", "--is-ancestor", readyHead, observed.head],
                   cwd: owner.worktreePath,
                   timeoutMs: 10000,
                 }),
@@ -82,13 +82,13 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
                 return ErrAsync({
                   reason: "pr_validation_blocked",
                   detail:
-                    "The reviewed head is not a known ancestor of this correction. Ask the SuperAgent to reconcile review provenance. Nothing was recorded.",
+                    "The ready head is not a known ancestor of this correction. Ask the SuperAgent to reconcile review provenance. Nothing was recorded.",
                   next,
                 });
               return DeviceState.recordDeliveryValidation(input.paths, {
                 launchId: owner.launchId,
                 head: observed.head,
-                reviewedHead,
+                readyHead,
                 summary,
               }).map(() => ({
                 reason: "pr_validated",
@@ -97,7 +97,7 @@ export function validate(input: { paths: Paths; cwd: string; file: string }) {
                   assignment: owner.assignment,
                   number,
                   head: observed.head,
-                  reviewedHead,
+                  readyHead,
                 },
                 next: {
                   command: "operator pr wait --json",

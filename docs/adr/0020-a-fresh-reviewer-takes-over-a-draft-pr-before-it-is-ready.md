@@ -72,9 +72,10 @@ No line-level threads or other review comments are posted.
 ### Bounded corrections after review
 
 An ended review stays ended when its owner makes bounded corrections.
-The owner records the correction scope and targeted validation evidence separately from established rounds and the original reviewed ready head.
-Validation requires a clean pushed current open PR, passing current CI, and the reviewed ready head as an ancestor.
-A current head different from the reviewed ready head requires validation at that head before merge.
+The owner records the correction scope and targeted validation evidence separately from established rounds and the original ready head.
+Validation requires a clean pushed current open PR, passing current CI, and the original ready head as an ancestor.
+A current head different from the ready head requires validation at that head before merge.
+The ready head can include fixes after a review round; a round's head alone identifies what it actually reviewed.
 Later head changes require validation again, because earlier evidence does not describe the new head.
 A third broad review is not required solely because bounded corrections followed the ended review.
 This preserves the two-round limit and the original review evidence without treating later changes as already reviewed.

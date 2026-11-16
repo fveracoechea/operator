@@ -77,6 +77,9 @@ import {
   finishDelivery,
   recordDeliveryValidation,
   renewDelivery,
+  readDelivery,
+  recordDeliveryRequest,
+  suspendDelivery,
 } from "./deliveries.ts";
 import {
   changeReviewRequest,
@@ -247,6 +250,15 @@ export const DeviceState = {
   },
   claimDelivery(paths: Paths, input: Parameters<typeof claimDelivery>[1]) {
     return writing(paths, (client) => claimDelivery(client, input));
+  },
+  readDelivery(paths: Paths, launchId: string) {
+    return reading(paths, (client) => readDelivery(client, launchId));
+  },
+  recordDeliveryRequest(paths: Paths, launchId: string, uuid: string) {
+    return writing(paths, (client) => recordDeliveryRequest(client, launchId, uuid));
+  },
+  suspendDelivery(paths: Paths, launchId: string) {
+    return writing(paths, (client) => suspendDelivery(client, launchId));
   },
   recordDeliveryValidation(paths: Paths, input: Parameters<typeof recordDeliveryValidation>[1]) {
     return writing(paths, (client) => recordDeliveryValidation(client, input));

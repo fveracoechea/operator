@@ -87,9 +87,9 @@ function fileArgs<O extends string>(operation: O, flags: string[]) {
 
 /** No owner flag selects an assignment or a PR. The caller's worktree is the only selector. */
 function mergeArgs(flags: string[]) {
-  if (flags.includes("--source") || flags.includes("--assignment")) {
-    const selected = assignmentArgs(flags);
-    return selected === null || selected.personInstructed
+  const selected = assignmentArgs(flags);
+  if (selected !== null) {
+    return selected.personInstructed
       ? null
       : {
           operation: "pr_merge" as const,
@@ -184,7 +184,7 @@ export async function runPullRequests(
   if (parsed === null) return false;
   const input = { paths, cwd: process.cwd() };
   const mergeInput: Parameters<typeof PullRequests.merge>[0] = { ...input };
-  if (parsed.operation === "pr_merge" && "sourceId" in parsed) {
+  if ("sourceId" in parsed) {
     mergeInput.sourceId = parsed.sourceId;
     mergeInput.assignment = parsed.assignment;
   }

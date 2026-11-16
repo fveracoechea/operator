@@ -23,6 +23,7 @@ import { owned, reviewEnded, worktreeFacts } from "./internal-review.ts";
 type Request = { paths: Paths; cwd: string; sourceId?: string; assignment?: string };
 type Failure = { reason: string; detail: string } & ResultContext;
 type Outcome = { reason: string; data: object };
+type Delivery = Extract<ReturnType<typeof DeviceState.claimDelivery>, { tag: "Ok" }>["value"];
 
 // A built release runs `cli.js`, and a source install runs `cli.ts`.
 const packageRoot = new URL("../../", import.meta.url);
@@ -118,6 +119,53 @@ function guarded(
   observed: Observation,
   local: string | null,
   changed: boolean,
+): AsyncResult<Outcome, Failure> {
+  return DeviceState.readDelivery(input.paths, owner.launchId)
+    .toAsync()
+    .flatMap((outstanding) => {
+      if (outstanding === null) return eligible(input, owner, number, observed, local, changed);
+      return claimed(
+        input,
+        owner,
+        outstanding.head,
+        true,
+        (delivery) => {
+          if (observed.state === "MERGED") return verify(input, owner, number, delivery.head, null);
+          if (delivery.requestUuid === null)
+            return ErrAsync<Failure>({
+              reason: "pr_delivery_running",
+              detail:
+                "The earlier delivery has an unknown outcome and no request identity. An OPEN PR does not prove it stopped. No new merge was requested.",
+              next: {
+                decider: "super-agent",
+                question:
+                  "How can the earlier delivery's terminal outcome be established without submitting another merge?",
+              },
+            });
+          const uuid = delivery.requestUuid;
+          return fromPromise(async () => {
+            const refused = await requestMerge(
+              input,
+              { ...owner, launchId: delivery.launchId },
+              number,
+              { head: delivery.head, method: observed.mergeMethod },
+              uuid,
+            );
+            return await verify(input, owner, number, delivery.head, refused);
+          }, qualify).flatMap((answer) => answer);
+        },
+        outstanding.id,
+      );
+    });
+}
+
+function eligible(
+  input: Request,
+  owner: Owner,
+  number: number,
+  observed: Observation,
+  local: string | null,
+  changed: boolean,
 ) {
   const relay = owner.relay === null ? null : relaySchema.parse(JSON.parse(owner.relay));
   const decision = decideMerge({
@@ -129,11 +177,9 @@ function guarded(
   if (decision.result === "refused")
     return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
   if (decision.result === "verify")
-    return input.sourceId === undefined
-      ? verify(input, owner, number, null, null)
-      : claimed(input, owner, observed.head, true, () =>
-          verify(input, owner, number, observed.head, null),
-        );
+    return claimed(input, owner, observed.head, true, () =>
+      verify(input, owner, number, observed.head, null),
+    );
   if (changed)
     return ErrAsync<Failure>({
       reason: "pr_worktree_unclean",
@@ -146,7 +192,13 @@ function guarded(
     });
   return claimed(input, owner, decision.head, false, () =>
     worktreeFacts(owner.worktreePath).flatMap((facts) => {
-      if (facts.changed || facts.localHead !== decision.head)
+      if (facts.changed || facts.localHead !== decision.head) {
+        const released = DeviceState.finishDelivery(input.paths, owner.launchId, decision.head);
+        if (released.tag !== "Ok")
+          return ErrAsync<Failure>({
+            reason: "pr_defect",
+            detail: "Could not settle the prewrite refusal.",
+          });
         return ErrAsync<Failure>({
           reason: "pr_worktree_unclean",
           detail:
@@ -156,8 +208,9 @@ function guarded(
             question: "How should the owner reconcile the worktree that changed during delivery?",
           },
         });
+      }
       return fromPromise(async () => {
-        const refused = await requestMerge(owner.repository, number, decision);
+        const refused = await requestMerge(input, owner, number, decision);
         return await verify(input, owner, number, decision.head, refused);
       }, qualify).flatMap((answer) => answer);
     }),
@@ -169,7 +222,8 @@ function claimed(
   owner: Owner,
   head: string,
   reconcile: boolean,
-  action: () => AsyncResult<Outcome, Failure>,
+  action: (delivery: Delivery) => AsyncResult<Outcome, Failure>,
+  resumeId?: string,
 ) {
   return DeviceState.claimDelivery(input.paths, {
     launchId: owner.launchId,
@@ -177,15 +231,18 @@ function claimed(
     session: Environment.caller().session,
     selected: input.sourceId !== undefined,
     reconcile,
+    resumeId,
   })
     .toAsync()
-    .flatMap(() =>
+    .flatMap((delivery) =>
       fromPromise(async () => {
-        const stop = DeviceState.holdDelivery(input.paths, owner.launchId);
-        const result = await action();
-        const released = DeviceState.finishDelivery(input.paths, owner.launchId, head);
-        stop();
-        return released.flatMap(() => result);
+        const stop = DeviceState.holdDelivery(input.paths, delivery.launchId);
+        try {
+          return await action(delivery);
+        } finally {
+          stop();
+          DeviceState.suspendDelivery(input.paths, delivery.launchId);
+        }
       }, qualify).flatMap((result) => result),
     );
 }
@@ -210,18 +267,59 @@ function refusal(answer: Exclude<Answer, { tag: "Ok" }>, read: boolean) {
  * report when GitHub does not show the merge, or null when the request reports it merged.
  */
 async function requestMerge(
-  repository: string,
+  input: Request,
+  owner: Owner,
   number: number,
   merge: { head: string; method: Observation["mergeMethod"] },
+  uuid?: string,
 ): Promise<Failure | null> {
-  let answer: Answer = await mergePullRequest(repository, { number, ...merge });
+  const repository = owner.repository;
+  let answer: Answer =
+    uuid === undefined
+      ? await mergePullRequest(repository, { number, ...merge })
+      : await readMergeRequest(repository, number, uuid);
   for (let reads = 0; ; reads += 1) {
-    if (answer.tag !== "Ok") return refusal(answer, reads > 0);
+    if (answer.tag !== "Ok") {
+      return requestRefusal(input, owner, merge.head, answer, uuid !== undefined || reads > 0);
+    }
+    if (answer.value.uuid !== null) {
+      const saved = DeviceState.recordDeliveryRequest(
+        input.paths,
+        owner.launchId,
+        answer.value.uuid,
+      );
+      if (saved.tag !== "Ok")
+        return {
+          reason: "pr_merge_unverified",
+          detail:
+            "The accepted request identity could not be saved. The delivery remains outstanding.",
+        };
+    }
+    if (answer.value.status === "failed") {
+      const released = DeviceState.finishDelivery(input.paths, owner.launchId, merge.head);
+      if (released.tag !== "Ok")
+        return { reason: "pr_defect", detail: "Could not settle the failed delivery." };
+    }
     const next = followMergeRequest(answer.value, reads);
     if (next.result === "verify") return next.refusal;
     await Bun.sleep(mergeRequestReadMs);
     answer = await readMergeRequest(repository, number, next.uuid);
   }
+}
+
+function requestRefusal(
+  input: Request,
+  owner: Owner,
+  head: string,
+  answer: Exclude<Answer, { tag: "Ok" }>,
+  read: boolean,
+): Failure {
+  if (!read && answer.tag === "Err" && answer.error.reason === "github_failed") {
+    const released = DeviceState.finishDelivery(input.paths, owner.launchId, head);
+    if (released.tag !== "Ok")
+      return { reason: "pr_defect", detail: "Could not settle the refused delivery." };
+  }
+  return refusal(answer, read);
 }
 
 /**

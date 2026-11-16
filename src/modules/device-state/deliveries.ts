@@ -9,6 +9,7 @@ import {
   deliveries,
   deliveryValidations,
   internalReviews,
+  launches,
   obligations,
   pullRequests,
 } from "./schema.ts";
@@ -20,6 +21,7 @@ type Request = {
   session: string | null;
   selected: boolean;
   reconcile?: boolean;
+  resumeId?: string;
 };
 type Failure = { reason: string; detail: string; next: NextStep };
 type Active = Extract<ReturnType<typeof activeOwner>, { tag: "Ok" }>["value"];
@@ -109,14 +111,14 @@ function provenance(db: Db, owner: Active, input: Request) {
       and(
         eq(deliveryValidations.launchId, input.launchId),
         eq(deliveryValidations.head, input.head),
-        eq(deliveryValidations.reviewedHead, review.readyHead),
+        eq(deliveryValidations.readyHead, review.readyHead),
       ),
     )
     .get();
   return validation === undefined
     ? refused(
         "pr_validation_stale",
-        "This head has no bounded-correction validation tied to the reviewed head. The owner must run operator pr validate --file <evidence.txt> --json.",
+        "This head has no bounded-correction validation tied to the ready head. The owner must run operator pr validate --file <evidence.txt> --json.",
       )
     : Ok(review.readyHead);
 }
@@ -137,33 +139,51 @@ export function claimDelivery(client: Database, input: Request) {
             );
           return available(db, owner, input)
             .flatMap(() => provenance(db, owner, input))
-            .flatMap((reviewedHead) => {
+            .flatMap((readyHead) => {
               const claimed = db
-                .select()
+                .select({ delivery: deliveries })
                 .from(deliveries)
-                .where(and(eq(deliveries.launchId, input.launchId), isNull(deliveries.endedAt)))
-                .all();
-              if (claimed.some((row) => !ownerGone(row, Date.now())))
+                .innerJoin(launches, eq(launches.id, deliveries.launchId))
+                .where(
+                  and(
+                    eq(launches.sourceId, owner.source.id),
+                    eq(launches.assignment, owner.assignment.key),
+                    isNull(deliveries.endedAt),
+                  ),
+                )
+                .get();
+              const previous = claimed?.delivery;
+              if (input.resumeId !== undefined && previous?.id !== input.resumeId)
                 return refused(
                   "pr_delivery_running",
-                  "Another process delivers this assignment. Wait for its result.",
+                  "The outstanding delivery changed during reconciliation. Read its current outcome before retrying.",
                 );
+              if (previous !== undefined) {
+                if (input.reconcile && ownerGone(previous, Date.now())) {
+                  db.update(deliveries)
+                    .set({ ownerPid: process.pid, leaseAt: new Date().toISOString() })
+                    .where(eq(deliveries.id, previous.id))
+                    .run();
+                  return Ok(previous);
+                }
+                return refused(
+                  "pr_delivery_running",
+                  "An earlier delivery remains unfinished. Reconcile its remote outcome before another delivery.",
+                );
+              }
               const now = new Date().toISOString();
-              db.update(deliveries)
-                .set({ endedAt: now, ownerPid: null, leaseAt: null })
-                .where(and(eq(deliveries.launchId, input.launchId), isNull(deliveries.endedAt)))
-                .run();
               const row = {
                 id: crypto.randomUUID(),
                 launchId: input.launchId,
                 head: input.head,
                 session: input.session,
                 selected: input.selected,
-                reviewedHead,
+                readyHead,
                 ownerPid: process.pid,
                 leaseAt: now,
                 startedAt: now,
                 endedAt: null,
+                requestUuid: null,
               };
               db.insert(deliveries).values(row).run();
               return Ok(row);
@@ -171,6 +191,70 @@ export function claimDelivery(client: Database, input: Request) {
         },
       ),
     ),
+  );
+}
+
+/** An unfinished external request remains a blocker even after its local process has ended. */
+export function readDelivery(client: Database, launchId: string) {
+  return transaction(client, false, () =>
+    checkHistory(client).map((db) => {
+      const launch = db.select().from(launches).where(eq(launches.id, launchId)).get();
+      if (launch === undefined) return null;
+      return (
+        db
+          .select({ delivery: deliveries })
+          .from(deliveries)
+          .innerJoin(launches, eq(launches.id, deliveries.launchId))
+          .where(
+            and(
+              eq(launches.sourceId, launch.sourceId),
+              eq(launches.assignment, launch.assignment),
+              isNull(deliveries.endedAt),
+            ),
+          )
+          .get()?.delivery ?? null
+      );
+    }),
+  );
+}
+
+/** Save the remote request identity before another read; never overwrite the original actor. */
+export function recordDeliveryRequest(client: Database, launchId: string, uuid: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred transaction reaches the same writer reservation before any result
+  return transaction(client, true, () =>
+    checkHistory(client).map((db) => {
+      db.update(deliveries)
+        .set({ requestUuid: uuid })
+        .where(
+          and(
+            eq(deliveries.launchId, launchId),
+            eq(deliveries.ownerPid, process.pid),
+            isNull(deliveries.endedAt),
+          ),
+        )
+        .run();
+      return undefined;
+    }),
+  );
+}
+
+/** Stop local ownership without pretending an uncertain external request has finished. */
+export function suspendDelivery(client: Database, launchId: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred transaction reaches the same writer reservation before any result
+  return transaction(client, true, () =>
+    checkHistory(client).map((db) => {
+      db.update(deliveries)
+        .set({ ownerPid: null, leaseAt: null })
+        .where(
+          and(
+            eq(deliveries.launchId, launchId),
+            eq(deliveries.ownerPid, process.pid),
+            isNull(deliveries.endedAt),
+          ),
+        )
+        .run();
+      return undefined;
+    }),
   );
 }
 
@@ -215,10 +299,10 @@ export function renewDelivery(client: Database, launchId: string) {
   );
 }
 
-/** Retain correction evidence separately; internal-review rounds and the reviewed head never change. */
+/** Retain validation separately; the ready head and actual review-round heads never change. */
 export function recordDeliveryValidation(
   client: Database,
-  input: { launchId: string; head: string; reviewedHead: string; summary: string },
+  input: { launchId: string; head: string; readyHead: string; summary: string },
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
@@ -236,7 +320,7 @@ export function recordDeliveryValidation(
         if (
           review === undefined ||
           !["ready", "skipped"].includes(review.state) ||
-          review.readyHead !== input.reviewedHead
+          review.readyHead !== input.readyHead
         )
           return refused(
             "pr_validation_stale",

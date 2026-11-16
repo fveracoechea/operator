@@ -45,8 +45,10 @@ The steering message carries it, as [steering.md](steering.md) describes.
 Only on the person's explicit request, run:
 
 ```sh
-operator web open --url <http-or-https-url> --person-requested --json
+operator web open --url '<http-or-https-url>' --person-requested --json
 ```
+
+Pass the requested URL as one quoted argument, not as shell code.
 
 Operator uses an appropriate local Linux `xdg-open` or macOS `open` when supported.
 Remote, headless, SSH, CI, and `BROWSER` override cases return a structured capability refusal with a manual next step.

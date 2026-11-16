@@ -12,6 +12,9 @@ import {
   finishDelivery,
   recordDeliveryValidation,
   renewDelivery,
+  readDelivery,
+  recordDeliveryRequest,
+  suspendDelivery,
 } from "./deliveries.ts";
 
 function fixture() {
@@ -46,6 +49,107 @@ function fixture() {
 }
 
 const request = { launchId: "l1", head: "h1", session: "supervisor", selected: true };
+
+test("request identity and original audit survive suspension and read-only recovery", () => {
+  using db = fixture();
+  expect(readDelivery(db, "l1")).toMatchObject({ tag: "Ok", value: null });
+  expect(readDelivery(db, "missing")).toMatchObject({ tag: "Ok", value: null });
+  const original = claimDelivery(db, request);
+  expect(original.tag).toBe("Ok");
+  expect(recordDeliveryRequest(db, "other", "wrong").tag).toBe("Ok");
+  expect(readDelivery(db, "l1")).toMatchObject({ tag: "Ok", value: { requestUuid: null } });
+  expect(recordDeliveryRequest(db, "l1", "u1").tag).toBe("Ok");
+  expect<unknown>(claimDelivery(db, { ...request, reconcile: true })).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_delivery_running" },
+  });
+  expect(suspendDelivery(db, "other").tag).toBe("Ok");
+  expect(readDelivery(db, "l1")).toMatchObject({ tag: "Ok", value: { ownerPid: process.pid } });
+  expect(suspendDelivery(db, "l1").tag).toBe("Ok");
+  expect(recordDeliveryRequest(db, "l1", "must-not-overwrite").tag).toBe("Ok");
+  expect(readDelivery(db, "l1")).toMatchObject({
+    tag: "Ok",
+    value: { requestUuid: "u1", ownerPid: null, endedAt: null },
+  });
+  expect<unknown>(
+    claimDelivery(db, {
+      ...request,
+      head: "different",
+      resumeId: original.tag === "Ok" ? original.value.id : "",
+      selected: false,
+      session: "another",
+      reconcile: true,
+    }),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { head: "h1", session: "supervisor", selected: true, requestUuid: "u1" },
+  });
+  expect(finishDelivery(db, "l1", "h1").tag).toBe("Ok");
+  expect(readDelivery(db, "l1")).toMatchObject({ tag: "Ok", value: null });
+  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
+});
+
+test("an unfinished delivery survives its process and cannot silently become a new mutation", () => {
+  using db = fixture();
+  expect(claimDelivery(db, request).tag).toBe("Ok");
+  db.exec("UPDATE deliveries SET owner_pid = NULL, lease_at = NULL");
+  expect<unknown>(claimDelivery(db, request)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_delivery_running" },
+  });
+  expect(db.query("SELECT ended_at, session, head FROM deliveries").all()).toEqual([
+    { ended_at: null, session: "supervisor", head: "h1" },
+  ]);
+});
+
+test("a reconciliation cannot acquire a different request or create a claim after its observed request ended", () => {
+  using db = fixture();
+  expect(claimDelivery(db, request).tag).toBe("Ok");
+  expect(suspendDelivery(db, "l1").tag).toBe("Ok");
+  const resume = { ...request, reconcile: true, resumeId: "a-different-request" };
+  for (const pending of [true, false]) {
+    if (!pending) db.exec("UPDATE deliveries SET ended_at = 'done'");
+    failure(
+      claimDelivery(db, resume),
+      "pr_delivery_running",
+      "The outstanding delivery changed during reconciliation. Read its current outcome before retrying.",
+    );
+  }
+  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
+});
+
+test("replacing a launch cannot discard its assignment's outstanding delivery", () => {
+  using db = fixture();
+  insertRow(db, "launches", {
+    id: "older",
+    source_id: "s1",
+    assignment: "a",
+    state: "stopped",
+    attempt: 0,
+  });
+  insertRow(db, "deliveries", {
+    id: "d0",
+    launch_id: "older",
+    head: "original",
+    selected: 1,
+    started_at: "then",
+  });
+  expect<unknown>(claimDelivery(db, request)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_delivery_running" },
+  });
+  expect<unknown>(readDelivery(db, "l1")).toMatchObject({
+    tag: "Ok",
+    value: { launchId: "older", head: "original" },
+  });
+  expect<unknown>(claimDelivery(db, { ...request, reconcile: true })).toMatchObject({
+    tag: "Ok",
+    value: { launchId: "older", head: "original" },
+  });
+  expect(db.query("SELECT head, ended_at FROM deliveries").all()).toEqual([
+    { head: "original", ended_at: null },
+  ]);
+});
 
 type DeliveryAnswer =
   | ReturnType<typeof claimDelivery>
@@ -113,12 +217,12 @@ test("ended review state and ready-head provenance remain mandatory", () => {
   failure(claimDelivery(db, request), "pr_merge_blocked", "The internal review has not ended.");
   expect(claimDelivery(db, { ...request, reconcile: true })).toMatchObject({
     tag: "Ok",
-    value: { reviewedHead: "h1" },
+    value: { readyHead: "h1" },
   });
   expect(finishDelivery(db, "l1", "h1").tag).toBe("Ok");
   for (const state of ["ready", "skipped"]) {
     db.query("UPDATE internal_reviews SET state = ?").run(state);
-    expect(claimDelivery(db, request)).toMatchObject({ tag: "Ok", value: { reviewedHead: "h1" } });
+    expect(claimDelivery(db, request)).toMatchObject({ tag: "Ok", value: { readyHead: "h1" } });
     expect(finishDelivery(db, "l1", "h1").tag).toBe("Ok");
   }
   db.exec("UPDATE internal_reviews SET ready_head = NULL");
@@ -134,7 +238,7 @@ test("a stale correction cannot rewrite an absent, active, or different reviewed
   const input = {
     launchId: "l1",
     head: "h1",
-    reviewedHead: "reviewed",
+    readyHead: "reviewed",
     summary: "Correction evidence",
   };
   const detail =
@@ -166,13 +270,13 @@ test("expired wait and relay claims do not block delivery, while a live claim do
   failure(
     claimDelivery(db, request),
     "pr_delivery_running",
-    "Another process delivers this assignment. Wait for its result.",
+    "An earlier delivery remains unfinished. Reconcile its remote outcome before another delivery.",
   );
   expect(finishDelivery(db, "l1", "wrong-head").tag).toBe("Ok");
   failure(
     claimDelivery(db, request),
     "pr_delivery_running",
-    "Another process delivers this assignment. Wait for its result.",
+    "An earlier delivery remains unfinished. Reconcile its remote outcome before another delivery.",
   );
   expect(finishDelivery(db, "l1", "h1").tag).toBe("Ok");
   db.query("UPDATE pull_requests SET wait_lease_at = ?").run(now);
@@ -194,12 +298,13 @@ test("expired wait and relay claims do not block delivery, while a live claim do
 test("claim and correction validation reserve the writer before any refusal", () => {
   using db = fixture();
   using copy = reservedCopy(db);
+  expect(readDelivery(copy.subject, "l1")).toMatchObject({ tag: "Ok", value: null });
   expect(claimDelivery(copy.subject, { ...request, session: "stranger" })).toMatchObject(busy);
   expect(
     recordDeliveryValidation(copy.subject, {
       launchId: "l1",
       head: "h1",
-      reviewedHead: "old",
+      readyHead: "old",
       summary: "Evidence",
     }),
   ).toMatchObject(busy);
@@ -217,12 +322,12 @@ test("renewal refreshes only this process's live claim and retains the audit aft
   expect(
     db
       .query(
-        "SELECT head, reviewed_head, session, selected, owner_pid, lease_at, ended_at IS NOT NULL AS ended FROM deliveries",
+        "SELECT head, ready_head, session, selected, owner_pid, lease_at, ended_at IS NOT NULL AS ended FROM deliveries",
       )
       .get(),
   ).toEqual({
     head: "h1",
-    reviewed_head: null,
+    ready_head: null,
     session: "supervisor",
     selected: 1,
     owner_pid: null,
@@ -260,7 +365,7 @@ test("one delivery claim serializes owner and supervisor and retains its audited
   expect<unknown>(claimDelivery(db, { ...request, selected: false })).toMatchObject({ tag: "Ok" });
 });
 
-test("changed heads need bounded-correction validation without replacing the reviewed head", () => {
+test("changed heads need bounded-correction validation without replacing the ready head", () => {
   using db = fixture();
   insertRow(db, "internal_reviews", {
     source_id: "s1",
@@ -272,19 +377,19 @@ test("changed heads need bounded-correction validation without replacing the rev
   failure(
     claimDelivery(db, request),
     "pr_validation_stale",
-    "This head has no bounded-correction validation tied to the reviewed head. The owner must run operator pr validate --file <evidence.txt> --json.",
+    "This head has no bounded-correction validation tied to the ready head. The owner must run operator pr validate --file <evidence.txt> --json.",
   );
   expect<unknown>(
     recordDeliveryValidation(db, {
       launchId: "l1",
       head: "h1",
-      reviewedHead: "reviewed",
+      readyHead: "reviewed",
       summary: "Bounded correction passed CI.",
     }),
   ).toMatchObject({ tag: "Ok" });
   expect<unknown>(claimDelivery(db, request)).toMatchObject({
     tag: "Ok",
-    value: { head: "h1", reviewedHead: "reviewed" },
+    value: { head: "h1", readyHead: "reviewed" },
   });
   expect(db.query("SELECT ready_head FROM internal_reviews").get()).toEqual({
     ready_head: "reviewed",

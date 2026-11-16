@@ -19,18 +19,18 @@ async function correction(overrides: Partial<Owner> = {}) {
   const device = await prDevice();
   const owner = device.start("other");
   device.associate(owner.launchId, 7, "task/other");
-  const reviewedHead = await commit(owner.worktree, "feature.txt", "reviewed\n");
+  const readyHead = await commit(owner.worktree, "feature.txt", "ready\n");
   const head = await commit(owner.worktree, "fix.txt", "bounded correction\n");
   const rows = owners(device.paths);
   spyOn(DeviceState, "worktreeOwners").mockReturnValue(
-    Ok(rows.map((row) => ({ ...row, reviewState: "ready", reviewedHead, ...overrides }))),
+    Ok(rows.map((row) => ({ ...row, reviewState: "ready", readyHead, ...overrides }))),
   );
   const recorded = spyOn(DeviceState, "recordDeliveryValidation").mockReturnValue(
     Ok({
       id: "00000000-0000-0000-0000-000000000001",
       launchId: owner.launchId,
       head,
-      reviewedHead,
+      readyHead,
       summary: "Bounded correction passed local quality and CI.",
       validatedAt: "now",
     }),
@@ -42,7 +42,7 @@ async function correction(overrides: Partial<Owner> = {}) {
     ...device,
     owner,
     head,
-    reviewedHead,
+    readyHead,
     recorded,
     input: { paths: device.paths, cwd: owner.worktree, file },
   };
@@ -77,7 +77,7 @@ test.each(["ready", "skipped"])(
           assignment: "other",
           number: 7,
           head: device.head,
-          reviewedHead: device.reviewedHead,
+          readyHead: device.readyHead,
         },
         next: { command: "operator pr wait --json" },
       },
@@ -87,7 +87,7 @@ test.each(["ready", "skipped"])(
     expect(device.recorded).toHaveBeenCalledWith(device.paths, {
       launchId: device.owner.launchId,
       head: device.head,
-      reviewedHead: device.reviewedHead,
+      readyHead: device.readyHead,
       summary: "Bounded correction passed local quality and CI.",
     });
     expect(reviewWrite).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ test.each(["ready", "skipped"])(
 
 test.each([
   { pullRequest: null },
-  { reviewedHead: null },
+  { readyHead: null },
   { reviewState: null },
   { reviewState: "pending" },
   { reviewState: "round-one" },
@@ -131,7 +131,7 @@ test.each(["x", "x".repeat(4000)])(
     expect(device.recorded).toHaveBeenCalledWith(device.paths, {
       launchId: device.owner.launchId,
       head: device.head,
-      reviewedHead: device.reviewedHead,
+      readyHead: device.readyHead,
       summary,
     });
   },
@@ -159,7 +159,7 @@ test("validation reads evidence from stdin only when the file is a dash", async 
   expect(device.recorded).toHaveBeenCalledWith(device.paths, {
     launchId: device.owner.launchId,
     head: device.head,
-    reviewedHead: device.reviewedHead,
+    readyHead: device.readyHead,
     summary: "stdin correction evidence",
   });
 });
@@ -186,7 +186,7 @@ test("dirty worktree evidence cannot validate even a pushed head with passing ch
 
 test("a clean local correction must be pushed even when GitHub still has the reviewed ancestor", async () => {
   await using device = await correction();
-  device.answer(() => succeeded(pullRequestBody({ head: device.reviewedHead })));
+  device.answer(() => succeeded(pullRequestBody({ head: device.readyHead })));
   blocked(await validate(device.input));
   expect(device.recorded).not.toHaveBeenCalled();
 });
@@ -245,19 +245,19 @@ test("a reviewed commit on unrelated history is not the correction's ancestor", 
   const unrelated = git(device.owner.worktree, "commit-tree", tree, "-m", "unrelated review");
   const rows = owners(device.paths);
   spyOn(DeviceState, "worktreeOwners").mockReturnValue(
-    Ok(rows.map((row) => ({ ...row, reviewedHead: unrelated }))),
+    Ok(rows.map((row) => ({ ...row, readyHead: unrelated }))),
   );
   blocked(await validate(device.input));
   expect(device.recorded).not.toHaveBeenCalled();
 });
 
-test("ancestry is requested with the original reviewed head and current observed head", async () => {
+test("ancestry is requested with the original ready head and current observed head", async () => {
   await using device = await correction();
   const run = spyOn(ToolInvocation, "run");
   await validate(device.input);
   expect(run).toHaveBeenCalledWith({
     tool: "git",
-    args: ["merge-base", "--is-ancestor", device.reviewedHead, device.head],
+    args: ["merge-base", "--is-ancestor", device.readyHead, device.head],
     cwd: device.owner.worktree,
     timeoutMs: 10000,
   });

@@ -353,7 +353,7 @@ for (const host of ["opencode", "claude-code"] as const)
     });
   }, 90000);
 
-test("guard refusals change nothing and a refused external merge retains only its delivery audit", async () => {
+test("every merge refusal leaves business state unchanged and retains only its delivery audit", async () => {
   const source = await setup("opencode");
   const worker = await openPullRequest(source, {});
   // An earlier wait reported eligibility. The merge still observes GitHub again.

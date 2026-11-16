@@ -13,7 +13,15 @@ test("a delivery's live external request blocks future migration after its table
   expect(idleForMigration(db, 22).tag).toBe("Ok");
   expect(idleForMigration(db, 23)).toMatchObject({
     tag: "Err",
-    error: { detail: "Migration is waiting for a running PR delivery to finish. No handler ran." },
+    error: {
+      detail:
+        "Migration is waiting for an outstanding PR delivery to be reconciled. No handler ran.",
+    },
+  });
+  db.exec("UPDATE deliveries SET owner_pid = NULL, lease_at = NULL");
+  expect(idleForMigration(db, 23)).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_migration_blocked" },
   });
   db.exec("UPDATE deliveries SET ended_at = 'now'");
   expect(idleForMigration(db, 23).tag).toBe("Ok");

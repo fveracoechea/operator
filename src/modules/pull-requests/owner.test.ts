@@ -3,7 +3,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { mkdtemp, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { OkAsync } from "unthrown";
+import { Ok, OkAsync } from "unthrown";
 import { Projects } from "../projects/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
@@ -15,6 +15,19 @@ afterEach(() => {
 });
 
 const nothing = "Nothing was read from GitHub or changed.";
+
+function selectedFailure(result: Awaited<ReturnType<typeof resolveOwner>>, reason: string) {
+  expect<unknown>(result).toMatchObject({ tag: "Err", error: { reason } });
+  if (result.tag !== "Err") return;
+  expect(result.error.detail).toMatch(/\S/);
+  expect(result.error).toHaveProperty("next");
+  if ("next" in result.error) {
+    expect(result.error.next).toMatchObject({
+      decider: "super-agent",
+      question: expect.stringMatching(/\S/) as unknown,
+    });
+  }
+}
 
 test("only the recorded supervising session selects another assignment's PR owner", async () => {
   await using device = await prDevice();
@@ -33,20 +46,21 @@ test("only the recorded supervising session selects another assignment's PR owne
     assignment: "parent",
   };
   const caller = spyOn(Environment, "caller").mockReturnValue({ pane: "p", session: "stranger" });
-  expect<unknown>(await resolveOwner(input)).toMatchObject({
-    tag: "Err",
-    error: { reason: "source_supervised_elsewhere" },
-  });
+  selectedFailure(await resolveOwner(input), "source_supervised_elsewhere");
   caller.mockReturnValue({ pane: "supervisor-pane", session: "supervisor" });
   expect<unknown>(await resolveOwner(input)).toMatchObject({
     tag: "Ok",
     value: { launchId, worktreePath: worktree, pullRequest: 7 },
   });
   caller.mockReturnValue({ pane: null, session: null });
-  expect<unknown>(await resolveOwner(input)).toMatchObject({
-    tag: "Err",
-    error: { reason: "source_supervised_elsewhere" },
-  });
+  selectedFailure(await resolveOwner(input), "source_supervised_elsewhere");
+  expect(
+    DeviceState.takeOverSource(device.paths, repository, device.sourceId, {
+      pane: null,
+      session: null,
+    }).tag,
+  ).toBe("Ok");
+  selectedFailure(await resolveOwner(input), "source_supervised_elsewhere");
   expect(device.calls).toEqual([]);
 });
 
@@ -54,9 +68,61 @@ test("a partial delivery selector never silently falls back to worktree ownershi
   await using device = await prDevice();
   const { worktree } = device.start("parent");
   for (const selector of [{ sourceId: device.sourceId }, { assignment: "parent" }])
-    expect<unknown>(
+    selectedFailure(
       await resolveOwner({ paths: device.paths, cwd: worktree, ...selector }),
-    ).toMatchObject({ tag: "Err", error: { reason: "pr_selector_invalid" } });
+      "pr_selector_invalid",
+    );
+  expect(device.calls).toEqual([]);
+});
+
+test("selected delivery matches repository, source, and assignment before resolving the worktree", async () => {
+  await using device = await prDevice();
+  const { worktree, launchId } = device.start("parent");
+  expect(
+    DeviceState.takeOverSource(device.paths, repository, device.sourceId, {
+      pane: "p",
+      session: "supervisor",
+    }).tag,
+  ).toBe("Ok");
+  spyOn(Environment, "caller").mockReturnValue({ pane: "p", session: "supervisor" });
+  const rows = DeviceState.worktreeOwners(device.paths);
+  if (rows.tag !== "Ok") return expect.unreachable("fixture owners unavailable");
+  const actual = rows.value[0];
+  if (actual === undefined) return expect.unreachable("fixture owner missing");
+  const owners = spyOn(DeviceState, "worktreeOwners");
+  const input = {
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+  };
+  for (const different of [
+    { repository: "other/repo" },
+    { sourceId: "other-source" },
+    { assignment: "other" },
+  ]) {
+    owners.mockReturnValue(Ok([{ ...actual, ...different }, actual]));
+    expect<unknown>(await resolveOwner(input)).toMatchObject({
+      tag: "Ok",
+      value: {
+        launchId,
+        repository,
+        sourceId: device.sourceId,
+        assignment: "parent",
+        worktreePath: worktree,
+      },
+    });
+  }
+  for (const missing of [[], [{ ...actual, worktreePath: null }]]) {
+    owners.mockReturnValue(Ok(missing));
+    selectedFailure(await resolveOwner(input), "pr_worktree_unrecorded");
+  }
+  owners.mockReturnValue(Ok([actual]));
+  git(worktree, "checkout", "--detach", "-q");
+  expect<unknown>(await resolveOwner(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_branch_mismatch" },
+  });
   expect(device.calls).toEqual([]);
 });
 

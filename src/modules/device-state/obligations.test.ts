@@ -4,8 +4,61 @@ import { deleteSourceRecords, readSources } from "./sources.ts";
 import { fixture } from "./conversation-fixture.ts";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { changeObligation, readObligations, type ObligationRow } from "./obligations.ts";
+import { insertRow } from "./state-fixture.ts";
 
 const target = { repository: "owner/one", checkout: "/one", sourceId: "s1" };
+
+test("a merge hold refuses unfinished delivery even after its process exits", () => {
+  using db = fixture();
+  insertRow(db, "launches", { id: "delivery-launch", source_id: "s1", assignment: "read" });
+  insertRow(db, "deliveries", {
+    id: "d1",
+    launch_id: "delivery-launch",
+    head: "h1",
+    selected: 1,
+    started_at: "now",
+  });
+  insertRow(db, "deliveries", {
+    id: "past",
+    launch_id: "delivery-launch",
+    head: "h1",
+    selected: 1,
+    started_at: "then",
+    ended_at: "past-end",
+  });
+  expect<unknown>(
+    changeObligation(db, target, "hold", () =>
+      Ok({ insert: { ...obligation("hold"), kind: "merge-hold" } }),
+    ),
+  ).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_delivery_running",
+      detail:
+        "A delivery is already in flight, so a new hold cannot stop it. Wait for its observed result before recording another hold. Nothing changed.",
+      next: {
+        decider: "super-agent",
+        question: "How should the person's hold be reconciled with the delivery already in flight?",
+      },
+    },
+  });
+  expect(db.query("SELECT * FROM obligations").all()).toEqual([]);
+  expect(
+    changeObligation(db, target, "share", () => Ok({ insert: obligation("share") })),
+  ).toMatchObject({
+    tag: "Ok",
+    value: {
+      facts: { source: { id: "s1" }, obligation: null },
+      change: { insert: { key: "share" } },
+    },
+  });
+  db.exec("UPDATE deliveries SET ended_at = 'done'");
+  expect(
+    changeObligation(db, target, "hold", () =>
+      Ok({ insert: { ...obligation("hold"), kind: "merge-hold" } }),
+    ).tag,
+  ).toBe("Ok");
+});
 
 function obligation(key: string): ObligationRow {
   return {

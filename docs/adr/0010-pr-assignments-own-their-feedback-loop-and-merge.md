@@ -38,7 +38,7 @@ Supervisor delivery requires an owner recorded idle and no live PR wait, relay, 
 It delivers the recorded assignment's PR without transferring ownership or taking over substantive work.
 It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.
 It also requires a clean pushed local head matching the PR and an internal review that ended ready or skipped.
-A current head different from the reviewed ready head needs bounded correction validation, as ADR-0020 defines.
+A current head different from the original ready head needs bounded correction validation, as ADR-0020 defines.
 An open merge hold blocks all PR delivery in its source, as ADR-0026 defines.
 The merge claim atomically records its actor, head, and provenance, because two delivery actors must not race.
 Active waits and relays block delivery, and waits respect delivery locks.

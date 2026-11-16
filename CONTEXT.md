@@ -255,7 +255,7 @@ The conditions that the CLI checks before it merges a PR.
 They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and an internal review that ended ready or was skipped.
 They also require a finished stack relay, a clean pushed local head matching the PR, and no open source-wide merge hold.
 Approval is a fresh genuine GitHub approval, never an inference from chat.
-After internal review, a head different from the reviewed ready head requires bounded correction validation at the current head.
+After internal review, a head different from the original ready head requires bounded correction validation at the current head.
 _Avoid_: project gate
 
 **PR delivery**:
@@ -282,8 +282,9 @@ An internal review has at most two rounds, and a second round needs a newer head
 
 **Bounded correction validation**:
 The PR owner's recorded evidence for bounded corrections after internal review ends.
-It requires a clean pushed current open PR, passing current CI, and the reviewed ready head as an ancestor.
-The validated head and correction summary are separate from the established rounds and original reviewed ready head.
+It requires a clean pushed current open PR, passing current CI, and the original ready head as an ancestor.
+The validated head and correction summary are separate from the established rounds and original ready head.
+Each round's head records what it actually reviewed; the ready head can include that round's later fixes.
 It neither reopens internal review nor replaces genuine GitHub approval.
 
 **Requested URL opening**:

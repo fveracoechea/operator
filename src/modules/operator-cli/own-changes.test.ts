@@ -43,6 +43,8 @@ test("waits, reads, and worker commands are not SuperAgent changes", () => {
     ["message", "ack", "--key", "k"],
     ["pr", "wait"],
     ["pr", "merge"],
+    ["pr", "wait", "--source", "s1"],
+    ["report", "merge", "--source", "s1"],
     ["review", "wait"],
     [],
   ])

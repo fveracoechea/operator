@@ -3,7 +3,6 @@ import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { obligations, sources, deliveries, launches } from "./schema.ts";
-import { ownerGone } from "./leases.ts";
 import { controlledSource } from "./sources.ts";
 
 export type ObligationRow = typeof obligations.$inferSelect;
@@ -69,7 +68,7 @@ export function changeObligation<E extends { reason: string; detail: string }>(
               .innerJoin(launches, eq(launches.id, deliveries.launchId))
               .where(eq(launches.sourceId, source.id))
               .all()
-              .some((row) => row.endedAt === null && !ownerGone(row, Date.now()))
+              .some((row) => row.endedAt === null)
           )
             return Err({
               reason: "pr_delivery_running",

@@ -29,11 +29,12 @@ An ended source keeps showing its open obligations, and it takes no new ones.
 
 ## Holds and answers
 
-An open `merge-hold` blocks every owner and supervisor delivery in its source, even when its reference names one PR.
+An open `merge-hold` blocks new owner and supervisor merge requests in its source, even when its reference names one PR.
+It does not undo a merge that GitHub already performed.
 Also steer each affected owner to preserve the hold, as [steering.md](steering.md) says.
 Close the hold only when the person releases it, never because checks pass or delivery appears ready.
-Adding a hold during an in-flight delivery refuses and records no hold.
-Tell the person the delivery already started; a later request cannot retroactively stop its GitHub merge request.
+Adding a hold during an outstanding delivery refuses and records no hold, even after the submitting process ends.
+Tell the person that the earlier attempt may still apply; reconcile it before promising an effective hold.
 
 A person's answer to a worker question needs no ledger entry. Record it with `--by person` as [questions.md](questions.md) says.
 Use `person-decision` only for a decision that has no question to answer yet, for example a choice for an assignment that you have not dispatched. Close it once the brief, a follow-up, or an answer carries the decision.

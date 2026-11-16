@@ -41,7 +41,7 @@ test("delivery methods retain provenance, renew the claim, and release it", asyn
     DeviceState.recordDeliveryValidation(paths, {
       launchId: "l1",
       head: "h1",
-      reviewedHead: "reviewed",
+      readyHead: "reviewed",
       summary: "Bounded correction passed current CI.",
     }).tag,
   ).toBe("Ok");
@@ -52,7 +52,7 @@ test("delivery methods retain provenance, renew the claim, and release it", asyn
       session: null,
       selected: false,
     }),
-  ).toMatchObject({ tag: "Ok", value: { head: "h1", reviewedHead: "reviewed" } });
+  ).toMatchObject({ tag: "Ok", value: { head: "h1", readyHead: "reviewed" } });
   db.exec("UPDATE deliveries SET lease_at = '2000'");
   jest.useFakeTimers();
   try {
@@ -68,11 +68,41 @@ test("delivery methods retain provenance, renew the claim, and release it", asyn
   } finally {
     jest.useRealTimers();
   }
+  expect(DeviceState.recordDeliveryRequest(paths, "l1", "remote-request").tag).toBe("Ok");
+  expect(DeviceState.suspendDelivery(paths, "l1").tag).toBe("Ok");
+  expect<unknown>(DeviceState.readDelivery(paths, "l1")).toMatchObject({
+    tag: "Ok",
+    value: {
+      requestUuid: "remote-request",
+      ownerPid: null,
+      head: "h1",
+      readyHead: "reviewed",
+      endedAt: null,
+    },
+  });
+  expect<unknown>(
+    DeviceState.claimDelivery(paths, {
+      launchId: "l1",
+      head: "h1",
+      session: null,
+      selected: false,
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
+  expect(
+    DeviceState.claimDelivery(paths, {
+      launchId: "l1",
+      head: "h1",
+      session: null,
+      selected: false,
+      reconcile: true,
+    }).tag,
+  ).toBe("Ok");
   expect(DeviceState.finishDelivery(paths, "l1", "h1").tag).toBe("Ok");
-  expect(db.query("SELECT owner_pid, head, reviewed_head FROM deliveries").get()).toEqual({
+  expect<unknown>(DeviceState.readDelivery(paths, "l1")).toMatchObject({ tag: "Ok", value: null });
+  expect(db.query("SELECT owner_pid, head, ready_head FROM deliveries").get()).toEqual({
     owner_pid: null,
     head: "h1",
-    reviewed_head: "reviewed",
+    ready_head: "reviewed",
   });
 });
 

@@ -48,6 +48,8 @@ A chat approval, a report, or a prior eligibility result never supplies that app
 Open source-wide merge holds block delivery, as [obligations.md](obligations.md) describes.
 
 Operator claims delivery atomically and records its actor, head, and provenance.
+Pending and uncertain requests remain durable delivery blockers after the submitting command ends.
+Reconcile the outstanding request before another delivery or before promising that a new hold applies.
 Live waits and relays block the claim; waits respect delivery locks rather than starting a competing relay.
 Handle a refusal through its named next step. Never bypass this path with `gh` or another merge command.
 Verified delivery starts the unchanged guarded cleanup below.
@@ -55,7 +57,7 @@ Verified delivery starts the unchanged guarded cleanup below.
 ## Bounded correction validation
 
 After internal review ends, delegate bounded corrections and their validation to the PR owner.
-Use the [owner's validation procedure](../worker-agent/pull-requests.md#validate-bounded-corrections) when the head differs from the reviewed ready head.
+Use the [owner's validation procedure](../worker-agent/pull-requests.md#validate-bounded-corrections) when the head differs from the original ready head.
 Read its separate validated-head evidence for delivery; leave the established review unchanged.
 
 ## Adopt an open PR

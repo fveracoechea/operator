@@ -85,9 +85,8 @@ const idleGuards: { applied: number; busy: (client: Database) => boolean; detail
   },
   {
     applied: 23,
-    busy: (client) =>
-      heldBy(client, "SELECT owner_pid, lease_at FROM deliveries WHERE ended_at IS NULL"),
-    detail: "Migration is waiting for a running PR delivery to finish. No handler ran.",
+    busy: (client) => found(client, "SELECT 1 FROM deliveries WHERE ended_at IS NULL LIMIT 1"),
+    detail: "Migration is waiting for an outstanding PR delivery to be reconciled. No handler ran.",
   },
 ];
 

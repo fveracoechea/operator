@@ -165,18 +165,23 @@ function selectedOwner(input: { paths: Paths; cwd: string } & Selector) {
   );
 }
 
+function invalidSelection() {
+  return ErrAsync({
+    reason: "pr_selector_invalid",
+    detail: `Supply both source and assignment for selected delivery. ${nothing}`,
+    next: {
+      decider: "super-agent" as const,
+      question: "Which source and assignment should this delivery select?",
+    },
+  });
+}
+
 export function resolveOwner(input: { paths: Paths; cwd: string } & Partial<Selector>) {
-  if ((input.sourceId === undefined) !== (input.assignment === undefined))
-    return ErrAsync({
-      reason: "pr_selector_invalid",
-      detail: `Supply both source and assignment for selected delivery. ${nothing}`,
-      next: {
-        decider: "super-agent" as const,
-        question: "Which source and assignment should this delivery select?",
-      },
-    });
-  if (input.sourceId !== undefined && input.assignment !== undefined)
-    return selectedOwner({ ...input, sourceId: input.sourceId, assignment: input.assignment });
+  if (input.sourceId !== undefined)
+    return input.assignment === undefined
+      ? invalidSelection()
+      : selectedOwner({ ...input, sourceId: input.sourceId, assignment: input.assignment });
+  if (input.assignment !== undefined) return invalidSelection();
   return DeviceState.worktreeOwners(input.paths)
     .toAsync()
     .flatMap((owners) =>

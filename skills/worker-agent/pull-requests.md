@@ -60,7 +60,7 @@ For delivery claims, locks, and idle-owner supervisor delivery, see [the deliver
 - `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Send no message about the merge. Your SuperAgent's coordination wait shows the ended assignment or the cleanup it still owes.
 - `pr_merge_blocked`: a condition failed. Its detail names it. Wait again.
 - `pr_head_mismatch`: push your commits, then wait again. When you cannot push them, record a question with the refusal.
-- `pr_merge_refused`, `pr_merge_unverified`, `github_uncertain`: nothing was recorded. Run the command again once. When it fails again, record a question with the refusal.
+- `pr_merge_refused`, `pr_merge_unverified`, `github_uncertain`: no merge completion was recorded. A delivery audit can remain. Follow the result's recovery step without bypassing an outstanding request.
 
 ## Validate bounded corrections
 
@@ -73,9 +73,10 @@ operator pr validate --file <plain-text-evidence|-> --json
 
 Supply plain text with the correction scope and targeted validation evidence, not JSON or another round's findings.
 The command requires a clean pushed worktree at the current open PR head and passing current CI.
-The reviewed ready head must be an ancestor of the current head.
-It records a validated head and correction summary separately; established rounds and the original reviewed ready head stay unchanged.
-Merge requires this validation when the current head differs from the reviewed ready head.
+The original ready head must be an ancestor of the current head.
+It records a validated head and correction summary separately; established rounds and the original ready head stay unchanged.
+The ready head can include fixes after a review round; only each round's head identifies what that round actually reviewed.
+Merge requires this validation when the current head differs from the ready head.
 Validate again if the head changes afterward.
 Do not start a third broad review solely for these bounded corrections.
 Validation does not supply fresh genuine GitHub approval or reopen the ended review.

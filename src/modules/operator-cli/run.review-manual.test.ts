@@ -24,7 +24,8 @@ test("the migration renames the slack origin to manual", async () => {
     const migrations = readMigrationFiles({
       migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
     });
-    for (const migration of migrations.slice(0, -1)) {
+    // Seed the release before manual reviews, not the release before the newest migration.
+    for (const migration of migrations.filter((entry) => entry.folderMillis < 1794607188879)) {
       for (const sql of migration.sql) db.exec(sql);
       db.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
         migration.hash,

@@ -99,6 +99,9 @@ test.each([
   [["pr", "wait", "--timeout", "123456"]],
   [["pr", "wait", "--timeout", "5", "--timeout", "6"]],
   [["pr", "wait", "--source", "s"]],
+  [["pr", "merge", "--source", "s"]],
+  [["pr", "merge", "--assignment", "a"]],
+  [["pr", "merge", "--source", "s", "--assignment", "a", "--person-instructed"]],
   [["cleanup"]],
   [["cleanup", "--source", "s"]],
   [["cleanup", "--assignment", "a"]],
@@ -133,12 +136,28 @@ test("passes each command to the matching pull request operation", async () => {
   });
   await runPullRequests(["pr", "merge"], paths, true);
   expect(called.merge).toHaveBeenCalledWith({ paths, cwd });
+  expect(called.merge.mock.calls[0]?.[0]).toStrictEqual({ paths, cwd });
   await runPullRequests(["pr", "associate"], paths, true);
   expect(called.associate).toHaveBeenCalledWith({ paths, cwd });
   await runPullRequests(["pr", "wait", "--timeout", "12"], paths, true);
   expect(called.wait).toHaveBeenCalledWith({ paths, cwd, timeoutSeconds: 12 });
   for (const spy of Object.values(called)) expect(spy).toHaveBeenCalledTimes(1);
 });
+
+test.each([
+  ["round", "pr_round"],
+  ["ready", "pr_ready"],
+] as const)(
+  "routes %s findings and summary files to their owner operation",
+  async (command, operation) => {
+    const called = spyOn(PullRequests, command).mockReturnValue(completed(operation));
+    quiet();
+    const args = ["pr", command, "--file", "findings.md", "--json"];
+    expect(pullRequestArgs(args)).toEqual({ operation, file: "findings.md" });
+    expect(await runPullRequests(args, paths, true)).toBe(true);
+    expect(called).toHaveBeenCalledWith({ paths, cwd: process.cwd(), file: "findings.md" });
+  },
+);
 
 test("prints a completed operation as compact JSON or as indented text", async () => {
   spies();
