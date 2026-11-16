@@ -17,7 +17,7 @@ function assignment(key: string, resources: "pane" | "worktree") {
     key: string;
     trackerKey: string;
     instructions: string;
-    completion: string;
+    kind: string;
     resources: string;
     dependencies: string[];
     branch?: string;
@@ -25,7 +25,7 @@ function assignment(key: string, resources: "pane" | "worktree") {
     key,
     trackerKey: `APP-${key}`,
     instructions: "Investigate and report.",
-    completion: "report",
+    kind: "research",
     resources,
     dependencies: [],
   };
@@ -78,7 +78,7 @@ test("cleanup ignores ignored entries except changed env files", async () => {
   await Bun.write(exclude.stdout.trim(), "build/\n");
   await Bun.write(`${worktree}/build/out.js`, "generated\n", { createPath: true });
   await Bun.write(`${worktree}/build/.env.production`, "SECRET=changed\n");
-  const report = await device.writeJson("report.json", {
+  const report = await device.writeReport("report.md", {
     conclusion: "Done",
     evidence: ["Inspected the generated output."],
     unresolved: [],
@@ -145,7 +145,7 @@ test("cleanup ignores an ignored generated repository with no environment files"
   await Bun.write(exclude.stdout.trim(), "build/\n");
   await Bun.write(`${worktree}/build/output.js`, "generated\n", { createPath: true });
   expect((await device.exec(["git", "init", "-q", `${worktree}/build`], worktree)).code).toBe(0);
-  const report = await device.writeJson("report.json", {
+  const report = await device.writeReport("report.md", {
     conclusion: "Done",
     evidence: ["Built output."],
     unresolved: [],
@@ -185,7 +185,7 @@ test.each(["changed", "unchanged", "linked"])(
           `${worktree}/build/.env`,
           mode === "changed" ? "TOKEN=changed\n" : "TOKEN=original\n",
         ));
-    const report = await device.writeJson("report.json", {
+    const report = await device.writeReport("report.md", {
       conclusion: "Done",
       evidence: ["Built output."],
       unresolved: [],
@@ -328,22 +328,22 @@ async function supervisedProjects(secondResources: "pane" | "worktree") {
     { source: second, cwd: other, key: "blocked", worker: blocked },
   ];
   for (const group of groups) {
-    const question = await device.writeJson(`${group.key}-question.json`, {
-      key: "scope",
-      question: "Which output is required?",
-    });
+    const question = await device.writeText(
+      `${group.key}-question.md`,
+      "Which output is required?",
+    );
     expect(
       (
-        await device.run(["question", "ask", "--file", question], {
+        await device.run(["question", "ask", "--key", "scope", "--file", question], {
           pane: group.worker.paneId,
           cwd: group.worker.worktreePath ?? group.cwd,
         })
       ).code,
     ).toBe(0);
-    const message = await device.writeJson(`${group.key}-message.json`, {
-      key: "focus",
-      message: "Keep the notes until review.",
-    });
+    const message = await device.writeText(
+      `${group.key}-message.md`,
+      "Keep the notes until review.",
+    );
     expect(
       (
         await device.run(
@@ -354,6 +354,8 @@ async function supervisedProjects(secondResources: "pane" | "worktree") {
             group.source,
             "--assignment",
             group.key,
+            "--key",
+            "focus",
             "--file",
             message,
           ],
@@ -435,7 +437,9 @@ test.skipIf(asRoot).each(["resource", "Herdr"])(
           expect(
             (await device.run(["source", "show", "--source", group.source], { cwd: group.cwd }))
               .output,
-          ).toEqual(z.looseObject({}).parse(snapshots[index]));
+          ).toEqual(
+            z.looseObject({ outcome: z.string(), reason: z.string() }).parse(snapshots[index]),
+          );
       }
     } finally {
       if (failure === "resource") await chmod(parent, 0o755);
@@ -510,7 +514,7 @@ test.each(["missing resources", "abandon"])(
     device = await workerDevice({ github: true });
     const source = await device.register({
       trackerKey: "APP-4",
-      assignments: [{ ...assignment("implement", "worktree"), completion: "pr" }],
+      assignments: [{ ...assignment("implement", "worktree"), kind: "implementation" }],
     });
     const worker = await device.dispatch(source, "implement");
     const worktree = worker.worktreePath ?? "";

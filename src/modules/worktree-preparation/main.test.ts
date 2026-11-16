@@ -511,7 +511,16 @@ test("an actual ignored-environment inspection I/O failure is qualified at the n
     Object.assign(new Error("environment inspection failed"), { code: "EIO" }),
   );
   expect(await WorktreePreparation.changedIgnoredEnvironment({ worktree, controller })).toEqual(
-    Err({ reason: "preparation_io_failed", detail: "Error: environment inspection failed" }),
+    Err({
+      reason: "preparation_io_failed",
+      detail: "Error: environment inspection failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the worktree preparation IO failure be corrected without losing local files?",
+      },
+      state: { code: "EIO" },
+    }),
   );
 });
 

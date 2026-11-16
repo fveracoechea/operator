@@ -1005,7 +1005,11 @@ test.skipIf(asRoot).each(["resource", "Herdr"])(
     });
     probe.mockImplementation((id) =>
       failure === "Herdr" && id === "w1:blocked"
-        ? ErrAsync({ reason: "herdr_failed", detail: "Unavailable" })
+        ? ErrAsync({
+            reason: "herdr_failed",
+            detail: "Unavailable",
+            next: { command: "operator next", why: "Retry after Herdr is available." },
+          })
         : OkAsync(null),
     );
     if (failure === "resource") await chmod(`${root}/worktrees`, 0);
