@@ -22,7 +22,7 @@ type Refusal = ResultContext & { reason: string; detail: string };
 
 const ended = ["merged", "completed", "abandoned"];
 
-function refuse(reason: string, detail: string, context: ResultContext) {
+function refuse(reason: string, detail: string, context: Partial<ResultContext>) {
   return Err<Refusal>({
     reason,
     detail: `${detail} Nothing changed.`,

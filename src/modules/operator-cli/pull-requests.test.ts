@@ -164,7 +164,14 @@ test.each([
   ["pr_not_found", 3],
 ])("refuses %s with exit code %d", async (reason, code) => {
   spyOn(PullRequests, "associate").mockReturnValue(
-    ErrAsync({ reason, detail: "not associated" }) as never,
+    ErrAsync({
+      reason,
+      detail: "not associated",
+      next: {
+        decider: "super-agent",
+        question: "How should this simulated PR refusal be resolved?",
+      },
+    }),
   );
   const { log, error } = quiet();
   expect(await runPullRequests(["pr", "associate", "--json"], paths, true)).toBe(true);
@@ -172,7 +179,10 @@ test.each([
     operation: "pr_associate",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not associated");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not associated`);
+  expect(error).toHaveBeenCalledWith(
+    "next: super-agent decides: How should this simulated PR refusal be resolved?",
+  );
   expect(process.exitCode).toBe(code);
 });
 
@@ -186,6 +196,6 @@ test("reports a pull request defect with exit code 1", async () => {
     operation: "pr_wait",
     reason: "pr_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: pr_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });

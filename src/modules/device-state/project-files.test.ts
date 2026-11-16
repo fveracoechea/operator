@@ -31,7 +31,14 @@ test("directory creation rechecks registration and cleanup preserves an independ
   };
   expect(ensureProjectDirectory(db, paths, project)).toMatchObject({
     tag: "Err",
-    error: { reason: "controller_mismatch" },
+    error: {
+      reason: "controller_mismatch",
+      next: {
+        command: "operator project list",
+        why: "Read the changed registration before creating its state directory.",
+      },
+      state: { expectedCheckout: project.checkout, actualCheckout: null },
+    },
   });
   expect(await Bun.file(`${paths.projects}/owner/repo/report`).exists()).toBe(false);
   db.query("INSERT INTO projects VALUES (?, ?, ?)").run(

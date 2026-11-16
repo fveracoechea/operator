@@ -229,6 +229,10 @@ test("each blocker explains the stop and the next step", async () => {
   expect(await relayBranch(input().value)).toEqual({
     blocker: {
       reason: "relay_worktree_unclean",
+      next: {
+        command: "git status --short",
+        why: "Commit or remove intended changes, push, then repeat operator pr wait.",
+      },
       detail: `Commit or remove the changed files, push, then wait again. ${kept}`,
     },
   });
@@ -238,12 +242,18 @@ test("each blocker explains the stop and the next step", async () => {
     blocker: {
       reason: "relay_worktree_unsynced",
       detail: `The worktree is at ${local}, but the PR head is ${childHead}. Push or pull, then wait again. ${kept}`,
+      next: {
+        decider: "super-agent",
+        question: "How should the local and PR heads be reconciled without losing commits?",
+      },
+      state: { localHead: local, prHead: childHead },
     },
   });
   git(work, "reset", "-q", "--hard", childHead);
   expect(await relayBranch(input({ recordRebase: async () => false }).value)).toEqual({
     blocker: {
       reason: "relay_claim_lost",
+      next: { command: "operator pr wait", why: "Observe the relay owned by the other process." },
       detail: "Another process took over the relay. Wait again.",
     },
   });
@@ -251,6 +261,10 @@ test("each blocker explains the stop and the next step", async () => {
   expect(await relayBranch(input({ retarget: async () => "http_422: Refused" }).value)).toEqual({
     blocker: {
       reason: "relay_retarget_failed",
+      next: {
+        command: "operator pr wait",
+        why: "Retry the PR base change from the relay's recorded progress.",
+      },
       detail:
         "The branch is pushed, but GitHub did not change the PR base to main: http_422: Refused Wait again to retry.",
     },
@@ -260,6 +274,11 @@ test("each blocker explains the stop and the next step", async () => {
     blocker: {
       reason: "relay_worktree_branch",
       detail: `The worktree must be on task/child, not a detached HEAD. Switch back, then wait again. ${kept}`,
+      next: {
+        decider: "super-agent",
+        question: "How should the recorded PR branch be restored without losing local work?",
+      },
+      state: { expected: "task/child", actual: "" },
     },
   });
   git(work, "switch", "-q", "task/parent");
@@ -273,6 +292,11 @@ test("each blocker explains the stop and the next step", async () => {
   expect(await relayBranch(input().value)).toEqual({
     blocker: {
       reason: "relay_remote_missing",
+      next: {
+        decider: "super-agent",
+        question: "Which remote should receive this PR branch and become its upstream?",
+      },
+      state: { branch: "task/child", remote: "" },
       detail: `Branch task/child has no remote. Push it with git push -u, then wait again. ${kept}`,
     },
   });
@@ -291,6 +315,10 @@ test("a rebase in progress is reported with its own detail", async () => {
   expect(await relayBranch(input().value)).toEqual({
     blocker: {
       reason: "relay_rebase_in_progress",
+      next: {
+        command: "git status",
+        why: "Inspect and finish the existing rebase before pushing and repeating operator pr wait.",
+      },
       detail: `A rebase is in progress in the worktree. Finish or abort it, push, then wait again. ${kept}`,
     },
   });
@@ -302,6 +330,7 @@ test("a remote or parent head that Git cannot fetch stops the relay", async () =
   expect(parent).toMatchObject({
     blocker: {
       reason: "relay_fetch_failed",
+      next: { command: "operator pr wait", why: "Retry the relay's failed parent-head fetch." },
       detail: expect.stringMatching(
         new RegExp(`^Git could not fetch the parent head ${missing}: \\S.* ${kept}$`, "s"),
       ) as unknown,
@@ -351,6 +380,11 @@ test("a conflicting rebase is aborted and the worktree keeps the PR head", async
     blocker: {
       reason: "relay_conflict",
       detail: `The rebase onto main has conflicts in: README.md. The rebase was aborted. ${kept} Rebase onto main yourself, push, then wait again.`,
+      next: {
+        command: "git status",
+        why: "Resolve the rebase onto main, preserve both changes, push, then repeat operator pr wait.",
+      },
+      state: { rebaseAborted: true, conflicts: "README.md" },
     },
   });
   expect(git(work, "rev-parse", "HEAD")).toBe(head);
@@ -381,6 +415,11 @@ test("each parent blocker names the parent and the branch", () => {
     action: "blocked",
     blocker: {
       reason: "relay_parent_closed",
+      next: {
+        decider: "super-agent",
+        question: "How should this stack continue after its parent PR closed without merging?",
+      },
+      state: { parent: 6, parentState: "CLOSED" },
       detail:
         "Parent PR #6 was closed without a merge. Your PR still targets task/parent. Ask your SuperAgent.",
     },
@@ -389,6 +428,12 @@ test("each parent blocker names the parent and the branch", () => {
     action: "blocked",
     blocker: {
       reason: "relay_parent_base",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should this stack continue after its parent merged outside the default branch?",
+      },
+      state: { parent: 6, parentBase: "release", defaultBranch: "main" },
       detail: "Parent PR #6 merged into release, not the default branch. Ask your SuperAgent.",
     },
   });
@@ -426,6 +471,7 @@ test("a Git command without an answer stops the relay with its detail", async ()
     blocker: {
       reason: "relay_fetch_failed",
       detail: `Git could not fetch main: git fetch ended on SIGKILL ${kept}`,
+      next: { command: "operator pr wait", why: "Retry the relay's failed default-branch fetch." },
     },
   });
   mock.restore();
@@ -456,6 +502,11 @@ test("a local rebase that is not pushed is unsynced", async () => {
     blocker: {
       reason: "relay_worktree_unsynced",
       detail: `The worktree is at ${head}, but the PR head is ${childHead}. Push or pull, then wait again. ${kept}`,
+      next: {
+        decider: "super-agent",
+        question: "How should the local and PR heads be reconciled without losing commits?",
+      },
+      state: { localHead: head, prHead: childHead },
     },
   });
 });
@@ -481,6 +532,11 @@ test("a conflict without readable files or a failed abort keeps all work", async
     blocker: {
       reason: "relay_conflict",
       detail: `The rebase onto main has conflicts in: unknown files. The rebase was aborted. ${kept} Rebase onto main yourself, push, then wait again.`,
+      next: {
+        command: "git status",
+        why: "Resolve the rebase onto main, preserve both changes, push, then repeat operator pr wait.",
+      },
+      state: { rebaseAborted: true, conflicts: "" },
     },
   });
   expect(git(work, "rev-parse", "HEAD")).toBe(head);
@@ -495,6 +551,11 @@ test("a conflict without readable files or a failed abort keeps all work", async
       reason: "relay_conflict",
       detail:
         "The rebase onto main failed and could not be aborted: abort refused. Inspect the worktree. Keep all work.",
+      next: {
+        command: "git status",
+        why: "Resolve the rebase onto main, preserve both changes, push, then repeat operator pr wait.",
+      },
+      state: { rebaseAborted: false, conflicts: "README.md\nboth.txt" },
     },
   });
   mock.restore();
@@ -520,6 +581,16 @@ test("a pushed relay is not pushed again, and a refused push keeps the rebased c
   expect(refused).toMatchObject({
     blocker: {
       reason: "relay_push_failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the failed relay push be resolved while retaining the rebased commits?",
+      },
+      state: {
+        branch: "task/child",
+        rebasedHead: git(work, "rev-parse", "HEAD"),
+        expectedRemoteHead: childHead,
+      },
       detail: expect.stringMatching(
         /^Git could not push the rebased task\/child: .*hook refused.* The rebased commits stay in the worktree\.$/s,
       ) as unknown,

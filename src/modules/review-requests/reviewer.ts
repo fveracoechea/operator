@@ -76,7 +76,11 @@ export function launch(
   const request = snapshot.request;
   const project = snapshot.project;
   if (request === null || project === null || request.head === null)
-    return ErrAsync<Failure>({ reason: "review_defect", detail: "The start lost its request." });
+    return ErrAsync<Failure>({
+      reason: "review_defect",
+      detail: "The start lost its request.",
+      next: { decider: "super-agent", question: "Why is the reviewer's start record missing?" },
+    });
   const head = request.head;
   const name = slug(target.repository.slice(target.repository.indexOf("/") + 1));
   const brief = files(input.paths, request).brief;
@@ -129,7 +133,16 @@ type Synced = { kind: string; mode: string | null };
 
 /** The failure of a refused result, or a review defect for an unexpected cause. */
 export function failureOf(result: { tag: string; error?: Failure; cause?: unknown }): Failure {
-  return result.error ?? { reason: "review_defect", detail: String(result.cause) };
+  return (
+    result.error ?? {
+      reason: "review_defect",
+      detail: String(result.cause),
+      next: {
+        decider: "super-agent",
+        question: "How should the unexpected reviewer failure be investigated before continuing?",
+      },
+    }
+  );
 }
 
 /**
@@ -290,6 +303,10 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
   if (request === null || project === null)
     return ErrAsync<Failure>({
       reason: "review_defect",
+      next: {
+        decider: "super-agent",
+        question: "Why is the reviewer cleanup's recorded request missing?",
+      },
       detail: "The cleanup lost its request.",
     });
   const release = DeviceState.holdReviewRequest(paths, request.id);
@@ -314,6 +331,10 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
           })
         : Err<Failure>({
             reason: "review_lease_lost",
+            next: {
+              command: "operator review wait",
+              why: "Let the current review owner finish before continuing.",
+            },
             detail: "Another process took this review request. Nothing more was recorded.",
           }),
     ).map(() => outcome),
@@ -322,7 +343,9 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
 
 /** The outcome of a cleanup for a caller that reports it, with a stopped cleanup as failed. */
 export function cleanupResult(result: Awaited<ReturnType<typeof cleanupReviewer>>) {
-  return result.tag === "Ok" ? result.value : { state: "failed" as const, ...failureOf(result) };
+  if (result.tag === "Ok") return result.value;
+  const { state: checked, ...failure } = failureOf(result);
+  return { state: "failed" as const, ...failure, checked };
 }
 
 /** A refusal for a cleanup that another process runs, or that has nothing left to do. */
@@ -333,11 +356,15 @@ export function claimCleanup(paths: Paths, target: Target, id: string) {
     if ((state === null && current.request?.state !== "approved") || state === "done")
       return Err<Failure>({
         reason: "review_cleanup_unchanged",
+        next: { why: "The reviewer cleanup is complete. No cleanup remains." },
+        state: { cleanup: state },
         detail: "The reviewer cleanup is done.",
       });
     if (current.ownerActive)
       return Err<Failure>({
         reason: "review_cleanup_in_progress",
+        next: { command: "operator review wait", why: "Let the current reviewer cleanup finish." },
+        state: { ownerActive: true },
         detail: "Another process cleans up this reviewer now. Nothing changed.",
       });
     // A pending cleanup holds a renewal, and a wait resumes it when this process stops.

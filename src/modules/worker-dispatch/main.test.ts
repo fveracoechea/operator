@@ -434,7 +434,14 @@ test("taken agent, tab, workspace, and branch names get the next shared suffix",
 test("a name that an earlier launch recorded is skipped", async () => {
   await using device = await dispatchDevice();
   device.herdr.startAgent.mockReturnValueOnce(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "no agent" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "no agent",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed agent start be inspected before retrying?",
+      },
+    }),
   );
   expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({ tag: "Err" });
   expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({
@@ -555,7 +562,11 @@ test("a launch check failure refuses the start before any record", async () => {
 test("the interface passes observation, plugin, reviewer, and cleanup calls to their owners", async () => {
   await using device = await dispatchDevice();
   const plugins = spyOn(Herdr, "plugins").mockReturnValue(
-    ErrAsync({ reason: "herdr_unavailable" as const, detail: "gone" }),
+    ErrAsync({
+      reason: "herdr_unavailable" as const,
+      detail: "gone",
+      next: { decider: "super-agent", question: "How should Herdr be made available?" },
+    }),
   );
   expect(await WorkerDispatch.installPlugin({ paths: device.paths })).toMatchObject({
     tag: "Err",

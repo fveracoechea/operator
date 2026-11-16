@@ -182,7 +182,16 @@ test.each([
   ["question_not_open", 3],
   ["state_busy", 1],
 ])("a %s refusal exits %d", async (reason, code) => {
-  spyOn(WorkerQuestions, "ask").mockReturnValue(ErrAsync({ reason, detail: "Refused." }) as never);
+  spyOn(WorkerQuestions, "ask").mockReturnValue(
+    ErrAsync({
+      reason,
+      detail: "Refused.",
+      next: {
+        decider: "super-agent",
+        question: "How should this simulated question refusal be resolved?",
+      },
+    }),
+  );
   const { log } = quiet();
   await runQuestions(["question", "ask", "--key", "k", "--file", "q.md"], paths, true);
   expect(process.exitCode).toBe(code);

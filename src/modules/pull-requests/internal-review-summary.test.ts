@@ -79,7 +79,7 @@ test.each<[string, number]>([
   });
   if (result.tag !== "Err") return expect.unreachable("malformed summary accepted");
   expect(result.error.detail).toStartWith(`Line ${line}:`);
-  if (!("next" in result.error)) return expect.unreachable("missing next command");
+  if (!("command" in result.error.next)) return expect.unreachable("missing next command");
   expect(result.error.next.why).toMatch(/\S/);
 });
 

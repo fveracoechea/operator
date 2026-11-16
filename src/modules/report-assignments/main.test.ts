@@ -547,7 +547,15 @@ test("a failed cleanup stays visible and a repeated acceptance retries only the 
 test.each([
   {
     name: "a Herdr refusal",
-    names: () => ErrAsync({ reason: "herdr_failed" as const, detail: "Herdr refused." }),
+    names: () =>
+      ErrAsync({
+        reason: "herdr_failed" as const,
+        detail: "Herdr refused.",
+        next: {
+          decider: "super-agent" as const,
+          question: "How should the refused Herdr read be inspected?",
+        },
+      }),
     close: () => OkAsync("closed" as const),
     detail: "Herdr refused.",
   },
@@ -560,7 +568,15 @@ test.each([
   {
     name: "a refused pane close",
     names: () => OkAsync(["report-read"]),
-    close: () => ErrAsync({ reason: "herdr_failed" as const, detail: "Close refused." }),
+    close: () =>
+      ErrAsync({
+        reason: "herdr_failed" as const,
+        detail: "Close refused.",
+        next: {
+          decider: "super-agent" as const,
+          question: "How should the refused pane close be inspected?",
+        },
+      }),
     detail: "Close refused.",
   },
   {
@@ -701,7 +717,14 @@ test("acceptance stops when its cleanup record or the accepted report cannot be 
   spyOn(DeviceState, "changeReport").mockImplementation((paths, target, decide) =>
     ++calls === 1
       ? original(paths, target, decide)
-      : Err({ reason: "state_busy" as const, detail: "Busy." }),
+      : Err({
+          reason: "state_busy" as const,
+          detail: "Busy.",
+          next: {
+            decider: "super-agent",
+            question: "When has the simulated state operation finished?",
+          },
+        }),
   );
   expect(await accept(sourceId)).toMatchObject({
     tag: "Err",
@@ -715,7 +738,14 @@ test("acceptance stops when its cleanup record or the accepted report cannot be 
   spyOn(WorkSources, "show").mockReturnValue(OkAsync(undefined));
   expect(await accept(sourceId)).toMatchObject({
     tag: "Err",
-    error: { reason: "report_defect", detail: "The accepted report is not recorded." },
+    error: {
+      reason: "report_defect",
+      detail: "The accepted report is not recorded.",
+      next: {
+        decider: "super-agent",
+        question: "Why is the accepted report missing from its recorded source?",
+      },
+    },
   });
 });
 

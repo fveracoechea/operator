@@ -31,6 +31,16 @@ test.each([
   "obligation_add",
   "obligation_close",
   "obligation_list",
+  "pr_associate",
+  "review_post",
+  "project_remove",
+  "config_apply",
+  "install",
+  "ready",
+  "herdr_install",
+  "host_models",
+  "claude_hook",
+  "opencode_hook",
 ])(
   "an unclassified %s refusal names a supervisor decision without inventing state",
   (operation) => {
@@ -57,12 +67,11 @@ test("an unclassified workflow failure asks its supervisor without inferring sta
   });
 });
 
-test("formatting preserves an owner's recovery and does not migrate other command families", () => {
+test("formatting preserves an owner's recovery for every command family", () => {
   const context = {
     next: { decider: "person" as const, question: "May retained work be removed?" },
     state: { changed: true },
   };
-  expect(workflowRefusal("cleanup", "cleanup_unlanded_work", context)).toBe(context);
-  const untouched = {};
-  expect(workflowRefusal("pr_associate", "pr_not_open", untouched)).toBe(untouched);
+  expect(workflowRefusal("cleanup", "cleanup_unlanded_work", context)).toEqual(context);
+  expect(workflowRefusal("pr_associate", "pr_not_open", context)).toEqual(context);
 });

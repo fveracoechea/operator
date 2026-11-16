@@ -132,43 +132,69 @@ test("prints a completed operation as compact JSON or as indented text", async (
   expect(log).toHaveBeenLastCalledWith(JSON.stringify(expected, null, 2));
 });
 
+const projectRefusal = {
+  detail: "not registered",
+  next: {
+    decider: "super-agent" as const,
+    question: "How should this simulated project refusal be resolved?",
+  },
+};
 test.each([
-  ["repository_choice_invalid", 2],
-  ["repository_choice_required", 3],
-  ["github_remote_missing", 3],
-  ["git_unavailable", 3],
-  ["git_checkout_invalid", 3],
-  ["bare_repository", 3],
-  ["linked_checkout", 3],
-  ["legacy_project_state", 3],
-  ["state_missing", 3],
-  ["state_busy", 1],
-  ["state_io_failed", 1],
-  ["state_corrupt", 3],
-  ["state_incompatible", 3],
-  ["state_backup_failed", 1],
-  ["state_migration_blocked", 3],
-  ["controller_mismatch", 4],
-  ["controller_identity_mismatch", 4],
-  ["project_not_registered", 3],
-  ["project_io_failed", 1],
-  ["project_source_open", 3],
-  ["project_cleanup_open", 3],
-  ["project_review_open", 3],
-  ["project_cleanup_pending", 1],
-  ["person_instruction_required", 3],
-])("refuses %s with exit code %d", async (reason, code) => {
-  spyOn(Projects, "register").mockReturnValue(
-    ErrAsync({ reason, detail: "not registered" } as never),
-  );
+  [{ ...projectRefusal, reason: "repository_choice_invalid" }, 2],
+  [{ ...projectRefusal, reason: "repository_choice_required" }, 3],
+  [{ ...projectRefusal, reason: "github_remote_missing" }, 3],
+  [{ ...projectRefusal, reason: "git_unavailable" }, 3],
+  [{ ...projectRefusal, reason: "git_checkout_invalid" }, 3],
+  [{ ...projectRefusal, reason: "bare_repository" }, 3],
+  [{ ...projectRefusal, reason: "linked_checkout" }, 3],
+  [{ ...projectRefusal, reason: "legacy_project_state" }, 3],
+  [{ ...projectRefusal, reason: "state_missing" }, 3],
+  [{ ...projectRefusal, reason: "state_busy" }, 1],
+  [{ ...projectRefusal, reason: "state_io_failed" }, 1],
+  [{ ...projectRefusal, reason: "state_corrupt" }, 3],
+  [{ ...projectRefusal, reason: "state_incompatible" }, 3],
+  [{ ...projectRefusal, reason: "state_backup_failed" }, 1],
+  [{ ...projectRefusal, reason: "state_migration_blocked" }, 3],
+  [{ ...projectRefusal, reason: "controller_mismatch" }, 4],
+  [{ ...projectRefusal, reason: "controller_identity_mismatch" }, 4],
+  [{ ...projectRefusal, reason: "project_not_registered" }, 3],
+  [{ ...projectRefusal, reason: "project_io_failed" }, 1],
+  [{ ...projectRefusal, reason: "project_source_open" }, 3],
+  [{ ...projectRefusal, reason: "project_cleanup_open" }, 3],
+  [{ ...projectRefusal, reason: "project_review_open" }, 3],
+  [{ ...projectRefusal, reason: "project_cleanup_pending" }, 1],
+] as const)("refuses %j with exit code %d", async (refusal, code) => {
+  const { reason } = refusal;
+  spyOn(Projects, "register").mockReturnValue(ErrAsync(refusal));
   const { log, error } = quiet();
   expect(await runProject(["project", "register"], paths, true)).toBe(true);
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
     operation: "project_register",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not registered");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not registered`);
+  expect(error).toHaveBeenCalledWith(
+    "next: super-agent decides: How should this simulated project refusal be resolved?",
+  );
   expect(process.exitCode).toBe(code);
+});
+
+test("project removal preserves its person decision and exit code", async () => {
+  const { log, error } = quiet();
+  expect(await runProject(["project", "remove", "example/one"], paths, true)).toBe(true);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "project_remove",
+    reason: "person_instruction_required",
+    next: {
+      decider: "person",
+      question: "May this project be removed on your explicit instruction?",
+    },
+    state: { personInstructed: false },
+  });
+  expect(error).toHaveBeenCalledWith(
+    "next: person decides: May this project be removed on your explicit instruction?",
+  );
+  expect(process.exitCode).toBe(3);
 });
 
 test("reports a project defect with exit code 1", async () => {
@@ -179,6 +205,6 @@ test("reports a project defect with exit code 1", async () => {
     operation: "project_list",
     reason: "project_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error).toHaveBeenCalledWith("operator: project_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });

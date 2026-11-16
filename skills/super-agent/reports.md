@@ -5,7 +5,7 @@ A WorkerAgent submits its report from its own pane.
 Read the conclusion and the unresolved points first. Open the report file only when the decision needs it.
 
 Run decisions from the registered controlling checkout, in your own Herdr pane.
-The refusal of a decision from the worker's pane prevents mistakes. It does not prove who runs the command.
+Pane checks prevent mistakes. They do not prove who runs the command.
 
 ```sh
 operator report accept --source <source-id> --assignment <key> --json
@@ -40,7 +40,7 @@ operator report accept --source <source-id> --assignment <key> --promote <promot
 
 The file holds `key`, `trackerKey`, `instructions`, `branch`, and optional `internalReview`.
 The new PR assignment depends on the accepted report and keeps the report's start profile.
-Promotion refuses a pane report, an ended source, a taken key, and a report that is not awaiting acceptance. A report is promoted at most once.
+A report is promoted at most once.
 Promotion keeps the pane and the worktree, renames the worktree branch to `branch`, and closes nothing.
 
 `next: "wait"` means that the worker still runs and now owns the PR assignment under a new Herdr name. Its brief was rewritten from the PR template.

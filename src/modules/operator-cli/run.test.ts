@@ -169,16 +169,17 @@ test.each(
     new Response(child.stderr).text(),
   ]);
   expect(code).toBe(2);
-  expect(output).toMatchObject({
+  expect(output).toEqual({
     schemaVersion: 1,
+    operation: "parse_arguments",
     reason: "invalid_arguments",
     outcome: "invalid",
+    blockers: [{ reason: "invalid_arguments", detail: "The command arguments are not supported." }],
+    next: { command: "operator --help", why: "Read the supported command syntax." },
   });
-  if (["question", "cleanup"].includes(String(args[0]))) {
-    expect(error).toBe(
-      "operator: invalid_arguments: The command arguments are not supported.\nnext: operator --help\n",
-    );
-  } else expectHelp(error);
+  expect(error).toBe(
+    "operator: invalid_arguments: The command arguments are not supported.\nnext: operator --help\n",
+  );
   expect(await Bun.file(legacy).text()).toBe("unfinished work\n");
   expect(
     await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer(),

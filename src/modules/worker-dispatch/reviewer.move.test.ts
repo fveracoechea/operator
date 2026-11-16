@@ -70,6 +70,11 @@ test("a missing, changed, or foreign worktree is kept and refused", async () => 
   const refused = Err({
     reason: "review_worktree_changed",
     detail: `The reviewer worktree ${worktree} is missing, changed, or not at ${project.base}. Ask the person what to keep.`,
+    next: {
+      decider: "person" as const,
+      question: "Which local reviewer work must be kept before the worktree can move?",
+    },
+    state: { worktree, expectedHead: project.base },
   });
   expect(await move(project.base, project.head)).toEqual(refused);
   at(project.forced);
@@ -89,6 +94,11 @@ test("a missing remote, PR ref, or new head refuses the move", async () => {
     Err({
       reason: "review_fetch_failed",
       detail: "The controlling checkout has no remote for example/one.",
+      next: {
+        decider: "super-agent",
+        question: "Which matching remote should provide this PR's head?",
+      },
+      state: { repository: "example/one", remote: null },
     }),
   );
   spyOn(Projects, "githubRemote").mockReturnValue(OkAsync("origin"));
@@ -96,6 +106,10 @@ test("a missing remote, PR ref, or new head refuses the move", async () => {
     Err({
       reason: "review_fetch_failed",
       detail: `Git could not fetch ${project.head} of PR #8 from origin.`,
+      next: {
+        command: "operator review wait",
+        why: "Retry the failed PR-head fetch before moving the reviewer.",
+      },
     }),
   );
   const unknown = "0".repeat(40);
@@ -103,6 +117,10 @@ test("a missing remote, PR ref, or new head refuses the move", async () => {
     Err({
       reason: "review_fetch_failed",
       detail: `Git could not fetch ${unknown} of PR #7 from origin.`,
+      next: {
+        command: "operator review wait",
+        why: "Retry the failed PR-head fetch before moving the reviewer.",
+      },
     }),
   );
   expect(git(worktree, "rev-parse", "HEAD")).toBe(project.base);
@@ -118,6 +136,10 @@ test.each([
     Err({
       reason: "review_worktree_changed",
       detail: `Git could not move ${worktree} to ${project[to]}.`,
+      next: {
+        decider: "super-agent",
+        question: "Why could Git not move the clean reviewer worktree to the observed PR head?",
+      },
     }),
   );
   expect(git(worktree, "rev-parse", "HEAD")).toBe(project[from]);

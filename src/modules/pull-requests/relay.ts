@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
 async function exists(file: string) {
   return (
@@ -25,7 +26,7 @@ export const relaySchema = z.object({
   leaseAt: z.string().nullable(),
 });
 export type Relay = z.infer<typeof relaySchema>;
-export type Blocker = { reason: string; detail: string };
+export type Blocker = Refusal;
 type Parent = { state: "OPEN" | "MERGED" | "CLOSED"; base: string; head: string };
 type Child = { state: "OPEN" | "MERGED" | "CLOSED"; defaultBranch: string | null };
 
@@ -63,6 +64,11 @@ export function decideRelay(
       action: "blocked",
       blocker: {
         reason: "relay_parent_closed",
+        next: {
+          decider: "super-agent",
+          question: "How should this stack continue after its parent PR closed without merging?",
+        },
+        state: { parent: relay.parent.number, parentState: parent.state },
         detail: `Parent PR #${relay.parent.number} was closed without a merge. Your PR still targets ${relay.parent.branch}. Ask your SuperAgent.`,
       },
     };
@@ -72,6 +78,16 @@ export function decideRelay(
       action: "blocked",
       blocker: {
         reason: "relay_parent_base",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should this stack continue after its parent merged outside the default branch?",
+        },
+        state: {
+          parent: relay.parent.number,
+          parentBase: parent.base,
+          defaultBranch: child.defaultBranch,
+        },
         detail: `Parent PR #${relay.parent.number} merged into ${parent.base}, not the default branch. Ask your SuperAgent.`,
       },
     };
@@ -106,6 +122,11 @@ async function fetchTargets(input: Input): Promise<Blocker | { remote: string; t
   if (!remote.ok || remote.out === "")
     return {
       reason: "relay_remote_missing",
+      next: {
+        decider: "super-agent",
+        question: "Which remote should receive this PR branch and become its upstream?",
+      },
+      state: { branch: input.branch, remote: remote.out },
       detail: `Branch ${input.branch} has no remote. Push it with git push -u, then wait again. ${kept}`,
     };
   const fetched = await git(input.worktree, [
@@ -118,6 +139,7 @@ async function fetchTargets(input: Input): Promise<Blocker | { remote: string; t
   if (!target.ok)
     return {
       reason: "relay_fetch_failed",
+      next: { command: "operator pr wait", why: "Retry the relay's failed default-branch fetch." },
       detail: `Git could not fetch ${input.defaultBranch}: ${target.err} ${kept}`,
     };
   // The parent's head is local when its owner pushed from this repository. GitHub keeps it as a PR ref.
@@ -129,6 +151,7 @@ async function fetchTargets(input: Input): Promise<Blocker | { remote: string; t
     if (!parent.ok)
       return {
         reason: "relay_fetch_failed",
+        next: { command: "operator pr wait", why: "Retry the relay's failed parent-head fetch." },
         detail: `Git could not fetch the parent head ${input.parentHead}: ${parent.err} ${kept}`,
       };
   }
@@ -150,6 +173,10 @@ async function onBranch(input: Input): Promise<Blocker | null> {
     if (!dir.ok || (await exists(dir.out)))
       return {
         reason: "relay_rebase_in_progress",
+        next: {
+          command: "git status",
+          why: "Inspect and finish the existing rebase before pushing and repeating operator pr wait.",
+        },
         detail: `A rebase is in progress in the worktree. Finish or abort it, push, then wait again. ${kept}`,
       };
   }
@@ -158,6 +185,11 @@ async function onBranch(input: Input): Promise<Blocker | null> {
     ? null
     : {
         reason: "relay_worktree_branch",
+        next: {
+          decider: "super-agent",
+          question: "How should the recorded PR branch be restored without losing local work?",
+        },
+        state: { expected: input.branch, actual: ref.out },
         detail: `The worktree must be on ${input.branch}, not ${ref.out || "a detached HEAD"}. Switch back, then wait again. ${kept}`,
       };
 }
@@ -176,11 +208,20 @@ async function rebase(input: Input, target: string): Promise<Blocker | null> {
   if (!status.ok || status.out !== "")
     return {
       reason: "relay_worktree_unclean",
+      next: {
+        command: "git status --short",
+        why: "Commit or remove intended changes, push, then repeat operator pr wait.",
+      },
       detail: `Commit or remove the changed files, push, then wait again. ${kept}`,
     };
   if (head !== input.head)
     return {
       reason: "relay_worktree_unsynced",
+      next: {
+        decider: "super-agent",
+        question: "How should the local and PR heads be reconciled without losing commits?",
+      },
+      state: { localHead: head, prHead: input.head },
       detail: `The worktree is at ${head}, but the PR head is ${input.head}. Push or pull, then wait again. ${kept}`,
     };
   // The commits that the child shares with the parent's head already landed with the parent.
@@ -193,6 +234,11 @@ async function rebase(input: Input, target: string): Promise<Blocker | null> {
     const aborted = await git(input.worktree, ["rebase", "--abort"]);
     return {
       reason: "relay_conflict",
+      next: {
+        command: "git status",
+        why: `Resolve the rebase onto ${input.defaultBranch}, preserve both changes, push, then repeat operator pr wait.`,
+      },
+      state: { rebaseAborted: aborted.ok, conflicts: conflicts.out },
       detail: aborted.ok
         ? `The rebase onto ${input.defaultBranch} has conflicts in: ${conflicts.out.split("\n").join(", ") || "unknown files"}. The rebase was aborted. ${kept} Rebase onto ${input.defaultBranch} yourself, push, then wait again.`
         : `The rebase onto ${input.defaultBranch} failed and could not be aborted: ${aborted.err}. Inspect the worktree. Keep all work.`,
@@ -201,7 +247,11 @@ async function rebase(input: Input, target: string): Promise<Blocker | null> {
   const after = (await git(input.worktree, ["rev-parse", "HEAD"])).out;
   return (await input.recordRebase(after))
     ? null
-    : { reason: "relay_claim_lost", detail: "Another process took over the relay. Wait again." };
+    : {
+        reason: "relay_claim_lost",
+        detail: "Another process took over the relay. Wait again.",
+        next: { command: "operator pr wait", why: "Observe the relay owned by the other process." },
+      };
 }
 
 /**
@@ -231,6 +281,12 @@ export async function relayBranch(input: Input): Promise<{ blocker: Blocker } | 
       return {
         blocker: {
           reason: "relay_push_failed",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should the failed relay push be resolved while retaining the rebased commits?",
+          },
+          state: { branch: input.branch, rebasedHead: head, expectedRemoteHead: input.head },
           detail: `Git could not push the rebased ${input.branch}: ${pushed.err} The rebased commits stay in the worktree.`,
         },
       };
@@ -241,6 +297,10 @@ export async function relayBranch(input: Input): Promise<{ blocker: Blocker } | 
       return {
         blocker: {
           reason: "relay_retarget_failed",
+          next: {
+            command: "operator pr wait",
+            why: "Retry the PR base change from the relay's recorded progress.",
+          },
           detail: `The branch is pushed, but GitHub did not change the PR base to ${input.defaultBranch}: ${failed} Wait again to retry.`,
         },
       };

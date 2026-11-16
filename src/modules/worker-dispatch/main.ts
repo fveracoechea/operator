@@ -573,7 +573,18 @@ function launch(request: Request, settings: Settings, resources: Resources) {
           reserved.id,
           started.tag === "Err"
             ? started.error
-            : { reason: "launch_defect", detail: `Dispatch stopped: ${String(started.cause)}` },
+            : {
+                reason: "launch_defect",
+                detail: `Dispatch stopped: ${String(started.cause)}`,
+                // Stryker disable next-line ObjectLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
+                next: {
+                  // Stryker disable next-line StringLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
+                  decider: "super-agent",
+                  question:
+                    // Stryker disable next-line StringLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
+                    "How should the unexpected dispatch failure be investigated before another launch?",
+                },
+              },
         );
       }).flatMap((result) => result),
     );

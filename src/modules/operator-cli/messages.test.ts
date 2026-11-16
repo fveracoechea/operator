@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { ErrAsync, OkAsync } from "unthrown";
+import { Err, OkAsync } from "unthrown";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkerQuestions } from "../worker-questions/main.ts";
@@ -140,7 +140,16 @@ test.each([
   ["worker_pane_required", 4],
   ["message_not_open", 3],
 ])("a %s refusal exits %d", async (reason, code) => {
-  spyOn(WorkerQuestions, "read").mockReturnValue(ErrAsync({ reason, detail: "Refused." }) as never);
+  spyOn(WorkerQuestions, "read").mockReturnValue(
+    Err({
+      reason,
+      detail: "Refused.",
+      next: {
+        decider: "super-agent",
+        question: "How should this simulated message refusal be resolved?",
+      },
+    }),
+  );
   const log = spyOn(console, "log").mockImplementation(() => {});
   spyOn(console, "error").mockImplementation(() => {});
   await runMessages(["message", "read", "--key", "k"], paths, true);

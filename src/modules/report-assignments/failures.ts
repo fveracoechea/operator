@@ -15,7 +15,11 @@ const ioCodes = [
 ];
 
 /** Invalid input and file system failures are refusals. Any other error stays a defect. */
-export function qualify<T>(cause: Error, defect: (cause: Error) => T, context: ResultContext = {}) {
+export function qualify<T>(
+  cause: Error,
+  defect: (cause: Error) => T,
+  context: Partial<ResultContext> = {},
+) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
     return {
       reason: "invalid_report_input",

@@ -80,5 +80,5 @@ The CLI computes the event in this order:
 3. A blocker or a failing required check remains: `COMMENT`.
 4. No blocker remains: `APPROVE`.
 
-An approval waits until every required check has finished. While one runs, the post refuses with `review_ci_pending`. Post again after CI finishes.
+An approval waits until every required check has finished.
 A comment with no blocker says so plainly, so that the PR owner sees a clear result.

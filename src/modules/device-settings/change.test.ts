@@ -52,16 +52,29 @@ function resolvedHosts() {
 
 const recoveryRequired = {
   reason: "settings_recovery_required",
+  next: {
+    command: "operator config recover",
+    why: "Recover the pending or unreadable settings receipt before another write.",
+  },
   detail:
     "Run operator config recover before another settings write. Preserve an unreadable or unmatched receipt for inspection.",
 } as const;
 const writeUnconfirmed = {
   reason: "settings_write_unconfirmed",
+  next: {
+    command: "operator config recover",
+    why: "Verify the earlier settings write before another edit.",
+  },
   detail:
     "The settings write could not be verified. Run operator config recover before another edit.",
 } as const;
 const externallyOwned = {
   reason: "settings_external",
+  next: {
+    decider: "person",
+    question:
+      "Which external configuration should own these settings edits? Operator will not replace its link or read-only file.",
+  },
   detail:
     "Settings are linked or read-only. Edit the external configuration, such as your Nix or Home Manager configuration, then rebuild it. Operator will not replace its file or link.",
 } as const;
@@ -83,6 +96,11 @@ test("binds plans to both device locations and receipts so old plans cannot repl
   });
   expect(await apply({ ...request, planId: first })).toEqual({
     reason: "settings_plan_stale",
+    next: {
+      decider: "super-agent",
+      question:
+        "Which fresh settings plan should be inspected and applied now that the settings or receipt changed?",
+    },
     detail: "The inspected settings or receipt changed. Make a new plan.",
   });
   expect(await readJson(paths.config)).toEqual(defaults);
@@ -110,6 +128,10 @@ test("refuses unsupported edits before any read or write", async () => {
   const request = { paths, sets: ["bogus=1", "superAgent.host="], unsets: [] };
   const refusal = {
     reason: "invalid_settings_edit",
+    next: {
+      command: "operator --help",
+      why: "Correct the --set and --unset syntax before planning the edits.",
+    },
     detail:
       "Unsupported settings field: bogus=1.\nSet superAgent.host with a non-empty path=value argument.",
   } as const;
@@ -121,11 +143,17 @@ test("refuses unsupported edits before any read or write", async () => {
 
 test("refuses edits that the settings schema rejects", async () => {
   const paths = await freshPaths();
-  const request = { paths, sets: ["review.channel=bad"], unsets: [] };
+  const request = { paths, sets: ["superAgent.host=bad"], unsets: [] };
   for (const result of [await plan(request), await apply({ ...request, planId: "any" })]) {
-    expect(Object.keys(result)).toEqual(["reason", "detail"]);
-    expect(result).toMatchObject({ reason: "invalid_settings_edit" });
-    expect("detail" in result && result.detail).toContain("channel");
+    expect(Object.keys(result).toSorted()).toEqual(["detail", "next", "reason"]);
+    expect(result).toMatchObject({
+      reason: "invalid_settings_edit",
+      next: {
+        command: "operator config show",
+        why: "Inspect the settings schema and correct the requested edits before planning again.",
+      },
+    });
+    expect("detail" in result && result.detail).toContain("host");
   }
   expect(await Bun.file(paths.config).exists()).toBe(false);
 });
@@ -134,6 +162,12 @@ test("requires a plan ID before an apply", async () => {
   const paths = await freshPaths();
   expect(await apply({ paths, sets: ["superAgent.host=opencode"], unsets: [] })).toEqual({
     reason: "settings_plan_required",
+    next: {
+      decider: "super-agent",
+      question:
+        "Which plan ID from operator config plan with these exact edits has been inspected for this apply?",
+    },
+    state: { planId: null },
     detail: "Run operator config plan with these edits, then pass its ID with --plan.",
   });
   expect(await Bun.file(paths.config).exists()).toBe(false);
@@ -287,6 +321,11 @@ test("aborts the write when the settings become read-only before the write", asy
     expect(await apply({ ...request, planId })).toEqual({
       reason: "settings_plan_stale",
       detail: "The settings changed before the write. Make a new plan.",
+      next: {
+        decider: "super-agent",
+        question:
+          "Which fresh settings plan should be inspected and applied now that the settings changed before the write?",
+      },
     });
   } finally {
     process.umask(umask);

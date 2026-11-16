@@ -16,6 +16,7 @@ import { decideSettingsWrite } from "./state-machine.ts";
 import { validateSelections } from "./validation.ts";
 import type { AgentHosts } from "../agent-hosts/main.ts";
 import type { SelectionFailure } from "./selection.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 type HostFailure = Extract<Awaited<ReturnType<typeof AgentHosts.resolve>>, { tag: "Err" }>["error"];
@@ -23,7 +24,7 @@ type HostFailure = Extract<Awaited<ReturnType<typeof AgentHosts.resolve>>, { tag
 export type SettingsFailure =
   | HostFailure
   | SelectionFailure
-  | {
+  | (RefusalContext & {
       reason:
         | "invalid_settings_edit"
         | "settings_recovery_required"
@@ -32,7 +33,7 @@ export type SettingsFailure =
         | "settings_external"
         | "settings_write_unconfirmed";
       detail: string;
-    };
+    });
 export type SettingsOutcome =
   | {
       reason:
@@ -54,16 +55,29 @@ export type ChangeRequest = {
 
 const recoveryRequired: SettingsFailure = {
   reason: "settings_recovery_required",
+  next: {
+    command: "operator config recover",
+    why: "Recover the pending or unreadable settings receipt before another write.",
+  },
   detail:
     "Run operator config recover before another settings write. Preserve an unreadable or unmatched receipt for inspection.",
 };
 const writeUnconfirmed: SettingsFailure = {
   reason: "settings_write_unconfirmed",
+  next: {
+    command: "operator config recover",
+    why: "Verify the earlier settings write before another edit.",
+  },
   detail:
     "The settings write could not be verified. Run operator config recover before another edit.",
 };
 const externallyOwned: SettingsFailure = {
   reason: "settings_external",
+  next: {
+    decider: "person",
+    question:
+      "Which external configuration should own these settings edits? Operator will not replace its link or read-only file.",
+  },
   detail:
     "Settings are linked or read-only. Edit the external configuration, such as your Nix or Home Manager configuration, then rebuild it. Operator will not replace its file or link.",
 };
@@ -78,6 +92,10 @@ function makePlan(
   if (!changed.success)
     return {
       reason: "invalid_settings_edit",
+      next: {
+        command: "operator config show",
+        why: "Inspect the settings schema and correct the requested edits before planning again.",
+      },
       detail: changed.error.message,
     } satisfies SettingsFailure;
   const nextText = `${JSON.stringify(changed.data, null, 2)}\n`;
@@ -110,7 +128,14 @@ function makePlan(
 export async function plan(request: ChangeRequest): Promise<SettingsOutcome> {
   const parsed = parseEdits(request.sets, request.unsets);
   if (parsed.issues !== undefined)
-    return { reason: "invalid_settings_edit", detail: parsed.issues.join("\n") };
+    return {
+      reason: "invalid_settings_edit",
+      detail: parsed.issues.join("\n"),
+      next: {
+        command: "operator --help",
+        why: "Correct the --set and --unset syntax before planning the edits.",
+      },
+    };
   const receipt = await readReceipt(request.paths);
   if (receipt === "unreadable" || receipt?.state === "pending") return recoveryRequired;
   const planned = makePlan(request.paths, await readConfig(request.paths), receipt, parsed.edits);
@@ -146,6 +171,11 @@ async function applyLocked(request: ChangeRequest, edits: Edit[]): Promise<Setti
   if (decision === "stale")
     return {
       reason: "settings_plan_stale",
+      next: {
+        decider: "super-agent",
+        question:
+          "Which fresh settings plan should be inspected and applied now that the settings or receipt changed?",
+      },
       detail: "The inspected settings or receipt changed. Make a new plan.",
     };
   if (decision === "unchanged") return { reason: "settings_unchanged", data: { repeated: false } };
@@ -172,6 +202,11 @@ async function writePlanned(
       await writeReceipt(paths, { ...pending, state: "aborted" });
       return {
         reason: "settings_plan_stale",
+        next: {
+          decider: "super-agent",
+          question:
+            "Which fresh settings plan should be inspected and applied now that the settings changed before the write?",
+        },
         detail: "The settings changed before the write. Make a new plan.",
       };
     }
@@ -190,15 +225,36 @@ async function writePlanned(
 export async function apply(request: ChangeRequest): Promise<SettingsOutcome> {
   const parsed = parseEdits(request.sets, request.unsets);
   if (parsed.issues !== undefined)
-    return { reason: "invalid_settings_edit", detail: parsed.issues.join("\n") };
+    return {
+      reason: "invalid_settings_edit",
+      detail: parsed.issues.join("\n"),
+      next: {
+        command: "operator --help",
+        why: "Correct the --set and --unset syntax before planning the edits.",
+      },
+    };
   if (request.planId === undefined)
     return {
       reason: "settings_plan_required",
+      next: {
+        decider: "super-agent",
+        question:
+          "Which plan ID from operator config plan with these exact edits has been inspected for this apply?",
+      },
+      state: { planId: null },
       detail: "Run operator config plan with these edits, then pass its ID with --plan.",
     };
   if (await externallyManaged(request.paths)) return externallyOwned;
   const changed = editConfig((await readConfig(request.paths)).config, parsed.edits);
-  if (!changed.success) return { reason: "invalid_settings_edit", detail: changed.error.message };
+  if (!changed.success)
+    return {
+      reason: "invalid_settings_edit",
+      detail: changed.error.message,
+      next: {
+        command: "operator config show",
+        why: "Inspect the settings schema and correct the requested edits before planning again.",
+      },
+    };
   const invalid = await validateSelections(changed.data, request.cwd ?? process.cwd());
   if (invalid) return invalid;
   return withWriteLock(request.paths, () => applyLocked(request, parsed.edits));

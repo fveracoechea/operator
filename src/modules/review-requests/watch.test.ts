@@ -346,7 +346,11 @@ test("a server with no socket checks the reviewers that recorded no socket", asy
 
 test("a failed Herdr list interrupts nobody", async () => {
   spyOn(Herdr, "agentNames").mockReturnValue(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "down" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "down",
+      next: { decider: "super-agent", question: "How should the failed Herdr read be inspected?" },
+    }),
   );
   seedRequest(home.paths, { state: "watching", ...running, name: "gone" });
   expect((await waited()).reason).toBe("review_wait_timed_out");
@@ -441,7 +445,12 @@ test("a failed cleanup of a closed PR is reported with its failure", async () =>
       {
         kind: "review_closed",
         prState: "CLOSED",
-        cleanup: { state: "failed", reason: "review_io_failed", detail: "Error: failed EACCES" },
+        cleanup: {
+          state: "failed",
+          reason: "review_io_failed",
+          detail: "Error: failed EACCES",
+          checked: { code: "EACCES" },
+        },
       },
     ],
   });
@@ -507,7 +516,11 @@ test("a head move goes to the running reviewer, and a failed move is reported", 
   seedRequest(home.paths, { state: "reviewing", head: h1, ...running, worktreePath: "/w" });
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h2 })));
   spyOn(WorkerDispatch, "moveReviewer").mockReturnValue(
-    ErrAsync({ reason: "review_fetch_failed", detail: "no remote" }),
+    ErrAsync({
+      reason: "review_fetch_failed",
+      detail: "no remote",
+      next: { decider: "super-agent", question: "Which remote should provide this PR?" },
+    }),
   );
   expect((await waited()).data).toMatchObject({
     events: [
@@ -588,7 +601,11 @@ test("a failed sync is reported once, and the move waits without an action", asy
     sync: JSON.stringify({ kind: "head", from: h1, to: h2 }),
   });
   const move = spyOn(WorkerDispatch, "moveReviewer").mockReturnValue(
-    ErrAsync({ reason: "review_fetch_failed", detail: "no remote" }),
+    ErrAsync({
+      reason: "review_fetch_failed",
+      detail: "no remote",
+      next: { decider: "super-agent", question: "Which remote should provide this PR?" },
+    }),
   );
   expect((await waited(60)).data).toMatchObject({
     events: [
@@ -690,7 +707,12 @@ test("a pending cleanup that fails is reported as failed", async () => {
       {
         url,
         kind: "reviewer_cleaned",
-        cleanup: { state: "failed", reason: "review_io_failed", detail: "Error: failed EACCES" },
+        cleanup: {
+          state: "failed",
+          reason: "review_io_failed",
+          detail: "Error: failed EACCES",
+          checked: { code: "EACCES" },
+        },
       },
     ],
   });
@@ -742,7 +764,14 @@ test("an event ends the wait before an action", async () => {
   expect((await waited(60)).reason).toBe("review_events_observed");
 });
 
-const busy = { reason: "state_busy" as const, detail: "busy" };
+const busy = {
+  reason: "state_busy" as const,
+  detail: "busy",
+  next: {
+    decider: "super-agent" as const,
+    question: "When has the simulated state operation finished?",
+  },
+};
 
 /** Makes every later state change fail, from inside the given interface call. */
 function failChanges() {

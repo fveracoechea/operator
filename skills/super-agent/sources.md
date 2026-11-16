@@ -109,7 +109,7 @@ The session counts, not the pane: a new session in the same pane, for example af
 
 Another session's `dispatch`, `next --wait --source`, report decision, question answer or escalation, steering message, `cleanup`, or `handoff` for the source refuses with `source_supervised_elsewhere`. Its detail names the supervising session and pane.
 Reads such as `next` and `source show` still work.
-When you get that refusal, leave the source to the named session. Tell the person, and take it over only when the person tells you to.
+Leave the source to its named session. Tell the person, and take it over only when the person tells you to.
 Run `operator source take-over --source <source-id> --person-instructed --json` from your own session. `--person-instructed` attests the person's instruction. It does not grant authority.
 The result names the `previous` supervisor and the new one. The previous session's commands for the source refuse from then on.
 
@@ -118,13 +118,11 @@ The result names the `previous` supervisor and the new one. The previous session
 Reset a source only when the person tells you to end it. Never reset on your own decision, and never infer the instruction from a plan or from permission for other work.
 Run `operator source reset --source <source-id> --person-instructed --json` from the controlling checkout.
 `--person-instructed` attests the person's instruction. It does not grant authority.
-Reset refuses with `source_worker_running` while a worker of the source runs or starts. The detail names each pane. Close that pane in Herdr, so that the Operator Herdr plugin records its end, then reset again. Run `operator herdr install` first when the plugin is missing or from another release.
 If a recorded running worker disappeared without an event, reset can recover it from the same Herdr session that launched it.
 Herdr must confirm that both its recorded pane and its named agent are absent.
 Reset records that launch as `interrupted` with `pane_missing` in the same transaction that ends the source.
 A live pane, a moved named agent, a different socket, or a failed Herdr query does not authorize recovery.
 If any worker still blocks reset, no launch or assignment changes.
-It refuses with `source_ended` for a finished or reset source.
 Reset keeps merged PR assignments and completed reports, and marks every other assignment `abandoned`.
 It removes no worktree, branch, or pane, closes no PR, and changes no tracker content.
 The result lists `retained` work of the abandoned assignments: each worktree that still exists, its branch, and each PR without a verified merge. Tell the person about each one.
@@ -135,4 +133,4 @@ Run `operator source prune --json` to delete every eligible ended source of the 
 There is no archive. Copy report content that another project needs into that project's plan before the producer is pruned.
 A source with an open cleanup or a running worker stays, and its `retry_cleanup` or `person_decision` row stays in `next`.
 The result lists the `retained` worktrees, branches, and unmerged PRs of each pruned source, because prune never removes them. Tell the person, because no Operator record of them remains.
-`source_prune_failed` keeps the source records, so `prune_source` stays in `next`. Prune stops at that source, and later sources wait for the next run. Resolve the reported path or I/O problem, then prune again.
+Prune stops at its first failure and keeps that source's records.

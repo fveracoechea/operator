@@ -1,4 +1,5 @@
 import { Err, Ok, type Result } from "unthrown";
+import type { Refusal, NextStep } from "../../lib/cli-result.ts";
 
 type ReviewState =
   | "queued"
@@ -67,7 +68,6 @@ export type ReviewTransition = {
   /** Reviewer cleanup starts. */
   cleanup?: true;
 };
-type Refusal = { reason: string; detail: string };
 type Rule = {
   when: (facts: ReviewFacts) => boolean;
   decide: (facts: ReviewFacts) => Result<ReviewTransition, Refusal>;
@@ -76,8 +76,67 @@ type Rule = {
 /** After this many head moves in one round, the round posts against its last reviewed commit. */
 export const headMoveLimit = 3;
 
-function refuse(reason: string, detail: string) {
-  return Err<Refusal>({ reason, detail: `${detail} Nothing changed.` });
+const recovery = {
+  review_repository_unregistered: {
+    command: "operator project register",
+    why: "Register the PR repository from its controlling checkout.",
+  },
+  review_request_missing: {
+    command: "operator review next",
+    why: "Choose an existing request, or add the intended PR before reviewing.",
+  },
+  review_start_in_progress: {
+    command: "operator review wait",
+    why: "Wait for the reviewer start to finish.",
+  },
+  review_post_in_progress: {
+    command: "operator review wait",
+    why: "Let the active review post finish without repeating it.",
+  },
+  review_cleanup_in_progress: {
+    command: "operator review wait",
+    why: "Let the reviewer cleanup finish before continuing.",
+  },
+  review_reviewer_moving: {
+    command: "operator review wait",
+    why: "Let the active reviewer move finish before continuing.",
+  },
+  reviewer_work_kept: {
+    decider: "person",
+    question:
+      "How should the retained unlanded reviewer work be preserved or removed before cleanup?",
+  },
+  review_reviewer_started: {
+    command: "operator review wait",
+    why: "The reviewer is already running; observe its progress.",
+  },
+  review_start_interrupted: {
+    command: "operator review next",
+    why: "Read the stopped reviewer's replacement action.",
+  },
+  review_already_posted: {
+    command: "operator review wait",
+    why: "The review is already posted; wait for a new review event.",
+  },
+  review_post_interrupted: {
+    command: "operator review next",
+    why: "Inspect the recorded review before retrying an interrupted post.",
+  },
+  review_lease_lost: {
+    command: "operator review wait",
+    why: "Let the process that owns this review request finish.",
+  },
+  // Stryker disable next-line ObjectLiteral: equivalent: Each command table ends with an unconditional matching rule. The only review_defect refusal is the no-rule fallback, whose conditional and text already have an equivalent comment. This recovery-map entry has no other call site.
+  review_defect: {
+    // Stryker disable next-line StringLiteral: equivalent: Each command table ends with an unconditional matching rule. The only review_defect refusal is the no-rule fallback, whose conditional and text already have an equivalent comment. This recovery-map entry has no other call site.
+    decider: "super-agent",
+    // Stryker disable next-line StringLiteral: equivalent: Each command table ends with an unconditional matching rule. The only review_defect refusal is the no-rule fallback, whose conditional and text already have an equivalent comment. This recovery-map entry has no other call site.
+    question: "How should the unexpected review transition be investigated?",
+  },
+} satisfies Record<string, NextStep>;
+
+function refuse(reason: keyof typeof recovery, detail: string) {
+  return Err<Refusal>({ reason, detail: `${detail} Nothing changed.`, next: recovery[reason] });
 }
 
 function starting({ request, ownerActive }: ReviewFacts) {

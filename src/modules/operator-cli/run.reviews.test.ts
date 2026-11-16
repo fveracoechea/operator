@@ -682,7 +682,14 @@ test("a pending required check or an incomplete check list does not approve", as
   await draft(request.draft);
   expect(await run(["review", "post", url])).toMatchObject({
     code: 4,
-    output: { reason: "review_ci_pending" },
+    output: {
+      reason: "review_ci_pending",
+      next: {
+        command: "operator review wait",
+        why: "Wait for required CI before posting the approval.",
+      },
+      state: { pendingChecks: [{ name: "ci", state: "pending" }], checksComplete: true },
+    },
   });
   await github({
     pulls: [
@@ -690,7 +697,11 @@ test("a pending required check or an incomplete check list does not approve", as
     ],
   });
   expect(await run(["review", "post", url])).toMatchObject({
-    output: { reason: "review_ci_pending" },
+    output: {
+      reason: "review_ci_pending",
+      next: { command: "operator review wait" },
+      state: { pendingChecks: [], checksComplete: false },
+    },
   });
   expect(await posted()).toEqual([]);
   // A comment can post while CI runs.

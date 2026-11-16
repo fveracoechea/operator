@@ -3,6 +3,7 @@ import path from "node:path";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import type { PullRequestFacts, RequiredCheck } from "./github.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
 function text(max: number) {
   return z.string().trim().min(1).max(max);
@@ -102,10 +103,13 @@ export type AcceptedDraft = {
   /** False when the PR has more check contexts than one read returns. */
   checksComplete: boolean;
 };
-type Refusal = { reason: string; detail: string };
+const draftRecovery = {
+  command: "operator review next",
+  why: "Read the current head and draft path, correct the draft, then post again.",
+};
 
 function refuse(reason: string, detail: string) {
-  return Err<Refusal>({ reason, detail: `${detail} Nothing was posted.` });
+  return Err<Refusal>({ reason, detail: `${detail} Nothing was posted.`, next: draftRecovery });
 }
 
 const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | null)[] = [
@@ -114,12 +118,14 @@ const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | 
       ? null
       : {
           reason: "review_head_moved",
+          next: draftRecovery,
           detail: `The draft reviews ${draft.reviewedCommit}, but this round reviews ${commit} and the PR head is ${pr.head}. A stale draft is not posted.`,
         },
   (draft) =>
     draft.checks.some((check) => check.kind === "guard-break" && check.exitCode === 0)
       ? {
           reason: "review_draft_invalid",
+          next: draftRecovery,
           detail: "A deliberate guard break that exited 0 did not prove its guard.",
         }
       : null,
@@ -132,6 +138,7 @@ const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | 
       ? null
       : {
           reason: "review_draft_invalid",
+          next: draftRecovery,
           detail: `The finding at ${outside.path} is not on a file that this PR changes.`,
         };
   },
@@ -139,6 +146,7 @@ const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | 
     if (draft.noise.length > 0 && !pr.filesComplete)
       return {
         reason: "review_noise_unverifiable",
+        next: draftRecovery,
         detail:
           "This PR changes more files than one read returns, so a noise claim cannot be checked.",
       };
@@ -150,6 +158,7 @@ const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | 
       ? null
       : {
           reason: "review_noise_unknown_check",
+          next: draftRecovery,
           detail: `No failing required check is named ${unknown.check}.`,
         };
   },
@@ -161,6 +170,7 @@ const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | 
       ? null
       : {
           reason: "review_noise_changed_file",
+          next: draftRecovery,
           detail: `The noise claim cites ${cited}, which this PR changes. A failure in a changed file is a blocker.`,
         };
   },
@@ -172,11 +182,16 @@ const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | 
     if (unknown !== undefined)
       return {
         reason: "review_thread_unknown",
+        next: draftRecovery,
         detail: `Thread ${unknown} is not a review thread that this account started on the PR.`,
       };
     return new Set(ids).size === ids.length
       ? null
-      : { reason: "review_draft_invalid", detail: "Reply to each thread at most once." };
+      : {
+          reason: "review_draft_invalid",
+          detail: "Reply to each thread at most once.",
+          next: draftRecovery,
+        };
   },
 ];
 

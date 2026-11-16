@@ -211,7 +211,16 @@ test.each([
   install(() => Promise.resolve(answer));
   const detail = `${copiedDetail} bun install --frozen-lockfile failed: ${reason}`;
   expect(await WorktreePreparation.prepare({ paths, worktree })).toEqual(
-    Err({ reason: "preparation_failed", detail }),
+    Err({
+      reason: "preparation_failed",
+      detail,
+      next: {
+        decider: "super-agent",
+        question:
+          "How should this worktree's recorded preparation failure be corrected before launching its worker?",
+      },
+      state: { worktree, preparation: "failed" },
+    }),
   );
   expect(stateOf(worktree)).toEqual({ state: "failed", detail });
 });
@@ -224,7 +233,16 @@ test("a Git listing failure records a failed preparation and copies nothing", as
   );
   const detail = "Git could not list ignored environment files.";
   expect(await WorktreePreparation.prepare({ paths, worktree })).toEqual(
-    Err({ reason: "preparation_failed", detail }),
+    Err({
+      reason: "preparation_failed",
+      detail,
+      next: {
+        decider: "super-agent",
+        question:
+          "How should this worktree's recorded preparation failure be corrected before launching its worker?",
+      },
+      state: { worktree, preparation: "failed" },
+    }),
   );
   expect(await Bun.file(`${worktree}/.env.local`).exists()).toBe(false);
   expect(stateOf(worktree)).toEqual({ state: "failed", detail });
@@ -244,7 +262,16 @@ test("a stopped preparation is recorded as failed and releases its lease", async
   install(() => Promise.reject(new Error("install crashed")));
   const detail = "Preparation stopped: Error: install crashed";
   expect(await WorktreePreparation.prepare({ paths, worktree })).toEqual(
-    Err({ reason: "preparation_failed", detail }),
+    Err({
+      reason: "preparation_failed",
+      detail,
+      next: {
+        decider: "super-agent",
+        question:
+          "How should this worktree's recorded preparation failure be corrected before launching its worker?",
+      },
+      state: { worktree, preparation: "failed" },
+    }),
   );
   expect(held).toHaveBeenCalledWith(paths, worktree);
   expect(release).toHaveBeenCalledTimes(1);
@@ -313,7 +340,16 @@ test.each(["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EE
     const failure = Object.assign(new Error("git failed"), { code });
     const spy = spyOn(ToolInvocation, "run").mockRejectedValue(failure);
     expect(await WorktreePreparation.prepare({ paths, worktree })).toEqual(
-      Err({ reason: "preparation_io_failed", detail: "Error: git failed" }),
+      Err({
+        reason: "preparation_io_failed",
+        detail: "Error: git failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the worktree preparation IO failure be corrected without losing local files?",
+        },
+        state: { code },
+      }),
     );
     spy.mockRejectedValue(Object.assign(new Error("git failed"), { code: "EBUSY" }));
     expect(await WorktreePreparation.prepare({ paths, worktree })).toMatchObject({
@@ -332,7 +368,16 @@ test("a lease failure before preparation is a filesystem failure", async () => {
     throw Object.assign(new Error("lease failed"), { code: "EIO" });
   });
   expect(await WorktreePreparation.prepare({ paths, worktree })).toEqual(
-    Err({ reason: "preparation_io_failed", detail: "Error: lease failed" }),
+    Err({
+      reason: "preparation_io_failed",
+      detail: "Error: lease failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the worktree preparation IO failure be corrected without losing local files?",
+      },
+      state: { code: "EIO" },
+    }),
   );
 });
 
@@ -423,5 +468,16 @@ test("a filesystem failure while classifying is qualified", async () => {
   );
   expect(
     await WorktreePreparation.classifyIgnored({ paths, worktree, controller, ignored }),
-  ).toEqual(Err({ reason: "preparation_io_failed", detail: "Error: git failed" }));
+  ).toEqual(
+    Err({
+      reason: "preparation_io_failed",
+      detail: "Error: git failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the worktree preparation IO failure be corrected without losing local files?",
+      },
+      state: { code: "EIO" },
+    }),
+  );
 });

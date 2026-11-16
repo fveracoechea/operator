@@ -167,7 +167,15 @@ test("a doorbell records nothing on a message that ended while it rang", async (
   // The SuperAgent closes the message while Herdr types its doorbell, and the doorbell fails.
   spyOn(Herdr, "prompt").mockImplementation(() =>
     fromSafePromise(async () => okValue(await WorkerQuestions.close(selector(sourceId)))).flatMap(
-      () => Err({ reason: "herdr_failed" as const, detail: "herdr agent exited 1: gone" }),
+      () =>
+        Err({
+          reason: "herdr_failed" as const,
+          detail: "herdr agent exited 1: gone",
+          next: {
+            decider: "super-agent",
+            question: "How should the failed doorbell be inspected before another request?",
+          },
+        }),
     ),
   );
   expect(okValue(await WorkerQuestions.send({ ...selector(sourceId), file }))).toMatchObject({

@@ -402,6 +402,10 @@ test("a cleanup of an open request holds it against a start and an end", () => {
         reason: "review_cleanup_in_progress",
         detail:
           "The reviewer cleanup of this request has not finished. Start the reviewer after operator review wait or operator review cleanup finishes it. Nothing changed.",
+        next: {
+          command: "operator review wait",
+          why: "Let the reviewer cleanup finish before continuing.",
+        },
       },
     });
   // A live cleanup holds the pane and the worktree, so the request cannot end under it.
@@ -412,6 +416,10 @@ test("a cleanup of an open request holds it against a start and an end", () => {
         reason: "review_cleanup_in_progress",
         detail:
           "Another process cleans up this reviewer now. End the request after it finishes. Nothing changed.",
+        next: {
+          command: "operator review wait",
+          why: "Let the reviewer cleanup finish before continuing.",
+        },
       },
     });
     // A cleanup whose process stopped is repeated by the end's own cleanup.
@@ -432,6 +440,11 @@ test("kept reviewer work stays with the person, so a renewal gets no replacement
       reason: "reviewer_work_kept",
       detail:
         "The reviewer worktree holds unlanded work. Ask the person. Only the person deletes it, then run operator review cleanup. Nothing changed.",
+      next: {
+        decider: "person",
+        question:
+          "How should the retained unlanded reviewer work be preserved or removed before cleanup?",
+      },
     },
   });
   expect(reviewAction(kept, false)).toEqual({ kind: "attention", reason: "reviewer_work_kept" });
@@ -472,6 +485,10 @@ test("a post waits while a live cleanup holds the request", () => {
       reason: "review_cleanup_in_progress",
       detail:
         "Another process cleans up this reviewer now. Post after it finishes. Nothing changed.",
+      next: {
+        command: "operator review wait",
+        why: "Let the reviewer cleanup finish before continuing.",
+      },
     },
   });
   expect(decideReview(facts("post", cleaning))).toMatchObject({
@@ -515,76 +532,98 @@ function refusal(input: ReviewFacts) {
 test("each refusal states its cause and that nothing changed", () => {
   const reviewing = { state: "reviewing", launchState: "running" };
   const starting = { state: "queued", launchState: "starting" };
-  const cases: [ReviewFacts, string, string][] = [
+  const cases: [ReviewFacts, string, string, string][] = [
     [
       facts("add", null, { registered: false }),
       "review_repository_unregistered",
       "The PR repository is not a registered project on this device. Register its controlling checkout first.",
+      "operator project register",
     ],
-    [facts("start", null), "review_request_missing", "Add the review request first."],
+    [
+      facts("start", null),
+      "review_request_missing",
+      "Add the review request first.",
+      "operator review next",
+    ],
     [
       facts("close", starting, { ownerActive: true }),
       "review_start_in_progress",
       "Wait until the reviewer start ends.",
+      "operator review wait",
     ],
     [
       facts("close", { state: "posting", launchState: "running" }, { ownerActive: true }),
       "review_post_in_progress",
       "Another process posts this review now. Wait for it.",
+      "operator review wait",
     ],
     [
       facts("close", { ...reviewing, sync: "{}" }, { ownerActive: true }),
       "review_reviewer_moving",
       "A wait moves or prompts the reviewer now. End the request after it finishes.",
+      "operator review wait",
     ],
     [
       facts("start", starting, { ownerActive: true }),
       "review_start_in_progress",
       "Another process starts this reviewer.",
+      "operator review wait",
     ],
     [
       facts("start", reviewing),
       "review_reviewer_started",
       "This review request already has its reviewer, and the reviewer has not stopped.",
+      "operator review wait",
     ],
     [
       facts("started", reviewing),
       "review_start_interrupted",
       "The reviewer start is no longer recorded as running.",
+      "operator review next",
     ],
     [
       facts("post", starting, { ownerActive: true }),
       "review_start_in_progress",
       "Wait until the reviewer start ends.",
+      "operator review wait",
     ],
     [
       facts("post", { state: "posting", launchState: "running" }, { ownerActive: true }),
       "review_post_in_progress",
       "Another process posts this review now. Do not repeat it.",
+      "operator review wait",
     ],
     [
       facts("post", { ...reviewing, sync: "{}" }, { ownerActive: true }),
       "review_reviewer_moving",
       "A wait moves the reviewer to the new PR head now. Post after the reviewer gets it.",
+      "operator review wait",
     ],
     [
       facts("post", { state: "watching", launchState: "running" }),
       "review_already_posted",
       "This review request is watching, so its review is already posted.",
+      "operator review wait",
     ],
     [
       facts("posted", reviewing, { event: "APPROVE" }),
       "review_post_interrupted",
       "The post is no longer recorded.",
+      "operator review next",
     ],
     [
       facts("synced", { state: "closed", launchState: "running" }, { ownLease: true }),
       "review_lease_lost",
       "Another process took this review request during the move.",
+      "operator review wait",
     ],
   ];
-  for (const [input, reason, detail] of cases)
-    expect(refusal(input), reason).toEqual({ reason, detail: `${detail} Nothing changed.` });
+  for (const [input, reason, detail, command] of cases)
+    expect<unknown>(refusal(input), reason).toEqual({
+      reason,
+      detail: `${detail} Nothing changed.`,
+      next: { command, why: expect.stringMatching(/\S/) as unknown },
+    });
 });
 
 test("commands that a running effect finishes decide for a missing request without a defect", () => {

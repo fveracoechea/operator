@@ -22,7 +22,10 @@ export type InternalReviewRoundRow = typeof internalReviewRounds.$inferSelect;
 type LaunchRow = typeof launches.$inferSelect;
 export type HandoffFailure =
   | StateFailure
-  | { reason: "source_not_found" | "handoff_not_found" | "handoff_running"; detail: string };
+  | (ResultContext & {
+      reason: "source_not_found" | "handoff_not_found" | "handoff_running";
+      detail: string;
+    });
 type Claimed = {
   review: InternalReviewRow;
   implementer: LaunchRow;
@@ -103,6 +106,7 @@ export function claimHandoff(
       if (source === undefined)
         return Err({
           reason: "source_not_found",
+          next: { command: "operator next", why: "Choose an existing source in this project." },
           detail: "The source does not exist in this project.",
         });
       const recorded = db
@@ -117,6 +121,10 @@ export function claimHandoff(
       if (recorded === undefined || latest === undefined || project === undefined)
         return Err({
           reason: "handoff_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the assignment's handoff state before retrying.",
+          },
           detail: `Assignment ${assignment} has no internal review. Only the association of a draft PR records one. Nothing was changed.`,
         });
       const { review, implementer } = recorded;
@@ -128,6 +136,10 @@ export function claimHandoff(
       if (held && !ownerGone(review, Date.now()))
         return Err({
           reason: "handoff_running",
+          next: {
+            command: "operator next --wait",
+            why: "Let the recorded handoff finish before retrying.",
+          },
           detail: `Process ${review.ownerPid} is still handing off assignment ${assignment}. Read operator next later. Nothing was changed.`,
         });
       const now = new Date().toISOString();
@@ -266,6 +278,10 @@ export function recordInternalReviewRound<E extends { reason: string; detail: st
           if (review === undefined)
             return Err({
               reason: "internal_review_not_recorded",
+              next: {
+                command: "operator next",
+                why: "Read the assignment's recorded review state.",
+              },
               detail: `Assignment ${assignment.key} has no internal review. Nothing was recorded.`,
             });
           const rounds = db

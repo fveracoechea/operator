@@ -100,20 +100,38 @@ function defect<T>(cause: Error | string) {
 }
 
 test("a refused or defective result names its failure", () => {
-  expect(failureOf({ tag: "Err", error: { reason: "r", detail: "d" } })).toEqual({
+  expect(
+    failureOf({
+      tag: "Err",
+      error: {
+        reason: "r",
+        detail: "d",
+        next: { command: "operator review next", why: "Read the current review action." },
+      },
+    }),
+  ).toEqual({
     reason: "r",
     detail: "d",
+    next: { command: "operator review next", why: "Read the current review action." },
   });
   expect(failureOf({ tag: "Defect", cause: new Error("boom") })).toEqual({
     reason: "review_defect",
     detail: "Error: boom",
+    next: {
+      decider: "super-agent",
+      question: "How should the unexpected reviewer failure be investigated before continuing?",
+    },
   });
 });
 
 test("a start with no request, project, or head is a defect, and nothing launches", async () => {
   const launched = spyOn(WorkerDispatch, "launchReviewer");
   const snapshot = held({ head: h1 });
-  const lost = { reason: "review_defect", detail: "The start lost its request." };
+  const lost = {
+    reason: "review_defect",
+    detail: "The start lost its request.",
+    next: { decider: "super-agent", question: "Why is the reviewer's start record missing?" },
+  };
   for (const broken of [
     { ...snapshot, request: null },
     { ...snapshot, project: null },
@@ -375,7 +393,14 @@ test("a round prompt names each trigger in words", async () => {
 
 test("a refused prompt marks the reviewer interrupted, and a brief with no placement is empty", async () => {
   const prompted = spyOn(Herdr, "prompt").mockReturnValue(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "gone" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "gone",
+      next: {
+        decider: "super-agent",
+        question: "How should the failed reviewer prompt be inspected?",
+      },
+    }),
   );
   const sync = JSON.stringify({ kind: "round", round: 1, trigger: "reply" });
   const snapshot = held({
@@ -404,7 +429,11 @@ test("a refused prompt marks the reviewer interrupted, and a brief with no place
 test("a failed move keeps the sync and shows the failure, and nothing is prompted", async () => {
   const events = watchHold();
   spyOn(WorkerDispatch, "moveReviewer").mockReturnValue(
-    ErrAsync({ reason: "review_fetch_failed", detail: "No remote." }),
+    ErrAsync({
+      reason: "review_fetch_failed",
+      detail: "No remote.",
+      next: { decider: "super-agent", question: "Which remote should provide this PR?" },
+    }),
   );
   const prompted = spyOn(Herdr, "prompt");
   const snapshot = held({ ...running, sync: head });
@@ -449,7 +478,11 @@ test("a request that ended during the sync is not finished on the next open requ
   });
   expect(prompted).toHaveBeenCalledTimes(1);
   const moved = spyOn(WorkerDispatch, "moveReviewer").mockReturnValue(
-    ErrAsync({ reason: "review_fetch_failed", detail: "No remote." }),
+    ErrAsync({
+      reason: "review_fetch_failed",
+      detail: "No remote.",
+      next: { decider: "super-agent", question: "Which remote should provide this PR?" },
+    }),
   );
   expect(
     await syncReviewer(home.paths, target, {
@@ -545,7 +578,11 @@ test("a pane with no recorded server is closed only outside any server", async (
 test("a failed agent list or pane close fails the cleanup with its cause", async () => {
   socket("/s");
   const listed = spyOn(Herdr, "agentNames").mockReturnValue(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "list refused" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "list refused",
+      next: { decider: "super-agent", question: "How should the refused agent read be inspected?" },
+    }),
   );
   expect(await cleaned(closed())).toMatchObject({
     tag: "Ok",
@@ -558,7 +595,11 @@ test("a failed agent list or pane close fails the cleanup with its cause", async
   });
   listed.mockReturnValue(OkAsync(["someone", "reviewer"]));
   const close = spyOn(Herdr, "closePane").mockReturnValue(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "close refused" }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "close refused",
+      next: { decider: "super-agent", question: "How should the refused pane close be inspected?" },
+    }),
   );
   const cleanWorktree = spyOn(WorkerDispatch, "cleanWorktree");
   expect(await cleaned(closed({ worktreePath: "/w" }))).toMatchObject({
@@ -680,6 +721,10 @@ test("a cleanup whose request another process took records nothing", async () =>
     error: {
       reason: "review_lease_lost",
       detail: "Another process took this review request. Nothing more was recorded.",
+      next: {
+        command: "operator review wait",
+        why: "Let the current review owner finish before continuing.",
+      },
     },
   });
   expect(readRequest(home.paths).request).toMatchObject({
@@ -702,6 +747,11 @@ test("a cleanup result is its outcome, or a failure with the cause of a stopped 
     state: "failed",
     reason: "review_defect",
     detail: "The cleanup lost its request.",
+    next: {
+      decider: "super-agent",
+      question: "Why is the reviewer cleanup's recorded request missing?",
+    },
+    checked: undefined,
   });
 });
 
@@ -723,28 +773,37 @@ test("a cleanup that stops records nothing and releases the hold", async () => {
 });
 
 test("a cleanup is claimed only when work is left and no other process runs it", () => {
-  const unchanged = {
-    tag: "Err",
-    error: { reason: "review_cleanup_unchanged", detail: "The reviewer cleanup is done." },
-  };
+  function unchanged(cleanup: string | null) {
+    return {
+      tag: "Err",
+      error: {
+        reason: "review_cleanup_unchanged",
+        detail: "The reviewer cleanup is done.",
+        next: { why: "The reviewer cleanup is complete. No cleanup remains." },
+        state: { cleanup },
+      },
+    };
+  }
   for (const cleanupState of [null, "done"]) {
     held({ state: "closed", cleanupState, ownerPid: null, leaseAt: null });
-    expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged);
+    expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged(cleanupState));
   }
   held({ state: "approved", cleanupState: "done", ownerPid: null, leaseAt: null });
-  expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged);
+  expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged("done"));
   // An earlier Operator version kept the reviewer of an approved request and recorded no cleanup.
   held({ state: "approved", cleanupState: null, ownerPid: null, leaseAt: null });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
     tag: "Ok",
     value: { request: { ownerPid: process.pid, cleanupState: "pending" } },
   });
-  expect(claimCleanup(home.paths, target, "missing")).toMatchObject(unchanged);
+  expect(claimCleanup(home.paths, target, "missing")).toMatchObject(unchanged(null));
   held({ state: "closed", cleanupState: "failed" });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
     tag: "Err",
     error: {
       reason: "review_cleanup_in_progress",
+      next: { command: "operator review wait", why: "Let the current reviewer cleanup finish." },
+      state: { ownerActive: true },
       detail: "Another process cleans up this reviewer now. Nothing changed.",
     },
   });

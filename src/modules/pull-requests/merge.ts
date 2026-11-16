@@ -17,9 +17,10 @@ import {
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import { owned, reviewEnded } from "./internal-review.ts";
+import type { Refusal } from "../../lib/cli-result.ts";
 
 type Request = { paths: Paths; cwd: string };
-type Failure = { reason: string; detail: string };
+type Failure = Refusal;
 type Outcome = { reason: string; data: object };
 
 // A built release runs `cli.js`, and a source install runs `cli.ts`.
@@ -114,6 +115,16 @@ function verify(
       request ?? {
         reason: "pr_merge_unverified",
         detail: `GitHub does not report PR #${number} merged at ${head ?? observed.head}. Nothing was recorded. Repeat operator pr merge.`,
+        next: {
+          command: "operator pr merge",
+          why: "Verify whether the earlier merge request landed.",
+        },
+        state: {
+          pullRequest: number,
+          expectedHead: head,
+          observedState: observed.state,
+          observedHead: observed.head,
+        },
       },
     );
   });
@@ -133,8 +144,7 @@ function guarded(
     stackRelayed: relay === null || relay.state === "relayed",
     reviewEnded: reviewEnded(owner),
   });
-  if (decision.result === "refused")
-    return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
+  if (decision.result === "refused") return ErrAsync<Failure>(decision);
   if (decision.result === "verify") return verify(input, owner, number, null, null);
   // A refused or lost answer can follow a merge that landed, so every answer is verified.
   return fromPromise(async () => {
@@ -145,17 +155,37 @@ function guarded(
 
 type Answer = Awaited<ReturnType<typeof mergePullRequest>>;
 
-function refusal(answer: Exclude<Answer, { tag: "Ok" }>, read: boolean) {
-  if (answer.tag === "Defect") return { reason: "pr_defect", detail: String(answer.cause) };
-  if (answer.error.reason !== "github_failed")
-    return { reason: answer.error.reason, detail: answer.error.detail };
+function refusal(answer: Exclude<Answer, { tag: "Ok" }>, read: boolean): Failure {
+  if (answer.tag === "Defect")
+    return {
+      reason: "pr_defect",
+      detail: String(answer.cause),
+      next: {
+        decider: "super-agent",
+        question: "How should the unexpected merge failure be investigated before another request?",
+      },
+    };
+  if (answer.error.reason !== "github_failed") return answer.error;
   // GitHub accepted the request before a read failed, so the merge can still land.
   return read
     ? {
+        ...answer.error,
         reason: "pr_merge_unverified",
         detail: `GitHub did not answer the merge request read: ${answer.error.detail}. Nothing was recorded. Repeat operator pr merge.`,
+        next: {
+          command: "operator pr merge",
+          why: "Verify whether the earlier merge request landed.",
+        },
       }
-    : { reason: "pr_merge_refused", detail: answer.error.detail };
+    : {
+        ...answer.error,
+        reason: "pr_merge_refused",
+        detail: answer.error.detail,
+        next: {
+          decider: "person",
+          question: "Which GitHub merge restriction must be resolved before this PR can merge?",
+        },
+      };
 }
 
 /**
@@ -192,6 +222,11 @@ export function merge(input: Request) {
         return ErrAsync<Failure>({
           reason: "pr_not_associated",
           detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
+          next: {
+            command: "operator pr associate",
+            why: "Associate the assignment's open PR before merging.",
+          },
+          state: { pullRequest: null },
         });
       return observePullRequest(owner.repository, number).flatMap((observed) =>
         fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>

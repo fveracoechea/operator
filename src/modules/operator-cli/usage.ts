@@ -102,30 +102,15 @@ export function runUsage(args: string[], release: Release, json: boolean) {
 }
 
 /** Reports arguments that no command accepts. */
-export function invalidArguments(json: boolean, args: string[]) {
-  if (workflowArguments(args)) {
-    failure(
-      "parse_arguments",
-      "invalid_arguments",
-      "The command arguments are not supported.",
-      2,
-      json,
-      {
-        next: { command: "operator --help", why: "Read the supported command syntax." },
-      },
-    );
-    return;
-  }
-  if (json)
-    console.log(
-      JSON.stringify({
-        schemaVersion: 1,
-        operation: "parse_arguments",
-        outcome: "invalid",
-        reason: "invalid_arguments",
-        blockers: [{ reason: "invalid_arguments" }],
-      }),
-    );
-  console.error(usage);
-  process.exitCode = 2;
+export function invalidArguments(json: boolean, _args: string[]) {
+  failure(
+    "parse_arguments",
+    "invalid_arguments",
+    "The command arguments are not supported.",
+    2,
+    json,
+    {
+      next: { command: "operator --help", why: "Read the supported command syntax." },
+    },
+  );
 }

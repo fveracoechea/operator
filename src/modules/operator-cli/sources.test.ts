@@ -237,7 +237,16 @@ test("passes a wait to the coordination wait, which names its own result", async
     data: { sources: [] },
     next: { why: "No next actions to report." },
   });
-  called.wait.mockReturnValue(ErrAsync({ reason: "state_busy", detail: "busy" }) as never);
+  called.wait.mockReturnValue(
+    ErrAsync({
+      reason: "state_busy",
+      detail: "busy",
+      next: {
+        decider: "super-agent",
+        question: "When has the simulated state operation finished?",
+      },
+    }),
+  );
   await runSources(["next", "--wait", "--all"], paths, true);
   expect(called.wait).toHaveBeenLastCalledWith({
     paths,
@@ -252,7 +261,7 @@ test("passes a wait to the coordination wait, which names its own result", async
   });
   expect(error.mock.calls.map(([line]) => String(line))).toEqual([
     "operator: state_busy: busy",
-    "next: super-agent decides: How should state_busy be corrected before retrying next_wait?",
+    "next: super-agent decides: When has the simulated state operation finished?",
   ]);
   expect(process.exitCode).toBe(1);
   expect(called.next).not.toHaveBeenCalled();
@@ -416,28 +425,45 @@ test("prints a completed operation as compact JSON or as indented text", async (
   expect(log).toHaveBeenLastCalledWith(JSON.stringify(expected, null, 2));
 });
 
+const sourceRefusal = {
+  detail: "not pruned",
+  next: {
+    decider: "super-agent" as const,
+    question: "How should this simulated prune refusal be resolved?",
+  },
+};
 test.each([
-  ["invalid_source_plan", 2],
-  ["source_parent_open", 4],
-  ["controller_mismatch", 4],
-  ["controller_identity_mismatch", 4],
-  ["state_busy", 1],
-  ["state_io_failed", 1],
-  ["source_io_failed", 1],
-  ["source_prune_failed", 1],
-  ["project_io_failed", 1],
-  ["settings_io_failed", 1],
-  ["source_not_found", 3],
-])("refuses %s with exit code %d", async (reason, code) => {
-  spyOn(WorkSources, "prune").mockReturnValue(ErrAsync({ reason, detail: "not pruned" }) as never);
+  [{ ...sourceRefusal, reason: "invalid_source_plan", state: { inputValid: false } }, 2],
+  [{ ...sourceRefusal, reason: "source_parent_open" }, 4],
+  [{ ...sourceRefusal, reason: "controller_mismatch" }, 4],
+  [{ ...sourceRefusal, reason: "controller_identity_mismatch" }, 4],
+  [{ ...sourceRefusal, reason: "state_busy" }, 1],
+  [{ ...sourceRefusal, reason: "state_io_failed" }, 1],
+  [{ ...sourceRefusal, reason: "source_io_failed", state: { code: "EIO" } }, 1],
+  [{ ...sourceRefusal, reason: "source_prune_failed" }, 1],
+  [{ ...sourceRefusal, reason: "project_io_failed", state: { code: "EIO" } }, 1],
+  [{ ...sourceRefusal, reason: "settings_io_failed", state: { code: "EIO" } }, 1],
+  [{ ...sourceRefusal, reason: "source_not_found" }, 3],
+] as const)("refuses %j with exit code %d", async (refusal, code) => {
+  const { reason } = refusal;
+  const pruning = reason === "source_prune_failed";
+  if (reason === "source_prune_failed")
+    spyOn(WorkSources, "prune").mockReturnValue(ErrAsync(refusal));
+  else spyOn(WorkSources, "register").mockReturnValue(ErrAsync(refusal));
   const { log, error } = quiet();
-  expect(await runSources(["source", "prune"], paths, true)).toBe(true);
+  expect(
+    await runSources(
+      pruning ? ["source", "prune"] : ["source", "register", "--file", "plan.json"],
+      paths,
+      true,
+    ),
+  ).toBe(true);
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
-    operation: "source_prune",
+    operation: pruning ? "source_prune" : "source_register",
     reason,
   });
   expect(error).toHaveBeenCalledWith(`operator: ${reason}: not pruned`);
-  expect(error.mock.calls).toHaveLength(2);
+  expect(error.mock.calls).toHaveLength("state" in refusal ? 3 : 2);
   expect(process.exitCode).toBe(code);
 });
 

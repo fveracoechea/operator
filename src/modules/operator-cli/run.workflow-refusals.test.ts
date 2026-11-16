@@ -26,6 +26,16 @@ test("each listed workflow syntax refusal names help without writing or launchin
     ["obligation", "add"],
     ["cleanup"],
     ["internal-review", "skip"],
+    ["pr", "associate", "--unknown"],
+    ["review", "start"],
+    ["project", "move", "--unknown"],
+    ["config", "unknown"],
+    ["install"],
+    ["ready", "--unknown"],
+    ["herdr", "install", "--unknown"],
+    ["host", "models"],
+    ["claude", "hook", "--unknown"],
+    ["opencode", "hook", "--unknown"],
   ]) {
     const result = await device.run(args);
     expect(result.code).toBe(2);

@@ -46,7 +46,6 @@ EOF
 `axis` is `Spec`, `Standards`, or `Skills`, and `severity` is `blocker` or `nice-to-have`.
 For no findings, keep `## Findings` with no bullets.
 Keep each finding on one line. A malformed bullet reports its line number and the next command.
-The command refuses a file with any other shape, a third round, a second round at the head of the first, and a round after the review ended. A refusal records nothing.
 
 ## 3. Apply the valid findings
 
@@ -57,13 +56,12 @@ Keep each decision and each reason for the summary file in step 5.
 ## 4. Do a second round when you applied a blocker
 
 A round 1 blocker that you applied needs a second round at the new head, because the fix needs a review too.
-`operator pr ready` refuses with `internal_review_second_round_required` until that round exists.
-Push the fixes of round 1 first. `operator pr round` refuses round 2 at the head of round 1.
+Push the fixes of round 1 before recording round 2 at its new head.
 Give the second round to a fresh native subagent with the inputs from step 1, the round 1 findings, and no account of your own reasoning.
 Apply its valid findings as in step 3.
 If you declined every blocker of round 1, no second round is required. Give each reason in the summary file.
 
-The limit is two rounds, and `operator pr round` refuses a third. After round 2, continue to step 5.
+The limit is two rounds. After round 2, continue to step 5.
 
 ## 5. End the review with the ready step
 
@@ -88,8 +86,6 @@ JSON input is not accepted by either review command.
 Commit and push all work, then run `operator pr ready --file <file> --json` in your worktree.
 
 It posts one summary comment and then marks the PR ready. The CLI renders one line for each recorded finding with its axis, severity, and disposition, under your overview.
-It refuses, and changes nothing, for a summary that leaves out or repeats a finding, for a round 1 blocker that you applied without a round 2, and for a worktree that is unclean or not at the PR head. Fix the cause and run it again.
-After `github_uncertain`, run it again. It finds its earlier comment and posts no second one. If you pushed or recorded a round since, it updates that comment.
 Do not post the comment or mark the PR ready with `gh`.
 Write no line-level review comments and no other PR comments.
 
@@ -99,4 +95,4 @@ After the ready step, follow [pull-requests.md](pull-requests.md) from step 3 on
 During the review, a wait reports the draft's feedback and failing checks, and never `merge_eligible`.
 
 The person can skip a running review. The SuperAgent records the skip, which marks the PR ready with no comment.
-`operator pr round` and `operator pr ready` then refuse with `internal_review_ended`. Stop the review and continue with this step.
+After that skip, stop the review and continue with this step.

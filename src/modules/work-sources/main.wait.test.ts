@@ -228,7 +228,16 @@ test("a removed action leaves the stored set and wakes nobody", async () => {
 
 test("a failed write of the stored set ends the wait with its failure", async () => {
   const calls = device(addKeys([readyKey])(null), undefined, [running]);
-  calls.change.mockReturnValue(Err({ reason: "state_busy" as const, detail: "busy" }));
+  calls.change.mockReturnValue(
+    Err({
+      reason: "state_busy" as const,
+      detail: "busy",
+      next: {
+        decider: "super-agent",
+        question: "When has the simulated state operation finished?",
+      },
+    }),
+  );
   expect(await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 })).toMatchObject({
     tag: "Err",
     error: { reason: "state_busy" },
@@ -239,7 +248,16 @@ test("a failed write of the stored set ends the wait with its failure", async ()
 
 test("a refused read ends the wait with its refusal and releases the lease", async () => {
   const calls = device(null, undefined);
-  calls.read.mockReturnValueOnce(Err({ reason: "state_busy" as const, detail: "busy" }));
+  calls.read.mockReturnValueOnce(
+    Err({
+      reason: "state_busy" as const,
+      detail: "busy",
+      next: {
+        decider: "super-agent",
+        question: "When has the simulated state operation finished?",
+      },
+    }),
+  );
   expect(await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 })).toMatchObject({
     tag: "Err",
     error: { reason: "state_busy", detail: "busy" },
@@ -250,7 +268,16 @@ test("a refused read ends the wait with its refusal and releases the lease", asy
 
 test("a refused start records nothing and holds no lease", async () => {
   const calls = device(null, undefined);
-  calls.start.mockReturnValue(Err({ reason: "state_busy" as const, detail: "busy" }));
+  calls.start.mockReturnValue(
+    Err({
+      reason: "state_busy" as const,
+      detail: "busy",
+      next: {
+        decider: "super-agent",
+        question: "When has the simulated state operation finished?",
+      },
+    }),
+  );
   expect(await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 })).toMatchObject({
     tag: "Err",
     error: { reason: "state_busy" },
@@ -322,7 +349,14 @@ test("a registration acknowledges the actions of its new source", async () => {
 
 test("a failed acknowledgement keeps the command's result", async () => {
   acknowledged([running], [ready]).mockReturnValue(
-    Err({ reason: "state_busy" as const, detail: "busy" }),
+    Err({
+      reason: "state_busy" as const,
+      detail: "busy",
+      next: {
+        decider: "super-agent",
+        question: "When has the simulated state operation finished?",
+      },
+    }),
   );
   expect(
     await WorkSources.acknowledgeOwnChange(
@@ -335,7 +369,14 @@ test("a failed acknowledgement keeps the command's result", async () => {
 test("a failed read runs the command and acknowledges nothing", async () => {
   project();
   spyOn(DeviceState, "readSources").mockReturnValue(
-    Err({ reason: "state_busy" as const, detail: "busy" }),
+    Err({
+      reason: "state_busy" as const,
+      detail: "busy",
+      next: {
+        decider: "super-agent",
+        question: "When has the simulated state operation finished?",
+      },
+    }),
   );
   const acknowledge = spyOn(DeviceState, "acknowledgeCoordinationWaits");
   expect(
@@ -382,7 +423,11 @@ test("a covered source, work that waits only for dependencies, or no running wor
 });
 
 test("a supervision read failure is the unwatched read's failure", async () => {
-  const failure = { reason: "state_missing" as const, detail: "missing" };
+  const failure = {
+    reason: "state_missing" as const,
+    detail: "missing",
+    next: { command: "operator project register", why: "Initialize the test device explicitly." },
+  };
   spyOn(DeviceState, "readSupervision").mockReturnValue(Err(failure));
   expect(await WorkSources.unwatched({ paths, cwd: root, session: "ses-1" })).toMatchObject({
     tag: "Err",

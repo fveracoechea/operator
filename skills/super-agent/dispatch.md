@@ -3,7 +3,7 @@
 Run `operator herdr install --json` once per device.
 It writes one stable Herdr plugin manifest in device state and links it.
 Its hooks call the global `operator` command.
-It refuses to replace another plugin with the same id.
+Another installation's plugin with the same id stays unchanged.
 
 Dispatch a ready candidate from the registered controlling checkout:
 
@@ -12,8 +12,6 @@ operator dispatch --source <source-id> --assignment <key> --json
 ```
 
 Run it in a pane of the Herdr session that holds the project workspace.
-Outside a Herdr pane, dispatch refuses with `herdr_session_required`.
-`herdr_plugin_outdated` means that the linked manifest is from another release. Run `operator herdr install --json` again.
 Dispatch checks static readiness and the plugin, then resolves the assignment's start profile for this launch.
 Report work with `pane` resources gets a new tab in the project workspace and no worktree.
 Work with `worktree` resources gets a new Herdr worktree that Herdr places.

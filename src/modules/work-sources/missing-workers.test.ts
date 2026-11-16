@@ -97,7 +97,14 @@ test("an absent current socket cannot authorize a missing worker", async () => {
 });
 
 test("a failed pane query discards earlier missing observations", async () => {
-  const failure = { reason: "herdr_no_answer", detail: "No answer." } as const;
+  const failure = {
+    reason: "herdr_no_answer",
+    detail: "No answer.",
+    next: {
+      decider: "super-agent",
+      question: "How should the unconfirmed pane read be inspected?",
+    },
+  } as const;
   spyOn(Herdr, "pane").mockReturnValueOnce(OkAsync(null)).mockReturnValue(ErrAsync(failure));
   expect(
     await missingWorkers([worker, { ...worker, id: "launch-2", paneId: "w1:p2" }]),
@@ -105,7 +112,11 @@ test("a failed pane query discards earlier missing observations", async () => {
 });
 
 test("a failed agent query never authorizes retirement", async () => {
-  const failure = { reason: "herdr_invalid_response", detail: "Ambiguous names." } as const;
+  const failure = {
+    reason: "herdr_invalid_response",
+    detail: "Ambiguous names.",
+    next: { decider: "super-agent", question: "How should valid agent names be restored?" },
+  } as const;
   spyOn(Herdr, "agentNames").mockReturnValue(ErrAsync(failure));
   expect(await missingWorkers([worker])).toMatchObject({ tag: "Err", error: failure });
   expect(Herdr.pane).not.toHaveBeenCalled();

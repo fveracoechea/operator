@@ -64,7 +64,16 @@ test("missing, blocked, or unreadable state lets the turn end", async () => {
     "state_busy",
     "state_corrupt",
   ] as const) {
-    unwatched.mockReturnValueOnce(Err({ reason, detail: "unusable" }));
+    unwatched.mockReturnValueOnce(
+      Err({
+        reason,
+        detail: "unusable",
+        next: {
+          decider: "super-agent",
+          question: "How should the simulated state failure be corrected?",
+        },
+      }),
+    );
     expect(await AgentGuards.turnEnd(session)).toMatchObject({ tag: "Ok", value: null });
   }
 });

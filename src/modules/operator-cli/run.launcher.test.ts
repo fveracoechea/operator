@@ -106,7 +106,9 @@ test("the launcher command accepts only its JSON flag", async () => {
   ]) {
     const result = await run(args);
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain("operator install launcher [--json]");
+    expect(result.stderr).toBe(
+      "operator: invalid_arguments: The command arguments are not supported.\nnext: operator --help\n",
+    );
   }
   expect(await Bun.file(`${root}/bun-requests`).exists()).toBe(false);
 });

@@ -34,11 +34,11 @@ afterEach(() => {
 const person =
   "Only the person can authorize its deletion: repeat operator cleanup with --person-instructed on the person's instruction.";
 const cleanupDecision = {
-  decider: "super-agent",
+  decider: "super-agent" as const,
   question: "How should this cleanup failure be corrected without repeating an uncertain effect?",
 };
 const githubReadDecision = {
-  decider: "super-agent",
+  decider: "super-agent" as const,
   question:
     "How should the failed or unconfirmed GitHub read be corrected before this workflow continues?",
 };
@@ -346,7 +346,11 @@ test("only the recorded pane in the recorded Herdr session closes", async () => 
 test("a gone pane is absent and a Herdr failure fails the pane step", async () => {
   const owner = await mergedOwner();
   await using _ = owner.device;
-  const failure = { reason: "herdr_failed" as const, detail: "herdr exited 1" };
+  const failure = {
+    reason: "herdr_failed" as const,
+    detail: "herdr exited 1",
+    next: cleanupDecision,
+  };
   owner.herdr.pane.mockReturnValue(ErrAsync(failure));
   expect<unknown>(await cleanup(owner.request)).toEqual({
     tag: "Err",
@@ -642,7 +646,7 @@ test("an ignored entry that preparation cannot classify is unknown", async () =>
   await Bun.write(`${device.checkout}/.git/info/exclude`, "*.log\n");
   await Bun.write(`${owner.worktree}/debug.log`, "log\n");
   spyOn(WorktreePreparation, "classifyIgnored").mockReturnValue(
-    ErrAsync({ reason: "state_busy" as const, detail: "busy" }),
+    ErrAsync({ reason: "state_busy" as const, detail: "busy", next: cleanupDecision }),
   );
   expect<unknown>(await cleanup(owner.request)).toEqual(
     blocked(
@@ -694,7 +698,11 @@ test("a worktree with a Herdr workspace is removed through Herdr", async () => {
 test("a failed worktree removal fails the step", async () => {
   const owner = await mergedOwner();
   await using device = owner.device;
-  const failure = { reason: "herdr_failed" as const, detail: "herdr exited 1" };
+  const failure = {
+    reason: "herdr_failed" as const,
+    detail: "herdr exited 1",
+    next: cleanupDecision,
+  };
   owner.herdr.workspaces.mockReturnValue(ErrAsync(failure));
   expect<unknown>(await cleanup(owner.request)).toEqual({
     tag: "Err",
@@ -737,7 +745,7 @@ test("a failed worktree removal fails the step", async () => {
 test("a state write that fails stops the cleanup", async () => {
   const owner = await mergedOwner();
   await using device = owner.device;
-  const failure = { reason: "state_busy" as const, detail: "locked" };
+  const failure = { reason: "state_busy" as const, detail: "locked", next: cleanupDecision };
   const advance = spyOn(DeviceState, "advanceCleanup").mockReturnValue(Err(failure));
   expect<unknown>(await cleanup(owner.request)).toMatchObject({ tag: "Err", error: failure });
   expect(advance).toHaveBeenCalledTimes(1);
@@ -857,7 +865,7 @@ test("each recorded result releases the cleanup claim and the lease", async () =
     return [row?.state, row?.ownerPid];
   }
   owner.herdr.pane.mockReturnValue(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "herdr exited 1" }),
+    ErrAsync({ reason: "herdr_failed" as const, detail: "herdr exited 1", next: cleanupDecision }),
   );
   expect<unknown>(await cleanup(owner.request)).toMatchObject({ tag: "Err" });
   expect(claim()).toEqual(["failed", null]);

@@ -123,7 +123,14 @@ test("an event that is not Claude Code hook JSON is refused", async () => {
   ])
     expect(await ClaudeHook.answer({ event: input, paths })).toMatchObject({
       tag: "Err",
-      error: { reason: "claude_hook_event_invalid" },
+      error: {
+        reason: "claude_hook_event_invalid",
+        next: {
+          decider: "super-agent",
+          question: "Which valid Claude Code hook event should this invocation receive?",
+        },
+        state: { eventValid: false },
+      },
     });
 });
 
@@ -182,7 +189,16 @@ test.each([
   try {
     expect(await ClaudeHook.install({ paths, check: false })).toMatchObject({
       tag: "Err",
-      error: { reason: "claude_settings_io_failed", detail: "Error: failed" },
+      error: {
+        reason: "claude_settings_io_failed",
+        detail: "Error: failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the Claude Code settings IO failure be corrected without replacing its contents?",
+        },
+        state: { code },
+      },
     });
   } finally {
     spy.mockRestore();

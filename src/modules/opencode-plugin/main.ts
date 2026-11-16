@@ -40,6 +40,11 @@ export const OpenCodePlugin = {
         cause instanceof SyntaxError || cause instanceof z.ZodError
           ? {
               reason: "opencode_hook_event_invalid" as const,
+              next: {
+                decider: "super-agent" as const,
+                question: "Which valid OpenCode plugin event should this invocation receive?",
+              },
+              state: { eventValid: false },
               // Stryker disable next-line StringLiteral: no rule: the diagnostic wording is not a promised result
               detail: "The OpenCode plugin did not describe a hook event.",
             }
@@ -84,7 +89,16 @@ export const OpenCodePlugin = {
           "EEXIST",
           "ELOOP",
         ].includes(cause.code)
-          ? { reason: "opencode_plugin_io_failed" as const, detail: String(cause) }
+          ? {
+              reason: "opencode_plugin_io_failed" as const,
+              detail: String(cause),
+              next: {
+                decider: "super-agent" as const,
+                question:
+                  "How should the OpenCode plugin IO failure be corrected without replacing external contents?",
+              },
+              state: { code: cause.code },
+            }
           : defect(cause),
     ).flatMap((outcome) => ("detail" in outcome ? Err(outcome) : Ok(outcome.reason)));
   },
