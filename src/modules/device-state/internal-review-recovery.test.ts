@@ -4,6 +4,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 // Bun has no temporary-directory creation or synchronous recursive removal API.
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fromPromise } from "unthrown";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
@@ -499,7 +501,7 @@ test.each([false, true])(
     using client = fixture();
     client.exec("UPDATE launches SET pane_id = 'worker-pane', herdr_socket = 'test-socket'");
     expect(recoverInternalReview(client, input)).toMatchObject({ tag: "Ok" });
-    const root = mkdtempSync("/tmp/opencode/review-routing/message-lifecycle-");
+    const root = mkdtempSync(path.join(tmpdir(), "operator-message-lifecycle-"));
     try {
       const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
       mkdirSync(paths.stateRoot, { recursive: true });
