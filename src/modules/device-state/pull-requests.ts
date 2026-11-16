@@ -53,6 +53,7 @@ export function worktreeOwners(client: Database) {
           pullRequest: pullRequests.number,
           relay: pullRequests.relay,
           internalReview: launches.internalReview,
+          kind: launches.kind,
           reviewState: internalReviews.state,
           implementerLaunchId: internalReviews.implementerLaunchId,
         })

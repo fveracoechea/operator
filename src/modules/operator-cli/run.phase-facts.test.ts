@@ -328,12 +328,12 @@ test.each(["unavailable", "no-answer", "failed"] as const)(
       state: { worktree_clean: false },
     });
     expect(associate).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(4);
+    expect(process.exitCode).toBe(3);
   },
 );
 
 test.each(["unavailable", "no-answer", "failed"] as const)(
-  "a %s local head cannot prove readiness",
+  "an unavailable cached head (%s) does not preempt the canonical merge observation",
   async (failure) => {
     required(source.pullRequests.find((row) => row.assignment === "pr")).progress = JSON.stringify({
       seen: [],
@@ -349,16 +349,14 @@ test.each(["unavailable", "no-answer", "failed"] as const)(
     const merge = spyOn(PullRequests, "merge").mockReturnValue(
       OkAsync({ reason: "pr_merged", data: {} }) as never,
     );
-    expect(await run(["pr", "merge"])).toMatchObject({
-      reason: "pr_not_ready",
-      state: { pr_ready: false },
-    });
-    expect(merge).not.toHaveBeenCalled();
+    expect(await run(["pr", "merge"])).toMatchObject({ reason: "pr_merged" });
+    expect(merge).toHaveBeenCalledTimes(1);
+    expect(ToolInvocation.run).not.toHaveBeenCalled();
   },
 );
 
 test.each(["unavailable", "no-answer"] as const)(
-  "an unfinished %s result cannot reuse an exit code or stale output",
+  "an unfinished %s status cannot prove association, and merge owns its current observations",
   async (failure) => {
     const stale =
       failure === "unavailable"
@@ -397,24 +395,18 @@ test.each(["unavailable", "no-answer"] as const)(
     const merge = spyOn(PullRequests, "merge").mockReturnValue(
       OkAsync({ reason: "pr_merged", data: {} }) as never,
     );
-    expect(await run(["pr", "merge"])).toMatchObject({
-      reason: "pr_not_ready",
-      state: { pr_ready: false },
-    });
-    expect(merge).not.toHaveBeenCalled();
+    expect(await run(["pr", "merge"])).toMatchObject({ reason: "pr_merged" });
+    expect(merge).toHaveBeenCalledTimes(1);
   },
 );
 
-test("missing local and eligible heads do not count as matching readiness evidence", async () => {
+test("missing cached heads do not prevent the canonical lifecycle from verifying a merge", async () => {
   head = { status: "no-answer", detail: "interrupted" };
   const merge = spyOn(PullRequests, "merge").mockReturnValue(
     OkAsync({ reason: "pr_merged", data: {} }) as never,
   );
-  expect(await run(["pr", "merge"])).toMatchObject({
-    reason: "pr_not_ready",
-    state: { pr_ready: false },
-  });
-  expect(merge).not.toHaveBeenCalled();
+  expect(await run(["pr", "merge"])).toMatchObject({ reason: "pr_merged" });
+  expect(merge).toHaveBeenCalledTimes(1);
 });
 
 test("a recorded merge ends the worker tail", async () => {

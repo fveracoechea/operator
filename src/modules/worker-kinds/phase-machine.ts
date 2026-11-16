@@ -7,7 +7,15 @@ export type PhaseGuard =
   | "pr_ready"
   | "worktree_clean"
   | "pr_merged";
-export type PhaseEvent = "submit" | "resume" | "associate" | "round" | "ready" | "wait" | "merge";
+export type PhaseEvent =
+  | "submit"
+  | "resume"
+  | "associate"
+  | "round"
+  | "ready"
+  | "wait"
+  | "observe-merge"
+  | "merge";
 export type PhaseFacts = {
   kind: {
     name: string;
@@ -117,6 +125,7 @@ const exits: Record<PhaseEvent, PhaseGuard[]> = {
   round: ["pr_associated"],
   ready: ["pr_associated", "round_recorded", "worktree_clean"],
   wait: ["pr_associated"],
+  "observe-merge": ["pr_associated"],
   merge: ["pr_associated", "pr_ready", "worktree_clean"],
 };
 const reasons: Record<PhaseGuard, string> = {

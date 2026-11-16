@@ -5,7 +5,7 @@ import { WorkerKinds } from "../worker-kinds/main.ts";
 import { PullRequests } from "../pull-requests/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { z } from "zod";
-import { failure, withOutputContext } from "./output.ts";
+import { exitCodeOf, failure, withOutputContext } from "./output.ts";
 import { runProfiles } from "./profiles.ts";
 import { runSkills } from "./skills.ts";
 import { runLauncher } from "./launcher.ts";
@@ -13,7 +13,7 @@ import { runReadiness } from "./readiness.ts";
 import { runSources } from "./sources.ts";
 import { runDispatch } from "./dispatch.ts";
 import { runAsk } from "./ask.ts";
-import { pullRequestArgs, runPullRequests } from "./pull-requests.ts";
+import { pullRequestArgs, pullRequestExitCodes, runPullRequests } from "./pull-requests.ts";
 import { reportArgs, runReports } from "./reports.ts";
 import { runQuestions } from "./questions.ts";
 import { runMessages } from "./messages.ts";
@@ -37,7 +37,7 @@ function eventOf(args: string[]): Event | undefined {
   if (pr === "pr_round") return "round";
   if (pr === "pr_ready") return "ready";
   if (pr === "pr_wait") return "wait";
-  if (pr === "pr_merge") return "merge";
+  if (pr === "pr_merge") return "observe-merge";
   if (report === "submit" || report === "resume") return report;
   return undefined;
 }
@@ -146,7 +146,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   if (selected === null) return run();
   let clean = true;
   let head: string | null = null;
-  if (selected.launch.worktreePath !== null) {
+  if (selected.launch.worktreePath !== null && event !== "observe-merge") {
     const status = await ToolInvocation.run({
       tool: "git",
       args: ["status", "--porcelain"],
@@ -180,7 +180,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
           `${args[0]}_${args[1]}`,
           phase.refusal.reason,
           phase.refusal.detail,
-          4,
+          exitCodeOf(phase.refusal.reason, pullRequestExitCodes),
           args.includes("--json"),
           { ...phase, state: phase.refusal.state },
         );

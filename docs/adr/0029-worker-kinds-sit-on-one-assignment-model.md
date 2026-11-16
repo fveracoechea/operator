@@ -41,12 +41,16 @@ The spec calls both loops bounded but specifies no numeric report-return limit o
 No numeric report-return limit is inferred from the PR limit.
 The PR tail associates a PR, records at most two review rounds, becomes ready, handles feedback, and ends at merge or park.
 Report acceptance and the PR merge gate remain separate lifecycle decisions.
-Before explicit ready-transition records exist, a compatibility adapter requires recorded readiness evidence for the same head.
+Before explicit ready-transition records exist, a kind-declared work-phase readiness guard requires recorded evidence for the same head.
 It uses a ready or skipped review, or an eligible-head observation that passed the non-draft and merge checks.
 Association without internal review does not itself prove readiness.
 Missing or stale evidence remains unknown and sends the owner to its PR wait.
 An ended review stays in feedback after a newer head, without reopening review rounds or the ready step.
-The final merge gate still refreshes its independent live checks.
+The canonical merge lifecycle gathers the current GitHub and local facts once.
+Observing an associated PR does not require a historical eligibility receipt or a clean worktree.
+An already merged PR takes verification and cleanup, without requesting a new merge.
+A new merge requires the fresh merge gate to prove readiness, then the phase machine checks worktree cleanliness.
+Cleanup independently retains unlanded work until the person authorizes its removal.
 
 For unguarded work, the phase in a result names the command frontier: the last declared work phase before the tail.
 It does not claim that earlier reasoning is complete.

@@ -80,7 +80,7 @@ test("tail decisions include their complete next-action contract", () => {
   });
 });
 
-test.each(["round", "wait", "ready", "merge"] as const)(
+test.each(["round", "wait", "ready", "observe-merge", "merge"] as const)(
   "%s refuses before PR association",
   (event) => {
     expect(decidePhase(prFacts(), event)).toEqual({
@@ -95,6 +95,19 @@ test.each(["round", "wait", "ready", "merge"] as const)(
     });
   },
 );
+
+test("observing a merge needs association but defers readiness and cleanliness to current facts", () => {
+  const facts = prFacts();
+  facts.pr.associated = true;
+  facts.worktreeClean = false;
+  expect(decidePhase(facts, "observe-merge").refusal).toBeUndefined();
+  expect(decidePhase(facts, "merge")).toMatchObject({
+    refusal: { reason: "pr_not_ready", state: { pr_ready: false } },
+  });
+  expect(decidePhase({ ...facts, pr: { ...facts.pr, ready: true } }, "merge")).toMatchObject({
+    refusal: { reason: "pr_worktree_unclean", state: { worktree_clean: false } },
+  });
+});
 
 test.each(["associate", "ready", "merge"] as const)("%s requires a clean worktree", (event) => {
   const facts = prFacts();

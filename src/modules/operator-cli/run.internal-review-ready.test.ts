@@ -556,16 +556,16 @@ ${overview}
   expect(owner).toContain(`The internal review of PR #7 ended ready at \`${third}\`.`);
   expect(owner).not.toContain("You are the internal reviewer");
   const pane = (await shown(source)).launches.at(-1)?.paneId ?? "";
-  await commit(reviewer, "after-ready.txt");
+  const afterReady = await commit(reviewer, "after-ready.txt");
   expect(await run(["--version"], reviewer, undefined, pane)).toMatchObject({
     output: { phase: "feedback", next: { command: "operator pr wait" } },
   });
   expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
     output: {
-      reason: "pr_not_ready",
+      reason: "pr_head_mismatch",
       phase: "feedback",
-      next: { command: "operator pr wait" },
-      state: { pr_ready: false },
+      next: { decider: "super-agent" },
+      state: { localHead: afterReady, prHead: third },
     },
   });
 }, 180000);
@@ -799,15 +799,26 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
       data: { mergeConditions: { reviewEnded: true } },
     },
   });
-  await commit(reviewer, "after-skip.txt");
+  await github({
+    pulls: [
+      pull({
+        head,
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  const afterSkip = await commit(reviewer, "after-skip.txt");
   expect(await run(["--version"], reviewer, undefined, pane)).toMatchObject({
     output: { phase: "feedback", next: { command: "operator pr wait" } },
   });
   expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
     output: {
-      reason: "pr_not_ready",
-      next: { command: "operator pr wait" },
-      state: { pr_ready: false },
+      reason: "pr_head_mismatch",
+      phase: "feedback",
+      next: { decider: "super-agent" },
+      state: { localHead: afterSkip, prHead: head },
     },
   });
 }, 180000);

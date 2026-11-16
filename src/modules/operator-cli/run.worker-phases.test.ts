@@ -125,6 +125,7 @@ test("a phase exit command refuses until its guard holds, and names the next com
   expect(worker.worktreePath).not.toBeNull();
   const cwd = worker.worktreePath ?? "";
   const options = { pane: worker.paneId, cwd };
+  const head = (await device.exec(["git", "rev-parse", "HEAD"], cwd)).stdout.trim();
   for (const command of [
     ["round", "--file", "missing.json"],
     ["wait", "--timeout", "0"],
@@ -157,6 +158,7 @@ test("a phase exit command refuses until its guard holds, and names the next com
           headRefName: "task/build",
           headRepository: "example/one",
           state: "OPEN",
+          head,
         },
       ],
     }),
@@ -187,11 +189,10 @@ test("a phase exit command refuses until its guard holds, and names the next com
     next: { command: "operator pr wait" },
   });
   expect((await device.run(["pr", "merge"], options)).output).toMatchObject({
-    reason: "pr_not_ready",
+    reason: "pr_merge_blocked",
     next: { command: "operator pr wait" },
-    state: { pr_ready: false },
+    state: { conditions: { approved: false, checksPassing: false } },
   });
-  const head = (await device.exec(["git", "rev-parse", "HEAD"], cwd)).stdout.trim();
   const pull = {
     number: 7,
     url: "https://github.com/example/one/pull/7",
@@ -207,8 +208,8 @@ test("a phase exit command refuses until its guard holds, and names the next com
     reason: "pr_wait_timed_out",
   });
   expect((await device.run(["pr", "merge"], options)).output).toMatchObject({
-    reason: "pr_not_ready",
-    state: { pr_ready: false },
+    reason: "pr_merge_blocked",
+    state: { conditions: { notDraft: false } },
   });
   await Bun.write(github, JSON.stringify({ pulls: [{ ...pull, isDraft: false }] }));
   expect((await device.run(["pr", "wait", "--timeout", "0"], options)).output).toMatchObject({
@@ -220,13 +221,15 @@ test("a phase exit command refuses until its guard holds, and names the next com
   expect((await device.run(["pr", "merge"], options)).output).toMatchObject({
     reason: "pr_merge_blocked",
   });
+  await Bun.write(github, JSON.stringify({ pulls: [{ ...pull, isDraft: false }] }));
   expect((await device.exec(["git", "commit", "--allow-empty", "-m", "new head"], cwd)).code).toBe(
     0,
   );
+  const localHead = (await device.exec(["git", "rev-parse", "HEAD"], cwd)).stdout.trim();
   expect((await device.run(["pr", "merge"], options)).output).toMatchObject({
-    reason: "pr_not_ready",
-    next: { command: "operator pr wait" },
-    state: { pr_ready: false },
+    reason: "pr_head_mismatch",
+    next: { decider: "super-agent" },
+    state: { localHead, prHead: head },
   });
   expect(await Bun.file(github).json()).not.toHaveProperty("mergeRequests");
 });
@@ -354,7 +357,7 @@ test("a typed PR worktree enforces phase guards without a registered caller pane
   await Bun.write(`${cwd}/pending.txt`, "uncommitted");
   const refused = await device.run(["pr", "associate"], { cwd });
   expect(refused).toMatchObject({
-    code: 4,
+    code: 3,
     output: {
       reason: "pr_worktree_unclean",
       kind: "implementation",

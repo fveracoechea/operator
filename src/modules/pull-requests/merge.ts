@@ -2,6 +2,7 @@ import { ErrAsync, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import {
   mergePullRequest,
   observePullRequest,
@@ -146,11 +147,38 @@ function guarded(
   });
   if (decision.result === "refused") return ErrAsync<Failure>(decision);
   if (decision.result === "verify") return verify(input, owner, number, null, null);
-  // A refused or lost answer can follow a merge that landed, so every answer is verified.
   return fromPromise(async () => {
+    const phase = await mergePhase(owner);
+    if (phase !== null) return ErrAsync<Failure>(phase);
+    // A refused or lost answer can follow a merge that landed, so every answer is verified.
     const refused = await requestMerge(owner.repository, number, decision);
     return await verify(input, owner, number, decision.head, refused);
   }, qualify).flatMap((result) => result);
+}
+
+/** A current successful merge decision proves readiness; an existing merge needs no exit. */
+async function mergePhase(owner: Owner): Promise<Failure | null> {
+  if (owner.kind === null) return null;
+  const status = await ToolInvocation.run({
+    tool: "git",
+    args: ["status", "--porcelain"],
+    cwd: owner.worktreePath,
+    timeoutMs: 10000,
+  });
+  const phase = WorkerKinds.decidePhase(
+    {
+      kind: WorkerKinds.snapshotSchema().parse(JSON.parse(owner.kind)),
+      report: null,
+      pr: { associated: true, rounds: 0, ready: true, merged: false, parked: false },
+      internalReview: owner.internalReview === true,
+      reviewEnded: reviewEnded(owner),
+      worktreeClean: status.status === "completed" && status.exitCode === 0 && status.stdout === "",
+    },
+    "merge",
+  );
+  return phase.refusal === undefined
+    ? null
+    : { ...phase.refusal, next: phase.next, kind: phase.kind, phase: phase.phase };
 }
 
 type Answer = Awaited<ReturnType<typeof mergePullRequest>>;

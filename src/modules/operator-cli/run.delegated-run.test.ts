@@ -79,7 +79,11 @@ async function git(cwd: string, ...args: string[]) {
 
 type Pull = Record<string, unknown> & { number: number };
 async function github(
-  change: (state: { pulls: Pull[]; branches: Record<string, string> }) => void,
+  change: (state: {
+    pulls: Pull[];
+    branches: Record<string, string>;
+    cleanupHold?: boolean;
+  }) => void,
 ) {
   const file = Bun.file(`${(device as Device).root}/github.json`);
   const state = (await file.exists())
@@ -151,8 +155,26 @@ async function workPullRequest(key: string, worktree: string, options: { leaveNo
   });
   const eligible = resultSchema.parse((await run(["pr", "wait", "--timeout", "0"])).output);
   expect(eligible.data?.events).toContainEqual(expect.objectContaining({ kind: "merge_eligible" }));
-  if (options.leaveNotes) await Bun.write(`${worktree}/notes.txt`, "unlanded\n");
+  if (options.leaveNotes) {
+    await github((state) => {
+      state.cleanupHold = true;
+    });
+  }
   expect(await run(["pr", "merge"])).toMatchObject({ code: 0, output: { reason: "pr_merged" } });
+  if (options.leaveNotes) {
+    // Write after the clean merge, while cleanup is held before its worktree inspection.
+    const root = device?.root ?? expect.unreachable("The isolated device must exist.");
+    const deadline = Date.now() + 30000;
+    while (!(await Bun.file(`${root}/cleanup-held`).exists())) {
+      expect(Date.now()).toBeLessThan(deadline);
+      await Bun.sleep(20);
+    }
+    await Bun.write(`${worktree}/notes.txt`, "unlanded\n");
+    await github((state) => {
+      state.cleanupHold = false;
+    });
+    await Bun.write(`${root}/cleanup-release`, "");
+  }
 }
 
 const report = {

@@ -429,6 +429,26 @@ test("a PR that GitHub treats as stacked merges at its head and is verified", as
   expect(await settled(source)).toMatchObject({ state: "done" });
 }, 90000);
 
+test("a new merge refuses uncommitted work even when current GitHub checks pass", async () => {
+  const source = await setup("opencode");
+  const worker = await openPullRequest(source);
+  await Bun.write(`${worker.worktreePath}/pending.txt`, "Keep.\n");
+  const before = await Bun.file(database()).arrayBuffer();
+  expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
+    code: 3,
+    output: {
+      reason: "pr_worktree_unclean",
+      kind: "implementation",
+      phase: "feedback",
+      next: { command: "git status --short" },
+      state: { worktree_clean: false },
+    },
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
+  expect(await Bun.file(`${worker.worktreePath}/pending.txt`).text()).toBe("Keep.\n");
+}, 90000);
+
 test("a draft PR is never eligible and never merges", async () => {
   const source = await setup("opencode");
   const worker = await openPullRequest(source, { ...eligible, isDraft: true });
@@ -517,6 +537,30 @@ test("a PR that the person merged on GitHub is verified without another merge re
   expect(next.output).toMatchObject({
     data: { sources: [{ state: "finished", actions: [{ action: "source_ended" }], waits: [] }] },
   });
+}, 90000);
+
+test("an already merged PR starts cleanup without discarding uncommitted work", async () => {
+  const source = await setup("opencode", ["implement"]);
+  const owner = await openPullRequest(source, { reviewDecision: "REVIEW_REQUIRED" });
+  const file = `${owner.worktreePath}/pending.txt`;
+  await Bun.write(file, "Keep this uncommitted work.\n");
+  await github({ queue: [{ state: "MERGED", mergeCommit: "person-merge" }] });
+  expect(await run(["pr", "merge"], owner.worktreePath)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "pr_merged",
+      kind: "implementation",
+      phase: "complete",
+      data: { mergeCommit: "person-merge" },
+    },
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  expect(await settled(source)).toMatchObject({
+    state: "blocked",
+    reason: "cleanup_unlanded_work",
+  });
+  expect(await Bun.file(file).text()).toBe("Keep this uncommitted work.\n");
+  expect(await exists(owner.worktreePath)).toBe(true);
 }, 90000);
 
 test("PR observations consume and persist each queued change before a no-op read", async () => {
@@ -626,6 +670,8 @@ test("unlanded work and unknown ignored content stay until the person instructs 
   await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
   await Bun.write(`${worker.worktreePath}/.env.backup`, "ignored but unknown\n");
   await Bun.write(`${worker.worktreePath}/.env.local`, "TOKEN=changed\n");
+  // GitHub already merged the landed head; local unlanded work still needs cleanup protection.
+  await github({ queue: [{ state: "MERGED", mergeCommit: `merge-${worker.head}` }] });
   expect((await run(["pr", "merge"], worker.worktreePath)).code).toBe(0);
   const blocked = await settled(source);
   expect(blocked).toMatchObject({
@@ -764,7 +810,10 @@ test("the person's instruction covers only the blocked step that the person read
   const source = await setup("opencode");
   const worker = await openPullRequest(source);
   await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
-  await github({ branches: { [branch]: "pushed-after-merge" } });
+  await github({
+    branches: { [branch]: "pushed-after-merge" },
+    queue: [{ state: "MERGED", mergeCommit: `merge-${worker.head}` }],
+  });
   expect((await run(["pr", "merge"], worker.worktreePath)).code).toBe(0);
   const blocked = await settled(source);
   expect(blocked).toMatchObject({ step: "remote_branch", state: "blocked" });
