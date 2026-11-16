@@ -125,6 +125,7 @@ test.each([
   if (result.tag !== "Err") return expect.unreachable("invalid summary accepted");
   expect(result.error.detail).toContain("JSON is not accepted.");
   if (!("next" in result.error)) return expect.unreachable("missing next command");
+  if (!("why" in result.error.next)) return expect.unreachable("missing command explanation");
   expect(result.error.next.why).toMatch(/\S/);
 });
 

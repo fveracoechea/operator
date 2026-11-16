@@ -2,8 +2,9 @@ import { isCodedError } from "../../lib/coded-error.ts";
 import { realPathOrNull } from "../../lib/real-path.ts";
 // Bun has no realpath API.
 import { realpath } from "node:fs/promises";
-import { Err, Ok, fromPromise } from "unthrown";
+import { Err, ErrAsync, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
+import { Environment } from "../environment/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
@@ -115,7 +116,67 @@ async function find(paths: Paths, cwd: string, owners: Owners): Promise<Owner | 
       };
 }
 
-export function resolveOwner(input: { paths: Paths; cwd: string }) {
+type Selector = { sourceId: string; assignment: string };
+
+/** A selector never changes ownership; only the recorded supervising session may use it. */
+function selectedOwner(input: { paths: Paths; cwd: string } & Selector) {
+  return Projects.current(input).flatMap(({ data: project }) =>
+    DeviceState.readSupervisor(input.paths, project.repository, input.sourceId)
+      .toAsync()
+      .flatMap((supervisor) => {
+        const caller = Environment.caller();
+        return supervisor.session !== null && supervisor.session === caller.session
+          ? Ok(project)
+          : Err({
+              reason: "source_supervised_elsewhere",
+              detail: `Only the recorded supervising session may select delivery for source ${input.sourceId}. ${nothing}`,
+              next: {
+                decider: "super-agent" as const,
+                question: "Which recorded supervising session owns delivery for this source?",
+              },
+            });
+      })
+      .flatMap((project) =>
+        DeviceState.worktreeOwners(input.paths)
+          .toAsync()
+          .flatMap((owners) => {
+            const owner = owners.find(
+              (row) =>
+                row.repository === project.repository &&
+                row.sourceId === input.sourceId &&
+                row.assignment === input.assignment,
+            );
+            if (owner?.worktreePath === null || owner === undefined)
+              return Err({
+                reason: "pr_worktree_unrecorded",
+                detail: `Assignment ${input.assignment} has no recorded PR worktree. ${nothing}`,
+                next: {
+                  decider: "super-agent" as const,
+                  question:
+                    "How should this assignment's recorded worktree be recovered without discarding work?",
+                },
+              });
+            const worktree = owner.worktreePath;
+            return fromPromise(() => find(input.paths, worktree, [owner]), qualify).flatMap(
+              (found) => ("reason" in found ? Err(found) : Ok(found)),
+            );
+          }),
+      ),
+  );
+}
+
+export function resolveOwner(input: { paths: Paths; cwd: string } & Partial<Selector>) {
+  if ((input.sourceId === undefined) !== (input.assignment === undefined))
+    return ErrAsync({
+      reason: "pr_selector_invalid",
+      detail: `Supply both source and assignment for selected delivery. ${nothing}`,
+      next: {
+        decider: "super-agent" as const,
+        question: "Which source and assignment should this delivery select?",
+      },
+    });
+  if (input.sourceId !== undefined && input.assignment !== undefined)
+    return selectedOwner({ ...input, sourceId: input.sourceId, assignment: input.assignment });
   return DeviceState.worktreeOwners(input.paths)
     .toAsync()
     .flatMap((owners) =>

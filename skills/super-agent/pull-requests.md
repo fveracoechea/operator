@@ -7,7 +7,7 @@ Association moves the assignment to `pr-open`, which permits dependent assignmen
 A dependent PR assignment starts on the open parent PR's branch and targets that branch.
 After the parent merges, the child owner's wait relays the child onto the default branch. `next` shows the PR's `stack` with its parent and relay state.
 A PR assignment with several open parent PRs waits with `dependencies_pending` until all but one merge.
-The relay and the owner's `operator pr merge` own every rebase, push, base change, and merge of a stack.
+The relay and the guarded merge own every rebase, push, base change, and merge of a stack.
 Use `gh stack view --json` only to read a stack. Run no other `gh stack` command, and ask no owner to run one.
 
 `next` shows each PR with its number, URL, and last wait state.
@@ -26,7 +26,37 @@ Your coordination wait returns `pr_wait_timed_out`, `pr_wait_stopped`, and `pr_o
 Dispatch refuses a replacement with `pr_worktree_missing` when the PR's worktree is gone. Ask the person how to recover it.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
-A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
+A `merge_eligible` report is not a merge. Use the guarded delivery path below, which checks GitHub again.
+
+## Guarded delivery
+
+The owner can still run `operator pr merge --json` from its recorded worktree.
+For an idle owner, the exact recorded supervising session can instead run:
+
+```sh
+operator pr merge --source <id> --assignment <key> --json
+```
+
+This command delivers the assignment's recorded PR through the same SHA-pinned, audited merge path.
+It does not transfer PR ownership or authorize code changes by the SuperAgent.
+The owner must be recorded idle, with no live PR wait, relay, or delivery job.
+Another session, including a new session in the same pane, has no delivery authority.
+If the owner is active, steer it to finish its feedback loop instead.
+
+Every delivery must pass the [owner's merge gate](../worker-agent/pull-requests.md#merge), including fresh genuine GitHub approval.
+A chat approval, a report, or a prior eligibility result never supplies that approval.
+Open source-wide merge holds block delivery, as [obligations.md](obligations.md) describes.
+
+Operator claims delivery atomically and records its actor, head, and provenance.
+Live waits and relays block the claim; waits respect delivery locks rather than starting a competing relay.
+Handle a refusal through its named next step. Never bypass this path with `gh` or another merge command.
+Verified delivery starts the unchanged guarded cleanup below.
+
+## Bounded correction validation
+
+After internal review ends, delegate bounded corrections and their validation to the PR owner.
+Use the [owner's validation procedure](../worker-agent/pull-requests.md#validate-bounded-corrections) when the head differs from the reviewed ready head.
+Read its separate validated-head evidence for delivery; leave the established review unchanged.
 
 ## Adopt an open PR
 
@@ -34,7 +64,16 @@ Hand an open PR that Operator did not create to a PR owner. Never carry it yours
 Add a PR assignment with `adopt` set to the PR number and `branch` set to its head branch, in a new plan:
 
 ```json
-{ "key": "pr-2164", "trackerKey": "github:org/repo#2164", "instructions": "Carry PR #2164 through its review to the merge.", "kind": "implementation", "resources": "worktree", "branch": "feat/chat-link-widgets", "adopt": 2164, "dependencies": [] }
+{
+  "key": "pr-2164",
+  "trackerKey": "github:org/repo#2164",
+  "instructions": "Carry PR #2164 through its review to the merge.",
+  "kind": "implementation",
+  "resources": "worktree",
+  "branch": "feat/chat-link-widgets",
+  "adopt": 2164,
+  "dependencies": []
+}
 ```
 
 Dispatch reads the PR, puts the branch at the PR head in a new worktree, and starts the owner.

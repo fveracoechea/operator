@@ -9,6 +9,7 @@ Adds a draft condition to the ADR-0010 merge gate and moves the start of the ADR
 Amended 2026-11-04 in #305 with the answers to its open questions, below.
 Amended 2026-11-11: an adopted PR that is ready for review gets no internal review, whatever the setting (ADR-0024).
 Implemented: the draft merge condition in #316, the handoff and rounds in #324, and the ready step, summary comment, and skip in #328.
+Amended 2026-11-15 in #414: bounded corrections after review require separate current-head validation, without reopening rounds or replacing GitHub approval.
 
 ## Context
 
@@ -68,6 +69,17 @@ The reviewer writes its text to the person's writing rules, and the CLI checks t
 Declined findings appear in that comment, not in the PR body, because the comment is the one public trace of the internal review and the body stays an account of the change.
 No line-level threads or other review comments are posted.
 
+### Bounded corrections after review
+
+An ended review stays ended when its owner makes bounded corrections.
+The owner records the correction scope and targeted validation evidence separately from established rounds and the original reviewed ready head.
+Validation requires a clean pushed current open PR, passing current CI, and the reviewed ready head as an ancestor.
+A current head different from the reviewed ready head requires validation at that head before merge.
+Later head changes require validation again, because earlier evidence does not describe the new head.
+A third broad review is not required solely because bounded corrections followed the ended review.
+This preserves the two-round limit and the original review evidence without treating later changes as already reviewed.
+Fresh genuine GitHub approval remains independent and cannot be inferred from chat or correction evidence.
+
 ### Lifecycle and gates
 
 The internal review is a separate lifecycle of a PR assignment, owned by the module that owns PR associate, ready, and merge.
@@ -120,6 +132,7 @@ The evidence is the accepted review of 36 phase 1 PRs in two repositories, from 
 - GitHub shows a draft PR before the review ends, so watchers and CI see work before it is reviewed, but no line-level comments appear.
 - The reviewer checks code that it wrote, so the second round's fresh subagent and the person's approval carry the independent check of those fixes.
 - The two-round limit can leave a declined or open finding, which the summary comment shows to the person rather than a third round.
+- Correction validation adds current-head evidence without rewriting what the internal review originally established.
 - During the skill-only phase, the handoff looked like an interrupted worker in next actions, and the limits were not enforced. The CLI handoff shows it as a wait, and the round command enforces the round limits.
 - An associate that runs before the work is finished ends the implementer's session, so association means that the implementer is done.
 
@@ -133,5 +146,6 @@ The evidence is the accepted review of 36 phase 1 PRs in two repositories, from 
 - A review before any PR exists, gated at associate, was replaced by the draft PR, because the draft supplies a stable head, CI, and the existing PR wait.
 - Declined findings in the PR body were rejected because the body describes the change, and a check on it would need to parse prose that the owner edits.
 - Holding dependents until the draft is ready was rejected because dependents already start on an open PR that feedback still changes.
+- Reopening broad review after every bounded correction was rejected because it removes the review's end without preserving distinct correction evidence.
 
 Related: ADR-0003, the internal-review lifecycle; ADR-0010, the PR owner, the merge gate, and stacked starts; ADR-0011, the reviewer reopens the recorded worktree; ADR-0013, a replacement keeps unlanded work; ADR-0014, launch-time resolution; ADR-0015, the assignment reviewer starts at ready; ADR-0017, the reviewer is a WorkerAgent under the same SuperAgent.

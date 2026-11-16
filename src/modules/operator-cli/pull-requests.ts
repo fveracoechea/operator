@@ -86,16 +86,35 @@ function fileArgs<O extends string>(operation: O, flags: string[]) {
 }
 
 /** No owner flag selects an assignment or a PR. The caller's worktree is the only selector. */
+function mergeArgs(flags: string[]) {
+  if (flags.includes("--source") || flags.includes("--assignment")) {
+    const selected = assignmentArgs(flags);
+    return selected === null || selected.personInstructed
+      ? null
+      : {
+          operation: "pr_merge" as const,
+          sourceId: selected.sourceId,
+          assignment: selected.assignment,
+        };
+  }
+  return ownerArgs("merge", flags);
+}
+
+function prArgs(name: string | undefined, flags: string[]) {
+  if (name === "round") return fileArgs("pr_round" as const, flags);
+  if (name === "ready") return fileArgs("pr_ready" as const, flags);
+  if (name === "validate") return fileArgs("pr_validate" as const, flags);
+  if (name === "merge") return mergeArgs(flags);
+  const command = ownerCommands.find((known) => known === name);
+  return command === undefined ? null : ownerArgs(command, flags);
+}
+
 export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
   if (group === "cleanup") return cleanupArgs(args.slice(1));
   if (group === "handoff") return handoffArgs(args.slice(1));
   if (group === "internal-review") return skipArgs(args.slice(1));
-  if (group === "pr" && name === "round") return fileArgs("pr_round" as const, flags);
-  if (group === "pr" && name === "ready") return fileArgs("pr_ready" as const, flags);
-  const command = ownerCommands.find((known) => known === name);
-  if (group !== "pr" || command === undefined) return null;
-  return ownerArgs(command, flags);
+  return group === "pr" ? prArgs(name, flags) : null;
 }
 
 function ownerArgs(command: string, flags: string[]) {
@@ -164,6 +183,11 @@ export async function runPullRequests(
   const parsed = pullRequestArgs(args);
   if (parsed === null) return false;
   const input = { paths, cwd: process.cwd() };
+  const mergeInput: Parameters<typeof PullRequests.merge>[0] = { ...input };
+  if (parsed.operation === "pr_merge" && "sourceId" in parsed) {
+    mergeInput.sourceId = parsed.sourceId;
+    mergeInput.assignment = parsed.assignment;
+  }
   const result = await (parsed.operation === "cleanup"
     ? PullRequests.cleanup({ ...input, ...parsed })
     : parsed.operation === "handoff"
@@ -172,13 +196,15 @@ export async function runPullRequests(
         ? PullRequests.skipReview({ ...input, ...parsed })
         : parsed.operation === "pr_round"
           ? PullRequests.round({ ...input, file: parsed.file })
-          : parsed.operation === "pr_ready"
-            ? PullRequests.ready({ ...input, file: parsed.file })
-            : parsed.operation === "pr_merge"
-              ? PullRequests.merge(input)
-              : parsed.operation === "pr_associate"
-                ? PullRequests.associate(input)
-                : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
+          : parsed.operation === "pr_validate"
+            ? PullRequests.validate({ ...input, file: parsed.file })
+            : parsed.operation === "pr_ready"
+              ? PullRequests.ready({ ...input, file: parsed.file })
+              : parsed.operation === "pr_merge"
+                ? PullRequests.merge(mergeInput)
+                : parsed.operation === "pr_associate"
+                  ? PullRequests.associate(input)
+                  : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
   respond({
     operation: parsed.operation,
     result,

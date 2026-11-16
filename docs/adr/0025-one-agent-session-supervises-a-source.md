@@ -4,6 +4,7 @@
 
 Accepted - 2026-11-11.
 Amended 2026-11-13: the turn-end guard fires only while a supervised source has a live worker launch, as decided in #373.
+Amended 2026-11-15 in #414: supervisor PR delivery requires the exact recorded supervising session, without an unclaimed-source fallback.
 Amends ADR-0022.
 
 ## Context
@@ -42,6 +43,12 @@ A command that carries `--person-instructed` is not checked, because the person 
 A source with no recorded session passes, also when a pane holds it from before this decision, and the next wait or dispatch from a session claims it.
 A failed read leaves the command to run and report its own refusal.
 
+Supervisor PR delivery has a stricter authority boundary than ordinary coordination.
+Only the exact recorded supervising session may deliver the assignment's recorded PR.
+An absent session, an unclaimed source, or a matching pane grants no delivery authority.
+Delivery records its actor with the guarded head and provenance atomically, so its authority is auditable.
+This does not transfer PR ownership, and the owner's guarded delivery remains available under ADR-0010.
+
 ### The person moves supervision
 
 `operator source take-over --source <id> --person-instructed` makes the calling pane and session the supervisor, whoever held it, and returns the previous supervisor.
@@ -66,6 +73,8 @@ A new session in the supervising pane, a subagent's session, and a session that 
 - A session outside Herdr can supervise, and the refusal says that it runs outside Herdr.
 - A coordination command run by hand from a terminal without an agent session is refused for a supervised source, so the person uses the take-over or runs it from the supervising session.
 - The check and the command's own write are separate transactions. Two sessions that race on an unclaimed source can both pass, and the later claim wins.
+- Ordinary coordination checks and writes remain separate transactions; two sessions can race on an unclaimed source, and the later claim wins.
+- Supervisor delivery cannot use that unclaimed-source behavior, because it requires an already recorded exact session and an atomic delivery claim.
 - A host that stops exporting its session variable makes every claim pane-only, which no session supervises, and the guard goes quiet for that host.
 - The person-instructed exemption trusts the attestation, as for reset and cleanup.
 

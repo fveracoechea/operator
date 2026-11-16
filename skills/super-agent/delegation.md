@@ -9,18 +9,21 @@ Require a short conclusion, evidence references, unresolved points, and paths to
 A stopped or idle Herdr agent is not completion evidence.
 Preserve unlanded work until the person authorizes its deletion.
 A report assignment completes only when you accept its report, as [reports.md](reports.md) describes.
-PR assignment completion requires the owner's guarded merge, not a host completion signal.
+PR assignment completion requires a verified guarded merge, not a host completion signal. [pull-requests.md](pull-requests.md) defines delivery authority.
 
 A native subagent remains under its parent WorkerAgent's task and responsibility.
 Work that needs independent scheduling, dependency links, or your separate acceptance needs its own assignment.
 
-## Your own budget
+## Task-bounded coordination reads
 
-To answer something yourself, make at most one status call, for example `gh pr view` or `operator next --json`.
-Every other read is a WorkerAgent's task: code reads, log and CI digging, MCP queries such as Datadog, PostHog, or Slack history, and dev-server work.
+Name the coordination decision before reading, then read only what settles it.
+You may inspect assignment state, short reports, PR status, checks, threads, and delivery evidence across several calls.
+Stop when you can dispatch, steer, accept, deliver, or ask the person a specific question.
+Call count is not the boundary; substantive work and detailed investigation remain delegated.
+Delegate code changes, code review, log and CI diagnosis, research, dev-server work, and browser QA.
 WorkerAgents have the same MCP access as you.
 
-Delegate every other question with `operator ask`, also when a quick look seems enough:
+Use `operator ask` for a read-only question that needs delegated investigation:
 
 ```sh
 operator ask --question "<question>" --json
@@ -37,10 +40,28 @@ Work that changes project files still needs a plan with `worktree` resources, as
 Send a person's change request to the worker that owns the work, in the person's words, within the same turn.
 The steering message carries it, as [steering.md](steering.md) describes.
 
+## Open a requested URL
+
+Only on the person's explicit request, run:
+
+```sh
+operator web open --url <http-or-https-url> --person-requested --json
+```
+
+Operator uses an appropriate local Linux `xdg-open` or macOS `open` when supported.
+Remote, headless, SSH, CI, and `BROWSER` override cases return a structured capability refusal with a manual next step.
+Follow that next step rather than bypassing the refusal.
+The command rejects unsafe schemes, URL credentials, and control characters.
+Acceptance means the opener accepted the request, not that a browser loaded the page.
+For an uncertain opener result, ask the person to check their browser rather than automatically retrying.
+This operation reads no page and authorizes no untrusted navigation, forms, authentication, or browser QA.
+Delegate browser work separately under its own authority.
+
 ## Human stops
 
 The person approved the plan and the authority in its instructions. That is your authority for every routine action, so do not ask the person to approve each command or step.
-Registration, readiness, dispatch, worker replacement, report acceptance and return, PR feedback, the owner's guarded merge, and cleanup retries need no approval.
+Registration, readiness, dispatch, worker replacement, report acceptance and return, PR feedback, guarded delivery, and cleanup retries need no separate approval.
+GitHub approval remains a merge requirement, as [pull-requests.md](pull-requests.md) describes.
 Decide what the instructions and the project context settle, and record the decision. Bring the person only these stops:
 
 - The instructions require human participation, a question is outside your authority, or the authority is unclear. The person owns the goal.

@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #232 and #233.
 Implemented in the role skills and CLI interfaces of #244 through #255, and audited in #258.
+Amended 2026-11-15 in #414: supervision permits task-bounded reads, guarded idle-owner delivery, and explicitly requested local URL opening.
 
 ## Context
 
@@ -27,11 +28,19 @@ The role skills are super-agent and worker-agent, without aliases or forwarding 
 
 The five rules of the person govern supervision.
 A SuperAgent delegates detailed reading, investigation, implementation, review, research, triage, planning, and prototypes.
+Substantive code work and browser QA remain worker tasks.
 It can run coordination commands and communicate with other SuperAgents through Herdr without taking over worker tasks.
-A PR merges only through the owner's guarded merge operation.
+Its own reads stop when a named coordination decision is settled, rather than after an arbitrary number of calls.
+A PR merges only through the guarded delivery path, invoked by its owner or the exact recorded supervisor under ADR-0010.
 Unlanded work remains until the person authorizes its deletion.
 Only a SuperAgent addresses the person.
 The SuperAgent keeps context low, reads short reports, and opens details only for a coordination decision.
+
+On the person's explicit request, the SuperAgent may ask the supported local operating system opener to open an HTTP or HTTPS URL.
+Unsupported or remote environments return a capability refusal with a manual next step.
+Opener acceptance is not evidence that a browser loaded the page.
+Opening a requested URL grants no authority for page reading, untrusted navigation, forms, authentication, or browser QA.
+This keeps a bounded local convenience separate from browser automation and its broader authority.
 
 ## Consequences
 
@@ -47,6 +56,8 @@ The SuperAgent keeps context low, reads short reports, and opens details only fo
 - A prose-only rename or forwarding skill was rejected because live interfaces would retain the old vocabulary.
 - Restricting workers to implementation and review was rejected because the person's work includes other tasks.
 - Detailed work by the SuperAgent was rejected because that consumes the context needed for supervision.
+- A fixed status-call budget was rejected because the decision's scope, not call count, distinguishes coordination from investigation.
+- A browser automation service for requested URL opening was rejected because local opener acceptance needs no page access.
 - Automatic deletion of changed old-name skills was rejected because managed installation does not own user edits.
 
 Related: ADR-0008, safe owned-skill replacement; ADR-0010, guarded PR merge; ADR-0013, report completion and authority; ADR-0014, profiles do not define worker roles; ADR-0002, one skill home and task-specific disclosure; ADR-0022, workers reach their SuperAgent only through recorded state.

@@ -6,6 +6,7 @@ import path from "node:path";
 import { OkAsync } from "unthrown";
 import { Projects } from "../projects/main.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { Environment } from "../environment/main.ts";
 import { git, prDevice, repository } from "./device-fixture.ts";
 import { qualify, resolveOwner } from "./owner.ts";
 
@@ -14,6 +15,50 @@ afterEach(() => {
 });
 
 const nothing = "Nothing was read from GitHub or changed.";
+
+test("only the recorded supervising session selects another assignment's PR owner", async () => {
+  await using device = await prDevice();
+  const { launchId, worktree } = device.start("parent");
+  device.associate(launchId, 7, "task/parent");
+  expect(
+    DeviceState.takeOverSource(device.paths, repository, device.sourceId, {
+      pane: "supervisor-pane",
+      session: "supervisor",
+    }).tag,
+  ).toBe("Ok");
+  const input = {
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+  };
+  const caller = spyOn(Environment, "caller").mockReturnValue({ pane: "p", session: "stranger" });
+  expect<unknown>(await resolveOwner(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "source_supervised_elsewhere" },
+  });
+  caller.mockReturnValue({ pane: "supervisor-pane", session: "supervisor" });
+  expect<unknown>(await resolveOwner(input)).toMatchObject({
+    tag: "Ok",
+    value: { launchId, worktreePath: worktree, pullRequest: 7 },
+  });
+  caller.mockReturnValue({ pane: null, session: null });
+  expect<unknown>(await resolveOwner(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "source_supervised_elsewhere" },
+  });
+  expect(device.calls).toEqual([]);
+});
+
+test("a partial delivery selector never silently falls back to worktree ownership", async () => {
+  await using device = await prDevice();
+  const { worktree } = device.start("parent");
+  for (const selector of [{ sourceId: device.sourceId }, { assignment: "parent" }])
+    expect<unknown>(
+      await resolveOwner({ paths: device.paths, cwd: worktree, ...selector }),
+    ).toMatchObject({ tag: "Err", error: { reason: "pr_selector_invalid" } });
+  expect(device.calls).toEqual([]);
+});
 
 test("the recorded worktree of a running PR assignment resolves its owner from any folder", async () => {
   await using device = await prDevice();

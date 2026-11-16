@@ -2,6 +2,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Ok } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import { Environment } from "../environment/main.ts";
 import {
   failed,
   git,
@@ -122,6 +123,125 @@ test("an eligible PR at the worktree head merges once and starts its cleanup", a
       detail: expect.stringContaining(`${process.ppid}`) as unknown,
     },
   });
+});
+
+test("dirty work refuses delivery without a merge request or cleanup", async () => {
+  const { device, head, input, detach } = await owner();
+  await using _ = device;
+  await Bun.write(`${input.cwd}/uncommitted.txt`, "keep this work\n");
+  device.answer(() => succeeded(pullRequestBody({ head })));
+  expect<unknown>(await merge(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_worktree_unclean" },
+  });
+  expect(device.calls.filter((args) => requestKind(args) === "merge")).toHaveLength(0);
+  expect(detach).not.toHaveBeenCalled();
+  expect(await Bun.file(`${input.cwd}/uncommitted.txt`).text()).toBe("keep this work\n");
+});
+
+test("work that changes after the claim cannot reach the GitHub mutation", async () => {
+  const { device, head, input, detach } = await owner();
+  await using _ = device;
+  const run = ToolInvocation.run;
+  let statuses = 0;
+  spyOn(ToolInvocation, "run").mockImplementation(async (request) => {
+    if (request.tool === "git" && request.args.includes("status") && ++statuses === 2)
+      await Bun.write(`${input.cwd}/late-work.txt`, "keep late work\n");
+    return run(request);
+  });
+  device.answer(() => succeeded(pullRequestBody({ head })));
+  expect<unknown>(await merge(input)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_worktree_unclean",
+      next: { decider: "super-agent", question: expect.stringMatching(/\S/) as unknown },
+    },
+  });
+  expect(device.calls.filter((args) => requestKind(args) === "merge")).toHaveLength(0);
+  expect(detach).not.toHaveBeenCalled();
+  expect(await Bun.file(`${input.cwd}/late-work.txt`).text()).toBe("keep late work\n");
+});
+
+test("the supervising session delivers an idle owner's eligible PR through the pinned path", async () => {
+  const { device, head, input } = await owner();
+  await using _ = device;
+  expect(
+    DeviceState.takeOverSource(device.paths, repository, device.sourceId, {
+      pane: "supervisor-pane",
+      session: "supervisor",
+    }).tag,
+  ).toBe("Ok");
+  spyOn(Environment, "caller").mockReturnValue({ pane: "supervisor-pane", session: "supervisor" });
+  const selected = {
+    ...input,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "other",
+  };
+  device.answer(() => succeeded(pullRequestBody({ head })));
+  expect<unknown>(await merge(selected)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_busy" },
+  });
+  expect(device.calls.filter((args) => requestKind(args) === "merge")).toHaveLength(0);
+  expect(
+    DeviceState.observePane(device.paths, {
+      socket: `${device.root}/herdr.sock`,
+      workspaceId: null,
+      paneId: "p1",
+      observation: { exited: false, activity: "idle" },
+    }).tag,
+  ).toBe("Ok");
+  let landed = false;
+  device.answer((args) => {
+    if (requestKind(args) === "merge") {
+      landed = true;
+      return mergeRequest("merged");
+    }
+    return succeeded(
+      pullRequestBody(landed ? { state: "MERGED", head, mergeCommit: "selected-merge" } : { head }),
+    );
+  });
+  expect<unknown>(await merge(selected)).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "pr_merged",
+      data: { assignment: "other", head, mergeCommit: "selected-merge" },
+    },
+  });
+  expect(device.calls.filter((args) => requestKind(args) === "merge")).toHaveLength(1);
+});
+
+test("selected reconciliation does not close an active owner's pane after an external merge", async () => {
+  const { device, head, input, detach } = await owner();
+  await using _ = device;
+  expect(
+    DeviceState.takeOverSource(device.paths, repository, device.sourceId, {
+      pane: "supervisor-pane",
+      session: "supervisor",
+    }).tag,
+  ).toBe("Ok");
+  spyOn(Environment, "caller").mockReturnValue({ pane: "supervisor-pane", session: "supervisor" });
+  device.answer(() =>
+    succeeded(pullRequestBody({ state: "MERGED", head, mergeCommit: "external" })),
+  );
+  expect<unknown>(
+    await merge({ ...input, cwd: device.checkout, sourceId: device.sourceId, assignment: "other" }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_owner_busy" } });
+  expect(detach).not.toHaveBeenCalled();
+  expect(assignmentState(device)).toBe("pr-open");
+  expect(
+    DeviceState.observePane(device.paths, {
+      socket: `${device.root}/herdr.sock`,
+      paneId: "p1",
+      workspaceId: null,
+      observation: { exited: false, activity: "idle" },
+    }).tag,
+  ).toBe("Ok");
+  expect<unknown>(
+    await merge({ ...input, cwd: device.checkout, sourceId: device.sourceId, assignment: "other" }),
+  ).toMatchObject({ tag: "Ok", value: { reason: "pr_merged", data: { mergeCommit: "external" } } });
+  expect(device.calls.filter((args) => requestKind(args) === "merge")).toHaveLength(0);
 });
 
 test("a PR that GitHub already merged is verified and recorded without a merge request", async () => {

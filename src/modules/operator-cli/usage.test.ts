@@ -20,7 +20,12 @@ function capture() {
 function usageText(text: string | undefined) {
   const usage = String(text).split("\n");
   expect(usage[0]).toBe("Usage: operator --help | --version [--json]");
-  expect(usage).toHaveLength(53);
+  expect(usage).toHaveLength(55);
+  expect(usage).toContain("       operator pr merge [--source id --assignment key] [--json]");
+  expect(usage).toContain("       operator pr validate --file path|- [--json]");
+  expect(usage).toContain(
+    "       operator web open --url http-or-https-url --person-requested [--json]",
+  );
 }
 
 test.each([

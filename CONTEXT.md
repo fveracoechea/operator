@@ -12,6 +12,7 @@ This repository and its personal agentic tooling, not an agent role.
 **SuperAgent**:
 The supervising agent that manages WorkerAgents and is the person's point of contact.
 It delegates detailed work, reads short reports, and opens details only when a coordination decision needs them.
+Its own reads are bounded by that decision, not by a status-call count.
 _Avoid_: Operator as a role, Super Agent
 
 **WorkerAgent**:
@@ -23,6 +24,7 @@ _Avoid_: Operative, Crew member, Agent as a role
 **Rules of the person**:
 The five rules that require delegation by SuperAgents, the PR merge gate, preservation of unlanded work, reporting to the supervising SuperAgent through recorded Operator state rather than text typed into its pane, and minimum SuperAgent context usage.
 They permit coordination commands and communication between SuperAgents through Herdr without transferring the workers' tasks to a supervisor.
+Substantive code work, detailed investigation, review, and browser QA remain delegated.
 
 **SuperAgent decision**:
 A decision within the authority that the assignment instructions delegate to a SuperAgent.
@@ -211,6 +213,10 @@ A keyed record of what the SuperAgent owes the person in one work source: a PR t
 Next actions list each open obligation beside the actions until the SuperAgent closes it, and its addition or close changes no action set.
 _Avoid_: promise, todo, commitment in chat
 
+**Merge hold**:
+An open obligation that blocks owner and supervisor PR delivery throughout its source until the person releases it.
+A hold cannot be added during an in-flight delivery or retroactively stop a merge request.
+
 **Steering message**:
 A recorded instruction from a SuperAgent, or from an operation that it runs, to a running WorkerAgent, which stays pending until the worker acknowledges it.
 An answer to a worker question reaches the worker as a steering message.
@@ -247,7 +253,16 @@ It retains the owner's working context rather than requiring a fresh writer for 
 **PR merge gate**:
 The conditions that the CLI checks before it merges a PR.
 They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and an internal review that ended ready or was skipped.
+They also require a finished stack relay, a clean pushed local head matching the PR, and no open source-wide merge hold.
+Approval is a fresh genuine GitHub approval, never an inference from chat.
+After internal review, a head different from the reviewed ready head requires bounded correction validation at the current head.
 _Avoid_: project gate
+
+**PR delivery**:
+The SHA-pinned, audited merge of an assignment's recorded PR, invoked by its owner or its exact recorded supervising session.
+Supervisor delivery requires the owner recorded idle and no live PR wait, relay, or delivery job.
+An atomic claim records the actor, head, and provenance; delivery locks exclude competing waits and relays.
+Both actors use the same merge gate and guarded cleanup, without transferring ownership.
 
 **Internal review**:
 The unpublished review of a draft PR by a fresh WorkerAgent that takes over the PR assignment from its implementer.
@@ -264,6 +279,17 @@ _Avoid_: reviewer role, manual handoff
 **Internal review round**:
 One review of the whole PR diff against its base at a recorded head, followed by the fixes for its valid findings.
 An internal review has at most two rounds, and a second round needs a newer head than the first.
+
+**Bounded correction validation**:
+The PR owner's recorded evidence for bounded corrections after internal review ends.
+It requires a clean pushed current open PR, passing current CI, and the reviewed ready head as an ancestor.
+The validated head and correction summary are separate from the established rounds and original reviewed ready head.
+It neither reopens internal review nor replaces genuine GitHub approval.
+
+**Requested URL opening**:
+The local operating system opener's acceptance of an HTTP or HTTPS URL explicitly requested by the person.
+It proves no page loaded and grants no page-reading, navigation, forms, authentication, or browser QA authority.
+Unsupported environments return a capability refusal and a manual next step, rather than a browser automation service.
 
 **Source reset**:
 The end of one work source on the person's instruction, with merged PR assignments and completed reports preserved and incomplete assignments abandoned.

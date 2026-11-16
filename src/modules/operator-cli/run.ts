@@ -7,6 +7,7 @@ import { runSources } from "./sources.ts";
 import { runDispatch } from "./dispatch.ts";
 import { runAsk } from "./ask.ts";
 import { runPullRequests } from "./pull-requests.ts";
+import { runWebPages } from "./web-pages.ts";
 import { runReports } from "./reports.ts";
 import { runQuestions } from "./questions.ts";
 import { runMessages } from "./messages.ts";
@@ -43,6 +44,7 @@ async function handle(args: string[], paths: OperatorPaths, json: boolean) {
     runDispatch,
     runAsk,
     runPullRequests,
+    async (input: string[], _paths: OperatorPaths, flag: boolean) => runWebPages(input, flag),
     runReports,
     runQuestions,
     runMessages,

@@ -61,6 +61,29 @@ test("parses owner and cleanup commands", () => {
   ).toEqual({ operation: "cleanup", sourceId: "s", assignment: "a", personInstructed: true });
 });
 
+test("a supervisor selects delivery by source and assignment through the same merge operation", async () => {
+  const called = spies();
+  quiet();
+  const args = ["pr", "merge", "--source", "s", "--assignment", "a", "--json"];
+  expect(pullRequestArgs(args)).toEqual({ operation: "pr_merge", sourceId: "s", assignment: "a" });
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(called.merge).toHaveBeenCalledWith({
+    paths,
+    cwd: process.cwd(),
+    sourceId: "s",
+    assignment: "a",
+  });
+});
+
+test("the owner records bounded correction validation from a plain-text file", async () => {
+  const validate = spyOn(PullRequests, "validate").mockReturnValue(completed("pr_validated"));
+  quiet();
+  const args = ["pr", "validate", "--file", "evidence.txt", "--json"];
+  expect(pullRequestArgs(args)).toEqual({ operation: "pr_validate", file: "evidence.txt" });
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(validate).toHaveBeenCalledWith({ paths, cwd: process.cwd(), file: "evidence.txt" });
+});
+
 test.each([
   [["other"]],
   [["other", "merge"]],

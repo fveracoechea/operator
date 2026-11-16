@@ -6,6 +6,7 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
   assignments,
+  deliveries,
   cleanups,
   internalReviews,
   launches,
@@ -27,6 +28,7 @@ export type PullRequestFailure =
         | "pr_owned_elsewhere"
         | "pr_not_associated"
         | "pr_branch_mismatch"
+        | "pr_delivery_running"
         | "internal_review_not_recorded";
       detail: string;
     };
@@ -53,6 +55,7 @@ export function worktreeOwners(client: Database) {
           relay: pullRequests.relay,
           internalReview: launches.internalReview,
           reviewState: internalReviews.state,
+          reviewedHead: internalReviews.readyHead,
           implementerLaunchId: internalReviews.implementerLaunchId,
         })
         .from(launches)
@@ -293,6 +296,19 @@ export function recordPullRequestWait(
     checkHistory(client).flatMap((db) =>
       activeOwner(db, launchId).flatMap(
         ({ launch, source, assignment }): Result<PullRequestRow | null, PullRequestFailure> => {
+          if (
+            db
+              .select()
+              .from(deliveries)
+              .where(eq(deliveries.launchId, launchId))
+              .all()
+              .some((row) => row.endedAt === null && !ownerGone(row, Date.now()))
+          )
+            return Err({
+              reason: "pr_delivery_running",
+              detail:
+                "Delivery holds this assignment. Wait for it to end before another PR wait or relay. Nothing changed.",
+            });
           const row = current(db, source.id, assignment.key);
           if (row === undefined || assignment.state !== "pr-open")
             return Err({

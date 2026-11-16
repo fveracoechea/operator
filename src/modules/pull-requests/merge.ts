@@ -1,5 +1,7 @@
 import { ErrAsync, fromPromise, type AsyncResult } from "unthrown";
+import type { ResultContext } from "../../lib/cli-result.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { Environment } from "../environment/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import {
@@ -16,10 +18,10 @@ import {
 } from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
-import { owned, reviewEnded } from "./internal-review.ts";
+import { owned, reviewEnded, worktreeFacts } from "./internal-review.ts";
 
-type Request = { paths: Paths; cwd: string };
-type Failure = { reason: string; detail: string };
+type Request = { paths: Paths; cwd: string; sourceId?: string; assignment?: string };
+type Failure = { reason: string; detail: string } & ResultContext;
 type Outcome = { reason: string; data: object };
 
 // A built release runs `cli.js`, and a source install runs `cli.ts`.
@@ -31,16 +33,6 @@ async function entryPoint() {
   return (await Bun.file(built).exists())
     ? built
     : Bun.fileURLToPath(new URL("cli.ts", packageRoot));
-}
-
-async function localHead(worktree: string) {
-  const result = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", worktree, "rev-parse", "--verify", "HEAD"],
-    timeoutMs: 10000,
-  });
-  // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code, so the exit code check alone returns null
-  return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
 /**
@@ -125,6 +117,7 @@ function guarded(
   number: number,
   observed: Observation,
   local: string | null,
+  changed: boolean,
 ) {
   const relay = owner.relay === null ? null : relaySchema.parse(JSON.parse(owner.relay));
   const decision = decideMerge({
@@ -135,12 +128,66 @@ function guarded(
   });
   if (decision.result === "refused")
     return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
-  if (decision.result === "verify") return verify(input, owner, number, null, null);
-  // A refused or lost answer can follow a merge that landed, so every answer is verified.
-  return fromPromise(async () => {
-    const refused = await requestMerge(owner.repository, number, decision);
-    return await verify(input, owner, number, decision.head, refused);
-  }, qualify).flatMap((result) => result);
+  if (decision.result === "verify")
+    return input.sourceId === undefined
+      ? verify(input, owner, number, null, null)
+      : claimed(input, owner, observed.head, true, () =>
+          verify(input, owner, number, observed.head, null),
+        );
+  if (changed)
+    return ErrAsync<Failure>({
+      reason: "pr_worktree_unclean",
+      detail:
+        "Commit and push changed and untracked work before delivery. Nothing was merged or removed.",
+      next: {
+        command: "operator pr wait --json",
+        why: "The owner must commit and push its changes before delivery.",
+      },
+    });
+  return claimed(input, owner, decision.head, false, () =>
+    worktreeFacts(owner.worktreePath).flatMap((facts) => {
+      if (facts.changed || facts.localHead !== decision.head)
+        return ErrAsync<Failure>({
+          reason: "pr_worktree_unclean",
+          detail:
+            "The worktree changed during delivery. Reconcile it before retrying. Nothing was merged or removed.",
+          next: {
+            decider: "super-agent",
+            question: "How should the owner reconcile the worktree that changed during delivery?",
+          },
+        });
+      return fromPromise(async () => {
+        const refused = await requestMerge(owner.repository, number, decision);
+        return await verify(input, owner, number, decision.head, refused);
+      }, qualify).flatMap((answer) => answer);
+    }),
+  );
+}
+
+function claimed(
+  input: Request,
+  owner: Owner,
+  head: string,
+  reconcile: boolean,
+  action: () => AsyncResult<Outcome, Failure>,
+) {
+  return DeviceState.claimDelivery(input.paths, {
+    launchId: owner.launchId,
+    head,
+    session: Environment.caller().session,
+    selected: input.sourceId !== undefined,
+    reconcile,
+  })
+    .toAsync()
+    .flatMap(() =>
+      fromPromise(async () => {
+        const stop = DeviceState.holdDelivery(input.paths, owner.launchId);
+        const result = await action();
+        const released = DeviceState.finishDelivery(input.paths, owner.launchId, head);
+        stop();
+        return released.flatMap(() => result);
+      }, qualify).flatMap((result) => result),
+    );
 }
 
 type Answer = Awaited<ReturnType<typeof mergePullRequest>>;
@@ -194,8 +241,8 @@ export function merge(input: Request) {
           detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
         });
       return observePullRequest(owner.repository, number).flatMap((observed) =>
-        fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
-          guarded(input, owner, number, observed, local),
+        worktreeFacts(owner.worktreePath).flatMap(({ localHead, changed }) =>
+          guarded(input, owner, number, observed, localHead, changed),
         ),
       );
     });
