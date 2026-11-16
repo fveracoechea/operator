@@ -564,7 +564,9 @@ ${overview}
   });
   expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
   const owner = await Bun.file(brief).text();
-  expect(owner).toContain(`The internal review of PR #7 ended ready at \`${third}\`.`);
+  expect(owner).toContain(`Review: \`ready\`.\nReady head: \`${third}\`.`);
+  expect(owner).toContain("Summary: https://github.com/c/comment-1");
+  expect(owner).toContain("Phase: `feedback`");
   expect(owner).not.toContain("You are the internal reviewer");
   const pane = (await shown(source)).launches.at(-1)?.paneId ?? "";
   const afterReady = await commit(reviewer, "after-ready.txt");

@@ -201,7 +201,7 @@ test("a child starts on the open parent's branch and is relayed onto main after 
     "refs/heads/task/22-child",
   );
   expect(await Bun.file(child.brief).text()).toContain(
-    "Your branch starts on `task/21-parent`, the branch of PR #6 of assignment `parent`. Target that branch as the PR base.",
+    "Parent: `parent`, PR #6, branch `task/21-parent`.",
   );
   expect(await stack("child")).toMatchObject({
     reason: "pr_feedback_loop",

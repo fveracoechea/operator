@@ -37,9 +37,7 @@ test("a PR child starts at its one open parent's pushed head and targets its bra
       assignment: "child",
     }).brief,
   ).text();
-  expect(brief).toContain(
-    "Your branch starts on `task/parent`, the branch of PR #5 of assignment `parent`.",
-  );
+  expect(brief).toContain("Parent: `parent`, PR #5, branch `task/parent`.");
   // A report that depends on the PR does not stack on it.
   expect(await WorkerDispatch.dispatch(device.request("notes"))).toMatchObject({ tag: "Ok" });
   expect(device.herdr.createWorktree).toHaveBeenLastCalledWith({

@@ -304,5 +304,5 @@ test("refreshing a promoted brief keeps its recorded kind and profile", async ()
   ).text();
   expect(brief).toContain("Worker kind: `research`");
   expect(brief).toContain("Start profile: `careful`");
-  expect(brief).toContain("Completion type: a merged pull request.");
+  expect(brief).toContain("Completion: `pr`.");
 });

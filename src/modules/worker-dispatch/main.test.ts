@@ -86,15 +86,15 @@ test("read-only work gets a tab in the project workspace, a brief, and a running
   expect(herdr.prompt).toHaveBeenCalledWith({ name, text: `Read ${files.brief} and follow it.` });
   const brief = await Bun.file(files.brief).text();
   for (const text of [
-    `- Source: \`${device.sourceId}\`, tracker key \`github:example/one#1\`.`,
-    "- Assignment: `read`, tracker key `github:example/one#4`.",
-    "a report that the SuperAgent accepts",
+    `- Source: \`${device.sourceId}\`, tracker \`github:example/one#1\`.`,
+    "- Assignment: `read`, tracker `github:example/one#4`.",
+    "Completion: `report`",
     "- Start profile: `careful`.",
     "Do the read work.",
-    `Work in a separate pane of the controlling checkout \`${checkout}\`.`,
+    `Resources: \`pane\`, \`${checkout}\`. Read-only; change no project files.`,
     `\`${files.reports}/1/report.md\``,
     `\`${files.followUps}/1.md\``,
-    `Operator stores the report and copies of the supporting files in \`${files.reports}\`.`,
+    `Device files: \`${files.reports}\`, \`${files.followUps}\`.`,
   ])
     expect(brief).toContain(text);
   expect(await device.launches("read")).toMatchObject([
@@ -178,11 +178,11 @@ test("worktree work gets a new prepared worktree on its branch and an OpenCode a
       assignment: "impl",
     }).brief,
   ).text();
-  expect(brief).toContain(`worktree \`${worktree}\` on branch \`task/impl\``);
-  expect(brief).toContain("Target the default branch.");
-  expect(brief).toContain("`operator pr associate --json`");
+  expect(brief).toContain(`Resources: \`worktree\`, \`${worktree}\``);
+  expect(brief).toContain("Base: `default branch`.");
+  expect(brief).toContain("Branch: `task/impl`");
   // No plan or device value is set, so internal review is on.
-  expect(brief).toContain("Open one draft PR from your branch");
+  expect(brief).toContain("Internal review: `on`");
 });
 
 function briefOf(device: { paths: Paths }, sourceId: string, assignment: string) {
@@ -238,7 +238,7 @@ test.each(["opencode", "claude-code"] as const)(
       value: { launches: [{ host, kind: { name: "answer", skillsToRead: [fallback] } }] },
     });
     expect(await briefOf(device, sourceId, "answer")).toContain(
-      `When the guide calls for it and the file exists, read skill by path: \`${fallback}\`.`,
+      `Skill: \`${fallback}\`. Read when the guide calls for it and the file exists.`,
     );
   },
 );
@@ -287,11 +287,9 @@ test("a plan that turns internal review off gives a ready PR, and an assignment 
       },
     });
   const urgent = await briefOf(device, sourceId, "urgent");
-  expect(urgent).toContain("Open one PR from your branch");
-  expect(urgent).not.toMatch(/draft|internal review/i);
-  expect(await briefOf(device, sourceId, "checked")).toContain(
-    "Open one draft PR from your branch",
-  );
+  expect(urgent).toContain("Internal review: `off`");
+  expect(urgent).not.toContain("draft");
+  expect(await briefOf(device, sourceId, "checked")).toContain("Internal review: `on`");
 });
 
 test("a plan's reached running cap refuses a ready assignment, and the reservation checks it again", async () => {
@@ -384,8 +382,8 @@ test("a device that turns internal review off gives a ready PR", async () => {
   await Bun.write(device.paths.config, JSON.stringify({ ...config, review: { internal: false } }));
   expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({ tag: "Ok" });
   const brief = await briefOf(device, device.sourceId, "impl");
-  expect(brief).toContain("Open one PR from your branch");
-  expect(brief).not.toMatch(/draft|internal review/i);
+  expect(brief).toContain("Internal review: `off`");
+  expect(brief).not.toContain("draft");
 });
 
 test("a missing project workspace is created, and no tab list is read", async () => {
