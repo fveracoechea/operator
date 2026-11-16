@@ -201,7 +201,11 @@ test("another assignment's running-cap wait does not block a failed worker's rep
   if (registered.tag !== "Ok") expect.unreachable("The capped plan was refused.");
   const sourceId = registered.value.id;
   device.herdr.prompt.mockReturnValueOnce(
-    ErrAsync({ reason: "herdr_failed" as const, detail: "The fixture prompt failed." }),
+    ErrAsync({
+      reason: "herdr_failed" as const,
+      detail: "The fixture prompt failed.",
+      next: { decider: "super-agent" as const, question: "Why did the fixture prompt fail?" },
+    }),
   );
   expect(await WorkerDispatch.dispatch({ ...device.request("failed"), sourceId })).toMatchObject({
     tag: "Err",

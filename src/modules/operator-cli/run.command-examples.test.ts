@@ -189,15 +189,16 @@ test("bundled skills use result next steps and retain their authority limits", a
   expect(worker).toContain("Run no other `gh stack` command");
   expect(worker).toContain("Stop once it succeeds");
   expect(worker).not.toContain("Run the command again once");
-  const slack = await Bun.file(
-    path.join(repository, "skills/slack-pr-review-workflow/SKILL.md"),
-  ).text();
-  expect(slack).toContain("Follow each result's `next`");
-  expect(slack).toContain(
-    "Verify an uncertain send in Slack and tell the person before sending it again.",
+  expect(
+    await Bun.file(path.join(repository, "skills/slack-pr-review-workflow/SKILL.md")).exists(),
+  ).toBe(false);
+  const reviews = await Bun.file(path.join(repository, "skills/super-agent/reviews.md")).text();
+  expect(reviews).toContain(
+    "`review skip <pr-url>` ends one PR's request on the person's instruction.",
   );
-  expect(slack).toContain("Only on the person's explicit instruction, drop a pending effect");
-  expect(slack).not.toContain("## Refusals");
+  expect(reviews).toContain("Operator schedules no Slack reads.");
+  expect(reviews).not.toContain("slack-drop");
+  expect(reviews).not.toContain("## Refusals");
   const draft = await Bun.file(path.join(repository, "skills/pr-review/draft.md")).text();
   expect(draft).toContain("An approval waits until every required check has finished.");
   expect(draft).not.toContain("review_ci_pending");

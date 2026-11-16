@@ -143,7 +143,7 @@ test("refuses unsupported edits before any read or write", async () => {
 
 test("refuses edits that the settings schema rejects", async () => {
   const paths = await freshPaths();
-  const request = { paths, sets: ["review.channel=bad"], unsets: [] };
+  const request = { paths, sets: ["superAgent.host=bad"], unsets: [] };
   for (const result of [await plan(request), await apply({ ...request, planId: "any" })]) {
     expect(Object.keys(result).toSorted()).toEqual(["detail", "next", "reason"]);
     expect(result).toMatchObject({
@@ -153,7 +153,7 @@ test("refuses edits that the settings schema rejects", async () => {
         why: "Inspect the settings schema and correct the requested edits before planning again.",
       },
     });
-    expect("detail" in result && result.detail).toContain("channel");
+    expect("detail" in result && result.detail).toContain("host");
   }
   expect(await Bun.file(paths.config).exists()).toBe(false);
 });

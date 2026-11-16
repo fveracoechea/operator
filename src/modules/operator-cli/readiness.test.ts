@@ -118,7 +118,7 @@ test("text readiness preserves every owner context without adding absent facts",
       state: { tool: "herdr", executable: null },
     },
   ];
-  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers }));
+  spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers, warnings: [] }));
   const { log, error } = quiet();
   expect(await runReadiness(["ready"], paths, false)).toBe(true);
   expect(log).not.toHaveBeenCalled();

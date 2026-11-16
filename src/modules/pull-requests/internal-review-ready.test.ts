@@ -11,7 +11,7 @@ test("ready reports a concurrently recorded review without inventing a PR in its
   await using device = await prDevice();
   const started = device.start("parent");
   const file = `${device.root}/summary.json`;
-  await Bun.write(file, JSON.stringify({ overview: "Reviewed.", dispositions: [] }));
+  await Bun.write(file, "## Overview\nReviewed.\n## Dispositions\n");
   const show = WorkSources.show;
   spyOn(WorkSources, "show").mockImplementation((input) => {
     expect(
@@ -74,14 +74,13 @@ test("ready refuses malformed summaries and missing review records before GitHub
       error: {
         reason: "internal_review_summary_invalid",
         next: {
-          decider: "super-agent",
-          question:
-            "How should the summary file be corrected to include an overview and every finding's disposition?",
+          command: "operator pr ready --file <path|->",
+          why: "Correct the markdown summary and try ready again.",
         },
       },
     });
   }
-  await Bun.write(file, JSON.stringify({ overview: "Reviewed.", dispositions: [] }));
+  await Bun.write(file, "## Overview\nReviewed.\n## Dispositions\n");
   expect(await ready({ paths: device.paths, cwd: started.worktree, file })).toMatchObject({
     tag: "Err",
     error: {

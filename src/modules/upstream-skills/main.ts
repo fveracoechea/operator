@@ -11,6 +11,7 @@ import { OwnedSkills } from "../owned-skills/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { commitIdentity, installed, roster } from "./catalog.ts";
 import { guideReferences } from "./guide-references.ts";
+import type { RefusalContext } from "../../lib/cli-result.ts";
 
 type Host = keyof ReturnType<typeof OperatorHome.resolve>["skillHosts"];
 const installerVersion = "1.8.1";
@@ -259,7 +260,7 @@ export const UpstreamSkills = {
           paths.upstreamSkills[host],
         ]);
         const owned = new Set(await OwnedSkills.names());
-        const blockers: GuideIssue[] = [];
+        const blockers: (GuideIssue & RefusalContext)[] = [];
         const warnings: GuideIssue[] = [];
         for (const { guide, text } of await OwnedSkills.guides()) {
           for (const { name, link } of guideReferences(text)) {
@@ -279,7 +280,16 @@ export const UpstreamSkills = {
                 ? `${guide}: ${link} does not resolve. Read show-me by the absolute path in the brief when available.`
                 : `${guide} requires ${name}, but ${file} does not resolve to a readable, nonempty regular file. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
             };
-            (optional ? warnings : blockers).push(issue);
+            if (optional) warnings.push(issue);
+            else
+              blockers.push({
+                ...issue,
+                next: {
+                  command: `operator install ${host === "opencode" ? "--opencode" : "--claude"}`,
+                  why: "Restore the required guide skill, or update its consumer-owned link.",
+                },
+                state: { host, guide, skill: name, file },
+              });
           }
         }
         return { blockers, warnings };

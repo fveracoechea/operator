@@ -41,7 +41,23 @@ test("guide content resolves owned skills, upstream links, and warning-only visu
     expect(await UpstreamSkills.checkGuides(input, "opencode")).toMatchObject({
       tag: "Ok",
       value: {
-        blockers: [{ skill: "tdd", file: skill, reason: "guide_skill_unresolved" }],
+        blockers: [
+          {
+            skill: "tdd",
+            file: skill,
+            reason: "guide_skill_unresolved",
+            next: {
+              command: "operator install --opencode",
+              why: "Restore the required guide skill, or update its consumer-owned link.",
+            },
+            state: {
+              host: "opencode",
+              guide: "worker-agent/kinds/answer.md",
+              skill: "tdd",
+              file: skill,
+            },
+          },
+        ],
         warnings: [{ skill: "show-me", file: visual, reason: "skill_link_unresolved" }],
       },
     });
@@ -104,6 +120,67 @@ test("guide content resolves owned skills, upstream links, and warning-only visu
     guides.mockRestore();
   }
 });
+
+test.each([
+  ["opencode", "--opencode"],
+  ["claude-code", "--claude"],
+] as const)(
+  "required guide recovery targets %s and preserves optional warnings",
+  async (host, flag) => {
+    const input = paths();
+    const guide = "worker-agent/kinds/implementation.md";
+    const guides = spyOn(OwnedSkills, "guides").mockResolvedValue([
+      { guide, text: "Load `tdd`. Read [show-me](../../show-me/SKILL.md)." },
+    ]);
+    const file = `${input.upstreamSkills[host]}/tdd/SKILL.md`;
+    const other = host === "opencode" ? "claude-code" : "opencode";
+    await Bun.write(`${input.upstreamSkills[other]}/tdd/SKILL.md`, "# Other host\n", {
+      createPath: true,
+    });
+    try {
+      for (const contents of [null, " \n", "# Current skill\n"]) {
+        if (contents !== null) await Bun.write(file, contents, { createPath: true });
+        const result = await UpstreamSkills.checkGuides(input, host);
+        expect(result.tag).toBe("Ok");
+        if (result.tag !== "Ok") return expect.unreachable("guide check refused");
+        expect(result.value.blockers).toEqual(
+          contents === "# Current skill\n"
+            ? []
+            : [
+                {
+                  reason: "guide_skill_unresolved",
+                  host,
+                  guide,
+                  skill: "tdd",
+                  file,
+                  detail: `${guide} requires tdd, but ${file} does not resolve to a readable, nonempty regular file. Provision the skill or ask the SuperAgent; an upstream documentation page is not an installed skill.`,
+                  next: {
+                    command: `operator install ${flag}`,
+                    why: "Restore the required guide skill, or update its consumer-owned link.",
+                  },
+                  state: { host, guide, skill: "tdd", file },
+                },
+              ],
+        );
+        expect(result.value.warnings).toEqual([
+          {
+            reason: "skill_link_unresolved",
+            host,
+            guide,
+            skill: "show-me",
+            file: `${input.skillHosts[host]}/show-me/SKILL.md`,
+            detail: `${guide}: ../../show-me/SKILL.md does not resolve. Read show-me by the absolute path in the brief when available.`,
+          },
+        ]);
+      }
+      expect(await Bun.file(`${input.upstreamSkills[other]}/tdd/SKILL.md`).text()).toBe(
+        "# Other host\n",
+      );
+    } finally {
+      guides.mockRestore();
+    }
+  },
+);
 
 test("only the linked visual skill is optional, while required relative targets must resolve", async () => {
   const input = paths();

@@ -152,6 +152,16 @@ test("ready blocks on a guide that names an unresolved skill and warns on the sh
           reason: "guide_skill_unresolved",
           skill: "resolving-merge-conflicts",
           guide: "worker-agent/kinds/pr-feedback.md",
+          next: {
+            command: "operator install --opencode",
+            why: "Restore the required guide skill, or update its consumer-owned link.",
+          },
+          state: {
+            host: "opencode",
+            guide: "worker-agent/kinds/pr-feedback.md",
+            skill: "resolving-merge-conflicts",
+            file: `${upstream}/resolving-merge-conflicts/SKILL.md`,
+          },
         }),
       ],
       warnings: [expect.objectContaining({ reason: "skill_link_unresolved", skill: "show-me" })],

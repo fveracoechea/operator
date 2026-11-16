@@ -62,11 +62,8 @@ test("a pane reread retargeted to another assignment refuses the missing questio
   const read = DeviceState.readQuestion;
   const observed = spyOn(DeviceState, "readQuestion").mockReturnValue(reread);
   device.inPane(workerPane);
-  const file = await device.write(
-    "q.json",
-    JSON.stringify({ key: "scope", question: "Which scope?" }),
-  );
-  expect(await WorkerQuestions.ask({ paths: device.paths, file })).toMatchObject({
+  const file = await device.write("q.md", "Which scope?");
+  expect(await WorkerQuestions.ask({ paths: device.paths, key: "scope", file })).toMatchObject({
     tag: "Err",
     error: {
       reason: "question_defect",

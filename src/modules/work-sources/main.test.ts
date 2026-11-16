@@ -34,9 +34,8 @@ test("invalid internal-review findings name the exact file correction decision",
       error: {
         reason: "internal_review_findings_invalid",
         next: {
-          decider: "super-agent",
-          question:
-            "How should the findings file be corrected to contain only axis, severity, location, and claim?",
+          command: "operator pr round --file <path|->",
+          why: "Correct the markdown findings and record the round again.",
         },
       },
     });
