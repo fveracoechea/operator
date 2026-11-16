@@ -333,10 +333,12 @@ test.each(["running", "pr-open", "reported"])(
     db.exec(
       "INSERT INTO sources VALUES ('other', 'example/one', 'tracker:2', 'open', '2026-10-26', NULL, '{}', NULL, NULL)",
     );
-    db.query("INSERT INTO assignments VALUES ('other', 'worker', 'pr', ?)").run(state);
+    db.query(
+      "INSERT INTO assignments (source_id, key, completion, state) VALUES ('other', 'worker', 'pr', ?)",
+    ).run(state);
     expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
     expect(db.query("SELECT state FROM assignments").all()).toEqual([{ state }]);
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
   },
 );
 
