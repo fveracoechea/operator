@@ -200,11 +200,14 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
   });
   // The rewritten brief is the PR template with the promotion and the accepted report.
   const text = await Bun.file(brief).text();
-  expect(text).toContain("- Completion type: a merged pull request.");
-  expect(text).toContain(`on branch \`task/build\``);
-  expect(text).toContain("The SuperAgent promoted report 1 of `read` into this PR assignment.");
+  expect(text).toContain("## Task\n\nBuild what the report found.");
+  expect(text).toContain("- Completion: `pr`.");
+  expect(text).toContain(`Branch: \`task/build\``);
+  expect(text).toContain("## Promotion\n\nReport 1 of `read`.");
   expect(text).toContain("### `read` report 1");
-  expect(text).toContain("## PR feedback loop");
+  expect(text).toContain("> Build it.");
+  expect(text).toContain("Unresolved points:\n\n> Scope of b.ts.");
+  expect(text).not.toContain("## PR feedback loop");
   expect(await next(sourceId)).toMatchObject({
     actions: [{ assignment: "later", action: "ready_assignment" }],
     waits: [{ assignment: "build", reason: "assignment_active" }],
