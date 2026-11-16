@@ -42,6 +42,7 @@ function alive(pid: number) {
   const error = result.stderr.toString().trim();
   if (result.exitCode === 1 && state === "" && error === "") return false;
   if (result.exitCode !== 0 || error !== "" || state === "")
+    // oxlint-disable-next-line unthrown/no-throw -- Fixture observation failures must fail cleanup instead of treating an unknown PID as absent.
     throw new Error(`Cannot determine fixture process ${pid}: ${result.exitCode} ${error}`);
   // A killed zombie awaits its parent's reap; every other or unexpected state still fails cleanup.
   return !/^Z[<NLsl+]*$/.test(state);
