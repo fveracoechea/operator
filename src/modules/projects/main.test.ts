@@ -150,6 +150,11 @@ test("current names identity changes, other clones, and unregistered checkouts",
     Err({
       reason: "controller_mismatch",
       detail: `Use the recorded controlling checkout at ${base}/controller. To change it, run operator project move from a matching main clone when no source is open.`,
+      next: {
+        command: "operator project list",
+        why: "Find the recorded controlling checkout and run the command there.",
+      },
+      state: { controllingCheckout: false, registeredClone: true },
     }),
   );
   await clone(`${base}/second`, "https://github.com/owner/second");
@@ -165,6 +170,11 @@ test("current names identity changes, other clones, and unregistered checkouts",
     Err({
       reason: "controller_mismatch",
       detail: `Use the recorded controlling checkout at ${base}/controller, ${base}/second. To change it, run operator project move from a matching main clone when no source is open.`,
+      next: {
+        command: "operator project list",
+        why: "Find the recorded controlling checkout and run the command there.",
+      },
+      state: { controllingCheckout: false, registeredClone: true },
     }),
   );
   await mkdir(`${base}/outside`);
@@ -176,6 +186,11 @@ test("current names identity changes, other clones, and unregistered checkouts",
     Err({
       reason: "project_not_registered",
       detail: "This checkout is not registered. Run operator project register explicitly.",
+      next: {
+        command: "operator project register",
+        why: "Register the controlling checkout explicitly before using it.",
+      },
+      state: { registered: false },
     }),
   );
   const child = Bun.spawn(
@@ -188,6 +203,11 @@ test("current names identity changes, other clones, and unregistered checkouts",
       reason: "controller_identity_mismatch",
       detail:
         "The controlling checkout no longer has the recorded owner/current remote. Restore it before use.",
+      next: {
+        decider: "super-agent",
+        question: "How should the controlling checkout's recorded GitHub remote be restored?",
+      },
+      state: { remoteMatches: false },
     }),
   );
   expect(
@@ -301,7 +321,16 @@ test.each(["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EE
     try {
       for (const call of Object.values(interfaceCalls()))
         expect(await call()).toEqual(
-          Err({ reason: "project_io_failed", detail: "Error: observation failed" }),
+          Err({
+            reason: "project_io_failed",
+            detail: "Error: observation failed",
+            next: {
+              decider: "super-agent",
+              question:
+                "How should the controlling checkout IO failure be corrected without overwriting project state?",
+            },
+            state: { code },
+          }),
         );
     } finally {
       tools.mockRestore();

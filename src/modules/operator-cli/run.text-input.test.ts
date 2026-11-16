@@ -175,7 +175,7 @@ test("malformed report bullets and duplicate headings refuse without recording a
         next: { command: "operator report submit --file <path|->" },
       },
     });
-    expect(result.output).not.toHaveProperty("state");
+    expect(result.output.state).toEqual({ inputValid: false });
   }
   expect((await device.next("read")).map((row) => row.action)).toEqual(["wait"]);
   expect(

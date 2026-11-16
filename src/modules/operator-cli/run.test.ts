@@ -174,11 +174,16 @@ test.each(
     reason: "invalid_arguments",
     outcome: "invalid",
   });
-  expectHelp(error);
+  if (["question", "cleanup"].includes(String(args[0]))) {
+    expect(error).toBe(
+      "operator: invalid_arguments: The command arguments are not supported.\nnext: operator --help\n",
+    );
+  } else expectHelp(error);
   expect(await Bun.file(legacy).text()).toBe("unfinished work\n");
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
-    databaseBefore,
-  );
+  expect(
+    await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer(),
+    "A refused command must leave database bytes unchanged.",
+  ).toEqual(databaseBefore);
   expect(
     (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toSorted(),
   ).toEqual([".operator/untouched", "state/operator/operator.sqlite"]);

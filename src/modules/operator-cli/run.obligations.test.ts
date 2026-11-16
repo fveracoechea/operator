@@ -72,7 +72,16 @@ test("an obligation stays in next until the SuperAgent closes it", async () => {
   ]);
 
   // A retry of the same key adds nothing.
-  expect(await device.run(add)).toMatchObject({ code: 4, output: { reason: "obligation_exists" } });
+  expect(await device.run(add)).toMatchObject({
+    code: 4,
+    output: {
+      reason: "obligation_exists",
+      next: {
+        decider: "super-agent",
+        question: "Which new key should identify this obligation?",
+      },
+    },
+  });
 
   const closed = await device.run(["obligation", "close", "--source", source, "--key", "share-12"]);
   expect(closed.code, closed.stderr).toBe(0);
@@ -118,7 +127,14 @@ test("the ledger refuses invalid input, unknown keys, and unknown sources", asyn
       "--file",
       invalid,
     ]),
-  ).toMatchObject({ code: 2, output: { outcome: "invalid", reason: "invalid_obligation_input" } });
+  ).toMatchObject({
+    code: 2,
+    output: {
+      outcome: "invalid",
+      reason: "invalid_obligation_input",
+      state: { inputValid: false },
+    },
+  });
   expect(
     await device.run([
       "obligation",
@@ -171,6 +187,7 @@ test("obligation add reads plain text from stdin and refuses JSON without writin
       next: {
         command: "operator obligation add --source <id> --key <key> --kind <kind> --file <path|->",
       },
+      state: { inputValid: false },
     },
   });
   expect(await owed()).toEqual([]);
@@ -188,7 +205,7 @@ test("obligation add reads plain text from stdin and refuses JSON without writin
   ]) {
     expect(await device.run(add, { stdin })).toMatchObject({
       code: 2,
-      output: { reason: "invalid_obligation_input" },
+      output: { reason: "invalid_obligation_input", state: { inputValid: false } },
     });
   }
   expect(await owed()).toEqual([]);

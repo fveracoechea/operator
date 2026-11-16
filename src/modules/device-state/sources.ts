@@ -23,6 +23,7 @@ import {
   workerQuestions,
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { removeStateDirectory } from "./project-files.ts";
 
@@ -34,10 +35,10 @@ export type Supervisor = { pane: string | null; session: string | null };
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
-  | {
+  | (ResultContext & {
       reason: "source_parent_open" | "source_not_found" | "pr_delivery_unresolved";
       detail: string;
-    };
+    });
 
 export const unresolvedDelivery = {
   reason: "pr_delivery_unresolved" as const,
@@ -78,6 +79,11 @@ export function registerSource(
       if (controller?.checkout !== checkout)
         return Err({
           reason: "controller_mismatch",
+          next: {
+            command: "operator project list",
+            why: "Find the recorded controlling checkout and run the command there.",
+          },
+          state: { controllerMatches: false },
           detail: "The controlling checkout changed before registration. Read the project again.",
         });
       const existing = db
@@ -94,6 +100,11 @@ export function registerSource(
       if (existing)
         return Err({
           reason: "source_parent_open",
+          next: {
+            command: "operator next",
+            why: "Read the open source's current action before registering it again.",
+          },
+          state: { openSourceExists: true },
           detail: `Source ${existing.id} is still open for ${source.trackerKey}.`,
         });
       db.insert(sources).values(source).run();
@@ -155,6 +166,11 @@ export function readSources(client: Database, repository: string, sourceId?: str
         if (sourceId !== undefined && rows.length === 0)
           return Err({
             reason: "source_not_found",
+            next: {
+              command: "operator next",
+              why: "Read the available sources before choosing a source.",
+            },
+            state: { sourceExists: false },
             detail: "The source does not exist in this project.",
           });
         return Ok(
@@ -261,6 +277,11 @@ export function controlledSource(db: Db, target: ControlledSource) {
   if (controller?.checkout !== target.checkout)
     return Err<SourceFailure>({
       reason: "controller_mismatch",
+      next: {
+        command: "operator project list",
+        why: "Find the recorded controlling checkout and run the command there.",
+      },
+      state: { controllerMatches: false },
       detail: "The controlling checkout changed. Read the project again. Nothing changed.",
     });
   const source = db
@@ -271,6 +292,11 @@ export function controlledSource(db: Db, target: ControlledSource) {
   return source === undefined
     ? Err<SourceFailure>({
         reason: "source_not_found",
+        next: {
+          command: "operator next",
+          why: "Read the available sources before choosing a source.",
+        },
+        state: { sourceExists: false },
         detail: "The source does not exist in this project. Nothing changed.",
       })
     : Ok(source);
@@ -447,7 +473,7 @@ export function pruneSource(
           source,
         ): Result<
           { source: SourceRow; retained: RetainedResource[] } | null,
-          SourceFailure | { reason: "source_prune_failed"; detail: string }
+          SourceFailure | (ResultContext & { reason: "source_prune_failed"; detail: string })
         > => {
           if (hasPendingDelivery(db, [source.id])) return Err(unresolvedDelivery);
           const facts = endFacts(db, source);
@@ -464,7 +490,7 @@ export function pruneSource(
           );
           // An Err rolls the records back, so they keep the obligation to delete the files.
           if (removed.tag === "Err")
-            return Err({ reason: "source_prune_failed" as const, detail: removed.error.detail });
+            return Err({ ...removed.error, reason: "source_prune_failed" as const });
           return removed.map(() => {
             deleteSourceRecords(db, [source.id]);
             return { source, retained };

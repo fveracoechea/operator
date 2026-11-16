@@ -9,6 +9,7 @@ import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { git, removeDevices } from "./dispatch-fixture.ts";
+import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
 
 const branch = "feature/existing";
 let root = "";
@@ -48,8 +49,11 @@ function refused(
   result: Result<unknown, { reason: string; detail: string }>,
   reason: string,
   detail: string,
+  state: Record<string, unknown>,
+  decider = "person",
 ) {
-  expect(result).toMatchObject({ tag: "Err", error: { reason } });
+  expect(result).toMatchObject({ tag: "Err", error: { reason, state, next: { decider } } });
+  if (result.tag === "Err") expectRefusalContext(result.error);
   expect(result.tag === "Err" ? result.error.detail : "").toContain(detail);
 }
 
@@ -80,14 +84,33 @@ test("an open PR from the planned branch of this repository is adopted with its 
 });
 
 test.each([
-  [{ state: "merged" }, "adopt_pr_not_open", "PR #41 is merged."],
-  [{ ref: "feature/other" }, "adopt_pr_branch_mismatch", "comes from example/one:feature/other"],
-  [{ repo: "fork/one" }, "adopt_pr_branch_mismatch", "comes from fork/one:feature/existing"],
-  [{ repo: null }, "adopt_pr_branch_mismatch", "comes from a deleted repository:"],
-])("PR %o refuses with %s", async (pr, reason, detail) => {
+  [{ state: "merged" }, "adopt_pr_not_open", "PR #41 is merged.", { prState: "merged" }],
+  [
+    { ref: "feature/other" },
+    "adopt_pr_branch_mismatch",
+    "comes from example/one:feature/other",
+    { headMatches: false },
+  ],
+  [
+    { repo: "fork/one" },
+    "adopt_pr_branch_mismatch",
+    "comes from fork/one:feature/existing",
+    { headMatches: false },
+  ],
+  [
+    { repo: null },
+    "adopt_pr_branch_mismatch",
+    "comes from a deleted repository:",
+    { headMatches: false },
+  ],
+])("PR %o refuses with %s", async (pr, reason, detail, state) => {
   answer(pr);
   const result = await readAdoption({ repository: "example/one", number: 41, branch });
-  expect(result).toMatchObject({ tag: "Err", error: { reason } });
+  expect(result).toMatchObject({
+    tag: "Err",
+    error: { reason, state, next: { decider: "super-agent" } },
+  });
+  if (result.tag === "Err") expectRefusalContext(result.error);
   expect(result.tag === "Err" ? result.error.detail : "").toContain(detail);
 });
 
@@ -97,6 +120,8 @@ test("an unreadable or unexpected answer refuses", async () => {
     await readAdoption({ repository: "example/one", number: 41, branch }),
     "adopt_pr_unreadable",
     "timeout",
+    { prReadable: false },
+    "super-agent",
   );
   spyOn(GithubApi, "call").mockResolvedValue({
     status: "succeeded",
@@ -106,6 +131,8 @@ test("an unreadable or unexpected answer refuses", async () => {
     await readAdoption({ repository: "example/one", number: 41, branch }),
     "adopt_pr_unreadable",
     "unexpected",
+    { prReadable: false },
+    "super-agent",
   );
 });
 
@@ -116,6 +143,27 @@ test("a missing local branch is created at the PR head, tracking the remote bran
     `local/${branch}`,
   );
 });
+
+test.each(["create", "move"] as const)(
+  "an unconfirmed branch %s keeps local work and names the person's decision",
+  async (action) => {
+    if (action === "move") git(checkout, "branch", "-q", branch, "main");
+    const before = git(checkout, "branch", "--list", "--format=%(objectname)", branch);
+    const run = ToolInvocation.run.bind(ToolInvocation);
+    spyOn(ToolInvocation, "run").mockImplementation((input) =>
+      input.args.includes(action === "create" ? "--track" : "--force")
+        ? Promise.resolve({ status: "completed", exitCode: 128, stdout: "", stderr: "denied" })
+        : run(input),
+    );
+    refused(
+      await prepareBranch(request()),
+      "adopt_branch_unavailable",
+      action === "create" ? "could not create" : "could not move",
+      action === "create" ? { creationConfirmed: false } : { moveConfirmed: false },
+    );
+    expect(git(checkout, "branch", "--list", "--format=%(objectname)", branch)).toBe(before);
+  },
+);
 
 test("a local branch behind the PR head moves forward, and one at the head stays", async () => {
   git(checkout, "branch", "-q", branch, "main");
@@ -136,6 +184,7 @@ test("a local branch with commits the PR lacks refuses and keeps them", async ()
     await prepareBranch(request()),
     "adopt_branch_diverged",
     `${branch} has 2 commits that PR #41 lacks.`,
+    { ahead: 2 },
   );
   expect(git(checkout, "rev-parse", branch)).toBe(local);
 });
@@ -149,16 +198,22 @@ test("a failed comparison refuses instead of moving the branch", async () => {
       ? Promise.resolve({ status: "completed", exitCode: 128, stdout: "", stderr: "" })
       : run(input),
   );
-  refused(await prepareBranch(request()), "adopt_branch_unavailable", "compare");
+  refused(await prepareBranch(request()), "adopt_branch_unavailable", "compare", {
+    comparisonConfirmed: false,
+  });
   expect(git(checkout, "rev-parse", branch)).toBe(before);
 });
 
 test("a branch checked out in a worktree refuses, with a separate reason when it is dirty", async () => {
   const elsewhere = `${root}/elsewhere`;
   git(checkout, "worktree", "add", "-q", "-b", branch, elsewhere, `local/${branch}`);
-  refused(await prepareBranch(request()), "adopt_branch_checked_out", elsewhere);
+  refused(await prepareBranch(request()), "adopt_branch_checked_out", elsewhere, {
+    branchCheckedOut: true,
+  });
   await Bun.write(`${elsewhere}/draft.ts`, "draft\n");
-  refused(await prepareBranch(request()), "adopt_branch_dirty", "with uncommitted changes");
+  refused(await prepareBranch(request()), "adopt_branch_dirty", "with uncommitted changes", {
+    branchCheckedOut: true,
+  });
 });
 
 test("a branch that the remote does not have refuses", async () => {
@@ -166,6 +221,7 @@ test("a branch that the remote does not have refuses", async () => {
     await prepareBranch({ ...request(), branch: "feature/gone" }),
     "adopt_branch_unavailable",
     "feature/gone",
+    { headResolved: false },
   );
   expect(git(checkout, "branch", "--list", "feature/gone")).toBe("");
 });

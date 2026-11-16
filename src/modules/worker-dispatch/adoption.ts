@@ -31,18 +31,30 @@ export function readAdoption(input: { repository: string; number: number; branch
     if (parsed?.success !== true)
       return Err<Failure>({
         reason: "adopt_pr_unreadable",
+        next: {
+          decider: "super-agent",
+          question: "How should the GitHub read failure be corrected before adoption is retried?",
+        },
+        state: { prReadable: false },
         detail: `GitHub did not answer PR #${number} of ${repository}: ${outcome.status === "succeeded" ? "an unexpected answer" : outcome.detail}. Nothing was launched.`,
       });
     const pr = parsed.data;
     if (pr.state !== "open")
       return Err<Failure>({
         reason: "adopt_pr_not_open",
+        next: { decider: "super-agent", question: "Which open PR should the assignment adopt?" },
+        state: { prState: pr.state },
         detail: `PR #${number} is ${pr.state}. Only an open PR can be adopted. Nothing was launched.`,
       });
     const head = `${pr.head.repo?.full_name ?? "a deleted repository"}:${pr.head.ref}`;
     if (head.toLowerCase() !== `${repository}:${branch}`.toLowerCase())
       return Err<Failure>({
         reason: "adopt_pr_branch_mismatch",
+        next: {
+          decider: "super-agent",
+          question: "Which assignment branch matches the adopted PR?",
+        },
+        state: { headMatches: false },
         detail: `PR #${number} comes from ${head}, not from ${branch} of ${repository}. Plan the PR's own branch, and adopt no PR from a fork. Nothing was launched.`,
       });
     return Ok<Adoption>({ number, url: pr.html_url, draft: pr.draft, branch });
@@ -85,12 +97,23 @@ async function moveForward(input: {
   if (counted === null)
     return Err<Failure>({
       reason: "adopt_branch_unavailable",
+      next: {
+        decider: "person",
+        question:
+          "How should local work or the checked-out adopted branch be preserved before adoption?",
+      },
+      state: { comparisonConfirmed: false },
       detail: `Git could not compare ${branch} with PR #${number}. Nothing was launched.`,
     });
   const ahead = Number(counted);
   if (ahead > 0)
     return Err<Failure>({
       reason: "adopt_branch_diverged",
+      next: {
+        decider: "person",
+        question: "How should the diverged local and remote branches be preserved before adoption?",
+      },
+      state: { ahead },
       detail: `The local branch ${branch} has ${ahead} ${ahead === 1 ? "commit" : "commits"} that PR #${number} lacks. Push them to the PR or move them to another branch. Nothing was launched.`,
     });
   if (local === head) return Ok(undefined);
@@ -98,6 +121,12 @@ async function moveForward(input: {
   return moved === null
     ? Err<Failure>({
         reason: "adopt_branch_unavailable",
+        next: {
+          decider: "person",
+          question:
+            "How should local work or the checked-out adopted branch be preserved before adoption?",
+        },
+        state: { moveConfirmed: false },
         detail: `Git could not move ${branch} forward to ${head}. Nothing was launched.`,
       })
     : Ok(undefined);
@@ -132,6 +161,12 @@ export function prepareBranch(input: {
         if (head === null)
           return Err<Failure>({
             reason: "adopt_branch_unavailable",
+            next: {
+              decider: "person",
+              question:
+                "How should local work or the checked-out adopted branch be preserved before adoption?",
+            },
+            state: { headResolved: false },
             detail: `Git could not fetch ${branch} of PR #${number} from ${remote ?? `a remote of ${repository}`}. Nothing was launched.`,
           });
         const worktree = await checkedOut(checkout, branch);
@@ -139,6 +174,12 @@ export function prepareBranch(input: {
           const dirty = (await git(worktree, ["status", "--porcelain"])) !== "";
           return Err<Failure>({
             reason: dirty ? "adopt_branch_dirty" : "adopt_branch_checked_out",
+            next: {
+              decider: "person",
+              question:
+                "How should local work or the checked-out adopted branch be preserved before adoption?",
+            },
+            state: { branchCheckedOut: true },
             detail: `${branch} is checked out in ${worktree}${dirty ? " with uncommitted changes" : ""}. Commit and push the work it keeps, then remove that worktree or switch it to another branch. Nothing was launched.`,
           });
         }
@@ -153,6 +194,12 @@ export function prepareBranch(input: {
           return created === null
             ? Err<Failure>({
                 reason: "adopt_branch_unavailable",
+                next: {
+                  decider: "person",
+                  question:
+                    "How should local work or the checked-out adopted branch be preserved before adoption?",
+                },
+                state: { creationConfirmed: false },
                 detail: `Git could not create ${branch} at ${head}. Nothing was launched.`,
               })
             : Ok(undefined);

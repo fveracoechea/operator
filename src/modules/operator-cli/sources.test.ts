@@ -250,7 +250,10 @@ test("passes a wait to the coordination wait, which names its own result", async
     operation: "next_wait",
     reason: "state_busy",
   });
-  expect(error).toHaveBeenCalledWith("operator: busy");
+  expect(error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: state_busy: busy",
+    "next: super-agent decides: How should state_busy be corrected before retrying next_wait?",
+  ]);
   expect(process.exitCode).toBe(1);
   expect(called.next).not.toHaveBeenCalled();
 });
@@ -433,7 +436,8 @@ test.each([
     operation: "source_prune",
     reason,
   });
-  expect(error).toHaveBeenCalledWith("operator: not pruned");
+  expect(error).toHaveBeenCalledWith(`operator: ${reason}: not pruned`);
+  expect(error.mock.calls).toHaveLength(2);
   expect(process.exitCode).toBe(code);
 });
 
@@ -447,6 +451,9 @@ test("reports a source defect with exit code 1", async () => {
     operation: "next",
     reason: "source_defect",
   });
-  expect(error).toHaveBeenCalledWith("operator: Error: boom");
+  expect(error.mock.calls.map(([line]) => String(line))).toEqual([
+    "operator: source_defect: Error: boom",
+    "next: super-agent decides: How should source_defect be corrected before retrying next?",
+  ]);
   expect(process.exitCode).toBe(1);
 });

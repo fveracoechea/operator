@@ -57,6 +57,8 @@ function blocked(result: Awaited<ReturnType<typeof validate>>) {
   expect(result.error.detail).toMatch(/\S/);
   expect(result.error).toHaveProperty("next");
   if ("next" in result.error) {
+    if (result.error.next === undefined)
+      return expect.unreachable("validation lost its recovery step");
     expect(result.error.next.decider).toBe("super-agent");
     expect(result.error.next.question).toMatch(/\S/);
   }

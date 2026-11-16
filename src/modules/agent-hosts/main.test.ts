@@ -7,6 +7,10 @@ import { Herdr } from "../herdr/main.ts";
 
 const metadataFailure = {
   reason: "host_metadata_failed",
+  next: {
+    decider: "super-agent",
+    question: "How should valid host model metadata be restored before selecting a launch?",
+  },
   detail: "The host did not return valid model and effort metadata. No selection was substituted.",
 };
 
@@ -29,18 +33,18 @@ test("classifies malformed metadata and known spawn failures without swallowing 
     run.mockRejectedValue(Object.assign(new Error("spawn failed"), { code }));
     expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
       tag: "Err",
-      error: metadataFailure,
+      error: { ...metadataFailure, state: { code } },
     });
   }
   run.mockResolvedValue({ status: "completed", exitCode: 0, stdout: "{", stderr: "" });
   expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
     tag: "Err",
-    error: metadataFailure,
+    error: { ...metadataFailure, state: { metadataValid: false } },
   });
   run.mockResolvedValue({ status: "completed", exitCode: 0, stdout: "{}", stderr: "" });
   expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
     tag: "Err",
-    error: metadataFailure,
+    error: { ...metadataFailure, state: { metadataValid: false } },
   });
   run.mockRejectedValue(new Error("unexpected logic failure"));
   expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
@@ -148,6 +152,11 @@ test("refuses unknown models, unknown efforts, and unavailable metadata", async 
     tag: "Err",
     error: {
       reason: "unsupported_model",
+      next: {
+        command: "operator host models --host opencode",
+        why: "Read the advertised models before selecting a launch model.",
+      },
+      state: { model: "missing", modelAdvertised: false },
       detail:
         "opencode does not advertise model missing. Select a model from operator host models.",
     },
@@ -156,6 +165,11 @@ test("refuses unknown models, unknown efforts, and unavailable metadata", async 
     tag: "Err",
     error: {
       reason: "unsupported_effort",
+      next: {
+        command: "operator host models --host opencode",
+        why: "Read the advertised efforts before selecting a launch effort.",
+      },
+      state: { model: "selected", effort: "medium", effortAdvertised: false },
       detail: "opencode model selected does not advertise effort medium. Supported efforts: high.",
     },
   });
@@ -276,6 +290,45 @@ test("never launches or substitutes after failed, uncertain, malformed, or misma
   }
   expect(host).not.toHaveBeenCalled();
 });
+
+test.each([
+  [
+    { status: "unavailable", tool: "opencode", detail: "missing" },
+    { invocationStatus: "unavailable" },
+  ],
+  [{ status: "no-answer", detail: "timeout" }, { invocationStatus: "no-answer" }],
+  [{ status: "completed", exitCode: 5, stdout: "", stderr: "denied" }, { exitCode: 5 }],
+  [{ status: "completed", exitCode: 0, stdout: "{", stderr: "" }, { responseValid: false }],
+  [{ status: "completed", exitCode: 0, stdout: "{}", stderr: "" }, { responseValid: false }],
+  [
+    {
+      status: "completed",
+      exitCode: 0,
+      stdout: JSON.stringify({ data: { ...session.data, location: { directory: "/other" } } }),
+      stderr: "",
+    },
+    { sessionMatches: false },
+  ],
+] satisfies [Awaited<ReturnType<typeof ToolInvocation.run>>, Record<string, unknown>][])(
+  "session refusal preserves its observed uncertainty and confirmation facts for %j",
+  async (result, state) => {
+    spyOn(ToolInvocation, "run").mockResolvedValue(result);
+    const host = spyOn(Herdr, "startAgent").mockReturnValue(OkAsync(null));
+    expect(await AgentHosts.start(start)).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "host_session_failed",
+        next: {
+          decider: "super-agent",
+          question:
+            "How should the possibly-created OpenCode session be inspected before another launch attempt?",
+        },
+        state,
+      },
+    });
+    expect(host).not.toHaveBeenCalled();
+  },
+);
 
 test("preserves session-creation defects and Herdr failures, and leaves Claude launches unchanged", async () => {
   const run = spyOn(ToolInvocation, "run").mockRejectedValue(new TypeError("defect"));

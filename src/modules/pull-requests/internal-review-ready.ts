@@ -6,10 +6,11 @@ import { WorkSources } from "../work-sources/main.ts";
 import { markReady, postComment, readyFacts, updateComment } from "./github.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
 import { worktreeFacts } from "./internal-review.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 import { readSummary, type Disposition } from "./internal-review-summary.ts";
 import { resolveOwner, type Paths } from "./owner.ts";
 
-type Failure = { reason: string; detail: string };
+type Failure = ResultContext & { reason: string; detail: string };
 type Source = NonNullable<AsyncOkOf<ReturnType<typeof WorkSources.show>>>;
 type Finding = Source["internalReviewRounds"][number]["findings"][number];
 
@@ -79,7 +80,12 @@ function reviewOf(source: Source | undefined, assignment: string) {
 
 function refusal(decision: ReturnType<typeof decideInternalReview>, event: string): Failure {
   return decision.result === "refused"
-    ? { reason: decision.reason, detail: decision.detail }
+    ? {
+        reason: decision.reason,
+        detail: decision.detail,
+        next: decision.next,
+        state: decision.state,
+      }
     : { reason: "internal_review_defect", detail: `The ${event} event decided nothing.` };
 }
 
@@ -196,6 +202,11 @@ export function skip(input: {
       if (source === undefined)
         return ErrAsync({
           reason: "source_not_found",
+          next: {
+            command: "operator next",
+            why: "Read the available sources before choosing a source.",
+          },
+          state: { sourceExists: false },
           detail: `Source ${input.sourceId} does not exist in this project. Nothing was changed.`,
         });
       const { review } = reviewOf(source, input.assignment);

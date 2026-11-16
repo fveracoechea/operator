@@ -79,7 +79,7 @@ test.each([
   {
     name: "installed plugin",
     file: "worker-dispatch/launch-checks.ts",
-    replacements: [["reason === null\n        ? Ok(undefined)", "true\n        ? Ok(undefined)"]],
+    replacements: [["failure === null\n        ? Ok(undefined)", "true\n        ? Ok(undefined)"]],
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "refusals before reservation",
   },

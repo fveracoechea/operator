@@ -95,8 +95,8 @@ test.each([
   {
     name: "failed deletion keeps the records",
     file: "device-state/sources.ts",
-    before: '"source_prune_failed",\n        );',
-    after: '"source_prune_failed",\n        ) && Ok(undefined);',
+    before: '"source_prune_failed",\n          );',
+    after: '"source_prune_failed",\n          ) && Ok(undefined);',
     pattern: failed,
   },
   {

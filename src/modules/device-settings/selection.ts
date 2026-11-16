@@ -1,5 +1,6 @@
 import type { DeviceConfig } from "./schema.ts";
 import type { AgentHosts } from "../agent-hosts/main.ts";
+import type { ResultContext } from "../../lib/cli-result.ts";
 
 type LaunchSelection = Omit<Parameters<typeof AgentHosts.resolve>[0], "cwd">;
 
@@ -8,7 +9,7 @@ export type SelectionRequest = {
   profile?: string;
   overrides?: Partial<LaunchSelection>;
 };
-export type SelectionFailure = {
+export type SelectionFailure = ResultContext & {
   reason: "profile_missing" | "selection_incomplete";
   detail: string;
 };
@@ -23,6 +24,11 @@ export function selectLaunch(
   if (request.profile !== undefined && !Object.hasOwn(config.profiles ?? {}, request.profile))
     return {
       reason: "profile_missing",
+      next: {
+        command: "operator config show",
+        why: "Read the configured start profiles before choosing a launch profile.",
+      },
+      state: { profile: request.profile, exists: false },
       detail: `Start profile ${request.profile} does not exist.`,
     };
   const profile =
@@ -38,6 +44,11 @@ export function selectLaunch(
   if (selected.host === undefined || selected.model === undefined)
     return {
       reason: "selection_incomplete" as const,
+      next: { decider: "super-agent", question: "Which host and model should this launch use?" },
+      state: {
+        hostConfigured: selected.host !== undefined,
+        modelConfigured: selected.model !== undefined,
+      },
       detail:
         "Set a host and model in device settings or explicit launch overrides. Operator does not choose a model for you.",
     };

@@ -438,7 +438,16 @@ test("a new worktree whose hook failed stops the start before the agent", async 
   doubles.preparation.state = "failed";
   doubles.preparation.detail = "hook failed";
   expect(await launchReviewer(request())).toEqual(
-    Err({ reason: "worktree_setup_failed", detail: "hook failed" }),
+    Err({
+      reason: "worktree_setup_failed",
+      detail: "hook failed",
+      next: {
+        decider: "super-agent",
+        question:
+          "How should the recorded worktree preparation failure be corrected before retrying?",
+      },
+      state: { preparation: "failed" },
+    }),
   );
   expect(doubles.startAgent).not.toHaveBeenCalled();
 });

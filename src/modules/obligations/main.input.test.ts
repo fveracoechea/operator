@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { z } from "zod";
 import { OkAsync } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
@@ -118,15 +119,16 @@ test.each([
       next: {
         command: "operator obligation add --source <id> --key <key> --kind <kind> --file <path|->",
       },
+      state: { inputValid: false },
     },
   });
   expect(project).not.toHaveBeenCalled();
   expect(write).not.toHaveBeenCalled();
   if (result.tag !== "Err") return expect.unreachable("invalid summary accepted");
   expect(result.error.detail).toContain("JSON is not accepted.");
-  if (!("next" in result.error)) return expect.unreachable("missing next command");
-  if (!("why" in result.error.next)) return expect.unreachable("missing command explanation");
-  expect(result.error.next.why).toMatch(/\S/);
+  z.object({ next: z.object({ command: z.string(), why: z.string().regex(/\S/) }) }).parse(
+    result.error,
+  );
 });
 
 test.each([
@@ -141,7 +143,7 @@ test.each([
   await Bun.write(input.file, "Hold the merge.");
   expect(await Obligations.add({ ...input, ...flags })).toMatchObject({
     tag: "Err",
-    error: { reason: "invalid_obligation_input" },
+    error: { reason: "invalid_obligation_input", state: { inputValid: false } },
   });
   expect(write).not.toHaveBeenCalled();
 });

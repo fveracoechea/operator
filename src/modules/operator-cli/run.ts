@@ -53,5 +53,5 @@ async function handle(args: string[], paths: OperatorPaths, json: boolean) {
   ]) {
     if (await handler(args, paths, json)) return;
   }
-  invalidArguments(json);
+  invalidArguments(json, args);
 }

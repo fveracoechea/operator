@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
+import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
+import { expectWorkflowRefusal } from "./worker-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 
@@ -51,7 +53,9 @@ async function exec(args: string[], cwd = checkout) {
 
 async function run(args: string[], cwd = checkout) {
   const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
-  return { code: result.code, output: JSON.parse(result.stdout) as unknown, stderr: result.stderr };
+  const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
+  expectWorkflowRefusal(args, output, result.stderr);
+  return { code: result.code, output, stderr: result.stderr };
 }
 
 async function git(cwd: string, ...args: string[]) {
