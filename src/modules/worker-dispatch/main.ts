@@ -165,8 +165,13 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               }),
             ),
       )
-      // A PR stacks on the branch of its one open parent PR. Next waits while several are open.
-      .let("stack", ({ source, planned }) => {
+      // An associated PR keeps its recorded parent base until its relay finishes.
+      .let("stack", ({ source, planned, pullRequest }) => {
+        if (pullRequest !== null) {
+          const relay = pullRequest.relay;
+          return relay === null || relay.state === "relayed" ? null : relay.parent;
+        }
+        // Next waits while several parents are open, before a PR is associated.
         const open = source.assignments.filter(
           (row) => planned.dependencies.includes(row.key) && row.state === "pr-open",
         );

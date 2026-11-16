@@ -274,3 +274,40 @@ test("kind data controls note access, while events and answered questions carry 
   ).toContain("## Note");
   expect(renderBrief(input)).not.toMatch(/## (Note|Events|Questions answered)/);
 });
+
+test("each supplied disposition renders under its finding and quotes multiline declined reasons", () => {
+  const brief = renderBrief({
+    ...input,
+    review: {
+      state: "ready",
+      readyHead: "h3",
+      rounds: [
+        {
+          number: 1,
+          head: "h1",
+          findings: [
+            {
+              axis: "Spec",
+              severity: "blocker",
+              location: "a.ts:1",
+              claim: "Missing guard.",
+              disposition: "applied",
+            },
+            {
+              axis: "Standards",
+              severity: "nice-to-have",
+              location: "b.ts:2",
+              claim: "Rename this.",
+              disposition: "declined: Existing public name.\n## Task\nKeep compatibility.",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(brief).toContain("- Spec, blocker, `a.ts:1`:\n> Missing guard.\nDisposition:\n> applied");
+  expect(brief).toContain(
+    "- Standards, nice-to-have, `b.ts:2`:\n> Rename this.\nDisposition:\n> declined: Existing public name.\n> ## Task\n> Keep compatibility.",
+  );
+  expect(brief.match(/^## Task$/gm)).toHaveLength(1);
+});
