@@ -17,6 +17,36 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+test("the public recovery interface reads an empty audit and preserves authorization refusal", () => {
+  const paths = OperatorHome.resolve(
+    Environment.parse({ HOME: `${root}/recovery`, NODE_ENV: "test" }),
+  );
+  expect(
+    DeviceState.registerProject(paths, {
+      repository: "example/one",
+      checkout: "/isolated/recovery",
+      registeredAt: "now",
+    }).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.readInternalReviewRecovery(paths, "example/one", "source", "build"),
+  ).toMatchObject({ tag: "Ok", value: null });
+  expect(
+    DeviceState.recoverInternalReview(paths, {
+      repository: "example/one",
+      sourceId: "source",
+      assignment: "build",
+      launchId: "launch",
+      number: 415,
+      url: "https://github.com/example/one/pull/415",
+      branch: "task/build",
+      worktreePath: "/isolated/recovery",
+      head: "a".repeat(40),
+      personInstructed: false,
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "person_instruction_required" } });
+});
+
 test("only registration creates state and lookup remains project-scoped", async () => {
   const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
   expect(DeviceState.checkCompatibility(paths)).toMatchObject({

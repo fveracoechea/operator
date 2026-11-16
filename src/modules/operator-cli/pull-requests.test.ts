@@ -117,6 +117,40 @@ test("passes each command to the matching pull request operation", async () => {
   for (const spy of Object.values(called)) expect(spy).toHaveBeenCalledTimes(1);
 });
 
+test("routes recovery with pinned provenance and authorization", async () => {
+  quiet();
+  const recover = spyOn(PullRequests, "recoverReview").mockReturnValue(
+    completed("internal_review_recovered"),
+  );
+  const args = [
+    "internal-review",
+    "recover",
+    "--source",
+    "s",
+    "--assignment",
+    "a",
+    "--launch",
+    "l",
+    "--pr",
+    "415",
+    "--head",
+    "a".repeat(40),
+    "--person-instructed",
+  ];
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(recover).toHaveBeenCalledWith({
+    paths,
+    cwd: process.cwd(),
+    operation: "internal_review_recover",
+    sourceId: "s",
+    assignment: "a",
+    launchId: "l",
+    number: 415,
+    head: "a".repeat(40),
+    personInstructed: true,
+  });
+});
+
 test("prints a completed operation as compact JSON or as indented text", async () => {
   spies();
   const { log } = quiet();

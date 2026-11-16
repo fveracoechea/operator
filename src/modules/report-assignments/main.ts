@@ -4,6 +4,7 @@ import path from "node:path";
 import { Err, Ok, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -486,7 +487,7 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
 /** The PR assignment's launch that takes over the running report worker's pane and worktree. */
 function handoverLaunch(
   launch: NonNullable<Facts["launch"]>,
-  change: { key: string; name: string; branch: string; at: string },
+  change: { key: string; name: string; branch: string; at: string; internalReview: boolean },
 ) {
   return {
     ...launch,
@@ -497,6 +498,7 @@ function handoverLaunch(
     name: change.name,
     resources: "worktree",
     branch: change.branch,
+    internalReview: change.internalReview,
     startedAt: change.at,
     endedAt: null,
     failureReason: null,
@@ -598,6 +600,15 @@ function promote(input: PromoteInput) {
       const prepared = await promotionFacts(input);
       if (prepared.tag !== "Ok") return stop(prepared);
       const { checkout, planned, decision, facts, decided, launch } = prepared.value;
+      const settings = await DeviceSettings.show(input.paths);
+      if (settings.tag !== "Ok") return stop(settings);
+      const internalReview = WorkerDispatch.resolveInternalReview({
+        assignment: planned.internalReview,
+        plan: z
+          .object({ internalReview: z.boolean().optional() })
+          .parse(JSON.parse(facts.source.plan)).internalReview,
+        device: settings.value.data.config.review?.internal,
+      });
       const handover = await WorkerDispatch.handOver({
         paths: input.paths,
         checkout,
@@ -609,7 +620,9 @@ function promote(input: PromoteInput) {
       const { name, branch } = handover.value;
       const at = new Date().toISOString();
       const taken =
-        name === null ? null : handoverLaunch(launch, { key: planned.key, name, branch, at });
+        name === null
+          ? null
+          : handoverLaunch(launch, { key: planned.key, name, branch, at, internalReview });
       const state = taken === null ? "ready" : "running";
       const recorded = record(decision, decided, (current) => ({
         update: {

@@ -32,6 +32,7 @@ import {
   worktreeFacts,
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
+import { recoverReview } from "./internal-review-recovery.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Request = { paths: Paths; cwd: string };
@@ -522,6 +523,7 @@ function wait(input: Request & { timeoutSeconds: number }) {
  * the cleanup that follows a verified merge, which the SuperAgent can repeat after a failure.
  */
 export const PullRequests = {
+  recoverReview,
   merge(input: Request) {
     return merge(input);
   },

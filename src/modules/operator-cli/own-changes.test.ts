@@ -11,6 +11,17 @@ afterEach(() => {
 
 test("a SuperAgent command names the source and assignment that it changes", () => {
   expect(
+    ownChangeSelector([
+      "internal-review",
+      "recover",
+      "--source",
+      "s1",
+      "--assignment",
+      "a",
+      "--person-instructed",
+    ]),
+  ).toEqual({ sourceId: "s1", assignment: "a" });
+  expect(
     ownChangeSelector(["message", "close", "--source", "s1", "--assignment", "a", "--key", "k"]),
   ).toEqual({ sourceId: "s1", assignment: "a" });
   expect(ownChangeSelector(["dispatch", "--assignment", "a", "--source", "s1"])).toEqual({
