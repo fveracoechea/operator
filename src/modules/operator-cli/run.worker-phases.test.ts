@@ -28,8 +28,10 @@ test("every command result names the kind, the phase, and the next command", asy
     [
       "question",
       "ask",
+      "--key",
+      "scope",
       "--file",
-      await device.writeJson("question.json", { key: "scope", question: "Which scope?" }),
+      await device.writeText("question.md", "Which scope?"),
     ],
     options,
   );
@@ -51,7 +53,7 @@ test("every command result names the kind, the phase, and the next command", asy
       "report",
       "submit",
       "--file",
-      await device.writeJson("report.json", {
+      await device.writeReport("report.md", {
         conclusion: "Done.",
         evidence: ["Investigated the fixture."],
         unresolved: [],
@@ -84,7 +86,7 @@ test("every command result names the kind, the phase, and the next command", asy
     ).code,
   ).toBe(0);
   const returned = await device.run(
-    ["report", "submit", "--file", `${device.root}/drafts/report.json`],
+    ["report", "submit", "--file", `${device.root}/drafts/report.md`],
     options,
   );
   expect(returned.output).toMatchObject({
@@ -99,7 +101,7 @@ test("every command result names the kind, the phase, and the next command", asy
     next: { command: "operator report submit --file <file>" },
   });
   expect(
-    (await device.run(["report", "submit", "--file", `${device.root}/drafts/report.json`], options))
+    (await device.run(["report", "submit", "--file", `${device.root}/drafts/report.md`], options))
       .output,
   ).toMatchObject({ kind: "research", phase: "acceptance", data: { report: 2 } });
 });

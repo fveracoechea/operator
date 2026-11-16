@@ -72,7 +72,7 @@ beforeAll(async () => {
   const otherPr = await device.dispatch(id, "other-pr");
   reportPane = report.paneId;
   prPane = pr.paneId;
-  const file = await device.writeJson("report.json", {
+  const file = await device.writeReport("report.md", {
     conclusion: "Done.",
     evidence: ["Read."],
     unresolved: [],

@@ -172,7 +172,17 @@ test.each([true, false])(
   async (ready) => {
     spyOn(Readiness, "check").mockReturnValue(
       OkAsync({
-        blockers: ready ? [] : [{ reason: "executable_missing", tool: "herdr", detail: "missing" }],
+        blockers: ready
+          ? []
+          : [
+              {
+                reason: "executable_missing",
+                tool: "herdr",
+                detail: "missing",
+                next: { decider: "person", question: "Install herdr?" },
+              },
+            ],
+        warnings: [],
       }) as never,
     );
     const { log } = quiet();
@@ -191,7 +201,13 @@ test.each([true, false])(
     expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
       kind: "prototype",
       phase: "react",
-      next: { command: "operator report submit --file <file>", why: "Submit." },
+      next: ready
+        ? { command: "operator report submit --file <file>", why: "Submit." }
+        : {
+            decider: "super-agent",
+            question:
+              "Which readiness blockers should be resolved next, and which named person decisions must be requested?",
+          },
     });
   },
 );
