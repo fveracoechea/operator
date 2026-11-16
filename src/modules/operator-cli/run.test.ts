@@ -60,6 +60,7 @@ test("version reports the running release without project release selection", as
 /** Check the changed command contracts rather than duplicating the entire help catalog. */
 function expectHelp(output: string) {
   expect(output).toStartWith("Usage: operator --help | --version [--json]\n");
+  expect(output).toContain("operator abandon --source id --assignment key [--json]");
   expect(output).toContain("operator review add <pr-url> [--slack-thread permalink] [--json]");
   expect(output).toContain("operator review wait [--timeout seconds] [--all] [--json]");
   expect(output).toEndWith("operator opencode hook\n");

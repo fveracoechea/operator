@@ -106,12 +106,12 @@ test("refuses the real default roots, descendants, and aliases without opening s
       }),
     ),
   ).toThrow(new Error(`Tests cannot access the real Operator root: ${home}/.local/state/operator`));
-  await symlink(`${home}/.config`, `${root}/config-alias`);
+  await symlink(home, `${root}/config-alias`);
   expect(() =>
     OperatorHome.resolve(
       Environment.parse({
         HOME: `${root}/fake`,
-        XDG_CONFIG_HOME: `${root}/config-alias`,
+        XDG_CONFIG_HOME: `${root}/config-alias/.config`,
         NODE_ENV: "test",
       }),
     ),

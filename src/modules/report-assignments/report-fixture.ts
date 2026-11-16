@@ -10,6 +10,8 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { renderReport, type Submission } from "./content.ts";
+import { Herdr } from "../herdr/main.ts";
+import { OkAsync } from "unthrown";
 
 export const socket = "/fixture/herdr.sock";
 export const workerPane = "w1:p1";
@@ -37,6 +39,8 @@ function assignment(key: string, worktree: boolean) {
  * A launch is recorded through device state, so no Herdr or host runs.
  */
 export async function reportDevice() {
+  spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "w1:t1", workspaceId: "w1" }));
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([]));
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-report-module-")));
   const paths = OperatorHome.resolve(Environment.parse({ HOME: `${root}/home`, NODE_ENV: "test" }));
   const checkout = `${root}/checkout`;

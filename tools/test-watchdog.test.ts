@@ -37,12 +37,46 @@ function pids(output: string) {
 }
 
 function alive(pid: number) {
-  return (
-    Bun.spawnSync(["ps", "-o", "pid=", "-p", String(pid)])
-      .stdout.toString()
-      .trim() !== ""
-  );
+  const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
+  const state = result.stdout.toString().trim();
+  const error = result.stderr.toString().trim();
+  if (result.exitCode === 1 && state === "" && error === "") return false;
+  if (result.exitCode !== 0 || error !== "" || state === "")
+    // oxlint-disable-next-line unthrown/no-throw -- Fixture observation failures must fail cleanup instead of treating an unknown PID as absent.
+    throw new Error(`Cannot determine fixture process ${pid}: ${result.exitCode} ${error}`);
+  // A killed zombie awaits its parent's reap; every other or unexpected state still fails cleanup.
+  return !/^Z[<NLsl+]*$/.test(state);
 }
+
+test("cleanup assertions reject a live blocked fixture process", async () => {
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      'process.stdout.write("ready\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);',
+    ],
+    {
+      cwd: root,
+      env: Environment.child(),
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 15_000,
+      killSignal: "SIGKILL",
+    },
+  );
+  try {
+    const reader = child.stdout.getReader();
+    const ready = await reader.read();
+    reader.releaseLock();
+    expect(new TextDecoder().decode(ready.value)).toBe("ready\n");
+    const remaining = [child.pid].filter(alive);
+    expect(remaining).toEqual([child.pid]);
+    expect(() => expect(remaining).toEqual([])).toThrow();
+  } finally {
+    child.kill("SIGKILL");
+    await child.exited;
+  }
+});
 
 // A terminal on the watchdog's own output keeps bun test's colors through the pipe.
 test.skipIf(Bun.which("script") === null)(

@@ -11,6 +11,7 @@ const workflowGroups = new Set([
   "message",
   "obligation",
   "cleanup",
+  "abandon",
 ]);
 
 export function workflowArguments(args: string[]) {
@@ -63,6 +64,7 @@ const usage = `Usage: operator --help | --version [--json]
        operator obligation list --source id [--json]
        operator pr merge [--json]
        operator cleanup --source id --assignment key [--person-instructed] [--json]
+       operator abandon --source id --assignment key [--json]
        operator handoff --source id --assignment key [--json]
        operator internal-review skip --source id --assignment key --person-instructed [--json]
        operator review add <pr-url> [--slack-thread permalink] [--json]

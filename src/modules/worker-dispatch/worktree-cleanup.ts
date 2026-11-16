@@ -45,20 +45,16 @@ async function unlanded(input: {
     .split("\0")
     .filter((line) => line !== "");
   const reasons: string[] = [];
-  const ignored: string[] = [];
   for (const line of status) {
-    if (line.startsWith("!! ")) ignored.push(line.slice(3));
-    else reasons.push(`changed or untracked ${line.slice(3).replace(/\/$/, "")}`);
+    if (!line.startsWith("!! ")) reasons.push(`changed or untracked ${line.slice(3)}`);
   }
-  // Only what preparation wrote may go. An unclassified entry can be unlanded work.
-  const classified = await WorktreePreparation.classifyIgnored({
-    paths: input.paths,
+  const classified = await WorktreePreparation.changedIgnoredEnvironment({
     worktree,
     controller: checkout,
-    ignored,
   });
-  for (const entry of classified.tag === "Ok" ? classified.value.unknown : ignored)
-    reasons.push(`ignored ${entry.replace(/\/$/, "")}`);
+  if (classified.tag !== "Ok" || classified.value === null)
+    reasons.push("environment files that could not be inspected");
+  else for (const entry of classified.value) reasons.push(`ignored ${entry}`);
   const tips = ["HEAD"];
   const exclude: string[] = [];
   if (branch !== null) {
