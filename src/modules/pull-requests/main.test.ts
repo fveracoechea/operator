@@ -59,6 +59,23 @@ test("worker phase selection uses the same validated worktree owner as PR effect
   ).toMatchObject({ tag: "Err", error: { reason: "pr_worktree_unrecorded" } });
 });
 
+test("the public recovery action refuses missing person authorization before external reads", async () => {
+  await using device = await prDevice();
+  expect(
+    await PullRequests.recoverReview({
+      paths: device.paths,
+      cwd: device.checkout,
+      sourceId: device.sourceId,
+      assignment: "parent",
+      launchId: "launch",
+      number: 415,
+      head: "a".repeat(40),
+      personInstructed: false,
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "person_instruction_required" } });
+  expect(device.calls).toEqual([]);
+});
+
 test("the owner associates its one open PR, and a repeat changes nothing", async () => {
   await using device = await prDevice();
   const { worktree } = device.start("other");

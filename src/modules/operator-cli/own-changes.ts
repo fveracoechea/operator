@@ -19,6 +19,7 @@ const supervisorCommands = new Set([
   "report accept",
   "report return",
   "internal-review skip",
+  "internal-review recover",
 ]);
 
 function flagValue(args: string[], flag: string) {

@@ -47,7 +47,7 @@ async function git(cwd: string, args: string[]) {
 
 const nothing = "Nothing was read from GitHub or changed.";
 
-/** The caller's real Git top level must be a recorded worktree. A running owner wins a reused path. */
+/** The caller's real Git top level must have at most one running recorded owner. */
 async function recorded(cwd: string, owners: Owners): Promise<Recorded | OwnerFailure> {
   const top = await git(cwd, ["rev-parse", "--show-toplevel"]);
   if (top === null)
@@ -66,8 +66,23 @@ async function recorded(cwd: string, owners: Owners): Promise<Recorded | OwnerFa
     // Stryker disable next-line ConditionalExpression: equivalent: a null path has no real path, so it never equals the caller's top level
     if (row.worktreePath !== null && (await realPathOrNull(row.worktreePath)) === real)
       matches.push({ ...row, worktreePath: row.worktreePath });
+  const runningOwners = matches.filter((row) => row.launchState === "running");
+  if (runningOwners.length > 1)
+    return {
+      reason: "pr_worktree_unrecorded",
+      detail: `${real} has multiple running recorded owners. Resolve the ambiguous worktree ownership before running a PR command. ${nothing}`,
+      next: {
+        decider: "super-agent",
+        question: "Which recorded assignment should own this worktree?",
+      },
+      state: {
+        worktree: real,
+        ambiguous: true,
+        launchIds: runningOwners.map((row) => row.launchId),
+      },
+    };
   return (
-    matches.find((row) => row.launchState === "running") ??
+    runningOwners[0] ??
     matches[0] ?? {
       reason: "pr_worktree_unrecorded",
       detail: `${real} is not the recorded worktree of an assignment. ${nothing}`,

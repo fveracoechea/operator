@@ -9,6 +9,7 @@ Adds a draft condition to the ADR-0010 merge gate and moves the start of the ADR
 Amended 2026-11-04 in #305 with the answers to its open questions, below.
 Amended 2026-11-11: an adopted PR that is ready for review gets no internal review, whatever the setting (ADR-0024).
 Implemented: the draft merge condition in #316, the handoff and rounds in #324, and the ready step, summary comment, and skip in #328.
+Amended 2026-11-16 by ADR-0033: explicitly authorized recovery can record a missing promoted review without a schema migration.
 
 ## Context
 
@@ -71,6 +72,7 @@ No line-level threads or other review comments are posted.
 ### Lifecycle and gates
 
 The internal review is a separate lifecycle of a PR assignment, owned by the module that owns PR associate, ready, and merge.
+Recovery of a missing promoted review records a fresh authorization as steering, without creating historical review activity (ADR-0033).
 It moves through reviewing, with at most two rounds, and ends ready or skipped.
 The assignment's own states do not change, and a draft PR counts as open.
 Dependents can start on a draft parent, because they already start on an open PR that feedback still changes, and stacked PRs already follow parent changes.

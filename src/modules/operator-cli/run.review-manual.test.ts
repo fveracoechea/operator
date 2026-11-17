@@ -24,13 +24,19 @@ test("the migration renames the slack origin to manual", async () => {
     const migrations = readMigrationFiles({
       migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
     });
-    for (const migration of migrations.slice(0, -1)) {
+    const manualReviewIndex = migrations.findIndex(
+      (migration) => migration.folderMillis === 1794607188879,
+    );
+    expect(manualReviewIndex).toBe(21);
+    expect(migrations[manualReviewIndex]?.folderMillis).toBe(1794607188879);
+    for (const migration of migrations.slice(0, manualReviewIndex)) {
       for (const sql of migration.sql) db.exec(sql);
       db.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
         migration.hash,
         migration.folderMillis,
       );
     }
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
     db.query("INSERT INTO projects VALUES ('example/one', ?, 'now')").run(device.checkout);
     db.exec(
       "INSERT INTO review_requests (id, repository, number, url, origin, state, requested_at, slack_channel, slack_ts) VALUES ('manual', 'example/one', 7, 'https://github.com/example/one/pull/7', 'slack', 'queued', 'now', 'C0123', '1234.000005'), ('assignment', 'example/one', 8, 'https://github.com/example/one/pull/8', 'assignment', 'queued', 'now', NULL, NULL)",
@@ -42,6 +48,7 @@ test("the migration renames the slack origin to manual", async () => {
   ]);
   {
     using db = new Database(file, { readonly: true });
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
     expect(
       db
         .query("SELECT name FROM sqlite_master WHERE name IN ('slack_effects', 'slack_watches')")
@@ -53,7 +60,9 @@ test("the migration renames the slack origin to manual", async () => {
         columns.parse(db.query(`PRAGMA table_info(${table})`).all()).map(({ name }) => name),
       ).toContain("kind");
   }
+  const upgraded = await Bun.file(file).bytes();
   expect(await device.next()).toMatchObject([{ origin: "manual" }, { origin: "assignment" }]);
+  expect(await Bun.file(file).bytes()).toEqual(upgraded);
 });
 
 test("a retired channel setting remains readable without writes but cannot be configured", async () => {

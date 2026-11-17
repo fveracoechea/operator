@@ -102,6 +102,43 @@ test("a running owner wins a reused worktree path, in either record order", asyn
   }
 });
 
+test.each(["same path", "symlink alias"])(
+  "two running owners refuse an ambiguous real worktree with the original first: %s",
+  async (identity) => {
+    await using device = await prDevice();
+    const original = device.start("parent");
+    const alias = `${device.root}/alias`;
+    await symlink(original.worktree, alias);
+    const other = device.start("other", {
+      worktree: identity === "same path" ? original.worktree : alias,
+      branch: "task/parent",
+      add: false,
+    });
+    const owners = DeviceState.worktreeOwners(device.paths);
+    expect(owners.tag === "Ok" ? owners.value.map((owner) => owner.launchId) : []).toEqual([
+      original.launchId,
+      other.launchId,
+    ]);
+    expect<unknown>(await resolveOwner({ paths: device.paths, cwd: original.worktree })).toEqual({
+      tag: "Err",
+      error: {
+        reason: "pr_worktree_unrecorded",
+        detail: `${original.worktree} has multiple running recorded owners. Resolve the ambiguous worktree ownership before running a PR command. ${nothing}`,
+        next: {
+          decider: "super-agent",
+          question: "Which recorded assignment should own this worktree?",
+        },
+        state: {
+          worktree: original.worktree,
+          ambiguous: true,
+          launchIds: [original.launchId, other.launchId],
+        },
+      },
+    });
+    expect(device.calls).toEqual([]);
+  },
+);
+
 test("a launch without a recorded worktree never matches", async () => {
   await using device = await prDevice();
   device.start("parent", { worktree: null });

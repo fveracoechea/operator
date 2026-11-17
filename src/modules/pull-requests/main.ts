@@ -32,6 +32,7 @@ import {
   worktreeFacts,
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
+import { recoverReview } from "./internal-review-recovery.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Request = { paths: Paths; cwd: string };
@@ -530,6 +531,9 @@ export const PullRequests = {
       assignment,
       launchId,
     }));
+  },
+  recoverReview(input: Parameters<typeof recoverReview>[0]) {
+    return recoverReview(input);
   },
   merge(input: Request) {
     return merge(input);

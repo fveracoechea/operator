@@ -651,6 +651,10 @@ function refreshBrief(request: Request) {
 
 /** Launches WorkerAgents through Herdr and handles the stable plugin hooks. */
 export const WorkerDispatch = {
+  /** Resolves launch-time review policy for dispatch and a promoted worker's new PR launch. */
+  resolveInternalReview(values: Parameters<typeof internalReview>[0]) {
+    return internalReview(values);
+  },
   dispatch(input: DispatchRequest) {
     return dispatch(input);
   },

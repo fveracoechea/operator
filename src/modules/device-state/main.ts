@@ -53,6 +53,7 @@ import {
   startHandoff,
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
+import { recoverInternalReview, readInternalReviewRecovery } from "./internal-review-recovery.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 import {
   acknowledgeCoordinationWaits,
@@ -261,6 +262,19 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) =>
       associatePullRequest(client, launchId, pr, review, internalReview),
+    );
+  },
+  recoverInternalReview(paths: Paths, input: Parameters<typeof recoverInternalReview>[1]) {
+    return writing(paths, (client) => recoverInternalReview(client, input));
+  },
+  readInternalReviewRecovery(
+    paths: Paths,
+    repository: string,
+    sourceId: string,
+    assignment: string,
+  ) {
+    return reading(paths, (client) =>
+      readInternalReviewRecovery(client, repository, sourceId, assignment),
     );
   },
   /** `afterPid` is the associating process, whose hold the handoff it started takes over. */
