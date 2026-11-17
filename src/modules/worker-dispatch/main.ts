@@ -345,6 +345,7 @@ function briefPhase(settings: Facts & { kind: WorkerKind | null }) {
       parked: false,
     },
     internalReview: settings.internalReview,
+    // Stryker disable next-line BooleanLiteral: equivalent: this observation has no event, so decidePhase reads worktreeClean only in guards it does not evaluate
     worktreeClean: true,
   }).phase;
 }
@@ -367,8 +368,11 @@ function writeBrief(
       for (const row of settings.source.questions)
         if (
           row.assignment === settings.planned.key &&
+          // Stryker disable next-line ConditionalExpression: equivalent: decoded source questions with nonnull answer and authority must be answered; validQuestion rejects every contrary row before dispatch or refresh
           row.state === "answered" &&
+          // Stryker disable next-line ConditionalExpression: equivalent: validQuestion requires every decoded answered question to have a nonnull answer before dispatch or refresh
           row.answer !== null &&
+          // Stryker disable next-line ConditionalExpression: equivalent: validQuestion requires every decoded answered question to have a nonnull answer authority before dispatch or refresh
           row.answeredBy !== null
         )
           questions.push({
