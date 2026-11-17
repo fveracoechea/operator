@@ -1,5 +1,6 @@
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { Err } from "unthrown";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 
@@ -24,7 +25,15 @@ export function dispatchArgs(args: string[]) {
     }
     const value = rest.next().value;
     if (
-      (flag !== "--source" && flag !== "--assignment") ||
+      ![
+        "--source",
+        "--assignment",
+        "--kind",
+        "--brief",
+        "--intent",
+        "--profile",
+        "--tracker-key",
+      ].includes(flag) ||
       Object.hasOwn(values, flag) ||
       value === undefined ||
       value.startsWith("--")
@@ -32,13 +41,42 @@ export function dispatchArgs(args: string[]) {
       return null;
     values[flag] = value;
   }
+  return dispatchMode(values, args[0]);
+}
+
+function dispatchMode(values: Record<string, string>, operation: "dispatch" | "abandon") {
   const sourceId = values["--source"];
   const assignment = values["--assignment"];
+  const kind = values["--kind"];
+  const brief = values["--brief"];
+  if (kind !== undefined || brief !== undefined) {
+    if (
+      sourceId !== undefined ||
+      assignment !== undefined ||
+      kind === undefined ||
+      brief === undefined
+    )
+      return null;
+    return {
+      operation: "one_off_dispatch" as const,
+      kind,
+      brief,
+      intent: values["--intent"],
+      profile: values["--profile"],
+      trackerKey: values["--tracker-key"],
+    };
+  }
+  if (Object.keys(values).some((flag) => !["--source", "--assignment", "json"].includes(flag)))
+    return null;
   if (sourceId === undefined || assignment === undefined) return null;
-  return { operation: args[0], sourceId, assignment };
+  return { operation, sourceId, assignment };
 }
 
 export const dispatchExitCodes = {
+  invalid_source_plan: 2,
+  source_profile_missing: 3,
+  source_parent_open: 4,
+  source_io_failed: 1,
   kind_not_dispatchable: 4,
   assignment_not_dispatchable: 4,
   running_cap_reached: 4,
@@ -52,6 +90,21 @@ export const dispatchExitCodes = {
   herdr_invalid_response: 1,
   host_metadata_failed: 1,
 };
+
+/** A launch failure preserves the source and the dispatch owner's recovery facts. */
+export async function dispatchRegistered(
+  input: { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string },
+  source: { id: string; assignments: { key: string }[] },
+  label: string,
+) {
+  const assignment = source.assignments[0]?.key ?? "";
+  const launched = await WorkerDispatch.dispatch({ ...input, sourceId: source.id, assignment });
+  if (launched.tag !== "Err") return launched;
+  return Err({
+    ...launched.error,
+    detail: `${launched.error.detail} Source ${source.id} holds the ${label}. Run operator dispatch --source ${source.id} --assignment ${assignment} again.`,
+  });
+}
 
 /**
  * Herdr runs the hook for every pane event on the device. Without device state there is no
@@ -89,6 +142,25 @@ export async function runDispatch(
 ) {
   const parsed = dispatchArgs(args);
   if (parsed === null) return false;
+  const input = { paths, cwd: process.cwd() };
+  if (parsed.operation === "one_off_dispatch") {
+    const registered = await WorkSources.oneOff({ ...input, ...parsed });
+    const result =
+      registered.tag === "Ok"
+        ? (await dispatchRegistered(input, registered.value, "task")).map((data) => ({
+            reason: "worker_launched",
+            data,
+          }))
+        : registered;
+    respond({
+      operation: "dispatch",
+      result,
+      exitCodes: dispatchExitCodes,
+      defect: "dispatch_defect",
+      json,
+    });
+    return true;
+  }
   const result = await (parsed.operation === "dispatch"
     ? WorkerDispatch.dispatch({
         paths,

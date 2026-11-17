@@ -28,7 +28,7 @@ async function sources() {
     .data.sources;
 }
 
-test("ask registers a one-assignment report source and dispatches its worker in one step", async () => {
+test("ask dispatches an answer kind", async () => {
   const question = "Why does `next --wait` return ended sources?\n## Not a brief section";
   const result = await device.run(["ask", "--question", question]);
   expect(result.code, result.stderr).toBe(0);
@@ -47,13 +47,21 @@ test("ask registers a one-assignment report source and dispatches its worker in 
         assignments: [
           {
             key: data.assignment,
+            kind: "answer",
             completion: "report",
             resources: "pane",
             dependencies: [],
           },
         ],
       },
-      launches: [{ assignment: data.assignment, state: "running", paneId: data.paneId }],
+      launches: [
+        {
+          assignment: data.assignment,
+          state: "running",
+          paneId: data.paneId,
+          kind: { name: "answer", resources: "pane" },
+        },
+      ],
     },
   });
 
