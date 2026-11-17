@@ -9,6 +9,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { PrStacks } from "../pr-stacks/main.ts";
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
@@ -163,16 +164,32 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               }),
             ),
       )
-      // A PR stacks on the branch of its one open parent PR. Next waits while several are open.
+      // Several open prerequisites get a per-child dependency-only base, never a parent's ref rewrite.
       .let("stack", ({ source, planned }) => {
+        const recorded = source.stackBases.find((row) => row.assignment === planned.key);
+        if (recorded !== undefined) {
+          const base = recorded.data;
+          const first = base.parents[0];
+          if (first !== undefined)
+            return {
+              assignment: first.assignment,
+              number: first.number,
+              branch: base.branch,
+              parents: base.parents,
+            };
+        }
         const open = source.assignments.filter(
           (row) => planned.dependencies.includes(row.key) && row.state === "pr-open",
         );
         const parent = source.pullRequests.find((pr) => pr.assignment === open[0]?.key);
         // Stryker disable next-line ConditionalExpression, LogicalOperator: equivalent: next gives no dispatch action while several parents are open, and an open parent always has its PR
-        const one = open.length === 1 && parent !== undefined;
+        const one = open.length > 0 && parent !== undefined;
+        const openKeys = new Set(open.map((row) => row.key));
+        const parents = source.pullRequests
+          .filter((row) => openKeys.has(row.assignment))
+          .map((row) => ({ assignment: row.assignment, number: row.number, branch: row.branch }));
         return planned.completion === "pr" && one
-          ? { assignment: parent.assignment, number: parent.number, branch: parent.branch }
+          ? { assignment: parent.assignment, number: parent.number, branch: parent.branch, parents }
           : null;
       })
       // An open PR lives on the worktree of an earlier start, even after a later start failed.
@@ -242,10 +259,22 @@ function chooseResources(input: Request, facts: Facts) {
         return Ok(reuse);
       }),
     )
-    .bind("base", ({ reuse }) =>
-      facts.stack === null || reuse !== null
-        ? OkAsync(undefined)
-        : parentBase(checkout, facts.stack.branch),
+    .bind("preparedStack", ({ reuse }) =>
+      facts.stack !== null && facts.stack.parents.length > 1 && reuse === null
+        ? PrStacks.start({
+            cwd: checkout,
+            repository: facts.project.repository,
+            parents: facts.stack.parents,
+            namespace: `${input.sourceId}/${input.assignment}`,
+          })
+        : OkAsync(null),
+    )
+    .bind("base", ({ reuse, preparedStack }) =>
+      preparedStack !== null
+        ? OkAsync(preparedStack.head)
+        : facts.stack === null || reuse !== null
+          ? OkAsync(undefined)
+          : parentBase(checkout, facts.stack.branch),
     )
     .bind("names", ({ workspace, agents, tabs, recorded, branches, reuse }) => {
       const names = chooseNames({
@@ -323,6 +352,7 @@ function writeBrief(
   settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
   placement: { workingDirectory: string },
   branch: string | null,
+  awaitingStackReview = false,
 ) {
   const files = OperatorHome.assignmentFiles(request.paths, {
     repository: settings.project.repository,
@@ -349,6 +379,10 @@ function writeBrief(
         pullRequest: settings.pullRequest,
         dependencyReports: settings.planned.dependencyReports,
         stack: settings.stack,
+        managedStack: settings.source.stackOperations.findLast(
+          (row) => row.assignment === settings.planned.key,
+        )?.data,
+        awaitingStackReview,
         internalReview: settings.internalReview,
         review: settings.review,
         promotion:
@@ -414,7 +448,35 @@ function launchEffects(input: {
           ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
           : preparedAgain(request.paths, placement.worktreePath);
       })
-      .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
+      .bind("brief", ({ placement }) =>
+        writeBrief(
+          request,
+          resources.preparedStack === null || settings.stack === null
+            ? settings
+            : {
+                ...settings,
+                stack: {
+                  ...settings.stack,
+                  branch: resources.preparedStack.branch,
+                  parents: resources.preparedStack.parents,
+                },
+              },
+          placement,
+          branch,
+        ),
+      )
+      .flatTap(() =>
+        resources.preparedStack === null || branch === null
+          ? OkAsync(undefined)
+          : DeviceState.recordStackBase(
+              request.paths,
+              input.id,
+              branch,
+              JSON.stringify(resources.preparedStack),
+            )
+              .toAsync()
+              .as(undefined),
+      )
       .flatTap(({ placement }) =>
         AgentHosts.start({
           name,
@@ -651,6 +713,29 @@ function refreshBrief(request: Request) {
 
 /** Launches WorkerAgents through Herdr and handles the stable plugin hooks. */
 export const WorkerDispatch = {
+  /** Only the running owner can refresh a stack brief after a durable stack transition. */
+  refreshStackBrief(request: Request & { launchId: string }) {
+    return assignmentFacts(request, ["wait", "owner_attention", "retry_handoff"]).flatMap(
+      (facts) => {
+        const launch = facts.source.launches.findLast(
+          (row) => row.assignment === request.assignment,
+        );
+        if (
+          launch?.id !== request.launchId ||
+          launch.state !== "running" ||
+          launch.worktreePath === null
+        )
+          return notDispatchable(request.assignment, { briefRefreshAllowed: false });
+        return writeBrief(
+          request,
+          { ...facts, launch: { profile: launch.profile }, kind: launch.kind },
+          { workingDirectory: launch.worktreePath },
+          launch.branch,
+          true,
+        );
+      },
+    );
+  },
   /** Resolves launch-time review policy for dispatch and a promoted worker's new PR launch. */
   resolveInternalReview(values: Parameters<typeof internalReview>[0]) {
     return internalReview(values);

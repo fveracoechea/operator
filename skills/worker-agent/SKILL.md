@@ -40,4 +40,5 @@ When the SuperAgent promotes your report, it names a new brief. Read it: you now
 When a line `Operator recorded steering message <key> for you.` arrives, read [steering.md](steering.md).
 Read [responsibility.md](responsibility.md) when asking questions or using native subagents.
 Read [pull-requests.md](pull-requests.md) when your brief has a PR completion type.
+Read [managed-stacks.md](managed-stacks.md) for changed OPEN prerequisites, rewritten parents, or sibling integration.
 Read [internal-review.md](internal-review.md) when your brief makes you the internal reviewer of a draft PR.

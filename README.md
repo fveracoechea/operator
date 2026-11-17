@@ -416,6 +416,33 @@ operator internal-review skip --source <source-id> --assignment <key> --person-i
 operator cleanup --source <source-id> --assignment <key> --json
 ```
 
+### Refresh open prerequisites
+
+From the child's owned worktree, commit and push all work before planning:
+
+```sh
+# Omit --parent when no supplemental sibling is needed:
+operator pr stack plan --parent sibling-assignment --json
+operator pr stack apply --plan <id> --json
+operator pr stack review --plan <id> --json
+```
+
+Use one plan at a time. `apply` resumes the same pinned operation after an interruption.
+`plan --cut <sha>` accepts only a proven historical prerequisite cut, not an arbitrary ancestor.
+The preview can fetch prerequisites and write Git objects, but it does not change branch heads or PR bases.
+Independent prerequisites use an immutable per-child `operator/stacks/...` dependency-only base.
+The child diff excludes prerequisite integration, and prerequisite owners retain their branches and worktrees (ADR-0010).
+
+An incomplete operation blocks ordinary PR writes. Inspect its progress and failures with `operator source show` or `operator next`.
+Use `operator pr stack cancel --plan <id>` when the original or installed candidate is clean, pushed, and confirmed at its unchanged PR base.
+Cancellation keeps the child work and installed dependency provenance; it does not roll back a pushed candidate.
+An attempted but unconfirmed GitHub base change cannot be cancelled or blindly repeated.
+Observe and resolve that external outcome before resuming. GitHub base changes have no cross-system compare-and-swap guarantee.
+
+Refresh makes the PR a draft, archives earlier review records, and clears stale readiness (ADR-0020).
+`stack review` starts the ordinary fresh-reader handoff after completion.
+Multiple-parent relay waits for every prerequisite to merge, preserves only the child's recorded delta, and requires fresh review again.
+
 The WorkerAgent runs the `pr` commands in its worktree.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
 `pr merge` merges only a ready PR whose base is the default branch.

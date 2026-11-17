@@ -149,7 +149,17 @@ It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent
 **PR assignment**:
 An assignment whose owner WorkerAgent carries one pull request through review, feedback, CI, and merge.
 A dependent can start when the dependency's PR is open or merged.
-It stacks on the branch of one open parent PR, and it waits while more than one parent PR is open.
+It stacks on an open prerequisite that contains the required heads, or on its own dependency-only base for independent prerequisites.
+
+**Dependency-only base**:
+An integration of pinned prerequisite heads that excludes the child's work.
+It belongs to one child and does not transfer ownership of prerequisite branches.
+
+**Stack operation**:
+An owner-scoped change from a proven old dependency cut to pinned prerequisite heads.
+It retains interrupted progress, failures, and historical review evidence until completion or safe cancellation.
+Supplemental sibling prerequisites extend integration obligations without changing the registered source plan.
+Changed integration ancestry requires a fresh independent review.
 
 **Report assignment**:
 An assignment that completes through SuperAgent acceptance of a durable report rather than a PR.

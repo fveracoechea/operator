@@ -23,9 +23,16 @@ type BriefInput = {
   pullRequest: { number: number; url: string } | null;
   dependencyReports: ReturnType<typeof WorkSources.dependencyReports>;
   /** The open parent PR that this PR stacks on, when it has one. */
-  stack: { assignment: string; number: number; branch: string } | null;
+  stack: {
+    assignment: string;
+    number: number;
+    branch: string;
+    parents?: { assignment: string; number: number; branch: string }[];
+  } | null;
   /** The launch's resolved internal review value. Only a PR assignment uses it. ADR-0020. */
   internalReview: boolean;
+  managedStack?: ReturnType<typeof import("../pr-stacks/main.ts").PrStacks.operation>;
+  awaitingStackReview?: boolean;
   /** The recorded internal review of the PR, which makes this start its reviewer while it runs. */
   review: {
     state: "reviewing" | "ready" | "skipped";
@@ -151,10 +158,40 @@ function adopted(adoption: Adoption) {
 
 function feedbackLoop(input: BriefInput) {
   if (input.completion !== "pr") return "";
-  const base =
-    input.stack === null
-      ? "Target the default branch."
+  const changed = changedStack(input);
+  if (changed !== null) return changed;
+  const base = stackBase(input);
+  return ordinaryFeedback(input, base);
+}
+
+function changedStack(input: BriefInput) {
+  if (
+    input.awaitingStackReview === true &&
+    input.managedStack?.step === "complete" &&
+    input.review?.state === "reviewing" &&
+    input.review.rounds.length === 0
+  )
+    return `
+## PR feedback loop
+
+Stack operation \`${input.managedStack.id}\` changed the integration diff. Earlier review evidence does not qualify it.
+The pushed draft head is \`${input.managedStack.candidate}\` against \`${input.managedStack.targetBranch}\` at \`${input.managedStack.target}\`.
+Prerequisites: ${input.managedStack.parents.map((parent) => `\`${parent.assignment}\` PR #${parent.number} at \`${parent.head}\``).join(", ")}.
+Run \`operator pr stack review --plan ${input.managedStack.id}\` from this worktree for the fresh-reader handoff.
+Do not mark the PR ready or merge it with the old review evidence.
+`;
+  return null;
+}
+
+function stackBase(input: BriefInput) {
+  return input.stack === null
+    ? "Target the default branch."
+    : input.stack.parents !== undefined && input.stack.parents.length > 1
+      ? `Your branch starts on the dependency-only base \`${input.stack.branch}\`. Target that branch as the PR base. Prerequisites: ${input.stack.parents.map((parent) => `\`${parent.assignment}\` PR #${parent.number} (\`${parent.branch}\`)`).join(", ")}.`
       : `Your branch starts on \`${input.stack.branch}\`, the branch of PR #${input.stack.number} of assignment \`${input.stack.assignment}\`. Target that branch as the PR base.`;
+}
+
+function ordinaryFeedback(input: BriefInput, base: string) {
   // With internal review on, the implementer's work ends at associate, and a reviewer owns the PR.
   if (input.pullRequest === null && input.internalReview)
     return `
@@ -211,7 +248,7 @@ ${[
   return `
 ## PR feedback loop
 
-${opened.join("\n")}
+${opened.join("\n")}${input.managedStack === undefined ? "" : `\nReview the fresh integration diff against \`${input.managedStack.targetBranch}\` at \`${input.managedStack.target}\`. Earlier stack review evidence is historical only.`}
 Run \`operator pr wait --json\` in your worktree, and repeat it after you handle each result.
 Check each claim in feedback, reply, and push fixes to the same PR.
 A \`pr_wait_timed_out\` result is visible to your SuperAgent until you wait again.

@@ -12,6 +12,19 @@ async function exists(file: string) {
 
 /** The stack parent of a PR and the progress of its relay after the parent merges. */
 export const relaySchema = z.object({
+  prerequisites: z
+    .array(
+      z.object({
+        assignment: z.string(),
+        number: z.number().int().positive(),
+        branch: z.string(),
+        head: z.string(),
+        base: z.string(),
+      }),
+    )
+    .optional(),
+  cut: z.string().optional(),
+  base: z.string().optional(),
   parent: z.object({
     assignment: z.string(),
     number: z.number().int().positive(),

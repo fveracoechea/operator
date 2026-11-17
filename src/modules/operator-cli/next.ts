@@ -19,6 +19,11 @@ function argument(value: string) {
 }
 
 function rowNext(sourceId: string, row: NextRow): NextStep {
+  if ("managedStack" in row && row.managedStack?.operation !== undefined)
+    return {
+      command: `operator pr stack apply --plan ${argument(row.managedStack.operation.id)}`,
+      why: "Resume the exact pinned operation in its owned worktree, or inspect it before safe cancellation.",
+    };
   const source = `--source ${argument(sourceId)}`;
   const target =
     "assignment" in row ? `${source} --assignment ${argument(row.assignment)}` : source;

@@ -155,6 +155,54 @@ export const promotions = sqliteTable(
   ],
 );
 
+// Pinned stack progress retains recovery inputs and previous review evidence.
+export const stackOperations = sqliteTable(
+  "stack_operations",
+  {
+    id: text().primaryKey(),
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    revision: integer().notNull(),
+    state: text().notNull(),
+    data: text().notNull(),
+    reviewHistory: text("review_history"),
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+  },
+  (table) => [
+    uniqueIndex("one_unfinished_stack")
+      .on(table.sourceId, table.assignment)
+      .where(sql`${table.state} NOT IN ('complete', 'cancelled')`),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
+export const stackBases = sqliteTable(
+  "stack_bases",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    branch: text().notNull(),
+    data: text().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
 // One PR for each PR assignment. Its observation progress lets a restarted wait continue.
 export const pullRequests = sqliteTable(
   "pull_requests",

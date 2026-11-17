@@ -20,6 +20,7 @@ type Facts = {
   pullRequest?: "idle" | "waiting" | "stopped" | "reported" | "timed_out" | "not_open";
   /** The parent-merge relay of a PR stacked on a dependency's PR. */
   relay?: "stacked" | "blocked" | "relayed";
+  stack?: "planned" | "blocked";
   // Herdr activity only raises attention for a live worker. It never proves a result.
   activity?: string | null;
   /** The latest report's SuperAgent decision and cleanup, when one was submitted. */
@@ -67,6 +68,8 @@ type Decision = {
     | "worker_idle"
     | "pr_not_open"
     | "pr_relay_blocked"
+    | "stack_pending"
+    | "stack_blocked"
     | "dependencies_pending"
     | "running_cap_reached"
     | "assignment_active"
@@ -96,7 +99,7 @@ type Decision = {
 };
 
 export function dependencyBlockers(
-  assignment: AssignmentState,
+  _assignment: AssignmentState,
   dependencies: AssignmentState[],
 ): Decision["blockers"] {
   const pending: Decision["blockers"] = dependencies
@@ -111,18 +114,7 @@ export function dependencyBlockers(
       state: dependency.state,
       required: dependency.completion === "pr" ? "pr-open-or-merged" : "completed",
     }));
-  // A PR stacks on one parent branch. With several open parents, all but one must merge first.
-  const open = dependencies.filter((dependency) => dependency.state === "pr-open");
-  const stacks =
-    assignment.completion === "pr" && open.length > 1
-      ? open.map((dependency) => ({
-          assignment: dependency.key,
-          completion: dependency.completion,
-          state: dependency.state,
-          required: "merged" as const,
-        }))
-      : [];
-  return [...pending, ...stacks];
+  return pending;
 }
 
 // A PR owner keeps its PR open while it works, so a stopped owner is replaced in either state.
@@ -207,11 +199,13 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   },
   // The implementer's session ends at the handoff by design, so it is not an interrupted worker.
   {
-    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "running",
+    when: ({ assignment, handoff, stack }) =>
+      assignment.state === "pr-open" && stack === undefined && handoff === "running",
     decide: () => ({ action: "wait", reason: "internal_review_handoff", blockers: [] }),
   },
   {
-    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "failed",
+    when: ({ assignment, handoff, stack }) =>
+      assignment.state === "pr-open" && stack === undefined && handoff === "failed",
     decide: () => ({
       action: "retry_handoff",
       reason: "internal_review_handoff_failed",
@@ -219,7 +213,8 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     }),
   },
   {
-    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "stopped",
+    when: ({ assignment, handoff, stack }) =>
+      assignment.state === "pr-open" && stack === undefined && handoff === "stopped",
     decide: () => ({
       action: "retry_handoff",
       reason: "internal_review_handoff_stopped",
@@ -248,6 +243,14 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     decide: () => ({ action: "wait", reason: "launch_starting", blockers: [] }),
   },
   // A relay that stopped at a conflict or a failed effect is not a completed relay.
+  {
+    when: ({ stack }) => stack !== undefined,
+    decide: ({ stack }) => ({
+      action: stack === "blocked" ? "owner_attention" : "wait",
+      reason: stack === "blocked" ? "stack_blocked" : "stack_pending",
+      blockers: [],
+    }),
+  },
   {
     when: ({ assignment, relay }) => assignment.state === "pr-open" && relay === "blocked",
     decide: () => ({ action: "owner_attention", reason: "pr_relay_blocked", blockers: [] }),

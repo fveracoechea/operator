@@ -2,6 +2,8 @@
 
 ## Status
 
+Amended 2026-11-17 in #422: an owner can refresh open prerequisites and use a per-child dependency-only integration base.
+
 Accepted - 2026-10-24.
 Decided in #228, #231, #232, and #233.
 Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
@@ -29,7 +31,12 @@ A wait timeout makes an idle owner visible to the SuperAgent for replacement rat
 
 A dependency with an open or merged PR permits dependent code work to start.
 The child PR stacks on the parent's branch, and the CLI coordinates the relay and rebase after the parent merges.
-A PR stacks on one parent branch, so a PR assignment with several open parent PRs waits until all but one merge. Amended in #250.
+A PR uses a prerequisite branch that contains its required heads, or a per-child dependency-only integration base when no prerequisite contains the others.
+The owner can bind implemented sibling prerequisites through audited stack records without rewriting the registered plan.
+The CLI pins the old prerequisite cut and the replacement heads before it changes the child.
+It refuses ambiguous attribution rather than replay obsolete prerequisite history or discard child work.
+Only the child owner changes the child's refs and PR base; prerequisite owners retain their refs and worktrees.
+Interrupted effects retain their pinned inputs and uncertain outcomes until inspection establishes which effects completed.
 A stacked PR is not merge eligible until its parent merged and its relay finished.
 Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation.
@@ -58,7 +65,8 @@ Report assignments have a separate completion contract and support planning and 
 
 ## Alternatives considered
 
-- A source-wide integration branch and separate publication stack were rejected because agent-owned PRs already supplied the observed delivery workflow with less machinery.
+- A source-wide integration branch and separate publication stack remain rejected because they add another delivery lifecycle.
+  Per-child dependency-only bases are accepted because a child can need independent open prerequisites without modifying their owners' branches.
 - Fresh workers for every correction were rejected because the PR owner already holds the working context and can answer feedback directly.
 - Waiting for parent merge before any dependent starts was rejected in favor of PR stacking and explicit rebase handling.
 - Supervisor-written scripts and ledgers were rejected because the CLI must own the repeatable feedback, merge, and cleanup steps.

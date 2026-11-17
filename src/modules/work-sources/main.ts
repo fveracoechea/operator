@@ -1234,6 +1234,9 @@ function decideAssignmentRow(
   const report = source.reports.findLast((row) => row.assignment === assignment.key);
   const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
   const review = source.internalReviews.find((row) => row.assignment === assignment.key);
+  const stack = source.stackOperations.find(
+    (row) => row.assignment === assignment.key && !["complete", "cancelled"].includes(row.state),
+  );
   const { resources, retained } = assignmentResources(source, current, launch, missing);
   const decision = decideAssignment({
     assignment: current,
@@ -1242,6 +1245,7 @@ function decideAssignmentRow(
     // A start whose dispatching process stopped can be replaced.
     launch: launch?.abandoned === true ? "abandoned" : launch?.state,
     ...pullRequestFacts(pullRequest),
+    stack: stack === undefined ? undefined : stack.state === "blocked" ? "blocked" : "planned",
     activity: launch?.activity,
     report:
       report === undefined
@@ -1284,9 +1288,21 @@ function described<T extends object>(
     report?: object;
     cleanup?: object;
     internalReview?: object;
+    managedStack?: {
+      base?: Source["stackBases"][number]["data"];
+      operation?: Source["stackOperations"][number]["data"];
+    };
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
+  const operation = source.stackOperations.find(
+    (candidate) =>
+      candidate.assignment === records.assignment &&
+      !["complete", "cancelled"].includes(candidate.state),
+  );
+  const base = source.stackBases.find((candidate) => candidate.assignment === records.assignment);
+  if (operation !== undefined || base !== undefined)
+    row.managedStack = { base: base?.data, operation: operation?.data };
   if (launch !== undefined) row.launch = launchSummary(launch);
   if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
