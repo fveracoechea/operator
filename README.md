@@ -455,6 +455,41 @@ A plan's `internalReview` field sets it for all its assignments, and a PR assign
 The most specific value wins.
 A plan's or an assignment's optional `intent` holds the person's own words, and the brief shows it as the acceptance criteria. The assignment's value wins.
 
+### Recover a missing promoted internal review
+
+Older live report promotions could inherit the report launch's null review setting and associate a draft without its required internal review.
+New promotions resolve assignment, plan, and device policy before handing over the worker.
+That forward fix does not repair an already-associated PR, and repeated association or `handoff` cannot create its missing review.
+
+On the person's explicit instruction, run this recovery from the controlling checkout using the retained source, assignment, implementer launch, PR, and full pushed head:
+
+```sh
+operator internal-review recover --source <source-id> --assignment <key> --launch <implementer-launch-id> --pr <number> --head <40-character-head> --person-instructed --json
+```
+
+The flag attests the person's instruction for that exact recovery, not permission inferred by an agent.
+Recovery accepts only the known live-promotion defect with its original running owner and matching branch, worktree, and existing PR association.
+The promotion override, or the retained plan without that override, must explicitly require internal review.
+A device-only default cannot prove the historical policy, so recovery refuses that ambiguous case.
+The PR must remain the only open PR on its branch, remain a draft, and match the authorized head in a clean worktree.
+That GitHub head proves that the worktree commit was pushed.
+
+One transaction rechecks the retained ownership and history, records the authorization receipt, and creates the missing reviewing record with a pending handoff.
+The result's `data.recovery` contains the retained provenance and authorization time.
+The receipt is the immutable body of a new pending system steering message, `internal-review:recovery`, under ADR-0033.
+Ordinary `message send` cannot use that reserved system key.
+The reviewer can read and acknowledge it with the normal message commands; acknowledgement and closure preserve the receipt.
+Recovery needs no schema migration, so an existing open assignment does not block startup through the device's idle migration guard.
+An older installation can still have other pending schema migrations, which require their ordinary supported upgrade conditions before this command can run.
+Recovery authorization does not waive those conditions or authorize a source reset.
+An exact retry returns the same receipt without another handoff, including after the reviewer starts.
+Changed provenance, ended sources or reviews, incompatible owners, existing unrelated review history, and ambiguous associations refuse without writes.
+Launch snapshots and existing review requests remain unchanged.
+No review rounds, approval, or ready metadata are fabricated.
+The ordinary fresh-reviewer handoff and genuine GitHub approval remain required.
+If the handoff stops, use `operator handoff --source <source-id> --assignment <key> --json` after inspecting its recorded failure.
+Recovered handoffs recheck the authorization, active review, draft, branch, clean worktree, and exact pushed head before closing the implementer.
+
 ### Reviews
 
 ```sh

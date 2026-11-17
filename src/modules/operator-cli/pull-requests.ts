@@ -1,6 +1,7 @@
 import { PullRequests } from "../pull-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
+import { recoveryArgs } from "./internal-review-recovery-args.ts";
 
 const defaultTimeoutSeconds = 300;
 const ownerCommands = ["associate", "wait", "merge"] as const;
@@ -90,7 +91,8 @@ export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
   if (group === "cleanup") return cleanupArgs(args.slice(1));
   if (group === "handoff") return handoffArgs(args.slice(1));
-  if (group === "internal-review") return skipArgs(args.slice(1));
+  if (group === "internal-review")
+    return name === "recover" ? recoveryArgs(flags) : skipArgs(args.slice(1));
   if (group === "pr" && name === "round") return fileArgs("pr_round" as const, flags);
   if (group === "pr" && name === "ready") return fileArgs("pr_ready" as const, flags);
   const command = ownerCommands.find((known) => known === name);
@@ -139,6 +141,7 @@ const pullRequestExitCodes = {
   pr_handed_off: 4,
   handoff_defect: 1,
   internal_review_defect: 1,
+  internal_review_recovery_incompatible: 4,
   // The handoff closes a pane and dispatches, so their failures exit as a dispatch does.
   handoff_running: 4,
   handoff_not_found: 4,
@@ -168,17 +171,19 @@ export async function runPullRequests(
     ? PullRequests.cleanup({ ...input, ...parsed })
     : parsed.operation === "handoff"
       ? PullRequests.handoff({ ...input, ...parsed })
-      : parsed.operation === "internal_review_skip"
-        ? PullRequests.skipReview({ ...input, ...parsed })
-        : parsed.operation === "pr_round"
-          ? PullRequests.round({ ...input, file: parsed.file })
-          : parsed.operation === "pr_ready"
-            ? PullRequests.ready({ ...input, file: parsed.file })
-            : parsed.operation === "pr_merge"
-              ? PullRequests.merge(input)
-              : parsed.operation === "pr_associate"
-                ? PullRequests.associate(input)
-                : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
+      : parsed.operation === "internal_review_recover"
+        ? PullRequests.recoverReview({ ...input, ...parsed })
+        : parsed.operation === "internal_review_skip"
+          ? PullRequests.skipReview({ ...input, ...parsed })
+          : parsed.operation === "pr_round"
+            ? PullRequests.round({ ...input, file: parsed.file })
+            : parsed.operation === "pr_ready"
+              ? PullRequests.ready({ ...input, file: parsed.file })
+              : parsed.operation === "pr_merge"
+                ? PullRequests.merge(input)
+                : parsed.operation === "pr_associate"
+                  ? PullRequests.associate(input)
+                  : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
   respond({
     operation: parsed.operation,
     result,

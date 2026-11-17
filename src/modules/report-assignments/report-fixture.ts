@@ -63,12 +63,17 @@ export async function reportDevice() {
   }
 
   /** A source of report assignments. A second assignment keeps the source open. */
-  async function source(keys: string[] = ["read", "later"], worktree = false) {
+  async function source(
+    keys: string[] = ["read", "later"],
+    worktree = false,
+    internalReview?: boolean,
+  ) {
     const file = `${root}/plan-${crypto.randomUUID()}.json`;
     await Bun.write(
       file,
       JSON.stringify({
         trackerKey: "github:example/one#1",
+        internalReview,
         assignments: keys.map((key) => assignment(key, worktree)),
       }),
     );

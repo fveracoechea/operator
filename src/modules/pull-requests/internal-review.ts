@@ -7,6 +7,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
+import { openPullRequests } from "./github.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
@@ -123,6 +124,69 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
 }
 
 type Step = { ok: true; reviewer: object | null } | { ok: false; error: Failure };
+type RecoveryAudit = NonNullable<
+  Extract<ReturnType<typeof DeviceState.readInternalReviewRecovery>, { tag: "Ok" }>["value"]
+>;
+
+function recoveryPullRequest(audit: RecoveryAudit) {
+  return openPullRequests(audit.repository, audit.branch).flatMap((found) =>
+    fromPromise(async () => {
+      const pr = found[0];
+      const branch = await git(audit.worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+      if (
+        found.length !== 1 ||
+        // Stryker disable next-line OptionalChaining: equivalent: openPullRequests returns a dense parsed array; found.length !== 1 short-circuits before pr is read unless index zero exists. The optional access narrows pr for TypeScript's noUncheckedIndexedAccess
+        pr?.number !== audit.number ||
+        pr.url !== audit.url ||
+        pr.head !== audit.head ||
+        branch !== audit.branch
+      )
+        return Err<Failure>({
+          reason: "internal_review_recovery_incompatible",
+          detail:
+            "The recovered handoff no longer matches its authorized PR, branch, and head. Nothing was handed off.",
+          next: handoffRecovery,
+        });
+      return Ok(pr);
+    }, qualify).flatMap((result) => result),
+  );
+}
+
+/** A recovered handoff rechecks its pinned authorization at every destructive retry. */
+async function recoveryGate(request: HandoffRequest & { repository: string }, facts: Claimed) {
+  const read = DeviceState.readInternalReviewRecovery(
+    request.paths,
+    request.repository,
+    request.sourceId,
+    request.assignment,
+  );
+  if (read.tag !== "Ok") return failure(read);
+  const audit = read.value;
+  if (audit === null) return null;
+  const confirmed = DeviceState.recoverInternalReview(request.paths, {
+    ...audit,
+    launchId: audit.implementerLaunchId,
+  });
+  if (confirmed.tag !== "Ok") return failure(confirmed);
+  if (facts.implementer.state === "running") {
+    const owner = await resolveOwner({ paths: request.paths, cwd: audit.worktreePath });
+    if (owner.tag !== "Ok") return failure(owner);
+  }
+  const found = await recoveryPullRequest(audit);
+  if (found.tag !== "Ok") return failure(found);
+  const pr = found.value;
+  const tree = await worktreeFacts(audit.worktreePath);
+  if (tree.tag !== "Ok") return failure(tree);
+  const decision = decideInternalReview({
+    event: "associate",
+    internalReview: true,
+    draft: pr.draft,
+    changed: tree.value.changed,
+    localHead: tree.value.localHead,
+    prHead: audit.head,
+  });
+  return decision.result === "refused" ? decision : null;
+}
 
 function failure(
   result: { tag: "Err"; error: Failure } | { tag: "Defect"; cause: unknown },
@@ -135,8 +199,13 @@ function failure(
   };
 }
 
-async function runHandoff(request: HandoffRequest, facts: Claimed): Promise<Step> {
+async function runHandoff(
+  request: HandoffRequest & { repository: string },
+  facts: Claimed,
+): Promise<Step> {
   await afterExit(request.afterPid);
+  const recovery = await recoveryGate(request, facts);
+  if (recovery !== null) return { ok: false, error: recovery };
   const decision = decideInternalReview({
     event: "handoff",
     implementer: { state: facts.implementer.state, paneId: facts.implementer.paneId },
@@ -211,7 +280,7 @@ export function handoff(request: HandoffRequest) {
         );
         return fromPromise(async () => {
           try {
-            const step = await runHandoff(request, facts);
+            const step = await runHandoff({ ...request, repository: project.repository }, facts);
             if (step.ok)
               return Ok({ reason: "handoff_finished", data: { ...data, reviewer: step.reviewer } });
             // A failed reviewer start already ended the handoff, and next shows that launch.

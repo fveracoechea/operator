@@ -54,7 +54,7 @@ async function git(args: string[], cwd = device.checkout) {
 }
 
 /** A worker in pane `w1:p1` submits report 1 of `read` from its own worktree. */
-async function submitted(keys?: string[]) {
+async function submitted(keys?: string[], internalReview?: boolean) {
   await git([
     "-c",
     "user.name=t",
@@ -68,7 +68,7 @@ async function submitted(keys?: string[]) {
   ]);
   const worktree = `${device.root}/worktrees/read`;
   await git(["worktree", "add", "-q", "-b", "report/read", worktree]);
-  const sourceId = await device.source(keys, true);
+  const sourceId = await device.source(keys, true, internalReview);
   const launch = await device.launch(sourceId, "read", {
     worktreePath: worktree,
     branch: "report/read",
@@ -191,6 +191,7 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
     paneId: workerPane,
     worktreePath: worktree,
     activity: null,
+    internalReview: true,
   });
   expect(shown.planned.at(-1)).toMatchObject({
     key: "build",
@@ -230,6 +231,47 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
   expect(await next(sourceId)).toMatchObject({
     waits: [{ assignment: "build", reason: "assignment_active" }],
   });
+});
+
+test.each([
+  { assignment: false, plan: true, devicePolicy: true, expected: false },
+  { assignment: true, plan: false, devicePolicy: false, expected: true },
+  { assignment: undefined, plan: false, devicePolicy: true, expected: false },
+  { assignment: undefined, plan: true, devicePolicy: false, expected: true },
+  { assignment: undefined, plan: undefined, devicePolicy: false, expected: false },
+  { assignment: undefined, plan: undefined, devicePolicy: true, expected: true },
+])(
+  "promotion resolves assignment=$assignment, plan=$plan, device=$devicePolicy",
+  async ({ assignment, plan, devicePolicy, expected }) => {
+    const { sourceId, launch } = await submitted(undefined, plan);
+    await Bun.write(device.paths.config, JSON.stringify({ review: { internal: devicePolicy } }));
+    device.inPane(superPane);
+    herdr([launch.name]);
+    okValue(await promote(sourceId, { ...planned, internalReview: assignment }));
+    const shown = await device.show(sourceId);
+    expect(shown.launches.find((row) => row.assignment === "build")).toMatchObject({
+      internalReview: expected,
+    });
+    expect(shown.launches.find((row) => row.assignment === "read")).toMatchObject({
+      internalReview: null,
+    });
+  },
+);
+
+test("invalid review settings refuse promotion before any rename or recorded change", async () => {
+  const { sourceId, launch, worktree } = await submitted();
+  await Bun.write(device.paths.config, "{");
+  device.inPane(superPane);
+  const called = herdr([launch.name]);
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await promote(sourceId)).toMatchObject({
+    tag: "Err",
+    error: { reason: "invalid_settings" },
+  });
+  expect(called.agent).not.toHaveBeenCalled();
+  expect(called.tab).not.toHaveBeenCalled();
+  expect(await git(["symbolic-ref", "--short", "HEAD"], worktree)).toBe("report/read");
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
 });
 
 test("promotion of a stopped worker leaves the PR assignment ready to start in its worktree", async () => {
