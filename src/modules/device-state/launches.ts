@@ -16,6 +16,7 @@ import { ownerGone } from "./leases.ts";
 import { finishHandoff, handoffDispatchable } from "./internal-reviews.ts";
 import { superviseSource, type Supervisor } from "./sources.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
+import { reservedContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
@@ -28,7 +29,8 @@ export type LaunchFailure =
         | "assignment_not_dispatchable"
         | "launch_name_taken"
         | "launch_not_starting"
-        | "running_cap_reached";
+        | "running_cap_reached"
+        | "handoff_continuation_refused";
       detail: string;
     });
 type LaunchResources = Partial<
@@ -183,101 +185,109 @@ export function reserveLaunch(
   launch: LaunchReservation,
   maxRunning?: number,
   supervisor: Supervisor = { pane: null, session: null },
+  continuation?: HandoffContinuation,
 ) {
   return transaction(client, true, () =>
-    checkHistory(client).flatMap((db): Result<LaunchRow, LaunchFailure> => {
-      const controller = db
-        .select()
-        .from(projects)
-        .where(eq(projects.repository, repository))
-        .get();
-      if (controller?.checkout !== checkout)
-        return Err({
-          reason: "controller_mismatch",
-          next: {
-            command: "operator project list",
-            why: "Find the recorded controlling checkout and run the command there.",
-          },
-          state: { controllerMatches: false },
-          detail: "The controlling checkout changed before dispatch. Read the project again.",
-        });
-      const source = db
-        .select()
-        .from(sources)
-        .where(and(eq(sources.id, launch.sourceId), eq(sources.repository, repository)))
-        .get();
-      if (source === undefined)
-        return Err({
-          reason: "source_not_found",
-          next: {
-            command: "operator next",
-            why: "Read the available sources before choosing a source.",
-          },
-          state: { sourceExists: false },
-          detail: "The source does not exist in this project.",
-        });
-      const assignment = db
-        .select()
-        .from(assignments)
-        .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, launch.assignment)))
-        .get();
-      const latest = db
-        .select()
-        .from(launches)
-        .where(and(eq(launches.sourceId, source.id), eq(launches.assignment, launch.assignment)))
-        .orderBy(desc(launches.attempt))
-        .get();
-      const now = Date.now();
-      const abandoned = latest?.state === "starting" && ownerGone(latest, now);
-      const refused = startRefusal(db, {
-        source,
-        key: launch.assignment,
-        assignmentState: assignment?.state,
-        latest,
-        latestState: latest?.state,
-        abandoned,
-        maxRunning,
-        now,
-      });
-      if (refused !== null) return Err(refused);
-      if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
-        return Err({
-          reason: "launch_name_taken",
-          next: {
-            command: "operator next",
-            why: "Read the assignment's current launch action before retrying.",
-          },
-          state: { launchNameExists: true },
-          detail: `The launch name ${launch.name} is already recorded. Nothing was launched.`,
-        });
-      // The latest launch has the highest attempt number.
-      const attempt = (latest?.attempt ?? 0) + 1;
-      if (abandoned) endAbandoned(db, latest.id, now);
-      const row = {
-        internalReview: null,
-        kind: null,
-        ...launch,
-        attempt,
-        ownerPid: process.pid,
-        leaseAt: new Date(now).toISOString(),
-      };
-      db.insert(launches).values(row).run();
-      // Any start after the implementer's ends a pending internal review handoff.
-      finishHandoff(db, source.id, launch.assignment);
-      superviseSource(db, source.id, supervisor);
-      // A replaced PR owner keeps its open PR. A returned report resumes as running.
-      db.update(assignments)
-        .set({ state: "running" })
-        .where(
-          and(
-            eq(assignments.sourceId, source.id),
-            eq(assignments.key, launch.assignment),
-            inArray(assignments.state, ["ready", "reported"]),
-          ),
-        )
-        .run();
-      return Ok(row);
-    }),
+    checkHistory(client).flatMap((db) =>
+      reservedContinuation(db, continuation, repository, launch).flatMap(
+        (): Result<LaunchRow, LaunchFailure> => {
+          const controller = db
+            .select()
+            .from(projects)
+            .where(eq(projects.repository, repository))
+            .get();
+          if (controller?.checkout !== checkout)
+            return Err({
+              reason: "controller_mismatch",
+              next: {
+                command: "operator project list",
+                why: "Find the recorded controlling checkout and run the command there.",
+              },
+              state: { controllerMatches: false },
+              detail: "The controlling checkout changed before dispatch. Read the project again.",
+            });
+          const source = db
+            .select()
+            .from(sources)
+            .where(and(eq(sources.id, launch.sourceId), eq(sources.repository, repository)))
+            .get();
+          if (source === undefined)
+            return Err({
+              reason: "source_not_found",
+              next: {
+                command: "operator next",
+                why: "Read the available sources before choosing a source.",
+              },
+              state: { sourceExists: false },
+              detail: "The source does not exist in this project.",
+            });
+          const assignment = db
+            .select()
+            .from(assignments)
+            .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, launch.assignment)))
+            .get();
+          const latest = db
+            .select()
+            .from(launches)
+            .where(
+              and(eq(launches.sourceId, source.id), eq(launches.assignment, launch.assignment)),
+            )
+            .orderBy(desc(launches.attempt))
+            .get();
+          const now = Date.now();
+          const kindHandoff = handoffDispatchable(db, latest, now);
+          const abandoned = latest?.state === "starting" && ownerGone(latest, now);
+          const refused = startRefusal(db, {
+            source,
+            key: launch.assignment,
+            assignmentState: assignment?.state,
+            latest,
+            latestState: latest?.state,
+            abandoned,
+            maxRunning,
+            now,
+          });
+          if (refused !== null) return Err(refused);
+          if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
+            return Err({
+              reason: "launch_name_taken",
+              next: {
+                command: "operator next",
+                why: "Read the assignment's current launch action before retrying.",
+              },
+              state: { launchNameExists: true },
+              detail: `The launch name ${launch.name} is already recorded. Nothing was launched.`,
+            });
+          // The latest launch has the highest attempt number.
+          const attempt = (latest?.attempt ?? 0) + 1;
+          if (abandoned) endAbandoned(db, latest.id, now);
+          const row = {
+            internalReview: null,
+            kind: null,
+            ...launch,
+            attempt,
+            ownerPid: process.pid,
+            leaseAt: new Date(now).toISOString(),
+          };
+          db.insert(launches).values(row).run();
+          // Any start after the implementer's ends a pending internal review handoff.
+          finishHandoff(db, source.id, launch.assignment);
+          if (!kindHandoff) superviseSource(db, source.id, supervisor);
+          // A replaced PR owner keeps its open PR. A returned report resumes as running.
+          db.update(assignments)
+            .set({ state: "running" })
+            .where(
+              and(
+                eq(assignments.sourceId, source.id),
+                eq(assignments.key, launch.assignment),
+                inArray(assignments.state, ["ready", "reported"]),
+              ),
+            )
+            .run();
+          return Ok(row);
+        },
+      ),
+    ),
   );
 }
 

@@ -20,21 +20,21 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function oldDatabase() {
+async function oldDatabase(applied = 1) {
   await mkdir(`${root}/state/operator`, { recursive: true });
   using db = new Database(`${root}/state/operator/operator.sqlite`);
   db.exec(
     "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)",
   );
-  const migration = readMigrationFiles({ migrationsFolder })[0];
-  expect(migration).toBeDefined();
-  // oxlint-disable-next-line unthrown/no-throw -- A missing shipped fixture is a test defect.
-  if (!migration) throw new Error("Missing initial migration fixture");
-  for (const sql of migration.sql) db.exec(sql);
-  db.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
-    migration.hash,
-    migration.folderMillis,
-  );
+  const migrations = readMigrationFiles({ migrationsFolder }).slice(0, applied);
+  expect(migrations).toHaveLength(applied);
+  for (const migration of migrations) {
+    for (const sql of migration.sql) db.exec(sql);
+    db.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
+      migration.hash,
+      migration.folderMillis,
+    );
+  }
   db.query("INSERT INTO projects VALUES (?, ?, ?)").run(
     "example/one",
     root,
@@ -131,6 +131,125 @@ async function extendedRelease(sql = "CREATE TABLE later (value TEXT)", blocker?
   return `${release}/src/cli.ts`;
 }
 
+const historicalHandoffs = [
+  { assignment: "done", state: "done", detail: null, lease: null },
+  { assignment: "failed", state: "failed", detail: "pane close failed", lease: null },
+  { assignment: "pending", state: "pending", detail: null, lease: "2000-01-01T00:00:00.000Z" },
+];
+
+/** Only synthetic ended assignments, so no active-assignment guard hides the handoff migration. */
+function seedHistoricalHandoffs(stoppedOwner: number | null = null) {
+  using db = new Database(`${root}/state/operator/operator.sqlite`);
+  db.exec("PRAGMA foreign_keys = ON");
+  db.query(
+    "INSERT INTO sources (id, repository, tracker_key, state, registered_at, ended_at, plan) VALUES ('history', 'example/one', 'synthetic-history', 'reset', '2026-01-01', '2026-01-02', '{}')",
+  ).run();
+  for (const row of historicalHandoffs) {
+    db.query(
+      "INSERT INTO assignments (source_id, key, completion, state) VALUES ('history', ?, 'pr', 'abandoned')",
+    ).run(row.assignment);
+    db.query(
+      "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at, ended_at) VALUES (?, 'history', ?, 1, 'finished', ?, 'worktree', ?, 'opencode', 'fixture', 'fixture', 'high', '{}', '[]', '2026-01-01', '2026-01-02')",
+    ).run(
+      `launch-${row.assignment}`,
+      row.assignment,
+      `worker-${row.assignment}`,
+      `task/${row.assignment}`,
+    );
+    db.query(
+      "INSERT INTO internal_reviews (source_id, assignment, state, implementer_launch_id, handoff_state, handoff_detail, started_at, updated_at, owner_pid, lease_at, ready_head, comment_id, comment_url, ended_at) VALUES ('history', ?, 'skipped', ?, ?, ?, '2026-01-01', '2026-01-02', ?, ?, 'historical-head', NULL, NULL, '2026-01-02')",
+    ).run(
+      row.assignment,
+      `launch-${row.assignment}`,
+      row.state,
+      row.detail,
+      row.state === "pending" ? stoppedOwner : null,
+      row.lease,
+    );
+  }
+}
+
+test("startup backfills populated historical handoffs without changing their history", async () => {
+  await oldDatabase(22);
+  const stoppedOwner = Bun.spawnSync([process.execPath, "--version"]).pid;
+  seedHistoricalHandoffs(stoppedOwner);
+  using db = new Database(`${root}/state/operator/operator.sqlite`);
+  const history = db.query("SELECT * FROM __drizzle_migrations ORDER BY id").all();
+  const reviews = db.query("SELECT * FROM internal_reviews ORDER BY assignment").all();
+  const launches = db.query("SELECT * FROM launches ORDER BY id").all();
+  expect(await run(["--version"])).toMatchObject({
+    code: 0,
+    output: { reason: "version_reported" },
+  });
+  expect(db.query("SELECT * FROM kind_handoffs ORDER BY assignment").all()).toEqual(
+    historicalHandoffs.map((row) => ({
+      source_id: "history",
+      assignment: row.assignment,
+      outgoing_launch_id: `launch-${row.assignment}`,
+      next_kind: "review",
+      handoff_state: row.state,
+      handoff_detail: row.detail,
+      started_at: "2026-01-01",
+      updated_at: "2026-01-02",
+      owner_pid: row.state === "pending" ? stoppedOwner : null,
+      lease_at: row.lease,
+    })),
+  );
+  expect(db.query("SELECT * FROM internal_reviews ORDER BY assignment").all()).toEqual(reviews);
+  expect(db.query("SELECT * FROM launches ORDER BY id").all()).toEqual(launches);
+  expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 22").all()).toEqual(
+    history,
+  );
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  expect(await backups()).toHaveLength(1);
+  const beforeRepeat = db.serialize();
+  expect(await run(["--version"])).toMatchObject({ code: 0 });
+  expect(db.serialize()).toEqual(beforeRepeat);
+  expect(await backups()).toHaveLength(1);
+});
+
+test.each(["live", "stale", "stopped", "unowned"] as const)(
+  "startup respects the count-23 generic handoff lease for a %s owner",
+  async (owner) => {
+    await oldDatabase(22);
+    seedHistoricalHandoffs();
+    expect((await run(["--version"])).code).toBe(0);
+    const entry = await extendedRelease();
+    const child = Bun.spawn([process.execPath, "--version"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await child.exited;
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    const pid = owner === "unowned" ? null : owner === "stopped" ? child.pid : process.pid;
+    const lease = owner === "stale" ? "2000-01-01T00:00:00.000Z" : new Date().toISOString();
+    db.query(
+      "UPDATE kind_handoffs SET owner_pid = ?, lease_at = ? WHERE assignment = 'pending'",
+    ).run(pid, lease);
+    const before = db.serialize();
+    const copies = await backups();
+    const outcome = await run(["--version"], entry);
+    if (owner === "live") {
+      expect(outcome).toMatchObject({
+        code: 3,
+        output: { reason: "state_migration_blocked", state: { idle: false } },
+      });
+      expect(outcome.stderr).toContain("running kind handoff");
+      expect(db.serialize()).toEqual(before);
+      expect(await backups()).toEqual(copies);
+      expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
+      db.query("UPDATE kind_handoffs SET owner_pid = NULL, lease_at = NULL").run();
+      expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
+    } else expect(outcome).toMatchObject({ code: 0 });
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(24);
+    expect(db.query("SELECT name FROM sqlite_master WHERE name = 'later'").all()).toEqual([
+      { name: "later" },
+    ]);
+  },
+  120000,
+);
+
 test("startup upgrades matching older history before a state-free handler and verifies its backup", async () => {
   await oldDatabase();
   expect(await run(["--version"])).toMatchObject({
@@ -138,7 +257,7 @@ test("startup upgrades matching older history before a state-free handler and ve
     output: { reason: "version_reported" },
   });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
   expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
     readMigrationFiles({ migrationsFolder }).map(({ hash, folderMillis }) => ({
       hash,
@@ -303,7 +422,7 @@ test("skipped releases apply each fixed migration in order with one pre-migratio
   );
   expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(24);
   expect(db.query("SELECT * FROM later").all()).toEqual([{ repository: "example/one" }]);
   expect(await backups()).toHaveLength(1);
 });
@@ -375,10 +494,10 @@ test("migration-specific held records stop startup but assignment state does not
     output: { reason: "state_migration_blocked" },
   });
   expect((await backups()).toSorted()).toEqual(copies.toSorted());
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
   db.exec("UPDATE sources SET state = 'finished'");
   expect((await run(["--version"], entry)).code).toBe(0);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(24);
 });
 
 test("retention keeps three verified backups only after success and corruption names the latest valid copy", async () => {
@@ -453,7 +572,7 @@ Database.prototype.serialize = function(...args) {
   );
   expect(await backups()).toHaveLength(1);
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
 });
 
 test("a pending migration has a definite writer timeout and never runs its handler", async () => {

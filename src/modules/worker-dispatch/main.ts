@@ -32,7 +32,14 @@ import {
   type Paths,
 } from "./observations.ts";
 
-type Request = { paths: Paths; cwd: string; sourceId: string; assignment: string };
+type HandoffContinuation = Parameters<typeof DeviceState.checkHandoffContinuation>[1];
+type Request = {
+  paths: Paths;
+  cwd: string;
+  sourceId: string;
+  assignment: string;
+  continuation?: HandoffContinuation;
+};
 type WorkerKind = ReturnType<typeof WorkerKinds.resolve>;
 /** A kind handoff starts its next worker while next shows the handoff as a wait. */
 type DispatchRequest = Request & { handoff?: boolean };
@@ -524,6 +531,7 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
     settings.planned.maxRunning,
     // The dispatching pane and session supervise the source.
     Environment.caller(),
+    request.continuation,
   );
 }
 

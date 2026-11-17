@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 // Bun has no temporary-directory, symlink, permission, or recursive removal API.
 import {
   writeClaudeHookSettings,
@@ -19,6 +20,7 @@ import { fakeGithubScript } from "./github-fixture.ts";
 
 let root = "";
 let checkout = "";
+const workerPanes = new Map<string, string>();
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
@@ -29,7 +31,7 @@ const gitEnv = {
   GIT_COMMITTER_EMAIL: "fixture@example.com",
 };
 
-function environment() {
+function environment(caller: Record<string, string | undefined> = {}) {
   return Environment.child({
     ...gitEnv,
     HOME: `${root}/home`,
@@ -38,11 +40,27 @@ function environment() {
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     HERDR_SOCKET_PATH: `${root}/herdr.sock`,
     PATH: `${root}/tools:${Environment.read().PATH}`,
+    OPENCODE_SESSION_ID: "ses_supervisor",
+    CLAUDE_CODE_SESSION_ID: undefined,
+    HERDR_PANE_ID: "synthetic-supervisor-pane",
+    ...caller,
   });
 }
 
-async function exec(args: string[], cwd = checkout) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+async function exec(
+  args: string[],
+  cwd = checkout,
+  caller: Record<string, string | undefined> = {},
+) {
+  const child = Bun.spawn(args, {
+    cwd,
+    env: environment({
+      HERDR_PANE_ID: workerPanes.get(cwd) ?? "synthetic-supervisor-pane",
+      ...caller,
+    }),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -51,8 +69,12 @@ async function exec(args: string[], cwd = checkout) {
   return { code, stdout, stderr };
 }
 
-async function run(args: string[], cwd = checkout) {
-  const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
+async function run(
+  args: string[],
+  cwd = checkout,
+  caller: Record<string, string | undefined> = {},
+) {
+  const result = await exec([process.execPath, cli, ...args, "--json"], cwd, caller);
   const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
   expectWorkflowRefusal(args, output, result.stderr);
   return { code: result.code, output, stderr: result.stderr };
@@ -150,15 +172,18 @@ async function setup(host: "opencode" | "claude-code") {
 }
 
 afterEach(async () => {
+  workerPanes.clear();
   await rm(root, { recursive: true, force: true });
 });
 
 async function dispatch(source: string, assignment = "implement") {
   const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
   expect(launched.code, launched.stderr).toBe(0);
-  return z
+  const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string(), brief: z.string() }) })
     .parse(launched.output).data;
+  workerPanes.set(worker.worktreePath, worker.paneId);
+  return worker;
 }
 
 type Pull = Record<string, unknown> & { number: number };
@@ -274,12 +299,493 @@ const blocker = {
   claim: "The guard is missing.",
 };
 
+function workerCaller(paneId: string, host: "opencode" | "claude-code" = "opencode") {
+  return {
+    OPENCODE_SESSION_ID: host === "opencode" ? "ses_worker" : undefined,
+    CLAUDE_CODE_SESSION_ID: host === "claude-code" ? "claude-worker" : undefined,
+    HERDR_PANE_ID: paneId,
+  };
+}
+
+async function pendingContinuation() {
+  const source = await setup("opencode");
+  const worker = await dispatch(source);
+  const head = await commit(worker.worktreePath, "work.txt");
+  await github({ pulls: [pull({ head, isDraft: true })] });
+  await herdrFail({ "pane close": "fixture holds the outgoing pane" });
+  expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  expect(await handedOff(source)).toMatchObject({ handoffState: "failed" });
+  await herdrFail({});
+  return { source, worker };
+}
+
+function fixtureDatabase() {
+  const db = new Database(`${root}/state/operator/operator.sqlite`);
+  db.exec("PRAGMA busy_timeout = 5000");
+  return db;
+}
+
+async function processResult(child: ReturnType<typeof Bun.spawn<"ignore", "pipe", "pipe">>) {
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { code, stdout, stderr };
+}
+
+function publisher() {
+  return Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `const until=Date.now()+5000; while(!(await Bun.file(${JSON.stringify(`${root}/publish-release`)}).exists()) && Date.now()<until) await Bun.sleep(10);`,
+    ],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+  );
+}
+
+function continuationChild(
+  source: string,
+  pane: string,
+  publishingPid: number,
+  options: { flags?: string[]; caller?: Record<string, string | undefined>; preload?: string } = {},
+) {
+  return Bun.spawn(
+    [
+      process.execPath,
+      ...(options.preload ? ["--preload", options.preload] : []),
+      cli,
+      "dispatch",
+      "--source",
+      source,
+      "--assignment",
+      "implement",
+      "--after-pid",
+      String(publishingPid),
+      ...(options.flags ?? []),
+      "--json",
+    ],
+    {
+      cwd: checkout,
+      env: environment({ ...workerCaller(pane), ...options.caller }),
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+}
+
+function continuationOptions(mode: string, source: string, publishingPid: number) {
+  const callers: Record<string, Record<string, string>> = {
+    "wrong-pane": { HERDR_PANE_ID: "unrelated-pane" },
+    "wrong-socket": { HERDR_SOCKET_PATH: `${root}/other.sock` },
+  };
+  const flags: Record<string, string[]> = {
+    "duplicate-source": ["--source", source],
+    "duplicate-after-pid": ["--after-pid", String(publishingPid)],
+    "duplicate-assignment": ["--assignment", "second"],
+  };
+  return { flags: flags[mode] ?? [], caller: callers[mode] ?? {} };
+}
+
+function continuationFault(db: Database, mode: string, source: string, publishingPid: number) {
+  db.query("UPDATE kind_handoffs SET handoff_state = 'pending', owner_pid = ?, lease_at = ?").run(
+    publishingPid,
+    new Date().toISOString(),
+  );
+  if (mode === "absent") db.exec("DELETE FROM kind_handoffs");
+  if (mode === "failed" || mode === "done")
+    db.query("UPDATE kind_handoffs SET handoff_state = ?").run(mode);
+  if (mode === "stale") db.exec("UPDATE kind_handoffs SET lease_at = '2000-01-01'");
+  if (mode === "malformed-lease") db.exec("UPDATE kind_handoffs SET lease_at = 'not-a-date'");
+  if (mode === "absent-lease") db.exec("UPDATE kind_handoffs SET lease_at = NULL");
+  if (mode === "future-lease") db.exec("UPDATE kind_handoffs SET lease_at = '2999-01-01'");
+  if (mode === "wrong-assignment") db.exec("UPDATE kind_handoffs SET assignment = 'second'");
+  continuationTargetFault(db, mode);
+  if (mode === "wrong-repository")
+    db.exec(
+      "INSERT INTO projects VALUES ('example/two', '/synthetic-other-checkout', 'now'); UPDATE sources SET repository = 'example/two'",
+    );
+  if (mode === "later-launch")
+    db.query(
+      "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model, reasoning_effort, release, skills, started_at) VALUES ('later', ?, 'implement', 2, 'failed', 'later', 'worktree', 'opencode', 'fixture', 'fixture', 'high', '{}', '[]', 'now')",
+    ).run(source);
+}
+
+function continuationTargetFault(db: Database, mode: string) {
+  const changes: Record<string, string> = {
+    "wrong-outgoing": "UPDATE kind_handoffs SET outgoing_launch_id = 'unrelated'",
+    "ended-source": "UPDATE sources SET state = 'reset'",
+    "inactive-assignment": "UPDATE assignments SET state = 'abandoned'",
+    "wrong-completion": "UPDATE kind_handoffs SET next_kind = 'research'",
+    "unknown-kind": "UPDATE kind_handoffs SET next_kind = 'unknown'",
+  };
+  const change = changes[mode];
+  if (change !== undefined) db.exec(change);
+}
+
+/** Faults at public SQLite calls in the real CLI, never at a private workflow helper. */
+async function continuationBoundary(
+  mode:
+    | "observe"
+    | "claim-loss"
+    | "reservation-loss"
+    | "claim-target"
+    | "reservation-target"
+    | "takeover"
+    | "later-launch",
+  source: string,
+) {
+  const file = `${root}/continuation-boundary.ts`;
+  const changed =
+    mode === "takeover"
+      ? "UPDATE sources SET supervising_session = 'ses_new_supervisor', supervising_pane = 'new-supervisor-pane'"
+      : mode === "later-launch"
+        ? `INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model, reasoning_effort, release, skills, started_at) VALUES ('concurrent', '${source}', 'implement', 2, 'failed', 'concurrent', 'worktree', 'opencode', 'fixture', 'fixture', 'high', '{}', '[]', 'now')`
+        : mode.endsWith("target")
+          ? "UPDATE kind_handoffs SET next_kind = 'pr-feedback'"
+          : "UPDATE kind_handoffs SET lease_at = '2000-01-01'";
+  await Bun.write(
+    file,
+    `import { Database } from "bun:sqlite";
+import { writeFileSync } from "node:fs";
+const prepare=Database.prototype.prepare, exec=Database.prototype.exec;
+let reads=0, injected=false;
+Database.prototype.prepare=function(sql,...args) {
+  if(sql.includes('from "kind_handoffs" inner join "sources"')) { reads++; writeFileSync(${JSON.stringify(`${root}/continuation-reads`)},String(reads)); }
+  return prepare.call(this,sql,...args);
+};
+Database.prototype.exec=function(sql,...args) {
+  if(sql==="BEGIN IMMEDIATE" && !injected && ${JSON.stringify(mode)}!=="observe") {
+    using competing=new Database(${JSON.stringify(`${root}/state/operator/operator.sqlite`)});
+    const outgoing=competing.query("SELECT launches.state FROM launches JOIN kind_handoffs ON kind_handoffs.outgoing_launch_id = launches.id").get();
+    const boundary=${JSON.stringify(mode)}.startsWith("claim") ? reads>=2 && outgoing?.state==="running" : outgoing?.state==="finished";
+    if(boundary) {
+      injected=true;
+      competing.exec(${JSON.stringify(changed)});
+      writeFileSync(${JSON.stringify(`${root}/continuation-injected`)},"injected");
+    }
+  }
+  return exec.call(this,sql,...args);
+};`,
+  );
+  return file;
+}
+
+async function waitForFixture(file: string) {
+  for (let attempt = 0; attempt < 200 && !(await Bun.file(file).exists()); attempt++)
+    await Bun.sleep(10);
+  expect(await Bun.file(file).exists()).toBe(true);
+}
+
+test.each(["publish", "expire"] as const)(
+  "a continuation waits read-only for exact PID publication and can %s safely",
+  async (mode) => {
+    const { source, worker } = await pendingContinuation();
+    using db = fixtureDatabase();
+    const parent = publisher();
+    try {
+      continuationFault(db, "pending", source, parent.pid);
+      const before = db.serialize();
+      const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+      const child = continuationChild(source, worker.paneId, parent.pid, {
+        preload: await continuationBoundary("observe", source),
+      });
+      await waitForFixture(`${root}/continuation-reads`);
+      expect(db.serialize()).toEqual(before);
+      expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+      if (mode === "publish") {
+        db.query("UPDATE kind_handoffs SET owner_pid = ? WHERE owner_pid = ?").run(
+          child.pid,
+          parent.pid,
+        );
+        await Bun.write(`${root}/publish-release`, "exit");
+      }
+      const result = await processResult(child);
+      if (mode === "publish") {
+        expect(result.code, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          reason: "worker_launched",
+          data: {
+            kind: { name: "review" },
+            worktreePath: worker.worktreePath,
+            branch: "task/12-implement",
+          },
+        });
+      } else {
+        expect(result.code, result.stderr).toBe(4);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          reason: "handoff_publication_timed_out",
+        });
+        expect(db.serialize()).toEqual(before);
+        expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+      }
+    } finally {
+      await Bun.write(`${root}/publish-release`, "exit");
+      await processResult(parent);
+    }
+    if (mode === "expire")
+      expect(
+        await run(["dispatch", "--source", source, "--assignment", "implement"]),
+      ).toMatchObject({ code: 0, output: { data: { kind: { name: "review" } } } });
+    expect(db.query("SELECT supervising_session, supervising_pane FROM sources").all()).toEqual([
+      { supervising_session: "ses_supervisor", supervising_pane: "synthetic-supervisor-pane" },
+    ]);
+    expect((await shown(source)).launches).toHaveLength(2);
+  },
+  180000,
+);
+
+test.each([
+  "claim-loss",
+  "reservation-loss",
+  "claim-target",
+  "reservation-target",
+  "takeover",
+  "later-launch",
+] as const)(
+  "a continuation rechecks %s transactionally without fallback or supervisor overwrite",
+  async (mode) => {
+    const { source, worker } = await pendingContinuation();
+    using db = fixtureDatabase();
+    const parent = publisher();
+    try {
+      continuationFault(db, "pending", source, parent.pid);
+      const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+      const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+      const child = continuationChild(source, worker.paneId, parent.pid, {
+        preload: await continuationBoundary(mode, source),
+      });
+      db.query("UPDATE kind_handoffs SET owner_pid = ? WHERE owner_pid = ?").run(
+        child.pid,
+        parent.pid,
+      );
+      await Bun.write(`${root}/publish-release`, "exit");
+      const result = await processResult(child);
+      expect(await Bun.file(`${root}/continuation-injected`).exists()).toBe(true);
+      if (mode === "takeover") {
+        expect(result.code, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          reason: "worker_launched",
+          data: { kind: { name: "review" } },
+        });
+        expect(db.query("SELECT supervising_session, supervising_pane FROM sources").all()).toEqual(
+          [{ supervising_session: "ses_new_supervisor", supervising_pane: "new-supervisor-pane" }],
+        );
+      } else {
+        expect(result.code, result.stderr).toBe(4);
+        expect(JSON.parse(result.stdout)).toMatchObject({ reason: "handoff_continuation_refused" });
+        expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+        expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(
+          closes + (mode.startsWith("claim") ? 0 : 1),
+        );
+        expect(db.query("SELECT supervising_session, supervising_pane FROM sources").all()).toEqual(
+          [
+            {
+              supervising_session: "ses_supervisor",
+              supervising_pane: "synthetic-supervisor-pane",
+            },
+          ],
+        );
+        expect(db.query("SELECT handoff_state, owner_pid FROM kind_handoffs").all()).toEqual([
+          { handoff_state: "pending", owner_pid: child.pid },
+        ]);
+        expect(await git(worker.worktreePath, "status", "--porcelain")).toBe("");
+      }
+    } finally {
+      await Bun.write(`${root}/publish-release`, "exit");
+      await processResult(parent);
+    }
+  },
+  180000,
+);
+
+test.each([
+  "zero",
+  "unrelated-parent",
+  "wrong-owner",
+  "wrong-pane",
+  "wrong-socket",
+  "absent",
+  "failed",
+  "done",
+  "stale",
+  "malformed-lease",
+  "absent-lease",
+  "future-lease",
+  "later-launch",
+  "wrong-source",
+  "wrong-assignment",
+  "wrong-repository",
+  "wrong-outgoing",
+  "ended-source",
+  "inactive-assignment",
+  "wrong-completion",
+  "unknown-kind",
+  "duplicate-source",
+  "duplicate-assignment",
+  "duplicate-after-pid",
+  "malformed-after-pid",
+] as const)(
+  "foreign continuation refuses %s without effects or supervisor changes",
+  async (mode) => {
+    const { source, worker } = await pendingContinuation();
+    using db = fixtureDatabase();
+    const parent = publisher();
+    try {
+      continuationFault(db, mode, source, parent.pid);
+      const afterPid =
+        mode === "zero"
+          ? 0
+          : mode === "malformed-after-pid"
+            ? Number.NaN
+            : mode === "unrelated-parent"
+              ? process.pid
+              : parent.pid;
+      const child = continuationChild(
+        mode === "wrong-source" ? "absent-source" : source,
+        worker.paneId,
+        afterPid,
+        continuationOptions(mode, source, parent.pid),
+      );
+      if (!["wrong-owner", "zero", "unrelated-parent"].includes(mode))
+        db.query("UPDATE kind_handoffs SET owner_pid = ?").run(child.pid);
+      const before = db.serialize();
+      const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+      const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+      const result = await processResult(child);
+      expect(result.code).toBe(mode === "wrong-source" || mode === "wrong-repository" ? 3 : 4);
+      expect(JSON.parse(result.stdout)).toMatchObject({ outcome: "refused" });
+      expect(db.serialize()).toEqual(before);
+      expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+      expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+    } finally {
+      await Bun.write(`${root}/publish-release`, "exit");
+      await processResult(parent);
+    }
+  },
+  180000,
+);
+
+test("pruning an ended assignment removes its generic handoff without deleting retained work", async () => {
+  const { source, worker } = await pendingContinuation();
+  using db = fixtureDatabase();
+  db.exec(
+    "UPDATE sources SET state = 'reset', ended_at = '2000-01-01'; UPDATE assignments SET state = 'abandoned'; UPDATE launches SET state = 'finished', ended_at = '2000-01-01'",
+  );
+  const head = await git(worker.worktreePath, "rev-parse", "HEAD");
+  expect(await run(["source", "prune"])).toMatchObject({
+    code: 0,
+    output: { data: { pruned: [{ id: source }] } },
+  });
+  expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+  expect(db.query("SELECT * FROM internal_reviews").all()).toEqual([]);
+  expect(db.query("SELECT * FROM launches").all()).toEqual([]);
+  expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+  expect(await git(worker.worktreePath, "symbolic-ref", "--short", "HEAD")).toBe(
+    "task/12-implement",
+  );
+}, 180000);
+
+test("an internal flag grants no supervisor dispatch fallback, while ordinary recovery remains authorized", async () => {
+  const { source, worker } = await pendingContinuation();
+  using db = fixtureDatabase();
+  const before = db.serialize();
+  const command = ["dispatch", "--source", source, "--assignment", "implement"];
+  expect(await run([...command, "--after-pid", String(process.pid)])).toMatchObject({
+    code: 4,
+    output: { reason: "handoff_continuation_refused" },
+  });
+  expect(db.serialize()).toEqual(before);
+  expect(await run(command)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "worker_launched",
+      data: { kind: { name: "review" }, worktreePath: worker.worktreePath },
+    },
+  });
+}, 180000);
+
+test.each(["opencode", "claude-code"] as const)(
+  "automatic kind handoff preserves distinct supervisor and %s worker identities",
+  async (host) => {
+    const source = await setup(host);
+    const worker = await dispatch(source);
+    const caller = {
+      OPENCODE_SESSION_ID: host === "opencode" ? "ses_worker" : undefined,
+      CLAUDE_CODE_SESSION_ID: host === "claude-code" ? "claude-worker" : undefined,
+      HERDR_PANE_ID: worker.paneId,
+    };
+    const forbidden = ["dispatch", "--source", source, "--assignment", "implement"];
+    expect(await run(forbidden, checkout, caller)).toMatchObject({
+      code: 4,
+      output: { reason: "source_supervised_elsewhere" },
+    });
+    const head = await commit(worker.worktreePath, "work.txt");
+    await github({ pulls: [pull({ head, isDraft: true })] });
+    expect(await run(["pr", "associate"], worker.worktreePath, caller)).toMatchObject({ code: 0 });
+    expect(await handedOff(source)).toMatchObject({ handoffState: "done" });
+    using db = fixtureDatabase();
+    expect(db.query("SELECT supervising_session, supervising_pane FROM sources").all()).toEqual([
+      { supervising_session: "ses_supervisor", supervising_pane: "synthetic-supervisor-pane" },
+    ]);
+    const topology = z
+      .object({
+        agents: z.array(
+          z.looseObject({
+            caller: z.object({
+              pane: z.string().nullable(),
+              opencode: z.string().nullable(),
+              claude: z.string().nullable(),
+            }),
+          }),
+        ),
+      })
+      .parse(await Bun.file(`${root}/herdr-state.json`).json());
+    expect(topology.agents).toHaveLength(1);
+    expect(topology.agents[0]?.caller).toEqual({
+      pane: worker.paneId,
+      opencode: host === "opencode" ? "ses_worker" : null,
+      claude: host === "claude-code" ? "claude-worker" : null,
+    });
+    expect((await shown(source)).launches).toMatchObject([
+      { state: "finished", worktreePath: worker.worktreePath },
+      { state: "running", worktreePath: worker.worktreePath, kind: { name: "review" } },
+    ]);
+    expect(await run(forbidden, checkout, caller)).toMatchObject({
+      code: 4,
+      output: {
+        reason: "source_supervised_elsewhere",
+        state: { supervisorSession: "ses_supervisor" },
+      },
+    });
+    expect(await run(forbidden)).toMatchObject({
+      code: 4,
+      output: { reason: "assignment_not_dispatchable" },
+    });
+    const beforeReplay = db.serialize();
+    expect(
+      await run([...forbidden, "--after-pid", String(process.pid)], checkout, caller),
+    ).toMatchObject({ code: 4, output: { reason: "handoff_continuation_refused" } });
+    expect(db.serialize()).toEqual(beforeReplay);
+    expect((await shown(source)).launches).toHaveLength(2);
+  },
+  180000,
+);
+
 test("pr associate of a draft hands implementation to review and writes no note", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
   expect(await Bun.file(worker.brief).text()).toContain("Phase: `build`");
   const head = await commit(worker.worktreePath, "work.txt");
   await github({ pulls: [pull({ head, isDraft: true })] });
+
+  const assignmentDirectory = path.dirname(worker.brief);
+  const filesBefore = await Array.fromAsync(
+    new Bun.Glob("**/*").scan({ cwd: assignmentDirectory, dot: true, onlyFiles: true }),
+  );
+  expect(filesBefore).toEqual(["brief.md"]);
 
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 0,
@@ -317,6 +823,12 @@ test("pr associate of a draft hands implementation to review and writes no note"
   expect(brief).not.toContain("### Round");
   expect(brief).not.toContain("If the PR is a draft");
   expect(brief).not.toContain("## Note");
+  // The only durable assignment file remains its rewritten brief, regardless of a possible note's name.
+  expect(
+    await Array.fromAsync(
+      new Bun.Glob("**/*").scan({ cwd: assignmentDirectory, dot: true, onlyFiles: true }),
+    ),
+  ).toEqual(filesBefore);
   // The review runs as a wait, and the handoff left no failure in next.
   expect(await entry(source)).toMatchObject({
     action: "wait",

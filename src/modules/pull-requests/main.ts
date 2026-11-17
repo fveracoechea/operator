@@ -25,6 +25,7 @@ import { cleanup } from "./cleanup.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
 import {
   dispatch,
+  dispatchPermission,
   owned,
   reviewEnded,
   round,
@@ -550,6 +551,9 @@ export const PullRequests = {
   /** Starts a worker or resumes the recorded kind handoff without a separate recovery command. */
   dispatch(input: Parameters<typeof dispatch>[0]) {
     return dispatch(input);
+  },
+  dispatchPermission(input: Parameters<typeof dispatchPermission>[0]) {
+    return dispatchPermission(input);
   },
   /** Records one internal review round's findings at the reviewer's worktree head. */
   round(input: Request & { file: string }) {

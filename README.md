@@ -106,6 +106,17 @@ stateDiagram-v2
 - `skipped`: on your instruction, the SuperAgent ends a running review with `internal-review skip`, which marks the PR ready with no comment.
 
 The implementer runs no PR command after the handoff.
+
+The detached continuation keeps the outgoing caller's identity. It does not become the source's supervisor.
+The CLI checks its exact pending handoff, PID, fresh lease, outgoing launch, pane, and socket before continuing.
+It checks the same identity again at claim, lease renewal, pane closure, and launch reservation.
+Reservation consumes the handoff with the new launch and makes no supervisor write.
+
+PID publication has a one-second, read-only wait. If publication does not arrive, the continuation refuses without claiming another process's hold.
+This bound does not guarantee scheduler progress; the supervisor recovers a stopped handoff with ordinary dispatch.
+An internal flag alone grants no dispatch authority or fallback, even to a supervisor's internal-continuation request.
+The existing trusted-device PID, lease, and pane records do not authenticate process incarnation or the exact worker session.
+Strict pane matching can refuse safely on a stale-pane host topology. External pane closure is not atomic with SQLite, and lease renewal is not fencing against arbitrary process suspension.
 `pr merge` refuses until the internal review is `ready` or `skipped`.
 
 ## Install

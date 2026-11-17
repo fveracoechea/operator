@@ -6,6 +6,7 @@ Accepted - 2026-11-11.
 Amended 2026-11-13: the turn-end guard fires only while a supervised source has a live worker launch, as decided in #373.
 Amends ADR-0022.
 Amended 2026-11-17: dispatch recovers kind handoffs; there is no separate handoff command (ADR-0029).
+Amended 2026-11-17: the CLI's recorded kind continuation preserves supervision without granting its outgoing worker coordination authority (ADR-0029).
 
 ## Context
 

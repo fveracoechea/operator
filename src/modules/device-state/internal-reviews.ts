@@ -17,6 +17,7 @@ import type { StateFailure } from "./failures.ts";
 import { activeOwner, type PullRequestFailure } from "./pull-requests.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
+import { validateContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 
 export type InternalReviewRow = typeof internalReviews.$inferSelect;
 export type InternalReviewRoundRow = typeof internalReviewRounds.$inferSelect;
@@ -24,7 +25,11 @@ type LaunchRow = typeof launches.$inferSelect;
 export type HandoffFailure =
   | StateFailure
   | (ResultContext & {
-      reason: "source_not_found" | "handoff_not_found" | "handoff_running";
+      reason:
+        | "source_not_found"
+        | "handoff_not_found"
+        | "handoff_running"
+        | "handoff_continuation_refused";
       detail: string;
     });
 type Claimed = {
@@ -103,65 +108,74 @@ export function claimHandoff(
   sourceId: string,
   assignment: string,
   afterPid: number | null,
+  continuation?: HandoffContinuation,
 ) {
   return transaction(client, true, () =>
-    checkHistory(client).flatMap((db): Result<Claimed, HandoffFailure> => {
-      const source = db
-        .select()
-        .from(sources)
-        .where(and(eq(sources.id, sourceId), eq(sources.repository, repository)))
-        .get();
-      if (source === undefined)
-        return Err({
-          reason: "source_not_found",
-          next: { command: "operator next", why: "Choose an existing source in this project." },
-          detail: "The source does not exist in this project.",
-        });
-      const recorded = db
-        .select({ handoff: kindHandoffs, implementer: launches })
-        .from(kindHandoffs)
-        .innerJoin(launches, eq(launches.id, kindHandoffs.outgoingLaunchId))
-        .where(handoffKey(sourceId, assignment))
-        .get();
-      const latest = latestLaunch(db, sourceId, assignment);
-      const project = db.select().from(projects).where(eq(projects.repository, repository)).get();
-      // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent: a recorded review always has its implementer launch and project
-      if (recorded === undefined || latest === undefined || project === undefined)
-        return Err({
-          reason: "handoff_not_found",
-          next: {
-            command: "operator next",
-            why: "Read the assignment's handoff state before retrying.",
-          },
-          detail: `Assignment ${assignment} has no recorded kind handoff. Nothing was changed.`,
-        });
-      const { handoff, implementer } = recorded;
-      const facts = { implementer, latest, checkout: project.checkout };
-      if (handoff.handoffState === "done") return Ok({ handoff, ...facts });
-      // The association holds the handoff until it records the process that it started, and
-      // that process may take over from either.
-      const held = handoff.ownerPid !== process.pid && handoff.ownerPid !== afterPid;
-      if (held && !ownerGone(handoff, Date.now()))
-        return Err({
-          reason: "handoff_running",
-          next: {
-            command: "operator next --wait",
-            why: "Let the recorded handoff finish before retrying.",
-          },
-          detail: `Process ${handoff.ownerPid} is still handing off assignment ${assignment}. Read operator next later. Nothing was changed.`,
-        });
-      const now = new Date().toISOString();
-      const claimed = {
-        ...handoff,
-        handoffState: "pending",
-        handoffDetail: null,
-        ownerPid: process.pid,
-        leaseAt: now,
-        updatedAt: now,
-      };
-      db.update(kindHandoffs).set(claimed).where(handoffKey(sourceId, assignment)).run();
-      return Ok({ handoff: claimed, ...facts });
-    }),
+    checkHistory(client).flatMap((db) =>
+      validateContinuation(db, continuation, { repository, sourceId, assignment }).flatMap(
+        (): Result<Claimed, HandoffFailure> => {
+          const source = db
+            .select()
+            .from(sources)
+            .where(and(eq(sources.id, sourceId), eq(sources.repository, repository)))
+            .get();
+          if (source === undefined)
+            return Err({
+              reason: "source_not_found",
+              next: { command: "operator next", why: "Choose an existing source in this project." },
+              detail: "The source does not exist in this project.",
+            });
+          const recorded = db
+            .select({ handoff: kindHandoffs, implementer: launches })
+            .from(kindHandoffs)
+            .innerJoin(launches, eq(launches.id, kindHandoffs.outgoingLaunchId))
+            .where(handoffKey(sourceId, assignment))
+            .get();
+          const latest = latestLaunch(db, sourceId, assignment);
+          const project = db
+            .select()
+            .from(projects)
+            .where(eq(projects.repository, repository))
+            .get();
+          // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent: a recorded review always has its implementer launch and project
+          if (recorded === undefined || latest === undefined || project === undefined)
+            return Err({
+              reason: "handoff_not_found",
+              next: {
+                command: "operator next",
+                why: "Read the assignment's handoff state before retrying.",
+              },
+              detail: `Assignment ${assignment} has no recorded kind handoff. Nothing was changed.`,
+            });
+          const { handoff, implementer } = recorded;
+          const facts = { implementer, latest, checkout: project.checkout };
+          if (handoff.handoffState === "done") return Ok({ handoff, ...facts });
+          // The association holds the handoff until it records the process that it started, and
+          // that process may take over from either.
+          const held = handoff.ownerPid !== process.pid && handoff.ownerPid !== afterPid;
+          if (held && !ownerGone(handoff, Date.now()))
+            return Err({
+              reason: "handoff_running",
+              next: {
+                command: "operator next --wait",
+                why: "Let the recorded handoff finish before retrying.",
+              },
+              detail: `Process ${handoff.ownerPid} is still handing off assignment ${assignment}. Read operator next later. Nothing was changed.`,
+            });
+          const now = new Date().toISOString();
+          const claimed = {
+            ...handoff,
+            handoffState: "pending",
+            handoffDetail: null,
+            ownerPid: process.pid,
+            leaseAt: now,
+            updatedAt: now,
+          };
+          db.update(kindHandoffs).set(claimed).where(handoffKey(sourceId, assignment)).run();
+          return Ok({ handoff: claimed, ...facts });
+        },
+      ),
+    ),
   );
 }
 
@@ -194,41 +208,51 @@ export function failHandoff(
   sourceId: string,
   assignment: string,
   detail: string,
+  continuation?: HandoffContinuation,
 ) {
-  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
-    checkHistory(client).map((db) => {
-      db.update(kindHandoffs)
-        .set({
-          handoffState: "failed",
-          handoffDetail: detail,
-          updatedAt: new Date().toISOString(),
-          ownerPid: null,
-          leaseAt: null,
-        })
-        .where(
-          and(
-            handoffKey(sourceId, assignment),
-            eq(kindHandoffs.handoffState, "pending"),
-            eq(kindHandoffs.ownerPid, process.pid),
-          ),
-        )
-        .run();
-      return undefined;
-    }),
+    checkHistory(client).flatMap((db) =>
+      validateContinuation(db, continuation).map(() => {
+        db.update(kindHandoffs)
+          .set({
+            handoffState: "failed",
+            handoffDetail: detail,
+            updatedAt: new Date().toISOString(),
+            ownerPid: null,
+            leaseAt: null,
+          })
+          .where(
+            and(
+              handoffKey(sourceId, assignment),
+              eq(kindHandoffs.handoffState, "pending"),
+              eq(kindHandoffs.ownerPid, process.pid),
+            ),
+          )
+          .run();
+        return undefined;
+      }),
+    ),
   );
 }
 
 /** Renew the lease of a handoff that this process runs. */
-export function renewHandoff(client: Database, sourceId: string, assignment: string) {
-  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
+export function renewHandoff(
+  client: Database,
+  sourceId: string,
+  assignment: string,
+  continuation?: HandoffContinuation,
+) {
   return transaction(client, true, () =>
-    checkHistory(client).map((db) => {
+    checkHistory(client).flatMap((db) => {
+      if (continuation !== undefined) {
+        const checked = validateContinuation(db, continuation);
+        if (checked.tag !== "Ok") return checked;
+      }
       db.update(kindHandoffs)
         .set({ leaseAt: new Date().toISOString() })
         .where(and(handoffKey(sourceId, assignment), eq(kindHandoffs.ownerPid, process.pid)))
         .run();
-      return undefined;
+      return Ok(undefined);
     }),
   );
 }
@@ -237,10 +261,17 @@ export function renewHandoff(client: Database, sourceId: string, assignment: str
  * The handoff closed the implementer's pane, so its session ended as planned. A pane event
  * may have recorded the close as an interruption first.
  */
-export function finishImplementer(client: Database, launchId: string) {
-  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
+export function finishImplementer(
+  client: Database,
+  launchId: string,
+  continuation?: HandoffContinuation,
+) {
   return transaction(client, true, () =>
-    checkHistory(client).map((db) => {
+    checkHistory(client).flatMap((db) => {
+      if (continuation !== undefined) {
+        const checked = validateContinuation(db, continuation);
+        if (checked.tag !== "Ok") return checked;
+      }
       db.update(launches)
         .set({
           state: "finished",
@@ -250,7 +281,7 @@ export function finishImplementer(client: Database, launchId: string) {
         })
         .where(and(eq(launches.id, launchId), inArray(launches.state, ["running", "interrupted"])))
         .run();
-      return undefined;
+      return Ok(undefined);
     }),
   );
 }

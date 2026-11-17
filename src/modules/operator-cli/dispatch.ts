@@ -68,6 +68,8 @@ export const dispatchExitCodes = {
   handoff_running: 4,
   handoff_not_found: 4,
   herdr_session_mismatch: 4,
+  handoff_continuation_refused: 4,
+  handoff_publication_timed_out: 4,
 };
 
 /**

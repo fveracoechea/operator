@@ -68,7 +68,7 @@ else if (key === "worktree create" || key === "worktree open") {
   out({ workspace: created, root_pane: rootPane, worktree: { path, branch: flag("--branch") } });
 }
 else if (key === "agent list") out({ agents: state.agents.map((agent) => ({ name: agent.name, pane_id: agent.paneId })) });
-else if (key === "agent start") { state.agents.push({ name: args[2], paneId: flag("--pane"), kind: flag("--kind"), args: args.slice(args.indexOf("--") + 1) }); out({ type: "agent_started" }); }
+else if (key === "agent start") { state.agents.push({ name: args[2], paneId: flag("--pane"), kind: flag("--kind"), args: args.slice(args.indexOf("--") + 1), caller: { pane: process.env.HERDR_PANE_ID ?? null, opencode: process.env.OPENCODE_SESSION_ID ?? null, claude: process.env.CLAUDE_CODE_SESSION_ID ?? null } }); out({ type: "agent_started" }); }
 else if (key === "agent rename") { const agent = state.agents.find((row) => row.paneId === args[2]); if (!agent) { console.error("agent not found"); process.exit(1); } agent.name = args[3]; out({ type: "agent_renamed" }); }
 else if (key === "agent prompt") {
   const agent = state.agents.find((row) => row.name === args[2]);
