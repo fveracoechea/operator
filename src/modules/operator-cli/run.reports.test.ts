@@ -254,7 +254,20 @@ test("report commands refuse PR work, undecided states, and missing panes withou
 });
 
 test("returned work resumes, and a replacement keeps reports, follow-up, and current settings", async () => {
-  const source = await device.register(plan("careful"));
+  const planned = plan("careful");
+  const source = await device.register({
+    ...planned,
+    assignments: [
+      ...planned.assignments,
+      {
+        key: "other",
+        trackerKey: "github:example/one#14",
+        kind: "research",
+        instructions: "Read another module.",
+        dependencies: [],
+      },
+    ],
+  });
   const worker = await device.dispatch(source, "investigate");
   await Bun.write(`${device.root}/drafts/notes.md`, "first notes\n", { createPath: true });
   const first = await device.writeReport("first.md", {
@@ -327,6 +340,10 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(await device.next("investigate")).toMatchObject([
     { action: "replace_worker", reason: "worker_interrupted" },
   ]);
+  const other = await device.dispatch(source, "other");
+  expect(
+    (await device.run(["report", "submit", "--file", second], { pane: other.paneId })).code,
+  ).toBe(0);
 
   // The replacement uses current settings and reads every earlier report and follow-up.
   await Bun.write(
@@ -340,6 +357,8 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(replacement.attempt).toBe(2);
   const brief = await Bun.file(replacement.brief).text();
   expect(brief).toContain("Read the module and report the gaps.");
+  expect(brief).toContain("Phase: `report`");
+  expect(brief).toContain("Start profile: `careful`");
   for (const file of ["1/report.md", "1/files/notes.md", "2/report.md"])
     expect(brief).toContain(`/reports/${file}\``);
   for (const file of ["1.md", "2.md"]) expect(brief).toContain(`/follow-ups/${file}\``);
@@ -350,10 +369,12 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(history.launches).toMatchObject([
     { state: "interrupted", model: "test/reasoner", reasoningEffort: "high" },
     { state: "running", model: "test/writer", reasoningEffort: "medium" },
+    { assignment: "other", state: "running" },
   ]);
   expect(history.reports).toMatchObject([
     { number: 1, decision: "returned", followUp: "Also read b.ts and cite it." },
     { number: 2, decision: "returned", followUp: "Add the test evidence." },
+    { number: 1, decision: null },
   ]);
 }, 60000);
 

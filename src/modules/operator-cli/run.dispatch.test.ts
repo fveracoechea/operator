@@ -362,6 +362,9 @@ test("an existing assignment and its new launch keep a null kind and their old b
   expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).not.toContain(
     "Worker kind:",
   );
+  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
+    "Phase: `unrecorded`",
+  );
   expect((await run(["source", "show", "--source", source])).output).toMatchObject({
     data: { planned: [{ kind: null, completion: "report" }], launches: [{ kind: null }] },
   });

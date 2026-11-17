@@ -277,6 +277,7 @@ const blocker = {
 test("associate hands a clean draft to a fresh reviewer launch in the same worktree", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
+  expect(await Bun.file(worker.brief).text()).toContain("Phase: `build`");
   const head = await commit(worker.worktreePath, "work.txt");
   await github({ pulls: [pull({ head, isDraft: true })] });
 
@@ -437,6 +438,7 @@ test("the reviewer records at most two rounds, the second at a newer head", asyn
     `### Round 1 at \`${first}\`\n\n- Spec, blocker, \`a.ts:1\`:\n> The guard is missing.`,
   );
   expect(brief).toContain(`### Round 2 at \`${second}\``);
+  expect(brief).toContain("Phase: `ready`");
 }, 180000);
 
 async function herdrFail(fail: Record<string, string>) {
