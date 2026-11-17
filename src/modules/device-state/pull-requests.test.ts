@@ -171,13 +171,13 @@ test("only the handoff that an association started takes over its hold", async (
   expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
   // Another live process stands in for the associating process.
   await using associating = Bun.spawn([process.execPath, "-e", "await Bun.sleep(60000)"]);
-  db.query("UPDATE internal_reviews SET owner_pid = ?").run(associating.pid);
+  db.query("UPDATE kind_handoffs SET owner_pid = ?").run(associating.pid);
   expect(claimHandoff(db, "owner/one", "s1", "change", null)).toMatchObject({
     error: { reason: "handoff_running" },
   });
   expect(claimHandoff(db, "owner/one", "s1", "change", associating.pid)).toMatchObject({
     tag: "Ok",
-    value: { review: { handoffState: "pending", ownerPid: process.pid } },
+    value: { handoff: { handoffState: "pending", ownerPid: process.pid, nextKind: "review" } },
   });
   associating.kill();
 });

@@ -7,6 +7,7 @@ import {
   assignments,
   internalReviewRounds,
   internalReviews,
+  kindHandoffs,
   launches,
   projects,
   pullRequests,
@@ -27,7 +28,7 @@ export type HandoffFailure =
       detail: string;
     });
 type Claimed = {
-  review: InternalReviewRow;
+  handoff: typeof kindHandoffs.$inferSelect;
   implementer: LaunchRow;
   latest: LaunchRow;
   checkout: string;
@@ -35,6 +36,10 @@ type Claimed = {
 
 function key(sourceId: string, assignment: string) {
   return and(eq(internalReviews.sourceId, sourceId), eq(internalReviews.assignment, assignment));
+}
+
+function handoffKey(sourceId: string, assignment: string) {
+  return and(eq(kindHandoffs.sourceId, sourceId), eq(kindHandoffs.assignment, assignment));
 }
 
 function latestLaunch(db: Db, sourceId: string, assignment: string) {
@@ -54,7 +59,7 @@ function latestLaunch(db: Db, sourceId: string, assignment: string) {
  * also when the SuperAgent dispatches the reviewer after a stopped handoff.
  */
 export function finishHandoff(db: Db, sourceId: string, assignment: string) {
-  db.update(internalReviews)
+  db.update(kindHandoffs)
     .set({
       handoffState: "done",
       handoffDetail: null,
@@ -63,7 +68,10 @@ export function finishHandoff(db: Db, sourceId: string, assignment: string) {
       leaseAt: null,
     })
     .where(
-      and(key(sourceId, assignment), inArray(internalReviews.handoffState, ["pending", "failed"])),
+      and(
+        handoffKey(sourceId, assignment),
+        inArray(kindHandoffs.handoffState, ["pending", "failed"]),
+      ),
     )
     .run();
 }
@@ -71,16 +79,16 @@ export function finishHandoff(db: Db, sourceId: string, assignment: string) {
 /** The implementer's latest launch ended at the handoff and no other process holds it. */
 export function handoffDispatchable(db: Db, latest: LaunchRow | undefined, now: number) {
   if (latest?.state !== "finished") return false;
-  const review = db
+  const handoff = db
     .select()
-    .from(internalReviews)
-    .where(key(latest.sourceId, latest.assignment))
+    .from(kindHandoffs)
+    .where(handoffKey(latest.sourceId, latest.assignment))
     .get();
   return (
-    review?.state === "reviewing" &&
-    review.implementerLaunchId === latest.id &&
-    review.handoffState !== "done" &&
-    (review.ownerPid === process.pid || ownerGone(review, now))
+    handoff !== undefined &&
+    handoff.outgoingLaunchId === latest.id &&
+    handoff.handoffState !== "done" &&
+    (handoff.ownerPid === process.pid || ownerGone(handoff, now))
   );
 }
 
@@ -110,10 +118,10 @@ export function claimHandoff(
           detail: "The source does not exist in this project.",
         });
       const recorded = db
-        .select({ review: internalReviews, implementer: launches })
-        .from(internalReviews)
-        .innerJoin(launches, eq(launches.id, internalReviews.implementerLaunchId))
-        .where(key(sourceId, assignment))
+        .select({ handoff: kindHandoffs, implementer: launches })
+        .from(kindHandoffs)
+        .innerJoin(launches, eq(launches.id, kindHandoffs.outgoingLaunchId))
+        .where(handoffKey(sourceId, assignment))
         .get();
       const latest = latestLaunch(db, sourceId, assignment);
       const project = db.select().from(projects).where(eq(projects.repository, repository)).get();
@@ -125,34 +133,34 @@ export function claimHandoff(
             command: "operator next",
             why: "Read the assignment's handoff state before retrying.",
           },
-          detail: `Assignment ${assignment} has no internal review. Only the association of a draft PR records one. Nothing was changed.`,
+          detail: `Assignment ${assignment} has no recorded kind handoff. Nothing was changed.`,
         });
-      const { review, implementer } = recorded;
+      const { handoff, implementer } = recorded;
       const facts = { implementer, latest, checkout: project.checkout };
-      if (review.handoffState === "done") return Ok({ review, ...facts });
+      if (handoff.handoffState === "done") return Ok({ handoff, ...facts });
       // The association holds the handoff until it records the process that it started, and
       // that process may take over from either.
-      const held = review.ownerPid !== process.pid && review.ownerPid !== afterPid;
-      if (held && !ownerGone(review, Date.now()))
+      const held = handoff.ownerPid !== process.pid && handoff.ownerPid !== afterPid;
+      if (held && !ownerGone(handoff, Date.now()))
         return Err({
           reason: "handoff_running",
           next: {
             command: "operator next --wait",
             why: "Let the recorded handoff finish before retrying.",
           },
-          detail: `Process ${review.ownerPid} is still handing off assignment ${assignment}. Read operator next later. Nothing was changed.`,
+          detail: `Process ${handoff.ownerPid} is still handing off assignment ${assignment}. Read operator next later. Nothing was changed.`,
         });
       const now = new Date().toISOString();
       const claimed = {
-        ...review,
+        ...handoff,
         handoffState: "pending",
         handoffDetail: null,
         ownerPid: process.pid,
         leaseAt: now,
         updatedAt: now,
       };
-      db.update(internalReviews).set(claimed).where(key(sourceId, assignment)).run();
-      return Ok({ review: claimed, ...facts });
+      db.update(kindHandoffs).set(claimed).where(handoffKey(sourceId, assignment)).run();
+      return Ok({ handoff: claimed, ...facts });
     }),
   );
 }
@@ -165,13 +173,13 @@ export function startHandoff(client: Database, sourceId: string, assignment: str
   // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
-      db.update(internalReviews)
+      db.update(kindHandoffs)
         .set({ ownerPid: pid, leaseAt: new Date().toISOString() })
         .where(
           and(
-            key(sourceId, assignment),
-            eq(internalReviews.ownerPid, process.pid),
-            eq(internalReviews.handoffState, "pending"),
+            handoffKey(sourceId, assignment),
+            eq(kindHandoffs.ownerPid, process.pid),
+            eq(kindHandoffs.handoffState, "pending"),
           ),
         )
         .run();
@@ -190,7 +198,7 @@ export function failHandoff(
   // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
-      db.update(internalReviews)
+      db.update(kindHandoffs)
         .set({
           handoffState: "failed",
           handoffDetail: detail,
@@ -200,9 +208,9 @@ export function failHandoff(
         })
         .where(
           and(
-            key(sourceId, assignment),
-            eq(internalReviews.handoffState, "pending"),
-            eq(internalReviews.ownerPid, process.pid),
+            handoffKey(sourceId, assignment),
+            eq(kindHandoffs.handoffState, "pending"),
+            eq(kindHandoffs.ownerPid, process.pid),
           ),
         )
         .run();
@@ -216,9 +224,9 @@ export function renewHandoff(client: Database, sourceId: string, assignment: str
   // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
-      db.update(internalReviews)
+      db.update(kindHandoffs)
         .set({ leaseAt: new Date().toISOString() })
-        .where(and(key(sourceId, assignment), eq(internalReviews.ownerPid, process.pid)))
+        .where(and(handoffKey(sourceId, assignment), eq(kindHandoffs.ownerPid, process.pid)))
         .run();
       return undefined;
     }),

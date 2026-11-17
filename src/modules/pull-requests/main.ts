@@ -24,7 +24,7 @@ import { merge } from "./merge.ts";
 import { cleanup } from "./cleanup.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
 import {
-  handoff,
+  dispatch,
   owned,
   reviewEnded,
   round,
@@ -547,9 +547,9 @@ export const PullRequests = {
   wait(input: Request & { timeoutSeconds: number }) {
     return wait(input);
   },
-  /** The detached handoff of a new internal review, which the SuperAgent can repeat after a failure. */
-  handoff(input: Parameters<typeof handoff>[0]) {
-    return handoff(input);
+  /** Starts a worker or resumes the recorded kind handoff without a separate recovery command. */
+  dispatch(input: Parameters<typeof dispatch>[0]) {
+    return dispatch(input);
   },
   /** Records one internal review round's findings at the reviewer's worktree head. */
   round(input: Request & { file: string }) {

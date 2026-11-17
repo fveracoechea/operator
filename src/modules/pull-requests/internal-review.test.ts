@@ -260,7 +260,7 @@ test.each(["mismatch", "defect"] as const)(
         error: {
           reason: "herdr_session_mismatch",
           detail:
-            "Run operator handoff in a pane of the Herdr session that started the implementer.",
+            "Run operator dispatch in a pane of the Herdr session that started the outgoing worker.",
           next: {
             decider: "super-agent",
             question: "Which pane of the recorded Herdr session should retry this handoff?",

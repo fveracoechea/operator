@@ -45,31 +45,6 @@ function skipArgs(flags: string[]) {
   return parsed === null ? null : { operation: "internal_review_skip" as const, ...parsed };
 }
 
-/** The association starts the handoff. The SuperAgent repeats it after a failure. */
-function handoffArgs(flags: string[]) {
-  const values = new Map<string, string>();
-  const rest = flags.values();
-  for (const flag of rest) {
-    if (flag === "--json" && !values.has(flag)) values.set(flag, "");
-    else if (["--source", "--assignment", "--after-pid"].includes(flag) && !values.has(flag)) {
-      const value = rest.next().value;
-      if (value === undefined || value.startsWith("--")) return null;
-      values.set(flag, value);
-    } else return null;
-  }
-  const sourceId = values.get("--source");
-  const assignment = values.get("--assignment");
-  const afterPid = values.get("--after-pid");
-  if (sourceId === undefined || assignment === undefined) return null;
-  if (afterPid !== undefined && !/^\d{1,10}$/.test(afterPid)) return null;
-  return {
-    operation: "handoff" as const,
-    sourceId,
-    assignment,
-    afterPid: afterPid === undefined ? null : Number(afterPid),
-  };
-}
-
 /** The reviewer names its findings or summary file. Its worktree still selects the assignment. */
 function fileArgs<O extends string>(operation: O, flags: string[]) {
   let json = false;
@@ -90,7 +65,6 @@ function fileArgs<O extends string>(operation: O, flags: string[]) {
 export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
   if (group === "cleanup") return cleanupArgs(args.slice(1));
-  if (group === "handoff") return handoffArgs(args.slice(1));
   if (group === "internal-review")
     return name === "recover" ? recoveryArgs(flags) : skipArgs(args.slice(1));
   if (group === "pr" && name === "round") return fileArgs("pr_round" as const, flags);
@@ -169,21 +143,19 @@ export async function runPullRequests(
   const input = { paths, cwd: process.cwd() };
   const result = await (parsed.operation === "cleanup"
     ? PullRequests.cleanup({ ...input, ...parsed })
-    : parsed.operation === "handoff"
-      ? PullRequests.handoff({ ...input, ...parsed })
-      : parsed.operation === "internal_review_recover"
-        ? PullRequests.recoverReview({ ...input, ...parsed })
-        : parsed.operation === "internal_review_skip"
-          ? PullRequests.skipReview({ ...input, ...parsed })
-          : parsed.operation === "pr_round"
-            ? PullRequests.round({ ...input, file: parsed.file })
-            : parsed.operation === "pr_ready"
-              ? PullRequests.ready({ ...input, file: parsed.file })
-              : parsed.operation === "pr_merge"
-                ? PullRequests.merge(input)
-                : parsed.operation === "pr_associate"
-                  ? PullRequests.associate(input)
-                  : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
+    : parsed.operation === "internal_review_recover"
+      ? PullRequests.recoverReview({ ...input, ...parsed })
+      : parsed.operation === "internal_review_skip"
+        ? PullRequests.skipReview({ ...input, ...parsed })
+        : parsed.operation === "pr_round"
+          ? PullRequests.round({ ...input, file: parsed.file })
+          : parsed.operation === "pr_ready"
+            ? PullRequests.ready({ ...input, file: parsed.file })
+            : parsed.operation === "pr_merge"
+              ? PullRequests.merge(input)
+              : parsed.operation === "pr_associate"
+                ? PullRequests.associate(input)
+                : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
   respond({
     operation: parsed.operation,
     result,

@@ -274,7 +274,7 @@ const blocker = {
   claim: "The guard is missing.",
 };
 
-test("associate hands a clean draft to a fresh reviewer launch in the same worktree", async () => {
+test("pr associate of a draft hands implementation to review and writes no note", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
   expect(await Bun.file(worker.brief).text()).toContain("Phase: `build`");
@@ -316,19 +316,20 @@ test("associate hands a clean draft to a fresh reviewer launch in the same workt
   expect(brief).toContain("/worker-agent/kinds/review.md`");
   expect(brief).not.toContain("### Round");
   expect(brief).not.toContain("If the PR is a draft");
+  expect(brief).not.toContain("## Note");
   // The review runs as a wait, and the handoff left no failure in next.
   expect(await entry(source)).toMatchObject({
     action: "wait",
     reason: "internal_review_running",
     internalReview: { state: "reviewing", rounds: [], handoff: { state: "done" } },
   });
-  // A repeated association or handoff starts nothing.
+  // A repeated association or dispatch starts nothing.
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     output: { reason: "pr_unchanged" },
   });
-  expect(await run(["handoff", "--source", source, "--assignment", "implement"])).toMatchObject({
-    code: 0,
-    output: { reason: "handoff_unchanged" },
+  expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+    code: 4,
+    output: { reason: "assignment_not_dispatchable" },
   });
   expect((await shown(source)).launches).toHaveLength(2);
 }, 180000);

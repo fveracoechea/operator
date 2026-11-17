@@ -52,9 +52,9 @@ The association records the review and starts the handoff in its own process: it
 The reviewer owns the PR until its merge, and its brief makes it the reviewer from the recorded review.
 Send the reviewer no account of the implementer's work. Its inputs are the issue, the assignment instructions, and the diff.
 
-- `wait` with `internal_review_handoff`: the handoff runs. Do nothing.
+- `wait` with `kind_handoff`: the handoff runs. Do nothing.
 - `wait` with `internal_review_running`: the reviewer reviews the draft. Do nothing. Once it marks the PR ready and waits on it, `next` shows the PR feedback loop.
-- `retry_handoff` with `internal_review_handoff_failed` or `internal_review_handoff_stopped`: the handoff could not close the implementer's pane, or its process ended before the reviewer started. Run `operator handoff --source <id> --assignment <key> --json` from the controlling checkout, in the Herdr session that started the implementer. It skips each finished step.
+- `replace_worker` with `handoff_failed`: dispatch the assignment from the controlling checkout in its recorded Herdr session. It resumes the handoff and starts the recorded next kind.
 - `replace_worker` with `launch_failed` after a handoff: the reviewer's start failed. Dispatch it as any replacement. The new launch is the reviewer.
 
 `next` shows the assignment's `internalReview` with its state, its recorded rounds, its handoff, and, after it ends, its `readyHead` and summary `comment`.

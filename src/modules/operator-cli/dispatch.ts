@@ -1,5 +1,6 @@
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { PullRequests } from "../pull-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 
@@ -24,7 +25,7 @@ export function dispatchArgs(args: string[]) {
     }
     const value = rest.next().value;
     if (
-      (flag !== "--source" && flag !== "--assignment") ||
+      (flag !== "--source" && flag !== "--assignment" && flag !== "--after-pid") ||
       Object.hasOwn(values, flag) ||
       value === undefined ||
       value.startsWith("--")
@@ -32,10 +33,23 @@ export function dispatchArgs(args: string[]) {
       return null;
     values[flag] = value;
   }
+  return dispatchTarget(values, args[0]);
+}
+
+function dispatchTarget(values: Record<string, string>, operation: "dispatch" | "abandon") {
   const sourceId = values["--source"];
   const assignment = values["--assignment"];
   if (sourceId === undefined || assignment === undefined) return null;
-  return { operation: args[0], sourceId, assignment };
+  const afterPid = values["--after-pid"];
+  if (operation === "abandon")
+    return afterPid === undefined ? { operation, sourceId, assignment } : null;
+  if (afterPid !== undefined && !/^\d{1,10}$/.test(afterPid)) return null;
+  return {
+    operation: "dispatch" as const,
+    sourceId,
+    assignment,
+    afterPid: afterPid === undefined ? null : Number(afterPid),
+  };
 }
 
 export const dispatchExitCodes = {
@@ -51,6 +65,9 @@ export const dispatchExitCodes = {
   herdr_no_answer: 1,
   herdr_invalid_response: 1,
   host_metadata_failed: 1,
+  handoff_running: 4,
+  handoff_not_found: 4,
+  herdr_session_mismatch: 4,
 };
 
 /**
@@ -90,11 +107,12 @@ export async function runDispatch(
   const parsed = dispatchArgs(args);
   if (parsed === null) return false;
   const result = await (parsed.operation === "dispatch"
-    ? WorkerDispatch.dispatch({
+    ? PullRequests.dispatch({
         paths,
         cwd: process.cwd(),
         sourceId: parsed.sourceId,
         assignment: parsed.assignment,
+        afterPid: parsed.afterPid,
       }).map((data) => ({ reason: "worker_launched", data }))
     : parsed.operation === "abandon"
       ? WorkSources.abandon({

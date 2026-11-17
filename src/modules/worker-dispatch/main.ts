@@ -34,7 +34,7 @@ import {
 
 type Request = { paths: Paths; cwd: string; sourceId: string; assignment: string };
 type WorkerKind = ReturnType<typeof WorkerKinds.resolve>;
-/** The internal review handoff starts the reviewer while next shows the handoff as a wait. */
+/** A kind handoff starts its next worker while next shows the handoff as a wait. */
 type DispatchRequest = Request & { handoff?: boolean };
 type Facts = AsyncOkOf<ReturnType<typeof assignmentFacts>>;
 type Settings = Facts & AsyncOkOf<ReturnType<typeof launchSettings>> & { kind: WorkerKind | null };
@@ -109,7 +109,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         const action = rows.find(
           (row) =>
             actions.includes(row.action) ||
-            (input.handoff === true && row.reason === "internal_review_handoff"),
+            (input.handoff === true && row.reason === "kind_handoff"),
         );
         return action === undefined
           ? notDispatchable(input.assignment, {
@@ -641,14 +641,19 @@ function launch(request: Request, settings: Settings, resources: Resources) {
 function dispatch(request: DispatchRequest) {
   return assignmentFacts(request).flatMap((facts) =>
     launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
-      (settings) =>
-        (facts.planned.kind === null
-          ? OkAsync(null)
-          : DeviceSettings.kind({
-              paths: request.paths,
-              name: facts.review?.state === "reviewing" ? "review" : facts.planned.kind,
-              host: settings.launch.host,
-            })
+      (settings) => {
+        const nextKind = facts.source.handoffs.find(
+          (row) => row.assignment === request.assignment,
+        )?.nextKind;
+        const kindName = nextKind ?? facts.planned.kind;
+        return (
+          kindName === null
+            ? OkAsync(null)
+            : DeviceSettings.kind({
+                paths: request.paths,
+                name: kindName,
+                host: settings.launch.host,
+              })
         ).flatMap((definition) => {
           if (definition !== null && definition.completion !== facts.planned.completion)
             return Err<Failure>({
@@ -685,7 +690,8 @@ function dispatch(request: DispatchRequest) {
           return chooseResources(request, facts).flatMap((resources) =>
             launch(request, { ...facts, ...settings, kind }, resources),
           );
-        }),
+        });
+      },
     ),
   );
 }

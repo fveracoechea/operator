@@ -8,6 +8,7 @@ import {
   assignments,
   cleanups,
   internalReviews,
+  kindHandoffs,
   launches,
   projects,
   pullRequests,
@@ -153,16 +154,31 @@ function insertInternalReview(
     .values({
       ...review,
       state: "reviewing",
+      // Historical columns stay for migration history; kind_handoffs owns new transitions.
+      handoffState: "done",
+      handoffDetail: null,
+      startedAt: now,
+      updatedAt: now,
+      ownerPid: null,
+      leaseAt: null,
+      readyHead: null,
+      commentId: null,
+      commentUrl: null,
+      endedAt: null,
+    })
+    .run();
+  db.insert(kindHandoffs)
+    .values({
+      sourceId: review.sourceId,
+      assignment: review.assignment,
+      outgoingLaunchId: review.implementerLaunchId,
+      nextKind: "review",
       handoffState: "pending",
       handoffDetail: null,
       startedAt: now,
       updatedAt: now,
       ownerPid: process.pid,
       leaseAt: now,
-      readyHead: null,
-      commentId: null,
-      commentUrl: null,
-      endedAt: null,
     })
     .run();
 }

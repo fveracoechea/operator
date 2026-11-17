@@ -16,6 +16,11 @@ state.workspaces ??= []; state.tabs ??= []; state.agents ??= []; state.plugins ?
 const save = () => Bun.write(stateFile, JSON.stringify(state));
 const flag = (name) => { const index = args.indexOf(name); return index === -1 ? undefined : args[index + 1]; };
 const key = args.slice(0, 2).join(" ");
+if (key === "pane close" && state.pausePaneClose) {
+  await Bun.write(root + "/pane-close-entered", "entered");
+  const deadline = Date.now() + 10000;
+  while (!(await Bun.file(root + "/pane-close-allowed").exists()) && Date.now() < deadline) await Bun.sleep(10);
+}
 if (state.fail[key]) { console.error(JSON.stringify({ error: { message: state.fail[key] } })); process.exit(1); }
 const out = (result) => console.log(JSON.stringify({ id: "cli", result }));
 // Herdr labels only a tab it creates with \`tab create\`. A workspace's root tab shows its number.

@@ -6,6 +6,7 @@ Accepted - 2026-11-13. Decided in #373.
 Amends ADR-0003, ADR-0013, ADR-0017, and ADR-0020.
 The kind and data decision lands in #382; the phase decision lands in #383.
 Later tickets supply kind transitions and parking.
+Amended 2026-11-17: draft association starts the recorded kind handoff; dispatch recovers failed or stopped handoffs.
 
 ## Context
 
@@ -63,6 +64,9 @@ For example, a prototype result can name `react` while its worker still builds.
 No host activity, arbitrary question answer, or report submission proves a reaction occurred.
 This convention preserves free work without a manual phase-advance command or another progress record.
 A handoff changes kinds inside one assignment and links only kinds with the same completion type.
+The outgoing worker's closing command starts it, and the next launch follows the recorded next kind.
+A running handoff is a wait; a failed or stopped handoff needs a replacement worker, not a separate recovery command.
+Draft association with internal review starts the fresh review launch in the same worktree.
 The fresh reviewer reads no implementer note.
 
 ## Consequences

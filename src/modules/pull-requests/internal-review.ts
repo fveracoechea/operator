@@ -68,7 +68,7 @@ export function startHandoff(paths: Paths, owner: Owner) {
         tool: process.execPath,
         args: [
           await entryPoint(),
-          "handoff",
+          "dispatch",
           "--source",
           owner.sourceId,
           "--assignment",
@@ -114,7 +114,8 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
         expectedSocket: implementer.herdrSocket,
         actualSocket: Environment.read().HERDR_SOCKET_PATH ?? null,
       },
-      detail: "Run operator handoff in a pane of the Herdr session that started the implementer.",
+      detail:
+        "Run operator dispatch in a pane of the Herdr session that started the outgoing worker.",
     };
   const closed = await Herdr.closePane(implementer.paneId);
   if (closed.tag === "Ok") return null;
@@ -123,7 +124,8 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
     : { reason: "handoff_defect", detail: String(closed.cause), next: handoffRecovery };
 }
 
-type Step = { ok: true; reviewer: object | null } | { ok: false; error: Failure };
+type Launch = Extract<Awaited<ReturnType<typeof WorkerDispatch.dispatch>>, { tag: "Ok" }>["value"];
+type Step = { ok: true; launch: Launch | null } | { ok: false; error: Failure };
 type RecoveryAudit = NonNullable<
   Extract<ReturnType<typeof DeviceState.readInternalReviewRecovery>, { tag: "Ok" }>["value"]
 >;
@@ -228,7 +230,7 @@ async function runHandoff(
     const closed = await closeImplementer(facts);
     if (closed !== null) return { ok: false, error: closed };
   }
-  if (!decision.dispatch) return { ok: true, reviewer: null };
+  if (!decision.dispatch) return { ok: true, launch: null };
   const ended = DeviceState.finishImplementer(request.paths, facts.implementer.id);
   if (ended.tag !== "Ok") return { ok: false, error: failure(ended) };
   const started = await WorkerDispatch.dispatch({
@@ -239,11 +241,7 @@ async function runHandoff(
     handoff: true,
   });
   if (started.tag !== "Ok") return { ok: false, error: failure(started) };
-  const launch = started.value;
-  return {
-    ok: true,
-    reviewer: { name: launch.name, paneId: launch.paneId, worktreePath: launch.worktreePath },
-  };
+  return { ok: true, launch: started.value };
 }
 
 type HandoffRequest = {
@@ -269,10 +267,8 @@ export function handoff(request: HandoffRequest) {
       request.afterPid,
     )
       .toAsync()
-      .flatMap((facts): AsyncResult<{ reason: string; data: object }, Failure> => {
-        const data = { sourceId: request.sourceId, assignment: request.assignment };
-        if (facts.review.handoffState === "done")
-          return OkAsync({ reason: "handoff_unchanged", data: { ...data, reviewer: null } });
+      .flatMap((facts): AsyncResult<Launch | null, Failure> => {
+        if (facts.handoff.handoffState === "done") return OkAsync(null);
         const release = DeviceState.holdHandoff(
           request.paths,
           request.sourceId,
@@ -281,8 +277,7 @@ export function handoff(request: HandoffRequest) {
         return fromPromise(async () => {
           try {
             const step = await runHandoff({ ...request, repository: project.repository }, facts);
-            if (step.ok)
-              return Ok({ reason: "handoff_finished", data: { ...data, reviewer: step.reviewer } });
+            if (step.ok) return Ok(step.launch);
             // A failed reviewer start already ended the handoff, and next shows that launch.
             DeviceState.failHandoff(
               request.paths,
@@ -297,6 +292,18 @@ export function handoff(request: HandoffRequest) {
         }, qualify).flatMap((result) => result);
       }),
   );
+}
+
+/** Dispatch is also the recovery command for a recorded failed or stopped kind handoff. */
+export function dispatch(input: Omit<HandoffRequest, "afterPid"> & { afterPid?: number | null }) {
+  return WorkSources.show(input).flatMap((source) => {
+    const recorded = source?.handoffs.find((row) => row.assignment === input.assignment);
+    if (recorded === undefined || recorded.handoffState === "done")
+      return WorkerDispatch.dispatch(input);
+    return handoff({ ...input, afterPid: input.afterPid ?? null }).flatMap((launch) =>
+      launch === null ? WorkerDispatch.dispatch(input) : OkAsync(launch),
+    );
+  });
 }
 
 function readFindings(file: string) {

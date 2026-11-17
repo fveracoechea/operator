@@ -136,12 +136,12 @@ test("an internal review handoff is a wait while it runs, and a retry after it s
   for (const launch of ["running", "interrupted", "finished"] as const)
     expect<unknown>(
       decide(prRow("pr-open"), { launch, activity: "idle", handoff: "running" }),
-    ).toEqual(decision("wait", "internal_review_handoff"));
+    ).toEqual(decision("wait", "kind_handoff"));
   expect<unknown>(
     decide(prRow("pr-open"), { launch: "running", activity: "idle", handoff: "failed" }),
-  ).toEqual(decision("retry_handoff", "internal_review_handoff_failed"));
+  ).toEqual(decision("replace_worker", "handoff_failed"));
   expect<unknown>(decide(prRow("pr-open"), { launch: "interrupted", handoff: "stopped" })).toEqual(
-    decision("retry_handoff", "internal_review_handoff_stopped"),
+    decision("replace_worker", "handoff_failed"),
   );
   // Once a reviewer starts, the handoff is no fact, and its launch decides as any owner's.
   expect<unknown>(decide(prRow("pr-open"), { launch: "failed" })).toEqual(
@@ -150,13 +150,13 @@ test("an internal review handoff is a wait while it runs, and a retry after it s
   // Only an open PR has a handoff.
   for (const state of ["running", "merged"] as const)
     expect<unknown>(decide(prRow(state), { launch: "running", handoff: "running" })).not.toEqual(
-      decision("wait", "internal_review_handoff"),
+      decision("wait", "kind_handoff"),
     );
   expect<unknown>(decide(prRow("running"), { launch: "running", handoff: "failed" })).not.toEqual(
-    decision("retry_handoff", "internal_review_handoff_failed"),
+    decision("replace_worker", "handoff_failed"),
   );
   expect<unknown>(decide(prRow("running"), { launch: "running", handoff: "stopped" })).not.toEqual(
-    decision("retry_handoff", "internal_review_handoff_stopped"),
+    decision("replace_worker", "handoff_failed"),
   );
 });
 

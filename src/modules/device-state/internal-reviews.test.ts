@@ -142,7 +142,7 @@ test("skip commit guards expose only checked facts and preserve the database on 
   expect(client.serialize()).toEqual(wrongState);
   client
     .query(
-      "UPDATE internal_reviews SET state = 'reviewing', handoff_state = 'pending', owner_pid = ?, lease_at = ?",
+      "INSERT INTO kind_handoffs (source_id, assignment, outgoing_launch_id, next_kind, handoff_state, started_at, updated_at, owner_pid, lease_at) VALUES ('s1', 'build', 'i', 'review', 'pending', 'now', 'now', ?, ?)",
     )
     .run(process.ppid, new Date().toISOString());
   const held = client.serialize();

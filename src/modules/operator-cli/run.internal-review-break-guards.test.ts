@@ -52,14 +52,14 @@ test.each([
     file: "pull-requests/internal-review-machine.ts",
     replacements: [["closePane: !facts.reviewerStarted && live", "closePane: false && live"]],
     testFile: flow,
-    pattern: "hands a clean draft",
+    pattern: "hands implementation to review",
   },
   {
     name: "handed-off launch refused",
     file: "worker-kinds/phase-machine.ts",
     replacements: [["if (event !== undefined && facts.handedOff === true)", "if (false)"]],
     testFile: guards,
-    pattern: "cannot close the implementer",
+    pattern: "a failed handoff shows",
   },
   {
     name: "two rounds",
@@ -80,9 +80,9 @@ test.each([
   {
     name: "reviewer start after a stopped handoff",
     file: "device-state/internal-reviews.ts",
-    replacements: [['review.handoffState !== "done" &&', 'review.handoffState === "done" &&']],
+    replacements: [['handoff.handoffState !== "done" &&', 'handoff.handoffState === "done" &&']],
     testFile: flow,
-    pattern: "hands a clean draft",
+    pattern: "hands implementation to review",
   },
   {
     name: "association holds its handoff",
@@ -94,7 +94,7 @@ test.each([
   {
     name: "handoff takes over the association's hold",
     file: "device-state/internal-reviews.ts",
-    replacements: [["review.ownerPid !== afterPid", "true"]],
+    replacements: [["handoff.ownerPid !== afterPid", "true"]],
     testFile: "device-state/pull-requests.test.ts",
     pattern: "takes over its hold",
   },

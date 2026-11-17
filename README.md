@@ -83,7 +83,7 @@ stateDiagram-v2
         [*] --> pending
         pending --> done: reviewer launch reserved
         pending --> failed: handoff step fails
-        failed --> pending: handoff
+        failed --> pending: dispatch
         failed --> done: dispatch of the reviewer
         done --> done: pr round, at most two
     }
@@ -94,9 +94,9 @@ stateDiagram-v2
 ```
 
 - `pending`: the CLI closes the implementer's pane and starts a fresh WorkerAgent in the same worktree.
-  `next` shows a running handoff as a wait, and a handoff whose process stopped as `retry_handoff`.
-- `failed`: `next` shows `retry_handoff`.
-  The SuperAgent runs `operator handoff` from the controlling checkout.
+  `next` shows a running handoff as `wait` with `kind_handoff`.
+- `failed` or stopped: `next` shows `replace_worker` with `handoff_failed`.
+  The SuperAgent dispatches the assignment from the controlling checkout to resume the recorded next kind.
 - `done`: the reviewer checks the draft against the issue, the standards, and the skills that the brief names.
   Each `pr round` records the findings at the worktree head, and leaves the handoff state `done`.
   A second round needs a newer head, and there is no third round.
@@ -411,7 +411,6 @@ operator pr round --file <findings.md> --json
 operator pr wait --timeout 300 --json
 operator pr ready --file <summary.md> --json
 operator pr merge --json
-operator handoff --source <source-id> --assignment <key> --json
 operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
 operator cleanup --source <source-id> --assignment <key> --json
 ```
@@ -449,7 +448,7 @@ Disposition bullets read `- 1.1 applied` or `- 1.1 declined: <reason>`.
 The first number selects the round; the second selects its finding, starting at 1.
 Malformed bullets report their line number and the next command. A refusal changes nothing.
 
-The SuperAgent runs `handoff` from the controlling checkout when `next` shows `retry_handoff`.
+The SuperAgent runs `dispatch` from the controlling checkout when `next` shows a failed kind handoff.
 Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.
 A plan's `internalReview` field sets it for all its assignments, and a PR assignment's `internalReview` field sets it for that assignment.
 The most specific value wins.

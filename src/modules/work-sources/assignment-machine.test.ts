@@ -260,7 +260,7 @@ test("a transition-only kind blocks its plain start without blocking a later han
       dispatchable: false,
       handoff: "running",
     }),
-  ).toMatchObject({ action: "wait", reason: "internal_review_handoff" });
+  ).toMatchObject({ action: "wait", reason: "kind_handoff" });
   expect(
     decideAssignment({
       assignment: open,

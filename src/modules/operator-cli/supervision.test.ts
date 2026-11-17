@@ -71,7 +71,6 @@ test("the SuperAgent commands that coordinate a source name their operation and 
     [["message", "ring", "--source", "s1"], "message_ring"],
     [["message", "close", "--source", "s1"], "message_close"],
     [["cleanup", "--source", "s1", "--assignment", "a"], "cleanup"],
-    [["handoff", "--source", "s1", "--assignment", "a"], "handoff"],
   ] as const)
     expect(coordinatedSource([...args, "--json"])).toEqual({ operation, sourceId: "s1" });
 });
