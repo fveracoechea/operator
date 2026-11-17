@@ -6,7 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
-import { expectWorkflowRefusal } from "./worker-fixture.ts";
+import { expectWorkflowRefusal, workerDevice } from "./worker-fixture.ts";
 import { writeOpenCodePlugin, writeGuideSkills } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { Database } from "bun:sqlite";
@@ -454,6 +454,64 @@ test("dispatch with a kind fixes the completion type and refuses a completion ov
   });
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
   expect(await herdrCalls()).toEqual(callsBefore);
+});
+
+test("dispatch with a kind fixes built-in defaults on Claude Code without person-defined settings", async () => {
+  const device = await workerDevice();
+  try {
+    const settings = await device.run(["config", "show"]);
+    const config = z
+      .object({ data: z.object({ config: z.looseObject({}) }) })
+      .parse(settings.output).data.config;
+    expect(Object.hasOwn(config, "kinds")).toBe(false);
+    const source = await device.register({
+      trackerKey: "APP-builtins",
+      assignments: ["research", "blocked"].map((key) => ({
+        key,
+        trackerKey: `APP-${key}`,
+        instructions: "Investigate the assigned question.",
+        kind: "research",
+        profile: "claude",
+        dependencies: [],
+      })),
+    });
+    await device.dispatch(source, "research");
+    const shown = await device.run(["source", "show", "--source", source]);
+    expect(shown.output).toMatchObject({
+      data: {
+        launches: [
+          {
+            kind: {
+              name: "research",
+              completion: "report",
+              resources: "pane",
+              profile: "claude",
+              nextKind: null,
+              readsNote: false,
+              guide: `${device.root}/home/.claude/skills/worker-agent/kinds/research.md`,
+              skillsToRead: [],
+              dispatchable: true,
+              workPhases: [{ name: "investigate", goal: "Investigate the assigned question." }],
+            },
+          },
+        ],
+      },
+    });
+    await rm(`${device.root}/claude-skills/worker-agent/kinds/research.md`);
+    const before = await Bun.file(`${device.root}/state/operator/operator.sqlite`).arrayBuffer();
+    const blocked = await device.run(["dispatch", "--source", source, "--assignment", "blocked"]);
+    expect(blocked.code, blocked.stderr).toBe(3);
+    expect(blocked.output).toMatchObject({
+      reason: "worker_not_ready",
+      next: { command: "operator ready" },
+      state: { ready: false },
+    });
+    expect(await Bun.file(`${device.root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      before,
+    );
+  } finally {
+    await rm(device.root, { recursive: true, force: true });
+  }
 });
 
 test("a plan assignment without a kind is refused at registration", async () => {

@@ -10,7 +10,8 @@ function validField(key: string, action: string, value: string) {
   // The settings schema validates the channel id, the repositories, and the logins.
   if (reviewEdits.has(key)) return true;
   const [group, name, field, ...extra] = key.split(".");
-  if (group === "kinds") return /^[a-z][a-z0-9-]{0,63}$/.test(name ?? "") && field === undefined;
+  if (group === "kinds")
+    return name !== undefined && /^[a-z][a-z0-9-]{0,63}$/.test(name) && field === undefined;
   if (group !== "profiles" || !profileNameSchema.safeParse(name).success || extra.length > 0)
     return false;
   return field === undefined ? action === "unset" : /^(host|model|reasoningEffort)$/.test(field);
