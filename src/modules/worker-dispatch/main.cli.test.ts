@@ -15,7 +15,7 @@ test("brief record facts through the isolated CLI seam", async () => {
       `${root}/src/modules/operator-cli/run.internal-review-ready.test.ts`,
       `${root}/src/modules/operator-cli/run.reports.test.ts`,
       "--test-name-pattern",
-      "a launch keeps its kind snapshot|an existing assignment and its new launch|a replacement preserves the recorded|an interrupted owner needs replacement|a worker question stays|associate hands a clean draft|the reviewer records at most two rounds|the reviewer ends the review with one rendered comment|a person-instructed skip ends|returned work resumes|a pane worker starts when Git becomes unspawnable",
+      "a launch keeps its kind snapshot|an existing assignment and its new launch|a replacement preserves the recorded|an interrupted owner needs replacement|a worker question stays|pr associate of a draft hands implementation to review|the reviewer records at most two rounds|the reviewer ends the review with one rendered comment|a person-instructed skip ends|returned work resumes|a pane worker starts when Git becomes unspawnable",
     ],
     {
       cwd: root,
