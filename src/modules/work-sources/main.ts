@@ -403,7 +403,8 @@ function registerPlan(input: Input, supply: () => Promise<object>, oneOff = fals
     .flatMap(({ data: settings }) =>
       fromPromise(
         async () => configuredPlanSchema(settings.config.kinds, oneOff).parse(await supply()),
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        (cause, defect) =>
+          cause instanceof Error ? qualify(cause, defect, oneOff) : defect(cause),
       ).flatMap((plan) => {
         const missing = plan.assignments.find(
           (assignment) =>
