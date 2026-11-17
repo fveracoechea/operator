@@ -64,7 +64,7 @@ else if (key === "worktree create" || key === "worktree open") {
 }
 else if (key === "agent list") out({ agents: state.agents.map((agent) => ({ name: agent.name, pane_id: agent.paneId })) });
 else if (key === "agent start") { state.agents.push({ name: args[2], paneId: flag("--pane"), kind: flag("--kind"), args: args.slice(args.indexOf("--") + 1) }); out({ type: "agent_started" }); }
-else if (key === "agent rename") { const agent = state.agents.find((row) => row.paneId === args[2]); if (!agent) { console.error("agent not found"); process.exit(1); } agent.name = args[3]; out({ type: "agent_renamed" }); }
+else if (key === "agent rename") { const agent = state.agents.find((row) => row.paneId === args[2]); if (!agent) { console.log(JSON.stringify({ error: { code: "agent_not_found", message: "No agent in pane" } })); process.exit(1); } agent.name = args[3]; out({ type: "agent_renamed" }); }
 else if (key === "agent prompt") {
   const agent = state.agents.find((row) => row.name === args[2]);
   const tab = state.tabs.find((row) => row.paneId === agent?.paneId);

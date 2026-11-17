@@ -13,7 +13,13 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { configuredPlanSchema, storedPlanSchema, promotionSchema, questionPlan } from "./plan.ts";
+import {
+  configuredPlanSchema,
+  storedPlanSchema,
+  promotionSchema,
+  questionPlan,
+  oneOffPlan,
+} from "./plan.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
@@ -392,11 +398,11 @@ function retention(
 }
 
 /** Parses a supplied plan, checks its profiles against device settings, and writes the source. */
-function registerPlan(input: Input, supply: () => Promise<object>) {
+function registerPlan(input: Input, supply: () => Promise<object>, oneOff = false) {
   return DeviceSettings.show(input.paths)
     .flatMap(({ data: settings }) =>
       fromPromise(
-        async () => configuredPlanSchema(settings.config.kinds).parse(await supply()),
+        async () => configuredPlanSchema(settings.config.kinds, oneOff).parse(await supply()),
         (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
       ).flatMap((plan) => {
         const missing = plan.assignments.find(
@@ -520,8 +526,28 @@ export const WorkSources = {
   register(input: Input & { file: string }) {
     return registerPlan(input, () => Bun.file(input.file).json());
   },
+  oneOff(
+    input: Input & {
+      kind: string;
+      brief: string;
+      intent?: string;
+      profile?: string;
+      trackerKey?: string;
+    },
+  ) {
+    return registerPlan(
+      input,
+      async () =>
+        oneOffPlan({
+          ...input,
+          instructions:
+            input.brief === "-" ? await Bun.stdin.text() : await Bun.file(input.brief).text(),
+        }),
+      true,
+    );
+  },
   /**
-   * Registers a SuperAgent's research question as a source with one read-only report
+   * Registers a SuperAgent's question as a one-off source with one answer-kind report
    * assignment, so the question needs no plan file. ADR-0027.
    */
   ask(input: Input & { question: string; profile?: string }) {
