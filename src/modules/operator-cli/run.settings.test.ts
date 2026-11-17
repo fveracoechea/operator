@@ -181,6 +181,7 @@ test.each([
     name: "audit",
     change: { nextKind: "missing" },
     detail: "same completion type",
+    expectedPath: ["kinds", "audit", "nextKind"],
   },
   {
     rule: "empty phase name",
@@ -245,9 +246,9 @@ test.each([
         .object({ blockers: z.tuple([z.object({ detail: z.string() })]) })
         .parse(shown.output);
       const issues = z
-        .array(z.object({ path: z.array(z.union([z.string(), z.number()])) }))
+        .array(z.object({ code: z.string(), path: z.array(z.union([z.string(), z.number()])) }))
         .parse(JSON.parse(output.blockers[0].detail));
-      expect(issues.map((issue) => issue.path)).toContainEqual([...expectedPath]);
+      expect(issues).toContainEqual({ code: "custom", path: [...expectedPath] });
     }
   },
 );
