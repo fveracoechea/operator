@@ -55,8 +55,6 @@ export const DeviceSettings = {
       async () => {
         const { config } = await readConfig(input.paths);
         const kind = WorkerKinds.resolve(input.name, config.kinds);
-        if (!Object.hasOwn(config.kinds ?? {}, input.name))
-          return { ...kind, guide: `${input.paths.skillHosts[input.host]}/${kind.guide}` };
         for (const root of [
           input.paths.skillHosts[input.host],
           input.paths.upstreamSkills[input.host],
