@@ -180,6 +180,10 @@ async function openPullRequest(source: string, key: string, number: number) {
 
 async function mergedPullRequest(source: string, key: string, number: number) {
   const worker = await openPullRequest(source, key, number);
+  const ready = await device.run(["pr", "wait", "--timeout", "0"], { cwd: worker.worktree });
+  expect(ready.output).toMatchObject({
+    data: { events: [{ kind: "feedback" }, { kind: "merge_eligible", head: worker.head }] },
+  });
   const merged = await device.run(["pr", "merge"], { cwd: worker.worktree });
   expect(merged.code, merged.stderr).toBe(0);
   // The merge starts cleanup in its own process. Wait until that process stops.

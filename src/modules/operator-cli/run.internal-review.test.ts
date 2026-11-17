@@ -406,7 +406,13 @@ test("the reviewer records at most two rounds, the second at a newer head", asyn
   await commit(reviewer, "more.txt");
   expect(await run(["pr", "round", "--file", await findings([])], reviewer)).toMatchObject({
     code: 3,
-    output: { reason: "internal_review_round_limit" },
+    output: {
+      reason: "internal_review_round_limit",
+      kind: "review",
+      phase: "ready",
+      next: { command: "operator pr ready --file <file>" },
+      state: { rounds: 2 },
+    },
   });
   expect(await entry(source)).toMatchObject({
     internalReview: {

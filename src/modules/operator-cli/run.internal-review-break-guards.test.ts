@@ -42,10 +42,8 @@ test.each([
   },
   {
     name: "clean worktree",
-    file: "pull-requests/internal-review-machine.ts",
-    replacements: [
-      ["when: (facts) => facts.internalReview && facts.changed,", "when: () => false,"],
-    ],
+    file: "worker-kinds/phase-machine.ts",
+    replacements: [['associate: ["worktree_clean"],', "associate: [],"]],
     testFile: guards,
     pattern: "associate refuses a ready PR",
   },
@@ -58,15 +56,15 @@ test.each([
   },
   {
     name: "handed-off launch refused",
-    file: "pull-requests/internal-review-machine.ts",
-    replacements: [["return facts.implementer", "return false"]],
+    file: "worker-kinds/phase-machine.ts",
+    replacements: [["if (event !== undefined && facts.handedOff === true)", "if (false)"]],
     testFile: guards,
     pattern: "cannot close the implementer",
   },
   {
     name: "two rounds",
-    file: "pull-requests/internal-review-machine.ts",
-    replacements: [["facts.review.rounds.length >= 2", "facts.review.rounds.length >= 3"]],
+    file: "worker-kinds/phase-machine.ts",
+    replacements: [["facts.pr.rounds >= 2", "facts.pr.rounds >= 3"]],
     testFile: flow,
     pattern: "at most two rounds",
   },
@@ -116,8 +114,13 @@ test.each([
   },
   {
     name: "a ready step refuses an unclean worktree",
-    file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => facts.changed,", "when: () => false,"]],
+    file: "worker-kinds/phase-machine.ts",
+    replacements: [
+      [
+        'ready: ["pr_associated", "round_recorded", "worktree_clean"],',
+        'ready: ["pr_associated", "round_recorded"],',
+      ],
+    ],
     testFile: ready,
     pattern: "rendered comment",
   },

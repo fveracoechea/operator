@@ -433,7 +433,13 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
   await Bun.write(`${reviewer}/notes.txt`, "unlanded\n");
   expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
     code: 3,
-    output: { reason: "pr_worktree_unclean" },
+    output: {
+      reason: "pr_worktree_unclean",
+      kind: "review",
+      phase: "ready",
+      next: { command: "git status --short" },
+      state: { worktree_clean: false },
+    },
   });
   await rm(`${reviewer}/notes.txt`);
   await commit(reviewer, "unpushed.txt");

@@ -283,7 +283,13 @@ test("associate refuses a ready PR and an unclean or unpushed worktree, and chan
   await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 3,
-    output: { reason: "pr_worktree_unclean" },
+    output: {
+      reason: "pr_worktree_unclean",
+      kind: "implementation",
+      phase: "build",
+      next: { command: "git status --short" },
+      state: { worktree_clean: false },
+    },
   });
   await rm(`${worker.worktreePath}/notes.txt`);
   await github({ pulls: [pull({ head: "older", isDraft: true })] });
