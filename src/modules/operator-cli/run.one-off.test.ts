@@ -17,7 +17,32 @@ test.each([
   "one-off dispatch refuses %s with no source or launch",
   async (kind, text, reason, code) => {
     const result = await device.run(["dispatch", "--kind", kind, "--brief", "-"], { stdin: text });
-    expect(result).toMatchObject({ code, output: { reason } });
+    expect(result).toMatchObject({
+      code,
+      output: {
+        reason,
+        next: {
+          command: "operator dispatch --kind <kind> --brief <path|->",
+          why: "Correct the kind, brief, or optional one-off flags before dispatching again.",
+        },
+        state: { inputValid: false },
+      },
+    });
+    expect(result.output).not.toHaveProperty("kind");
+    expect(result.output).not.toHaveProperty("phase");
+    const planFile = await device.writeJson("invalid-plan.json", {});
+    const plan = await device.run(["source", "register", "--file", planFile]);
+    expect(plan).toMatchObject({
+      code: 2,
+      output: {
+        reason: "invalid_source_plan",
+        next: {
+          decider: "super-agent",
+          question: "What corrected source plan should be supplied in --file?",
+        },
+        state: { inputValid: false },
+      },
+    });
     expect((await device.run(["next"])).output).toMatchObject({ data: { sources: [] } });
     expect(await device.herdrCalls()).not.toContain("agent start");
   },
