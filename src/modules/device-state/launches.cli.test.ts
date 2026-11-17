@@ -24,5 +24,5 @@ test("handoff reservation through the isolated CLI seam", async () => {
     new Response(child.stderr).text(),
   ]);
   expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("\n8 pass\n");
+  expect(`${stdout}\n${stderr}`).toContain("\n9 pass\n");
 }, 180000);

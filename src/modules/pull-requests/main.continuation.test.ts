@@ -24,5 +24,5 @@ test("PR continuation facade through the isolated CLI seam", async () => {
     new Response(child.stderr).text(),
   ]);
   expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("\n11 pass\n");
+  expect(`${stdout}\n${stderr}`).toContain("\n12 pass\n");
 }, 180000);

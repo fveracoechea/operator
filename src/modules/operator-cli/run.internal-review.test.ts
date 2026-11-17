@@ -430,6 +430,7 @@ async function continuationBoundary(
   mode:
     | "observe"
     | "claim-loss"
+    | "preclose-loss"
     | "reservation-loss"
     | "claim-target"
     | "reservation-target"
@@ -460,7 +461,7 @@ Database.prototype.exec=function(sql,...args) {
   if(sql==="BEGIN IMMEDIATE" && !injected && ${JSON.stringify(mode)}!=="observe") {
     using competing=new Database(${JSON.stringify(`${root}/state/operator/operator.sqlite`)});
     const outgoing=competing.query("SELECT launches.state FROM launches JOIN kind_handoffs ON kind_handoffs.outgoing_launch_id = launches.id").get();
-    const boundary=${JSON.stringify(mode)}.startsWith("claim") ? reads>=2 && outgoing?.state==="running" : outgoing?.state==="finished";
+    const boundary=${JSON.stringify(mode)}.startsWith("claim") ? reads>=2 && outgoing?.state==="running" : ${JSON.stringify(mode)}==="preclose-loss" ? reads>=3 && outgoing?.state==="running" : outgoing?.state==="finished";
     if(boundary) {
       injected=true;
       competing.exec(${JSON.stringify(changed)});
@@ -539,6 +540,7 @@ test.each(["publish", "expire"] as const)(
 
 test.each([
   "claim-loss",
+  "preclose-loss",
   "reservation-loss",
   "claim-target",
   "reservation-target",
@@ -578,7 +580,7 @@ test.each([
         expect(JSON.parse(result.stdout)).toMatchObject({ reason: "handoff_continuation_refused" });
         expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
         expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(
-          closes + (mode.startsWith("claim") ? 0 : 1),
+          closes + (mode.startsWith("claim") || mode === "preclose-loss" ? 0 : 1),
         );
         expect(db.query("SELECT supervising_session, supervising_pane FROM sources").all()).toEqual(
           [
@@ -667,6 +669,58 @@ test.each([
   },
   180000,
 );
+
+test("timer renewal leaves a lost continuation lease unchanged and refuses the next launch", async () => {
+  const { source, worker } = await pendingContinuation();
+  using db = fixtureDatabase();
+  continuationFault(db, "pending", source, process.pid);
+  const stateFile = Bun.file(`${root}/herdr-state.json`);
+  await Bun.write(
+    stateFile,
+    JSON.stringify({ ...z.looseObject({}).parse(await stateFile.json()), pausePaneClose: true }),
+  );
+  const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+  const child = continuationChild(source, worker.paneId, process.pid, {
+    preload: await continuationBoundary("observe", source),
+  });
+  db.query("UPDATE kind_handoffs SET owner_pid = ?").run(child.pid);
+  try {
+    // The existing ten-second parent wait leaves the first fifteen-second renewal inside the paused external close.
+    for (
+      let attempt = 0;
+      attempt < 1200 && !(await Bun.file(`${root}/pane-close-entered`).exists());
+      attempt++
+    )
+      await Bun.sleep(10);
+    expect(await Bun.file(`${root}/pane-close-entered`).exists()).toBe(true);
+    db.exec("UPDATE kind_handoffs SET lease_at = '2000-01-01'");
+    const before = db.serialize();
+    const readsAtLoss = Number(await Bun.file(`${root}/continuation-reads`).text());
+    for (
+      let attempt = 0;
+      attempt < 700 && Number(await Bun.file(`${root}/continuation-reads`).text()) === readsAtLoss;
+      attempt++
+    )
+      await Bun.sleep(10);
+    expect(Number(await Bun.file(`${root}/continuation-reads`).text())).toBeGreaterThan(
+      readsAtLoss,
+    );
+    expect(db.serialize()).toEqual(before);
+    expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+  } finally {
+    await Bun.write(`${root}/pane-close-allowed`, "continue");
+    await child.exited;
+  }
+  const result = await processResult(child);
+  expect(result.code, result.stderr).toBe(4);
+  expect(JSON.parse(result.stdout)).toMatchObject({ reason: "handoff_continuation_refused" });
+  expect(db.query("SELECT handoff_state, owner_pid, lease_at FROM kind_handoffs").all()).toEqual([
+    { handoff_state: "pending", owner_pid: child.pid, lease_at: "2000-01-01" },
+  ]);
+  expect((await shown(source)).launches).toHaveLength(1);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+  expect(await git(worker.worktreePath, "status", "--porcelain")).toBe("");
+}, 180000);
 
 test("pruning an ended assignment removes its generic handoff without deleting retained work", async () => {
   const { source, worker } = await pendingContinuation();

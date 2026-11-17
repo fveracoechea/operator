@@ -10,7 +10,7 @@ test("handoff claims and recovery through the isolated CLI seam", async () => {
       `${root}/src/modules/operator-cli/run.internal-review.test.ts`,
       `${root}/src/modules/operator-cli/run.internal-review-guards.test.ts`,
       "--test-name-pattern",
-      "waits read-only|rechecks|automatic kind handoff preserves distinct|stopped handoff recovery",
+      "waits read-only|rechecks|automatic kind handoff preserves distinct|stopped handoff recovery|timer renewal",
     ],
     {
       cwd: root,
@@ -25,5 +25,5 @@ test("handoff claims and recovery through the isolated CLI seam", async () => {
     new Response(child.stderr).text(),
   ]);
   expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("\n11 pass\n");
+  expect(`${stdout}\n${stderr}`).toContain("\n13 pass\n");
 }, 180000);

@@ -9,7 +9,7 @@ test("continuation facade through the isolated CLI seam", async () => {
       `${root}/tools/test-watchdog.ts`,
       `${root}/src/modules/operator-cli/run.internal-review.test.ts`,
       "--test-name-pattern",
-      "waits read-only|rechecks|automatic kind handoff preserves distinct|internal flag",
+      "waits read-only|rechecks|automatic kind handoff preserves distinct|internal flag|timer renewal",
     ],
     {
       cwd: root,
@@ -24,5 +24,5 @@ test("continuation facade through the isolated CLI seam", async () => {
     new Response(child.stderr).text(),
   ]);
   expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("\n11 pass\n");
+  expect(`${stdout}\n${stderr}`).toContain("\n13 pass\n");
 }, 180000);

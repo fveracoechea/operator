@@ -9,7 +9,7 @@ test("continuation authorization through the isolated CLI seam", async () => {
       `${root}/tools/test-watchdog.ts`,
       `${root}/src/modules/operator-cli/run.internal-review.test.ts`,
       "--test-name-pattern",
-      "foreign continuation refuses|waits read-only|rechecks|automatic kind handoff preserves distinct|internal flag",
+      "foreign continuation refuses|waits read-only|rechecks|automatic kind handoff preserves distinct|internal flag|timer renewal",
     ],
     {
       cwd: root,
@@ -24,5 +24,5 @@ test("continuation authorization through the isolated CLI seam", async () => {
     new Response(child.stderr).text(),
   ]);
   expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("\n36 pass\n");
+  expect(`${stdout}\n${stderr}`).toContain("\n38 pass\n");
 }, 180000);
