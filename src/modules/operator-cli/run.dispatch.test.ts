@@ -636,6 +636,36 @@ test("read-only report work gets a tab in the project workspace and a device-sta
   });
 });
 
+test("a pane worker starts when Git becomes unspawnable after its tab is created", async () => {
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  await tool("herdr-backend", fakeHerdrScript(root));
+  const unusableGit = `#!${root}/missing-interpreter\n`;
+  await tool(
+    "herdr",
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+const child = Bun.spawnSync([process.execPath, ${JSON.stringify(`${root}/tools/herdr-backend`)}, ...args], { stdout: "inherit", stderr: "inherit" });
+if (child.exitCode === 0 && args[0] === "tab" && args[1] === "create") {
+  await Bun.write(${JSON.stringify(`${root}/tools/git`)}, ${JSON.stringify(unusableGit)});
+  const { chmod } = await import("node:fs/promises");
+  await chmod(${JSON.stringify(`${root}/tools/git`)}, 0o755);
+}
+process.exit(child.exitCode);
+`,
+  );
+  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  expect(launched.output).toMatchObject({ reason: "worker_launched" });
+  const data = launchOutput.parse(launched.output).data;
+  expect(await Bun.file(`${root}/tools/git`).text()).toBe(unusableGit);
+  expect((await herdrState()).agents).toMatchObject([
+    { name: data.name, paneId: data.paneId, kind: "opencode" },
+  ]);
+  expect(await Bun.file(data.brief).text()).toContain("Phase: `investigate`");
+  expect(await herdrCalls()).toContain("agent prompt");
+});
+
 test("a workspace that Herdr gives no checkout is the project workspace when its panes are in the checkout", async () => {
   await setHerdr({
     workspaces: [
