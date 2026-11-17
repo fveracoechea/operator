@@ -452,23 +452,33 @@ async function continuationBoundary(
     `import { Database } from "bun:sqlite";
 import { writeFileSync } from "node:fs";
 const prepare=Database.prototype.prepare, exec=Database.prototype.exec;
-let reads=0, injected=false;
+let reads=0, injected=false, claimWritten=false, claimCommitted=false;
 Database.prototype.prepare=function(sql,...args) {
   if(sql.includes('from "kind_handoffs" inner join "sources"')) { reads++; writeFileSync(${JSON.stringify(`${root}/continuation-reads`)},String(reads)); }
-  return prepare.call(this,sql,...args);
+  const statement=prepare.call(this,sql,...args);
+  if(sql.startsWith('update "kind_handoffs" set ') && sql.includes('"outgoing_launch_id" =')) {
+    const run=statement.run;
+    statement.run=function(...bindings) { const result=run.apply(this,bindings); claimWritten=true; return result; };
+  }
+  return statement;
 };
 Database.prototype.exec=function(sql,...args) {
   if(sql==="BEGIN IMMEDIATE" && !injected && ${JSON.stringify(mode)}!=="observe") {
     using competing=new Database(${JSON.stringify(`${root}/state/operator/operator.sqlite`)});
     const outgoing=competing.query("SELECT launches.state FROM launches JOIN kind_handoffs ON kind_handoffs.outgoing_launch_id = launches.id").get();
-    const boundary=${JSON.stringify(mode)}.startsWith("claim") ? reads>=2 && outgoing?.state==="running" : ${JSON.stringify(mode)}==="preclose-loss" ? reads>=3 && outgoing?.state==="running" : outgoing?.state==="finished";
+    const boundary=${JSON.stringify(mode)}.startsWith("claim") ? reads>=2 && outgoing?.state==="running" : ${JSON.stringify(mode)}==="preclose-loss" ? claimCommitted && outgoing?.state==="running" : outgoing?.state==="finished";
     if(boundary) {
       injected=true;
       competing.exec(${JSON.stringify(changed)});
-      writeFileSync(${JSON.stringify(`${root}/continuation-injected`)},"injected");
+      writeFileSync(${JSON.stringify(`${root}/continuation-injected`)},JSON.stringify({claimCommitted,outgoingState:outgoing?.state}));
     }
   }
-  return exec.call(this,sql,...args);
+  const result=exec.call(this,sql,...args);
+  if(sql==="COMMIT" && claimWritten && !claimCommitted) {
+    claimCommitted=true;
+    writeFileSync(${JSON.stringify(`${root}/continuation-claim-committed`)},JSON.stringify({claimCommitted}));
+  }
+  return result;
 };`,
   );
   return file;
@@ -478,6 +488,15 @@ async function waitForFixture(file: string) {
   for (let attempt = 0; attempt < 200 && !(await Bun.file(file).exists()); attempt++)
     await Bun.sleep(10);
   expect(await Bun.file(file).exists()).toBe(true);
+}
+
+async function publicationRetriesBeforeClaim() {
+  const reads = Bun.file(`${root}/continuation-reads`);
+  await waitForFixture(`${root}/continuation-reads`);
+  for (let attempt = 0; attempt < 100 && Number(await reads.text()) < 3; attempt++)
+    await Bun.sleep(10);
+  expect(Number(await reads.text())).toBeGreaterThanOrEqual(3);
+  expect(await Bun.file(`${root}/continuation-claim-committed`).exists()).toBe(false);
 }
 
 test.each(["publish", "expire"] as const)(
@@ -559,6 +578,7 @@ test.each([
       const child = continuationChild(source, worker.paneId, parent.pid, {
         preload: await continuationBoundary(mode, source),
       });
+      if (mode === "preclose-loss") await publicationRetriesBeforeClaim();
       db.query("UPDATE kind_handoffs SET owner_pid = ? WHERE owner_pid = ?").run(
         child.pid,
         parent.pid,
@@ -566,6 +586,13 @@ test.each([
       await Bun.write(`${root}/publish-release`, "exit");
       const result = await processResult(child);
       expect(await Bun.file(`${root}/continuation-injected`).exists()).toBe(true);
+      if (mode === "preclose-loss") {
+        expect(await Bun.file(`${root}/continuation-claim-committed`).exists()).toBe(true);
+        expect(await Bun.file(`${root}/continuation-injected`).json()).toEqual({
+          claimCommitted: true,
+          outgoingState: "running",
+        });
+      }
       if (mode === "takeover") {
         expect(result.code, result.stderr).toBe(0);
         expect(JSON.parse(result.stdout)).toMatchObject({
