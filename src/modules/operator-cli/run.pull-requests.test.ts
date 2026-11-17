@@ -552,6 +552,11 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
   expect(await Bun.file(`${worker.worktreePath}/unlanded.txt`).text()).toBe("partial work\n");
   const brief = await Bun.file(replacement.brief).text();
   expect(brief).toContain("## Handoff\n\nPR #7:");
+  const head = (await exec(["git", "rev-parse", "HEAD"], worker.worktreePath)).stdout.trim();
+  expect(brief).toContain(`Head: \`${head}\`.`);
+  expect(brief).toContain("Phase: `feedback`");
+  expect(brief).toContain(`Resources: \`worktree\`, \`${worker.worktreePath}\``);
+  expect(brief).toContain("Branch: `task/12-implement`");
   expect(brief).not.toContain("operator pr associate");
   expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
   expect(await run(["pr", "wait", "--timeout", "0"], replacement.worktreePath)).toMatchObject({
@@ -570,6 +575,25 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
       ],
     },
   });
+  await exec(["herdr", "pane", "exit", replacement.paneId, "w1"]);
+  const realGit = Bun.which("git", { PATH: Environment.read().PATH });
+  expect(realGit).not.toBeNull();
+  await tool(
+    "git",
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args.join(" ") === "rev-parse --verify HEAD") {
+  console.log("UNOBSERVED_HEAD");
+  process.exit(1);
+}
+const child = Bun.spawnSync([${JSON.stringify(realGit)}, ...args], { stdout: "inherit", stderr: "inherit" });
+process.exit(child.exitCode);
+`,
+  );
+  const withoutHead = await dispatch(source);
+  const unobserved = await Bun.file(withoutHead.brief).text();
+  expect(unobserved).toContain("## Handoff\n\nPR #7:");
+  expect(unobserved).not.toMatch(/Head:|UNOBSERVED_HEAD/);
 }, 60000);
 
 test("an unanswered GitHub read is a visible failure and records no wait result", async () => {

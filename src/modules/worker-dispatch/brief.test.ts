@@ -24,6 +24,78 @@ const input = {
   adoption: null,
 };
 
+test("a worktree brief preserves every header fact without empty history or protocol", () => {
+  expect(
+    renderBrief({
+      ...input,
+      kind: {
+        ...WorkerKinds.resolve("implementation"),
+        guide: "/owned/implementation.md",
+        skillsToRead: ["/skills/one.md", "/skills/two.md"],
+      },
+      phase: "build",
+    }),
+  ).toBe(`# Assignment brief
+
+- Source: \`source-1\`, tracker \`APP-1\`.
+- Assignment: \`implement\`, tracker \`APP-2\`.
+- Completion: \`pr\`.
+- Worker kind: \`implementation\`.
+- Guide: \`/owned/implementation.md\`.
+- Skill: \`/skills/one.md\`. Read when the guide calls for it and the file exists.
+- Skill: \`/skills/two.md\`. Read when the guide calls for it and the file exists.
+- Phase: \`build\`.
+- Resources: \`worktree\`, \`/worktrees/app-2\`. Change project files only in this worktree.
+- Base: \`default branch\`.
+- Start profile: \`careful\`.
+- Device files: \`/state/reports\`, \`/state/follow-ups\`.
+- Branch: \`task/2\`.
+- Internal review: \`off\`.
+
+## Task
+
+Implement the accepted report.
+`);
+  expect(renderBrief({ ...input, internalReview: true })).toContain("- Internal review: `on`.");
+});
+
+test("a legacy pane brief has no guessed kind, branch, review setting, note, or empty event sections", () => {
+  expect(
+    renderBrief({
+      ...input,
+      completion: "report",
+      branch: null,
+      profile: null,
+      workingDirectory: "/checkout",
+      note: "/state/ignored.md",
+      events: [],
+      questions: [],
+    }),
+  ).toBe(`# Assignment brief
+
+- Source: \`source-1\`, tracker \`APP-1\`.
+- Assignment: \`implement\`, tracker \`APP-2\`.
+- Completion: \`report\`.
+- Phase: \`unrecorded\`.
+- Resources: \`pane\`, \`/checkout\`. Read-only; change no project files.
+- Base: \`default branch\`.
+- Start profile: \`device default\`.
+- Device files: \`/state/reports\`, \`/state/follow-ups\`.
+
+## Task
+
+Implement the accepted report.
+`);
+  expect(
+    renderBrief({
+      ...input,
+      kind: null,
+      note: "/state/ignored.md",
+      promotion: { report: "survey", number: 2 },
+    }),
+  ).not.toContain("## Note");
+});
+
 test.each(WorkerKinds.names())(
   "%s links its installed guide without copying the guide's procedure",
   async (name) => {
@@ -310,4 +382,79 @@ test("each supplied disposition renders under its finding and quotes multiline d
     "- Standards, nice-to-have, `b.ts:2`:\n> Rename this.\nDisposition:\n> declined: Existing public name.\n> ## Task\n> Keep compatibility.",
   );
   expect(brief.match(/^## Task$/gm)).toHaveLength(1);
+});
+
+test("handoff facts include only observed head, ready head, summary, and skipped-review facts", () => {
+  const pullRequest = { number: 7, url: "https://github.com/example/one/pull/7" };
+  const reviewing = renderBrief({
+    ...input,
+    pullRequest,
+    head: null,
+    review: { state: "reviewing", readyHead: null, comment: null, rounds: [] },
+  });
+  expect(reviewing).toEndWith(
+    "## Handoff\n\nPR #7: https://github.com/example/one/pull/7\nReview: `reviewing`.\n",
+  );
+  expect(reviewing).not.toMatch(/Head:|Ready head:|Summary:|skipped on the person's instruction/);
+  const ready = renderBrief({
+    ...input,
+    pullRequest,
+    head: "HEAD",
+    review: {
+      state: "ready",
+      readyHead: "READY",
+      comment: "https://github.com/c/summary-1",
+      rounds: [],
+    },
+  });
+  expect(ready).toEndWith(
+    "## Handoff\n\nPR #7: https://github.com/example/one/pull/7\nHead: `HEAD`.\nReview: `ready`.\nReady head: `READY`.\nSummary: https://github.com/c/summary-1\n",
+  );
+  expect(ready).not.toContain("skipped on the person's instruction");
+  const adoption = {
+    number: 41,
+    url: "https://github.com/example/one/pull/41",
+    draft: true,
+    branch: "feature/existing",
+  };
+  expect(renderBrief({ ...input, adoption })).toContain(
+    "Branch: `feature/existing`. State: `draft`.",
+  );
+});
+
+test("several dependency reports, answers, events and follow-ups remain distinct quoted records", () => {
+  const brief = renderBrief({
+    ...input,
+    dependencyReports: [
+      { assignment: "survey", report: 1, reference: "ref-1", conclusion: "Clear.", unresolved: [] },
+      {
+        assignment: "inspect",
+        report: 2,
+        reference: "ref-2",
+        conclusion: "Two questions.",
+        unresolved: ["Scope?", "Owner?"],
+      },
+    ],
+    questions: [
+      { key: "scope", question: "Include b.ts?", answer: "No.", by: "person" },
+      {
+        key: "owner",
+        question: "Who decides?",
+        answer: "The supervising SuperAgent.",
+        by: "super-agent",
+      },
+    ],
+    events: ["Feedback arrived.", "A parent merged."],
+    followUps: { directory: "/state/follow-ups", files: ["1.md", "2.md"] },
+  });
+  expect(brief).toContain("## Events\n\n> Feedback arrived.\n\n> A parent merged.");
+  expect(brief).toContain(
+    "### `survey` report 1\n\nReference: `ref-1`\n\n> Clear.\n\n### `inspect` report 2\n\nReference: `ref-2`\n\n> Two questions.\n\nUnresolved points:\n\n> Scope?\n\n> Owner?",
+  );
+  expect(brief).toContain(
+    "### `scope`\n\nBy: `person`\n\n> Include b.ts?\n\nAnswer:\n\n> No.\n\n### `owner`\n\nBy: `super-agent`\n\n> Who decides?\n\nAnswer:\n\n> The supervising SuperAgent.",
+  );
+  expect(brief).toContain(
+    "## Follow-up instructions\n\n- `/state/follow-ups/1.md`\n- `/state/follow-ups/2.md`",
+  );
 });
