@@ -462,7 +462,13 @@ test("a recorded wait frontier permits a new head only after fresh merge guards"
   const worker = await openPullRequest(source);
   expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
     code: 3,
-    output: { reason: "pr_not_ready", state: { pr_ready: false } },
+    output: {
+      reason: "pr_not_ready",
+      kind: "implementation",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+      state: { pr_ready: false },
+    },
   });
   expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
   expect((await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).output).toMatchObject({

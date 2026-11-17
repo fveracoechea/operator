@@ -118,7 +118,8 @@ function recorded(
       rounds: source.internalReviewRounds.filter((row) => row.assignment === key).length,
       // Until explicit ready transitions land, only same-head recorded evidence proves readiness.
       ready:
-        head !== null && ((review?.readyHead === head && reviewEnded) || eligibleHead === head),
+        head !== null &&
+        (review === undefined ? eligibleHead === head : review.readyHead === head && reviewEnded),
       merged: pr !== undefined && pr.mergedAt !== null,
       parked: false,
     },
@@ -137,7 +138,6 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
     const target = await PullRequests.workerTarget({ paths, cwd: process.cwd() });
     if (target.tag === "Ok") {
       selected = worktreeWorker(paths, target.value);
-      if (selected === null) return run();
     } else {
       // The command owner reports its canonical ownership refusal, not a phase refusal.
       event = undefined;

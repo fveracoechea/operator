@@ -162,9 +162,16 @@ beforeEach(() => {
   );
   spyOn(DeviceState, "readReport").mockImplementation(() => Ok(current));
   spyOn(DeviceState, "readSources").mockImplementation(() => Ok([source]));
-  spyOn(ToolInvocation, "run").mockImplementation(async (input) =>
-    input.args[0] === "status" ? status : head,
-  );
+  spyOn(ToolInvocation, "run").mockImplementation(async (input) => {
+    if (input.tool === "git" && input.args.join("\0") === "status\0--porcelain") return status;
+    if (input.tool === "git" && input.args.join("\0") === "rev-parse\0--verify\0HEAD") return head;
+    return {
+      status: "completed",
+      exitCode: 128,
+      stdout: "",
+      stderr: "Unsupported fixture command.",
+    };
+  });
   spyOn(PullRequests, "workerTarget").mockImplementation(() => {
     const launch = required(
       source.launches.findLast((row) => row.assignment === "pr" && row.state === "running"),
@@ -573,4 +580,95 @@ test("an outgoing implementer's closing result names the handoff instead of revi
     phase: "handoff",
     next: { why: "This launch handed the PR to its reviewer. Stop here." },
   });
+});
+
+function readinessGuard() {
+  const kind = WorkerKinds.resolve("implementation");
+  kind.workPhases[0] = { name: "build", goal: "Build.", guard: "pr_ready" };
+  required(current.launch).kind = JSON.stringify(kind);
+}
+
+test.each([
+  { name: "current wait", review: null, receipt: "head", readyHead: null, allowed: true },
+  { name: "stale wait", review: null, receipt: "older", readyHead: null, allowed: false },
+  { name: "no witness", review: null, receipt: null, readyHead: null, allowed: false },
+  { name: "current ready", review: "ready", receipt: null, readyHead: "head", allowed: true },
+  { name: "current skipped", review: "skipped", receipt: null, readyHead: "head", allowed: true },
+  { name: "stale ready", review: "ready", receipt: null, readyHead: "older", allowed: false },
+  { name: "active review", review: "reviewing", receipt: null, readyHead: "head", allowed: false },
+  {
+    name: "active review with old receipt",
+    review: "reviewing",
+    receipt: "head",
+    readyHead: "head",
+    allowed: false,
+  },
+] as const)(
+  "a declared readiness exit checks its own current-head witness: $name",
+  async (scenario) => {
+    if (scenario.review === null) prActor();
+    else {
+      reviews();
+      const review = required(source.internalReviews.find((row) => row.assignment === "pr"));
+      review.state = scenario.review;
+      review.readyHead = scenario.readyHead;
+    }
+    readinessGuard();
+    required(source.pullRequests.find((row) => row.assignment === "pr")).progress = JSON.stringify({
+      seen: [],
+      failures: [],
+      eligibleHead: scenario.receipt,
+    });
+    const associate = spyOn(PullRequests, "associate").mockReturnValue(
+      OkAsync({ reason: "pr_unchanged", data: {} }) as never,
+    );
+    expect(await run(["pr", "associate"])).toMatchObject(
+      scenario.allowed
+        ? { reason: "pr_unchanged" }
+        : { reason: "pr_not_ready", state: { pr_ready: false } },
+    );
+    expect(associate).toHaveBeenCalledTimes(scenario.allowed ? 1 : 0);
+  },
+);
+
+test.each([
+  { status: "completed", exitCode: 0, stdout: " head\n", stderr: "" },
+  { status: "completed", exitCode: 1, stdout: "head", stderr: "failed" },
+  { status: "completed", exitCode: 0, stdout: "older", stderr: "" },
+  { status: "unavailable", tool: "git", detail: "missing" },
+  { status: "no-answer", detail: "interrupted" },
+] satisfies Invocation[])(
+  "a declared readiness exit checks the observed HEAD %j",
+  async (observation) => {
+    prActor();
+    readinessGuard();
+    required(source.pullRequests.find((row) => row.assignment === "pr")).progress = JSON.stringify({
+      seen: [],
+      failures: [],
+      eligibleHead: "head",
+    });
+    head = observation;
+    const associate = spyOn(PullRequests, "associate").mockReturnValue(
+      OkAsync({ reason: "pr_unchanged", data: {} }) as never,
+    );
+    const allowed = observation.status === "completed" && observation.stdout === " head\n";
+    expect(await run(["pr", "associate"])).toMatchObject(
+      allowed ? { reason: "pr_unchanged" } : { reason: "pr_not_ready", state: { pr_ready: false } },
+    );
+    expect(associate).toHaveBeenCalledTimes(allowed ? 1 : 0);
+  },
+);
+
+test("a declared readiness exit cannot use another assignment's association", async () => {
+  prActor();
+  readinessGuard();
+  source.pullRequests = source.pullRequests.filter((row) => row.assignment !== "pr");
+  const associate = spyOn(PullRequests, "associate").mockReturnValue(
+    OkAsync({ reason: "pr_unchanged", data: {} }) as never,
+  );
+  expect(await run(["pr", "associate"])).toMatchObject({
+    reason: "pr_not_ready",
+    state: { pr_ready: false },
+  });
+  expect(associate).not.toHaveBeenCalled();
 });

@@ -1,5 +1,6 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { z } from "zod";
+import { Environment } from "../environment/main.ts";
 import { invalidArguments, runUsage, workflowArguments } from "./usage.ts";
 import { withOutputContext } from "./output.ts";
 
@@ -9,6 +10,32 @@ afterEach(() => {
   mock.restore();
   process.exitCode = 0;
 });
+
+test("plain worker help and version through the isolated CLI seam", async () => {
+  const root = Bun.fileURLToPath(new URL("../../../", import.meta.url));
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      `${root}/tools/test-watchdog.ts`,
+      `${root}/src/modules/operator-cli/run.worker-phases.test.ts`,
+      "--test-name-pattern",
+      "plain version and help retain",
+    ],
+    {
+      cwd: root,
+      env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  expect(code, `${stdout}\n${stderr}`).toBe(0);
+  expect(`${stdout}\n${stderr}`).toContain("1 pass");
+}, 120000);
 
 function capture() {
   process.exitCode = 9;
