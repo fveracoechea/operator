@@ -13,6 +13,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
+import { briefPhase } from "./brief-phase.ts";
 import { internalReview } from "./internal-review.ts";
 import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts";
 import { cleanWorktree } from "./worktree-cleanup.ts";
@@ -325,31 +326,6 @@ function place(input: {
   }));
 }
 
-function briefPhase(settings: Facts & { kind: WorkerKind | null }) {
-  if (settings.kind === null) return undefined;
-  const report = settings.source.reports.findLast((row) => row.assignment === settings.planned.key);
-  return WorkerKinds.decidePhase({
-    kind: settings.kind,
-    report:
-      report === undefined
-        ? null
-        : {
-            returned: report.decision === "returned",
-            accepted: report.decision === "accepted",
-          },
-    pr: {
-      associated: settings.pullRequest !== null,
-      rounds: settings.review?.rounds.length ?? 0,
-      ready: settings.review?.state === "ready" || settings.review?.state === "skipped",
-      merged: settings.pullRequest !== null && settings.pullRequest.mergedAt !== null,
-      parked: false,
-    },
-    internalReview: settings.internalReview,
-    // Stryker disable next-line BooleanLiteral: equivalent: this observation has no event, so decidePhase reads worktreeClean only in guards it does not evaluate
-    worktreeClean: true,
-  }).phase;
-}
-
 function writeBrief(
   request: Request,
   settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
@@ -397,7 +373,18 @@ function writeBrief(
         trackerKey: settings.planned.trackerKey,
         completion: settings.planned.completion,
         kind: settings.kind,
-        phase: briefPhase(settings),
+        phase: briefPhase({
+          kind: settings.kind,
+          report:
+            settings.source.reports.findLast((row) => row.assignment === settings.planned.key) ??
+            null,
+          pullRequest: settings.pullRequest,
+          review:
+            settings.review === null
+              ? null
+              : { state: settings.review.state, rounds: settings.review.rounds.length },
+          internalReview: settings.internalReview,
+        }),
         head: commit?.status === "completed" && commit.exitCode === 0 ? commit.stdout.trim() : null,
         questions,
         profile: settings.launch.profile,
