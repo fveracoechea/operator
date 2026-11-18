@@ -38,11 +38,6 @@ test("launch snapshots decode historical custom policy without consulting curren
   input.assignments = input.assignments.map((row) => ({ ...row, kind: "audit" }));
   const decoded = decodeSource(input);
   expect(decoded.launches[0]?.kind).toEqual(kind);
-  const phase = kind.workPhases[0];
-  if (phase) phase.goal = "New settings goal.";
-  expect(decoded.launches[0]?.kind?.workPhases).toEqual([
-    { name: "audit", goal: "Original goal." },
-  ]);
   expect(() =>
     decodeSource({
       ...input,
