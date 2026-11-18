@@ -116,7 +116,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         const action = rows.find(
           (row) =>
             actions.includes(row.action) ||
-            (input.handoff === true && row.reason === "internal_review_handoff"),
+            (input.handoff === true && row.reason === "kind_handoff"),
         );
         return action === undefined
           ? notDispatchable(input.assignment, {

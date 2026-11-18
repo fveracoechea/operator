@@ -42,10 +42,6 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
       command: `operator dispatch ${target}`,
       why: "Replace the stopped worker without deleting its work.",
     },
-    retry_handoff: {
-      command: `operator handoff ${target}`,
-      why: "Resume the internal review handoff.",
-    },
     retry_cleanup: {
       command:
         "report" in row && row.report !== undefined

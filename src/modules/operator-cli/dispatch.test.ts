@@ -2,11 +2,12 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no platform temporary-root API.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { ErrAsync, fromSafePromise, OkAsync } from "unthrown";
+import { ErrAsync, fromSafePromise, fromPromise, OkAsync } from "unthrown";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { PullRequests } from "../pull-requests/main.ts";
 import { dispatchArgs, herdrEventWithoutState, runDispatch } from "./dispatch.ts";
 
 const paths = OperatorHome.resolve(
@@ -31,7 +32,7 @@ function quiet() {
 
 function spies() {
   return {
-    dispatch: spyOn(WorkerDispatch, "dispatch").mockReturnValue(OkAsync({ pane: "1" }) as never),
+    dispatch: spyOn(PullRequests, "dispatch").mockReturnValue(OkAsync({ pane: "1" }) as never),
     installPlugin: spyOn(WorkerDispatch, "installPlugin").mockReturnValue(
       OkAsync({ reason: "herdr_plugin_installed", data: { plugin: true } }) as never,
     ),
@@ -40,6 +41,24 @@ function spies() {
     ),
   };
 }
+
+test("a dispatch defect uses the command boundary reason and exit status rather than an operational refusal", async () => {
+  const cause = new Error("permission defect", { cause: { original: true } });
+  const defect = await fromPromise(Promise.reject(cause), (error, unexpected) => unexpected(error));
+  spyOn(PullRequests, "dispatch").mockReturnValue(defect.toAsync());
+  const { log, error } = quiet();
+  expect(
+    await runDispatch(["dispatch", "--source", "s", "--assignment", "a", "--json"], paths, true),
+  ).toBe(true);
+  expect(process.exitCode).toBe(1);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "dispatch",
+    reason: "dispatch_defect",
+    outcome: "refused",
+    blockers: [{ reason: "dispatch_defect", detail: "Error: permission defect" }],
+  });
+  expect(error).toHaveBeenCalled();
+});
 
 test("parses dispatch and Herdr commands", () => {
   expect(dispatchArgs(["abandon", "--source", "s", "--assignment", "a", "--json"])).toEqual({
@@ -51,11 +70,13 @@ test("parses dispatch and Herdr commands", () => {
     operation: "dispatch",
     sourceId: "s",
     assignment: "a",
+    afterPid: null,
   });
   expect(dispatchArgs(["dispatch", "--json", "--assignment", "a", "--source", "s"])).toEqual({
     operation: "dispatch",
     sourceId: "s",
     assignment: "a",
+    afterPid: null,
   });
   expect(dispatchArgs(["herdr", "install"])).toEqual({ operation: "herdr_install" });
   expect(dispatchArgs(["herdr", "event", "--json"])).toEqual({ operation: "herdr_event" });
@@ -118,6 +139,7 @@ test("passes each command to the matching dispatch operation", async () => {
     cwd: process.cwd(),
     sourceId: "s",
     assignment: "a",
+    afterPid: null,
   });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "dispatch",
@@ -193,7 +215,7 @@ test.each([
 });
 
 test("reports a dispatch defect with exit code 1", async () => {
-  spyOn(WorkerDispatch, "dispatch").mockReturnValue(
+  spyOn(PullRequests, "dispatch").mockReturnValue(
     fromSafePromise(() => Promise.reject(new Error("boom"))),
   );
   const { log, error } = quiet();

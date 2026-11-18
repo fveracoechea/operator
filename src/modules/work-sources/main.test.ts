@@ -9,7 +9,6 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkSources } from "./main.ts";
-import { storedSource, storedLaunch, storedPullRequest } from "./source-fixture.ts";
 import { decodeSource } from "./snapshot.ts";
 
 const root = await mkdtemp(path.join(tmpdir(), "operator-source-api-"));
@@ -254,64 +253,3 @@ test("a dependent carries the latest accepted report of each direct dependency",
   ]);
   expect(WorkSources.dependencyReports(source, "later")).toEqual([]);
 });
-
-test.each([
-  { state: "pending", running: true, action: "wait", reason: "internal_review_handoff" },
-  {
-    state: "failed",
-    running: false,
-    action: "retry_handoff",
-    reason: "internal_review_handoff_failed",
-  },
-  {
-    state: "pending",
-    running: false,
-    action: "retry_handoff",
-    reason: "internal_review_handoff_stopped",
-  },
-])(
-  "inactive preparation retains the shipped $reason decision",
-  async ({ state, running, action, reason }) => {
-    using project = spyOn(Projects, "current").mockImplementation(() =>
-      fromPromise(
-        async () => ({
-          reason: "project_resolved" as const,
-          data: { repository: "example/one", checkout: root, registeredAt: "now" },
-        }),
-        (cause, defect) => defect(cause),
-      ),
-    );
-    using storage = spyOn(DeviceState, "readSources").mockReturnValue(
-      Ok([
-        storedSource([{ key: "build", completion: "pr", state: "pr-open" }], {
-          launches: [storedLaunch("build")],
-          pullRequests: [storedPullRequest("build")],
-          handoffs: [
-            {
-              sourceId: "one",
-              assignment: "build",
-              outgoingLaunchId: "l-build",
-              nextKind: "review",
-              handoffState: state,
-              handoffDetail: null,
-              handoffRunning: running,
-              startedAt: "now",
-              updatedAt: "now",
-              ownerPid: null,
-              leaseAt: null,
-            },
-          ],
-        }),
-      ]),
-    );
-    const answer = await WorkSources.next({ paths, cwd: root, all: true });
-    expect(answer).toMatchObject({
-      tag: "Ok",
-      value: {
-        sources: [{ [running ? "waits" : "actions"]: [{ assignment: "build", action, reason }] }],
-      },
-    });
-    expect(storage).toHaveBeenCalledTimes(1);
-    expect(project).toHaveBeenCalledTimes(1);
-  },
-);

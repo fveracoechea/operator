@@ -4,11 +4,51 @@ import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
+import { WorkSources } from "../work-sources/main.ts";
+import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { associationBody, failed, git, prDevice, repository, succeeded } from "./device-fixture.ts";
-import { handoff } from "./internal-review.ts";
+import { dispatch, dispatchPermission, handoff } from "./internal-review.ts";
 
 afterEach(() => mock.restore());
+
+test.each(["supervisor", "project", "publication"] as const)(
+  "dispatch permission preserves the %s Defect cause and authorizes no effects",
+  async (stage) => {
+    await using device = await prDevice();
+    const cause = new Error(`${stage} defect`, { cause: { original: true } });
+    const defect = await fromPromise(Promise.reject(cause), (error, unexpected) =>
+      unexpected(error),
+    );
+    const supervisor = spyOn(WorkSources, "checkSupervisor").mockReturnValue(
+      stage === "supervisor" ? defect.toAsync() : OkAsync(undefined),
+    );
+    const project = spyOn(Projects, "current");
+    if (stage === "project") project.mockReturnValue(defect.toAsync());
+    const publication = spyOn(DeviceState, "readHandoffContinuation").mockReturnValue(defect);
+    const claim = spyOn(DeviceState, "claimHandoff");
+    const close = spyOn(Herdr, "closePane");
+    const launch = spyOn(WorkerDispatch, "dispatch");
+    const input = {
+      paths: device.paths,
+      cwd: device.checkout,
+      sourceId: device.sourceId,
+      assignment: "parent",
+      afterPid: process.ppid,
+    };
+    for (const result of [await dispatchPermission(input), await dispatch(input)]) {
+      expect(result.tag).toBe("Defect");
+      expect(result.tag === "Defect" ? result.cause : undefined).toBe(cause);
+    }
+    expect(supervisor).toHaveBeenCalledTimes(2);
+    expect(project).toHaveBeenCalledTimes(stage === "supervisor" ? 0 : 2);
+    expect(publication).toHaveBeenCalledTimes(stage === "publication" ? 2 : 0);
+    expect(claim).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+    expect(device.calls).toEqual([]);
+  },
+);
 
 async function changeRecoveryWorktree(
   change: string,
@@ -260,7 +300,7 @@ test.each(["mismatch", "defect"] as const)(
         error: {
           reason: "herdr_session_mismatch",
           detail:
-            "Run operator handoff in a pane of the Herdr session that started the implementer.",
+            "Run operator dispatch in a pane of the Herdr session that started the outgoing worker.",
           next: {
             decider: "super-agent",
             question: "Which pane of the recorded Herdr session should retry this handoff?",

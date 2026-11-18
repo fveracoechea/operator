@@ -1254,34 +1254,12 @@ function decideAssignmentRow(
     capReached: maxRunning !== undefined && running >= maxRunning,
     resources,
   });
-  // Keep the shipped recovery command until dispatch owns the full continuation lifecycle.
-  const exposed: Omit<typeof decision, "action" | "reason"> & {
-    action: typeof decision.action | "retry_handoff";
-    reason:
-      | typeof decision.reason
-      | "internal_review_handoff"
-      | "internal_review_handoff_failed"
-      | "internal_review_handoff_stopped";
-  } =
-    decision.reason === "kind_handoff"
-      ? { ...decision, reason: "internal_review_handoff" as const }
-      : decision.reason === "handoff_failed"
-        ? {
-            ...decision,
-            action: "retry_handoff" as const,
-            reason:
-              handoffFact(source.handoffs.find((row) => row.assignment === assignment.key)) ===
-              "failed"
-                ? ("internal_review_handoff_failed" as const)
-                : ("internal_review_handoff_stopped" as const),
-          }
-        : decision;
   const cap =
     decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
   const row = described(
     input,
     source,
-    { assignment: assignment.key, ...exposed, ...cap },
+    { assignment: assignment.key, ...decision, ...cap },
     { assignment: assignment.key, launch, pullRequest, report, cleanup, review },
   );
   return retained.length > 0 ? { ...row, retainedResources: retained } : row;
