@@ -539,7 +539,12 @@ test("herdr install writes one stable manifest in device state and links it once
 });
 
 test("herdr install never replaces an unrecorded plugin with the same id", async () => {
-  await setHerdr({ plugins: [{ id: "operator", root: `${root}/someone-else` }] });
+  await setHerdr({
+    workspaces: [],
+    agents: [],
+    tabs: [],
+    plugins: [{ id: "operator", root: `${root}/someone-else` }],
+  });
   expect(await run(["herdr", "install"])).toMatchObject({
     code: 3,
     output: { reason: "herdr_plugin_conflict" },

@@ -178,11 +178,11 @@ test("a held cleanup pane close does not erase a replacement tab after its hook"
     expect(renamed.code, renamed.stdout + renamed.stderr).toBe(0);
     const final = topologySchema.parse(await stateFile.json());
     expect(final.counter).toBe(8);
-    expect(final.tabs).toEqual([
+    expect<unknown>(final.tabs).toEqual([
       initial.tabs[1],
       { workspaceId: "w7", tabId: "w7:t8", paneId: "w7:p8", label: "replacement", cwd: root },
     ]);
-    expect(final.workspaces).toEqual([
+    expect<unknown>(final.workspaces).toEqual([
       initial.workspaces[0],
       initial.workspaces[2],
       {
@@ -191,7 +191,7 @@ test("a held cleanup pane close does not erase a replacement tab after its hook"
         worktree: { checkout_path: root, is_linked_worktree: true },
       },
     ]);
-    expect(final.agents).toEqual([initial.agents[1]]);
+    expect<unknown>(final.agents).toEqual([initial.agents[1]]);
     expect(await traceOrder()).toEqual([
       ["pane close", "loaded"],
       ["pane close", "save-start"],
@@ -267,7 +267,7 @@ test.each([false, true])(
       const renamed = await run("tab", "rename", "w7:t8", "replacement");
       expect(renamed.code, renamed.stdout + renamed.stderr).toBe(0);
       const final = topologySchema.parse(await Bun.file(`${root}/herdr-state.json`).json());
-      expect(final.tabs).toEqual([
+      expect<unknown>(final.tabs).toEqual([
         ...(interrupt ? initial.tabs : [initial.tabs[1]]),
         { workspaceId: "w7", tabId: "w7:t8", paneId: "w7:p8", label: "replacement", cwd: root },
       ]);
