@@ -56,17 +56,29 @@ test.each([
   },
   {
     name: "handed-off launch refused",
-    file: "worker-kinds/phase-machine.ts",
-    replacements: [["if (event !== undefined && facts.handedOff === true)", "if (false)"]],
-    testFile: guards,
-    pattern: "cannot close the implementer",
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [
+      [
+        'if (facts.guard === "ownership") return facts.handedOff;',
+        'if (facts.guard === "ownership") return false;',
+      ],
+    ],
+    testFile: "worker-kinds/pr-policy.test.ts",
+    pattern: "PR ownership remains with a launch only before handoff",
+    behaviorFailure: true,
   },
   {
     name: "two rounds",
-    file: "worker-kinds/phase-machine.ts",
-    replacements: [["facts.pr.rounds >= 2", "facts.pr.rounds >= 3"]],
-    testFile: flow,
-    pattern: "at most two rounds",
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [
+      [
+        'if (facts.guard === "round") return facts.rounds >= 2;',
+        'if (facts.guard === "round") return facts.rounds >= 3;',
+      ],
+    ],
+    testFile: "worker-kinds/pr-policy.test.ts",
+    pattern: "the PR round policy refuses round count 2: true",
+    behaviorFailure: true,
   },
   {
     name: "newer head for round two",
@@ -200,6 +212,7 @@ test.each([
     let changed = original;
     for (const [before, after] of change.replacements) {
       expect(original).toContain(before);
+      if (change.behaviorFailure) expect(original.split(before)).toHaveLength(2);
       changed = changed.replace(before, after);
     }
     try {
@@ -228,6 +241,16 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.behaviorFailure) {
+        const output = `${stdout}${stderr}`;
+        expect(output).toContain(`(fail) ${change.pattern}`);
+        expect(output).toContain("expect(received).toBe(expected)");
+        expect(output).toContain("Expected: true");
+        expect(output).toContain("Received: false");
+        expect(output).toContain("pr-policy.test.ts:");
+        expect(output).toContain("0 pass");
+        expect(output).toContain("1 fail");
+      }
     } finally {
       await Bun.write(file, original);
     }
