@@ -16,10 +16,16 @@ const args = process.argv.slice(2);
 // A rewrite would let a concurrent reader see a truncated log, so each call appends one line.
 const { appendFile } = await import("node:fs/promises");
 await appendFile(root + "/herdr-calls.jsonl", JSON.stringify(args) + "\\n");
+const key = args.slice(0, 2).join(" ");
+const readOnly = ["workspace list", "tab list", "pane list", "agent list", "plugin list", "pane get"].includes(key);
+const { Database } = await import("bun:sqlite");
+// SQLite owns process-death recovery. Keep the JSON shape used by fixture consumers.
+let lock = readOnly ? null : new Database(root + "/herdr-state-lock.sqlite");
+if (lock) { lock.run("PRAGMA busy_timeout = 5000"); lock.run("BEGIN IMMEDIATE"); }
 const state = await Bun.file(stateFile).exists() ? await Bun.file(stateFile).json() : {};
 state.workspaces ??= []; state.tabs ??= []; state.agents ??= []; state.plugins ??= []; state.counter ??= 0; state.fail ??= {};
-const key = args.slice(0, 2).join(" ");
-const { appendFileSync, existsSync, statSync } = await import("node:fs");
+// Bun has no atomic file-replacement API. Readers must see complete snapshots without taking the writer lock.
+const { appendFileSync, existsSync, statSync, writeFileSync, renameSync } = await import("node:fs");
 function trace(phase) {
   const file = root + "/herdr-topology.jsonl";
   const target = ["pane get", "pane close", "pane exit", "tab rename"].includes(key) ? args[2] : null;
@@ -32,7 +38,15 @@ function trace(phase) {
   if ((existsSync(file) ? statSync(file).size : 0) + Buffer.byteLength(record) <= 262144) appendFileSync(file, record);
 }
 trace("loaded");
-const save = async () => { trace("save-start"); await Bun.write(stateFile, JSON.stringify(state)); trace("save-end"); };
+const save = async () => {
+  if (!lock) return;
+  trace("save-start");
+  const temporary = stateFile + "." + process.pid;
+  writeFileSync(temporary, JSON.stringify(state));
+  renameSync(temporary, stateFile);
+  trace("save-end");
+  lock.run("COMMIT"); lock.close(); lock = null;
+};
 const flag = (name) => { const index = args.indexOf(name); return index === -1 ? undefined : args[index + 1]; };
 if (state.fail[key]) { console.error(JSON.stringify({ error: { message: state.fail[key] } })); process.exit(1); }
 const out = (result) => console.log(JSON.stringify({ id: "cli", result }));
@@ -122,9 +136,9 @@ else if (key === "worktree remove") {
 }
 else if (key === "pane exit") { await save(); await hook("pane.exited", { event: "pane_exited", data: { type: "pane_exited", pane_id: args[2], workspace_id: args[3] } }); }
 else { console.error("unsupported " + key); process.exit(2); }
-// Detached parent cleanup can read while a child replacement opens its workspace.
-// A read must not write its older snapshot over that new topology.
-if (!["workspace list", "tab list", "pane list", "agent list", "plugin list", "pane get"].includes(key)) await save();
+// Save once, releasing before hooks that can call this executable again.
+// A post-hook save would overwrite mutations made while the hook was running.
+await save();
 `;
 }
 
