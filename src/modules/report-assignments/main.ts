@@ -487,7 +487,14 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
 /** The PR assignment's launch that takes over the running report worker's pane and worktree. */
 function handoverLaunch(
   launch: NonNullable<Facts["launch"]>,
-  change: { key: string; name: string; branch: string; at: string; internalReview: boolean },
+  change: {
+    key: string;
+    name: string;
+    branch: string;
+    at: string;
+    internalReview: boolean;
+    kind: string;
+  },
 ) {
   return {
     ...launch,
@@ -499,6 +506,7 @@ function handoverLaunch(
     resources: "worktree",
     branch: change.branch,
     internalReview: change.internalReview,
+    kind: change.kind,
     startedAt: change.at,
     endedAt: null,
     failureReason: null,
@@ -609,6 +617,21 @@ function promote(input: PromoteInput) {
           .parse(JSON.parse(facts.source.plan)).internalReview,
         device: settings.value.data.config.review?.internal,
       });
+      const host = z.enum(["opencode", "claude-code"]).parse(launch.host);
+      const definition = await DeviceSettings.kind({
+        paths: input.paths,
+        name: "implementation",
+        host,
+      });
+      if (definition.tag !== "Ok") return stop(definition);
+      const kind = JSON.stringify({
+        ...definition.value,
+        profile: launch.profile,
+        nextKind: internalReview ? definition.value.nextKind : "pr-feedback",
+        skillsToRead: definition.value.skillsToRead.map(
+          (name) => `${input.paths.upstreamSkills[host]}/${name}/SKILL.md`,
+        ),
+      });
       const handover = await WorkerDispatch.handOver({
         paths: input.paths,
         checkout,
@@ -622,7 +645,7 @@ function promote(input: PromoteInput) {
       const taken =
         name === null
           ? null
-          : handoverLaunch(launch, { key: planned.key, name, branch, at, internalReview });
+          : handoverLaunch(launch, { key: planned.key, name, branch, at, internalReview, kind });
       const state = taken === null ? "ready" : "running";
       const recorded = record(decision, decided, (current) => ({
         update: {
@@ -636,6 +659,7 @@ function promote(input: PromoteInput) {
             sourceId: current.source.id,
             key: planned.key,
             completion: "pr",
+            kind: "implementation",
             state,
           },
           promotion: {
