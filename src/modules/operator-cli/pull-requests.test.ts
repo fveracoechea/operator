@@ -35,7 +35,6 @@ function spies() {
     merge: spyOn(PullRequests, "merge").mockReturnValue(completed("pr_merged")),
     associate: spyOn(PullRequests, "associate").mockReturnValue(completed("pr_associated")),
     wait: spyOn(PullRequests, "wait").mockReturnValue(completed("pr_feedback")),
-    handoff: spyOn(PullRequests, "handoff").mockReturnValue(completed("handoff_completed")),
     recover: spyOn(PullRequests, "recoverReview").mockReturnValue(
       completed("internal_review_recovered"),
     ),
@@ -178,7 +177,7 @@ test.each([
   });
 });
 
-test("routes handoff with its assignment and predecessor process", async () => {
+test("the removed handoff command invokes no pull request operation", async () => {
   const called = spies();
   quiet();
   expect(
@@ -187,18 +186,8 @@ test("routes handoff with its assignment and predecessor process", async () => {
       paths,
       true,
     ),
-  ).toBe(true);
-  expect(called.handoff).toHaveBeenCalledWith({
-    paths,
-    cwd: process.cwd(),
-    operation: "handoff",
-    sourceId: "s",
-    assignment: "a",
-    afterPid: 123,
-  });
-  expect(called.handoff).toHaveBeenCalledTimes(1);
-  for (const [name, spy] of Object.entries(called))
-    if (name !== "handoff") expect(spy).not.toHaveBeenCalled();
+  ).toBe(false);
+  for (const spy of Object.values(called)) expect(spy).not.toHaveBeenCalled();
 });
 
 test("routes recovery with pinned provenance and authorization", async () => {

@@ -5,6 +5,7 @@ import type { Refusal } from "../../lib/cli-result.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
+import { reviewHandoffTarget } from "./handoff-target.ts";
 import { readRecoveryReceipt } from "./internal-review-recovery.ts";
 import { assignments, kindHandoffs, launches, sources } from "./schema.ts";
 
@@ -193,7 +194,10 @@ function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof laun
   if (recovered) return true;
   if (latest.kind !== null) {
     const outgoing = WorkerKinds.snapshotSchema().parse(JSON.parse(latest.kind));
-    return outgoing.completion === assignment.completion && outgoing.nextKind === handoff.nextKind;
+    return (
+      outgoing.completion === assignment.completion &&
+      reviewHandoffTarget(outgoing) === handoff.nextKind
+    );
   }
   const next = WorkerKinds.names().find((name) => name === handoff.nextKind);
   return next !== undefined && WorkerKinds.resolve(next).completion === assignment.completion;

@@ -497,7 +497,7 @@ Changed provenance, ended sources or reviews, incompatible owners, existing unre
 Launch snapshots and existing review requests remain unchanged.
 No review rounds, approval, or ready metadata are fabricated.
 The ordinary fresh-reviewer handoff and genuine GitHub approval remain required.
-If the handoff stops, use `operator handoff --source <source-id> --assignment <key> --json` after inspecting its recorded failure.
+If the handoff stops, use `operator dispatch --source <source-id> --assignment <key> --json` after inspecting its recorded failure.
 Recovered handoffs recheck the authorization, active review, draft, branch, clean worktree, and exact pushed head before closing the implementer.
 
 ### Reviews

@@ -455,6 +455,7 @@ test.each(["running", "pr-open", "reported"])(
     expect((await run(["--version"])).code).toBe(0);
     const entry = await extendedRelease("CREATE TABLE later (value TEXT)");
     using db = new Database(`${root}/state/operator/operator.sqlite`);
+    const history = db.query("SELECT * FROM __drizzle_migrations").all();
     db.exec(
       "INSERT INTO sources VALUES ('other', 'example/one', 'tracker:2', 'open', '2026-10-26', NULL, '{}', NULL, NULL)",
     );
@@ -463,7 +464,10 @@ test.each(["running", "pr-open", "reported"])(
     ).run(state);
     expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
     expect(db.query("SELECT state FROM assignments").all()).toEqual([{ state }]);
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(23);
+    const migrated = db.query("SELECT * FROM __drizzle_migrations").all();
+    expect(migrated.slice(0, history.length)).toEqual(history);
+    expect(migrated).toHaveLength(history.length + 1);
+    expect(db.query("SELECT * FROM later").all()).toEqual([]);
   },
 );
 

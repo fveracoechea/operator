@@ -2,7 +2,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no platform temporary-root API.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { ErrAsync, fromSafePromise, OkAsync } from "unthrown";
+import { ErrAsync, fromSafePromise, fromPromise, OkAsync } from "unthrown";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
@@ -41,6 +41,24 @@ function spies() {
     ),
   };
 }
+
+test("a dispatch defect uses the command boundary reason and exit status rather than an operational refusal", async () => {
+  const cause = new Error("permission defect", { cause: { original: true } });
+  const defect = await fromPromise(Promise.reject(cause), (error, unexpected) => unexpected(error));
+  spyOn(PullRequests, "dispatch").mockReturnValue(defect.toAsync());
+  const { log, error } = quiet();
+  expect(
+    await runDispatch(["dispatch", "--source", "s", "--assignment", "a", "--json"], paths, true),
+  ).toBe(true);
+  expect(process.exitCode).toBe(1);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "dispatch",
+    reason: "dispatch_defect",
+    outcome: "refused",
+    blockers: [{ reason: "dispatch_defect", detail: "Error: permission defect" }],
+  });
+  expect(error).toHaveBeenCalled();
+});
 
 test("parses dispatch and Herdr commands", () => {
   expect(dispatchArgs(["abandon", "--source", "s", "--assignment", "a", "--json"])).toEqual({

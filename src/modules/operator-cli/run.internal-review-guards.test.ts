@@ -532,6 +532,10 @@ test("with internal review off, associate records a ready PR and the owner keeps
   expect((await shown(source)).launches[0]).toMatchObject({ internalReview: false });
   const head = await commit(worker.worktreePath, "notes.txt");
   await github({ pulls: [pull({ head })] });
+  await Bun.write(`${worker.worktreePath}/unlanded.txt`, "retain this work\n");
+  expect(await git(worker.worktreePath, "status", "--porcelain")).toBe("?? unlanded.txt");
+  const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+  const starts = await calls("herdr-calls.jsonl", '"agent","start"');
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 3,
     output: {
@@ -543,7 +547,10 @@ test("with internal review off, associate records a ready PR and the owner keeps
     },
   });
   expect((await shown(source)).pullRequests).toEqual([]);
-  await rm(`${worker.worktreePath}/notes.txt`);
+  expect(await Bun.file(`${worker.worktreePath}/unlanded.txt`).text()).toBe("retain this work\n");
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+  await rm(`${worker.worktreePath}/unlanded.txt`);
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 0,
     output: { reason: "pr_associated", data: { internalReview: null } },

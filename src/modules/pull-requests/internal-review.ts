@@ -319,13 +319,13 @@ type DispatchInput = Omit<HandoffRequest, "afterPid" | "continuation"> & {
 type DispatchPermission = { continuation: HandoffContinuation | null };
 
 /** Publication gets one second, read-only, then fails closed. Scheduler progress is not guaranteed. */
-export function dispatchPermission(input: DispatchInput) {
+export function dispatchPermission(input: DispatchInput): AsyncResult<DispatchPermission, Failure> {
   return fromPromise(async () => {
     const supervised = await WorkSources.checkSupervisor(input);
     const afterPid = input.afterPid ?? null;
     const internal = afterPid !== null;
     if (supervised.tag === "Ok" && !internal) return Ok<DispatchPermission>({ continuation: null });
-    if (supervised.tag === "Defect") return Err<Failure>(failure(supervised));
+    if (supervised.tag === "Defect") return supervised.map(() => ({ continuation: null }));
     if (
       supervised.tag === "Err" &&
       (supervised.error.reason !== "source_supervised_elsewhere" || !internal)
@@ -340,12 +340,9 @@ export function dispatchPermission(input: DispatchInput) {
         state: { continuationAuthorized: false },
       });
     const project = await Projects.current(input);
-    if (project.tag !== "Ok")
-      return Err<Failure>(
-        project.tag === "Defect"
-          ? failure(project)
-          : { ...project.error, next: project.error.next ?? handoffRecovery },
-      );
+    if (project.tag === "Defect") return project.map(() => ({ continuation: null }));
+    if (project.tag === "Err")
+      return Err<Failure>({ ...project.error, next: project.error.next ?? handoffRecovery });
     const target = {
       repository: project.value.data.repository,
       sourceId: input.sourceId,
@@ -359,7 +356,7 @@ function waitForPublication(
   input: DispatchInput,
   target: { repository: string; sourceId: string; assignment: string },
   publishingPid: number,
-) {
+): AsyncResult<DispatchPermission, Failure> {
   return fromPromise(async () => {
     const values = Environment.read();
     const context = {
@@ -374,8 +371,7 @@ function waitForPublication(
         context,
         publishingPid,
       );
-      if (checked.tag !== "Ok")
-        return Err<Failure>(checked.tag === "Defect" ? failure(checked) : checked.error);
+      if (checked.tag !== "Ok") return checked.map(({ identity }) => ({ continuation: identity }));
       if (checked.value.published)
         return Ok<DispatchPermission>({ continuation: checked.value.identity });
       if (Date.now() >= deadline)

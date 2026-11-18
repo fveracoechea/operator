@@ -471,7 +471,7 @@ function continuationFault(db: Database, mode: string, source: string, publishin
     );
   if (mode === "later-launch")
     db.query(
-      "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model, reasoning_effort, release, skills, started_at) VALUES ('later', ?, 'implement', 2, 'failed', 'later', 'worktree', 'opencode', 'fixture', 'fixture', 'high', '{}', '[]', 'now')",
+      "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model, reasoning_effort, release, skills, kind, started_at) SELECT 'later', source_id, assignment, 2, 'failed', 'later', resources, host, model, requested_model, reasoning_effort, release, skills, kind, started_at FROM launches WHERE source_id = ? AND assignment = 'implement' AND attempt = 1",
     ).run(source);
 }
 
@@ -505,7 +505,7 @@ async function continuationBoundary(
     mode === "takeover"
       ? "UPDATE sources SET supervising_session = 'ses_new_supervisor', supervising_pane = 'new-supervisor-pane'"
       : mode === "later-launch"
-        ? `INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model, reasoning_effort, release, skills, started_at) VALUES ('concurrent', '${source}', 'implement', 2, 'failed', 'concurrent', 'worktree', 'opencode', 'fixture', 'fixture', 'high', '{}', '[]', 'now')`
+        ? `INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model, reasoning_effort, release, skills, kind, started_at) SELECT 'concurrent', source_id, assignment, 2, 'failed', 'concurrent', resources, host, model, requested_model, reasoning_effort, release, skills, kind, started_at FROM launches WHERE source_id = '${source}' AND assignment = 'implement' AND attempt = 1`
         : mode.endsWith("target")
           ? "UPDATE kind_handoffs SET next_kind = 'pr-feedback'"
           : "UPDATE kind_handoffs SET lease_at = '2000-01-01'";
@@ -622,6 +622,36 @@ test.each(["publish", "expire"] as const)(
   180000,
 );
 
+test("a publication read defect reaches the command boundary without claiming or continuation effects", async () => {
+  const { source, worker } = await pendingContinuation();
+  using db = fixtureDatabase();
+  const before = db.serialize();
+  const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+  const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+  const preload = `${root}/publication-defect.ts`;
+  await Bun.write(
+    preload,
+    `import { Database } from "bun:sqlite";
+const prepare = Database.prototype.prepare;
+Database.prototype.prepare = function(sql, ...args) {
+  if (sql.includes('from "kind_handoffs" inner join "sources"')) throw new Error("publication read defect");
+  return prepare.call(this, sql, ...args);
+};`,
+  );
+  const result = await processResult(
+    continuationChild(source, worker.paneId, process.pid, { preload }),
+  );
+  expect(result.code, result.stderr).toBe(1);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    operation: "dispatch",
+    reason: "dispatch_defect",
+    blockers: [{ reason: "dispatch_defect", detail: "Error: publication read defect" }],
+  });
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+  expect(db.serialize()).toEqual(before);
+}, 180000);
+
 test.each([
   "claim-loss",
   "preclose-loss",
@@ -689,6 +719,18 @@ test.each([
           { handoff_state: "pending", owner_pid: child.pid },
         ]);
         expect(await git(worker.worktreePath, "status", "--porcelain")).toBe("");
+        if (mode === "later-launch") {
+          expect((await shown(source)).launches).toMatchObject([
+            { state: "finished" },
+            { id: "concurrent", state: "failed", kind: { name: "implementation" } },
+          ]);
+          expect(
+            db.query("SELECT release, skills, kind FROM launches ORDER BY attempt").all(),
+          ).toEqual([
+            db.query("SELECT release, skills, kind FROM launches WHERE attempt = 1").get(),
+            db.query("SELECT release, skills, kind FROM launches WHERE attempt = 1").get(),
+          ]);
+        }
       }
     } finally {
       await Bun.write(`${root}/publish-release`, "exit");
@@ -1006,6 +1048,40 @@ test("pr associate of a draft hands implementation to review and writes no note"
   });
   expect((await shown(source)).launches).toHaveLength(2);
 }, 180000);
+
+test.each(["omitted", "null"])(
+  "a custom PR kind with %s nextKind automatically hands its draft to review",
+  async (mode) => {
+    const source = await setup("opencode", true);
+    const configFile = `${root}/config/operator/config.json`;
+    const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+    const { nextKind: _nextKind, ...build } = customBuild;
+    const configured: typeof build & { nextKind?: null } = { ...build };
+    if (mode === "null") configured.nextKind = null;
+    await Bun.write(
+      configFile,
+      JSON.stringify({
+        ...config,
+        kinds: {
+          "custom-build": configured,
+          "custom-review": customReview,
+        },
+      }),
+    );
+    const worker = await dispatch(source);
+    expect((await shown(source)).launches[0]).toMatchObject({ kind: { nextKind: null } });
+    const head = await commit(worker.worktreePath, "work.txt");
+    await github({ pulls: [pull({ head, isDraft: true })] });
+    expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });
+    expect(await handedOff(source)).toMatchObject({ handoffState: "done" });
+    expect((await shown(source)).launches).toMatchObject([
+      { state: "finished", kind: { nextKind: null } },
+      { state: "running", worktreePath: worker.worktreePath, kind: { name: "review" } },
+    ]);
+    expect(await calls("herdr-calls.jsonl", `"pane","close","${worker.paneId}"`)).toBe(1);
+  },
+  180000,
+);
 
 test("a custom-kind draft handoff inherits installed guides and registered defaults while retaining launch snapshots", async () => {
   const source = await setup("opencode", true);

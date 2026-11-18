@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { reviewHandoffTarget } from "./handoff-target.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
@@ -281,10 +282,11 @@ export function associatePullRequest(
                 assignment: assignment.key,
                 implementerLaunchId: launchId,
               },
-              launch.kind === null
-                ? "review"
-                : (WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)).nextKind ??
-                    "review"),
+              reviewHandoffTarget(
+                launch.kind === null
+                  ? null
+                  : WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
+              ),
             );
           if (review)
             requestAssignmentReview(db, {
