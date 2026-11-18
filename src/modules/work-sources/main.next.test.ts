@@ -252,6 +252,7 @@ test("next describes each open assignment with its recorded facts", async () => 
           assignment: "acc",
           report: 1,
           conclusion: "acc done.",
+          files: [],
           unresolved: ["Gap of acc."],
           reference: "operator:example/one/sources/one/assignments/acc/reports/1",
         },

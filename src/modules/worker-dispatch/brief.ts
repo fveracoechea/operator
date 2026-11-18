@@ -122,6 +122,10 @@ function history(input: BriefInput) {
             ];
             if (row.unresolved.length > 0)
               facts.push(`Unresolved points:\n\n${row.unresolved.map(quote).join("\n\n")}`);
+            if (row.files.length > 0)
+              facts.push(
+                `Supporting files:\n\n${row.files.map((file) => `- \`${file}\``).join("\n")}`,
+              );
             return facts.join("\n\n");
           })
           .join("\n\n"),
