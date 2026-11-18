@@ -3,7 +3,7 @@ import { workflowRefusal } from "./workflow-refusal.ts";
 // Bun has no native invocation-local context API.
 import { AsyncLocalStorage } from "node:async_hooks";
 
-type ContextReader = () => Partial<ResultContext>;
+type ContextReader = () => Partial<ResultContext> & { failure?: Exclude<Outcome, { tag: "Ok" }> };
 const workerContext = new AsyncLocalStorage<ContextReader>();
 
 export function outputContext() {
@@ -51,6 +51,7 @@ export function failure(
   context: ResultContext,
 ) {
   const defaults = outputContext();
+  if (defaults.failure !== undefined) return contextFailure(operation, defaults.failure, json);
   context = { ...defaults, ...context, next: context.next ?? defaults.next };
   if (json)
     console.log(
@@ -117,9 +118,25 @@ function nextText(next: NextStep) {
 /** Help and version keep their plain text while sharing the worker result contract. */
 export function printWorkerContext() {
   const context = outputContext();
-  if (context.kind === undefined) return;
+  if (context.failure !== undefined) {
+    contextFailure("worker_context", context.failure, false);
+    return false;
+  }
+  if (context.kind === undefined) return true;
   console.log(oneLine(`kind: ${context.kind}; phase: ${context.phase}`));
   if (context.next !== undefined) console.log(oneLine(`next: ${nextText(context.next)}`));
+  return true;
+}
+
+export function contextFailure(
+  operation: string,
+  result: Exclude<Outcome, { tag: "Ok" }>,
+  json: boolean,
+): void {
+  return workerContext.run(
+    () => ({}),
+    () => respond({ operation, result, exitCodes: {}, defect: "worker_phase_defect", json }),
+  );
 }
 
 /** Prints one command result. A defect always exits 1 with the command's defect reason. */
@@ -130,10 +147,11 @@ export function respond(input: {
   fallback?: number;
   defect: string;
   json: boolean;
-}) {
+}): void {
   const { operation, result, json } = input;
   if (result.tag === "Ok") {
     const defaults = outputContext();
+    if (defaults.failure !== undefined) return contextFailure(operation, defaults.failure, json);
     const context = { ...defaults, ...result.value, next: result.value.next ?? defaults.next };
     console.log(
       JSON.stringify(

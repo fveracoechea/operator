@@ -1,6 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { z } from "zod";
-import { Environment } from "../environment/main.ts";
 import { invalidArguments, runUsage, workflowArguments } from "./usage.ts";
 import { withOutputContext } from "./output.ts";
 
@@ -11,31 +10,30 @@ afterEach(() => {
   process.exitCode = 0;
 });
 
-test("plain worker help and version through the isolated CLI seam", async () => {
-  const root = Bun.fileURLToPath(new URL("../../../", import.meta.url));
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      `${root}/tools/test-watchdog.ts`,
-      `${root}/src/modules/operator-cli/run.worker-phases.test.ts`,
-      "--test-name-pattern",
-      "plain version and help retain",
-    ],
-    {
-      cwd: root,
-      env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("1 pass");
-}, 120000);
+test.each(["--help", "--version"])(
+  "plain worker %s retains text and appends phase recovery",
+  async (flag) => {
+    const output = capture();
+    await withOutputContext(
+      () => ({
+        kind: "research",
+        phase: "investigate",
+        next: { command: "operator report submit --file <file>", why: "Submit." },
+      }),
+      async () => {
+        expect(runUsage([flag], release, false)).toBe(true);
+      },
+    );
+    if (flag === "--help") usageText(output.log.mock.calls[0]?.[0] as string | undefined);
+    else expect(output.log.mock.calls[0]).toEqual(["operator 9.9.9"]);
+    expect(output.log.mock.calls.slice(1)).toEqual([
+      ["kind: research; phase: investigate"],
+      ["next: operator report submit --file <file>"],
+    ]);
+    expect(output.error).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
+  },
+);
 
 function capture() {
   process.exitCode = 9;

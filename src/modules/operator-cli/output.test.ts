@@ -73,14 +73,18 @@ test("plain worker context renders commands, decisions and completion without ex
     log.mockClear();
     await withOutputContext(
       () => ({ kind: "research", phase: "report", next }),
-      async () => printWorkerContext(),
+      async () => {
+        printWorkerContext();
+      },
     );
     expect(log.mock.calls).toEqual([["kind: research; phase: report"], [`next: ${line}`]]);
   }
   log.mockClear();
   await withOutputContext(
     () => ({ kind: "research", phase: "report" }),
-    async () => printWorkerContext(),
+    async () => {
+      printWorkerContext();
+    },
   );
   expect(log.mock.calls).toEqual([["kind: research; phase: report"]]);
 });
@@ -366,3 +370,41 @@ test("grouped refusals retain indexed decisions and only their owning checked fa
     ["state: "],
   ]);
 });
+
+test.each(["Err", "Defect"] as const)(
+  "unavailable phase output facts retain their %s channel",
+  async (tag) => {
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    spyOn(console, "error").mockImplementation(() => {});
+    const original = new Error("original output phase cause");
+    const problem =
+      tag === "Err"
+        ? {
+            tag: "Err" as const,
+            error: {
+              reason: "state_busy",
+              detail: "Locked.",
+              next: { why: "Retry after the lock clears." },
+            },
+          }
+        : { tag: "Defect" as const, cause: original };
+    await withOutputContext(
+      () => ({ failure: problem }),
+      async () =>
+        respond({
+          operation: "pr_wait",
+          result: Ok({ reason: "pr_wait_timed_out", data: {} }),
+          exitCodes: {},
+          defect: "pr_defect",
+          json: true,
+        }),
+    );
+    expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+      outcome: "refused",
+      reason: tag === "Err" ? "state_busy" : "worker_phase_defect",
+      blockers: [{ detail: tag === "Err" ? "Locked." : "Error: original output phase cause" }],
+    });
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBe(1);
+  },
+);

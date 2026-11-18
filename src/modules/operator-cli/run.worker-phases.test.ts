@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { workerDevice } from "./worker-fixture.ts";
+import { Database } from "bun:sqlite";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 let device: Awaited<ReturnType<typeof workerDevice>>;
 afterEach(async () => {
@@ -164,6 +166,9 @@ test("a phase exit command refuses until its guard holds, and names the next com
     }),
   );
   await Bun.write(`${cwd}/pending.txt`, "not committed");
+  expect((await device.exec(["git", "config", "status.showUntrackedFiles", "no"], cwd)).code).toBe(
+    0,
+  );
   const dirty = await device.run(["pr", "associate"], options);
   expect(dirty.output).toMatchObject({
     reason: "pr_worktree_unclean",
@@ -224,6 +229,25 @@ test("a phase exit command refuses until its guard holds, and names the next com
     reason: "pr_events_observed",
     data: { events: [{ kind: "merge_eligible", head }] },
   });
+  // The fixture declares a supported snapshot guard, without adding custom-kind settings.
+  const kind = WorkerKinds.resolve("implementation");
+  kind.workPhases[0] = { name: "build", goal: "Build.", guard: "pr_ready" };
+  using database = new Database(`${device.root}/state/operator/operator.sqlite`);
+  database
+    .query("UPDATE launches SET kind = ? WHERE pane_id = ?")
+    .run(JSON.stringify(kind), worker.paneId);
+  await Bun.write(github, JSON.stringify({ pulls: [{ ...pull, isDraft: true }] }));
+  expect((await device.run(["pr", "wait", "--timeout", "0"], options)).output).toMatchObject({
+    reason: "pr_wait_timed_out",
+  });
+  expect((await device.run(["pr", "associate"], options)).output).toMatchObject({
+    reason: "pr_not_ready",
+    state: { pr_ready: false },
+  });
+  expect(await Bun.file(github).json()).not.toHaveProperty("mergeRequests");
+  database
+    .query("UPDATE launches SET kind = ? WHERE pane_id = ?")
+    .run(JSON.stringify(WorkerKinds.resolve("implementation")), worker.paneId);
   // Recorded readiness does not replace the final live draft gate.
   await Bun.write(github, JSON.stringify({ pulls: [{ ...pull, isDraft: true }] }));
   expect((await device.run(["pr", "merge"], options)).output).toMatchObject({
