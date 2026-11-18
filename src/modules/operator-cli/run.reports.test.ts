@@ -58,6 +58,189 @@ const report = {
   ],
 };
 
+test.each([
+  { kind: "prototype", internalReview: true, missingGuide: false },
+  { kind: "research", internalReview: false, missingGuide: false },
+  { kind: "prototype", internalReview: true, missingGuide: true },
+])(
+  "promotion of $kind keeps coherent implementation context, review=$internalReview, missing guide=$missingGuide",
+  async ({ kind, internalReview, missingGuide }) => {
+    const source = await device.register({
+      trackerKey: "promotion:context",
+      internalReview,
+      assignments: [
+        {
+          key: "probe",
+          trackerKey: "APP-11",
+          instructions: "Investigate the queue.",
+          kind,
+          profile: "careful",
+          resources: "worktree",
+          branch: "report/probe",
+          dependencies: [],
+        },
+      ],
+    });
+    const worker = await device.dispatch(source, "probe");
+    const handoff = `${device.root}/drafts/handoff.md`;
+    await Bun.write(handoff, "PRIVATE HANDOFF CONTENT, reference only.", { createPath: true });
+    const submitted = await device.run(
+      [
+        "report",
+        "submit",
+        "--file",
+        await device.writeReport("promotion-report.md", { ...report, files: [handoff] }),
+      ],
+      { pane: worker.paneId, cwd: worker.worktreePath ?? "" },
+    );
+    expect(submitted.code, submitted.stderr).toBe(0);
+    const before = (await device.run(["source", "show", "--source", source])).output;
+    const recorded = z
+      .object({
+        data: z.object({
+          reports: z.array(z.object({ assignment: z.string(), files: z.array(z.string()) })),
+        }),
+      })
+      .parse(before).data.reports[0];
+    expect(recorded?.assignment).toBe("probe");
+    const storedHandoff =
+      recorded?.files[0] ?? expect.unreachable("The handoff was not persisted.");
+    expect(storedHandoff).toContain("/assignments/probe/reports/1/files/handoff.md");
+    await Bun.file(handoff).delete();
+    const calls = await device.herdrCalls();
+    if (missingGuide) await rm(`${device.root}/release/worker-agent/kinds/implementation.md`);
+    const file = await device.writeJson("promotion.json", {
+      key: "build",
+      trackerKey: "APP-12",
+      instructions: "Implement the queue.",
+      branch: "task/build",
+    });
+    const promoted = await device.run([
+      "report",
+      "accept",
+      "--source",
+      source,
+      "--assignment",
+      "probe",
+      "--promote",
+      file,
+    ]);
+    if (missingGuide) {
+      expect(promoted).toMatchObject({ code: 3, output: { reason: "invalid_settings" } });
+      expect((await device.run(["source", "show", "--source", source])).output).toEqual(before);
+      expect(await device.herdrCalls()).toEqual(calls);
+      expect(
+        (
+          await device.exec(["git", "branch", "--show-current"], worker.worktreePath ?? "")
+        ).stdout.trim(),
+      ).toBe("report/probe");
+      return;
+    }
+    expect(promoted.code, promoted.stderr).toBe(0);
+    const shown = (await device.run(["source", "show", "--source", source])).output;
+    const data = z
+      .object({
+        data: z.object({
+          launches: z.array(z.looseObject({ assignment: z.string() })),
+          reports: z.array(z.looseObject({ assignment: z.string() })),
+          assignments: z.array(
+            z.object({ key: z.string(), completion: z.string(), state: z.string() }),
+          ),
+          plan: z.object({ assignments: z.array(z.object({ key: z.string() })) }),
+        }),
+      })
+      .parse(shown).data;
+    const original = z
+      .object({ data: z.object({ launches: z.array(z.looseObject({ assignment: z.string() })) }) })
+      .parse(before).data.launches[0];
+    if (original === undefined) expect.unreachable("The original report launch is missing.");
+    expect(data.plan.assignments).toEqual([{ key: "probe" }]);
+    expect(data.assignments).toEqual([
+      { key: "probe", completion: "report", state: "completed" },
+      { key: "build", completion: "pr", state: "running" },
+    ]);
+    const planSnapshot = z.object({ data: z.object({ plan: z.unknown() }) });
+    expect(planSnapshot.parse(shown).data.plan).toEqual(planSnapshot.parse(before).data.plan);
+    const reportSnapshot = z.object({
+      data: z.object({
+        reports: z.array(
+          z.object({
+            assignment: z.string(),
+            number: z.number(),
+            submittedAt: z.string(),
+            conclusion: z.string(),
+            evidence: z.array(z.string()),
+            unresolved: z.array(z.string()),
+            decisions: z.array(z.unknown()),
+            files: z.array(z.string()),
+          }),
+        ),
+      }),
+    });
+    expect(reportSnapshot.parse(shown).data.reports).toEqual(
+      reportSnapshot.parse(before).data.reports,
+    );
+    expect(data.launches).toHaveLength(2);
+    expect(data.launches.find((row) => row.assignment === "probe")).toMatchObject({
+      kind: original.kind,
+      release: original.release,
+      skills: original.skills,
+    });
+    expect(data.launches.find((row) => row.assignment === "build")).toMatchObject({
+      paneId: worker.paneId,
+      worktreePath: worker.worktreePath,
+      profile: "careful",
+      host: original.host,
+      model: original.model,
+      reasoningEffort: original.reasoningEffort,
+      release: original.release,
+      skills: original.skills,
+      internalReview,
+      kind: {
+        name: "implementation",
+        completion: "pr",
+        nextKind: internalReview ? "review" : "pr-feedback",
+      },
+    });
+    const briefPath = z
+      .object({ data: z.object({ promoted: z.object({ brief: z.string() }) }) })
+      .parse(promoted.output).data.promoted.brief;
+    const brief = await Bun.file(briefPath).text();
+    expect(brief).toContain(`- \`${storedHandoff}\``);
+    expect(brief).toContain(`operator:example/one/sources/${source}/assignments/probe/reports/1`);
+    expect(brief).not.toContain("PRIVATE HANDOFF CONTENT");
+    expect(brief).not.toContain("## Note");
+    for (const text of [
+      "Worker kind: `implementation`",
+      "Phase: `build`",
+      "Start profile: `careful`",
+      "worker-agent/kinds/implementation.md",
+      "Completion: `pr`.",
+    ])
+      expect(brief).toContain(text);
+    expect(
+      await device.run(["message", "ack", "--key", "promoted"], {
+        pane: worker.paneId,
+        cwd: worker.worktreePath ?? "",
+      }),
+    ).toMatchObject({
+      code: 0,
+      output: {
+        kind: "implementation",
+        phase: "build",
+        next: { command: "operator pr associate" },
+      },
+    });
+    await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main);
+    const replacement = await device.dispatch(source, "build");
+    expect(replacement.worktreePath).toBe(worker.worktreePath);
+    expect(await Bun.file(replacement.brief).text()).toContain("Worker kind: `implementation`");
+    expect(await Bun.file(replacement.brief).text()).toContain(`- \`${storedHandoff}\``);
+    expect(await Bun.file(storedHandoff).text()).toBe("PRIVATE HANDOFF CONTENT, reference only.");
+  },
+  60000,
+);
+
 async function sourceLaunches(source: string) {
   const shown = await device.run(["source", "show", "--source", source]);
   return z
