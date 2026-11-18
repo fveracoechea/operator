@@ -13,7 +13,7 @@ import {
   type Receipt,
 } from "./storage.ts";
 import { decideSettingsWrite } from "./state-machine.ts";
-import { validateSelections } from "./validation.ts";
+import { validateGuides, validateSelections } from "./validation.ts";
 import type { AgentHosts } from "../agent-hosts/main.ts";
 import type { SelectionFailure } from "./selection.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
@@ -140,6 +140,7 @@ export async function plan(request: ChangeRequest): Promise<SettingsOutcome> {
   if (receipt === "unreadable" || receipt?.state === "pending") return recoveryRequired;
   const planned = makePlan(request.paths, await readConfig(request.paths), receipt, parsed.edits);
   if (planned.reason !== undefined) return planned;
+  await validateGuides(planned.after, request.paths);
   const invalid = await validateSelections(planned.after, request.cwd ?? process.cwd());
   return invalid ?? { reason: "settings_planned", data: planned };
 }
@@ -256,6 +257,7 @@ export async function apply(request: ChangeRequest): Promise<SettingsOutcome> {
       },
     };
   const invalid = await validateSelections(changed.data, request.cwd ?? process.cwd());
+  await validateGuides(changed.data, request.paths);
   if (invalid) return invalid;
   return withWriteLock(request.paths, () => applyLocked(request, parsed.edits));
 }
