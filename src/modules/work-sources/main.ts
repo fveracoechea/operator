@@ -22,6 +22,7 @@ import {
   findingSchema,
   type Cleanup,
   type InternalReview,
+  type KindHandoff,
   type Launch,
   type PullRequest,
   type Message,
@@ -1089,7 +1090,7 @@ function dependencyReports(source: Source, assignment: string) {
 }
 
 /** A handoff that a reviewer start ended is no longer a fact. */
-function handoffFact(review: InternalReview | undefined) {
+function handoffFact(review: KindHandoff | undefined) {
   if (review === undefined || review.handoffState === "done") return undefined;
   if (review.handoffState === "failed") return "failed";
   return review.handoffRunning ? "running" : "stopped";
@@ -1248,17 +1249,39 @@ function decideAssignmentRow(
         ? undefined
         : { decision: report.decision, cleanup: report.cleanupState },
     cleanup: cleanupFact(cleanup),
-    handoff: handoffFact(review),
+    handoff: handoffFact(source.handoffs.find((row) => row.assignment === assignment.key)),
     reviewing: review?.state === "reviewing",
     capReached: maxRunning !== undefined && running >= maxRunning,
     resources,
   });
+  // Keep the shipped recovery command until dispatch owns the full continuation lifecycle.
+  const exposed: Omit<typeof decision, "action" | "reason"> & {
+    action: typeof decision.action | "retry_handoff";
+    reason:
+      | typeof decision.reason
+      | "internal_review_handoff"
+      | "internal_review_handoff_failed"
+      | "internal_review_handoff_stopped";
+  } =
+    decision.reason === "kind_handoff"
+      ? { ...decision, reason: "internal_review_handoff" as const }
+      : decision.reason === "handoff_failed"
+        ? {
+            ...decision,
+            action: "retry_handoff" as const,
+            reason:
+              handoffFact(source.handoffs.find((row) => row.assignment === assignment.key)) ===
+              "failed"
+                ? ("internal_review_handoff_failed" as const)
+                : ("internal_review_handoff_stopped" as const),
+          }
+        : decision;
   const cap =
     decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
   const row = described(
     input,
     source,
-    { assignment: assignment.key, ...decision, ...cap },
+    { assignment: assignment.key, ...exposed, ...cap },
     { assignment: assignment.key, launch, pullRequest, report, cleanup, review },
   );
   return retained.length > 0 ? { ...row, retainedResources: retained } : row;
@@ -1284,6 +1307,7 @@ function described<T extends object>(
     report?: object;
     cleanup?: object;
     internalReview?: object;
+    handoff?: object;
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
@@ -1292,6 +1316,17 @@ function described<T extends object>(
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
   if (records.review !== undefined) row.internalReview = reviewSummary(source, records.review);
+  const handoff = source.handoffs.find((entry) => entry.assignment === records.assignment);
+  if (handoff !== undefined)
+    row.handoff = {
+      outgoingLaunchId: handoff.outgoingLaunchId,
+      nextKind: handoff.nextKind,
+      state:
+        handoff.handoffState === "pending" && !handoff.handoffRunning
+          ? "stopped"
+          : handoff.handoffState,
+      detail: handoff.handoffDetail,
+    };
   // Gaps of accepted dependency work stay visible until the dependent itself ends.
   const carried = dependencyReports(source, records.assignment);
   if (carried.length > 0) row.dependencyReports = carried;
