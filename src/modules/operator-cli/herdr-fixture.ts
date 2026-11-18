@@ -1,3 +1,8 @@
+// Bun has no temporary-directory API.
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 /**
  * A controlled Herdr executable for public CLI tests. It keeps its topology in one JSON file,
  * creates real Git worktrees, and runs the linked plugin manifest's hook command as Herdr does.
@@ -13,9 +18,22 @@ const { appendFile } = await import("node:fs/promises");
 await appendFile(root + "/herdr-calls.jsonl", JSON.stringify(args) + "\\n");
 const state = await Bun.file(stateFile).exists() ? await Bun.file(stateFile).json() : {};
 state.workspaces ??= []; state.tabs ??= []; state.agents ??= []; state.plugins ??= []; state.counter ??= 0; state.fail ??= {};
-const save = () => Bun.write(stateFile, JSON.stringify(state));
-const flag = (name) => { const index = args.indexOf(name); return index === -1 ? undefined : args[index + 1]; };
 const key = args.slice(0, 2).join(" ");
+const { appendFileSync, existsSync, statSync } = await import("node:fs");
+function trace(phase) {
+  const file = root + "/herdr-topology.jsonl";
+  const target = ["pane get", "pane close", "pane exit", "tab rename"].includes(key) ? args[2] : null;
+  const id = (value) => typeof value === "string" && /^[a-z0-9:.-]{1,80}$/i.test(value) ? value : null;
+  const record = JSON.stringify({ phase, pid: process.pid, fixture: root, session: root + "/herdr.sock", command: key,
+    target: id(target), counter: state.counter, workspaceCount: state.workspaces.length, tabCount: state.tabs.length,
+    workspaces: state.workspaces.slice(0, 32).map((row) => id(row.workspace_id)),
+    tabs: state.tabs.slice(0, 32).map((row) => ({ tabId: id(row.tabId), paneId: id(row.paneId), workspaceId: id(row.workspaceId) })) }) + "\\n";
+  // Append-only order exposes stale snapshots without logging labels, prompts, or host environment.
+  if ((existsSync(file) ? statSync(file).size : 0) + Buffer.byteLength(record) <= 262144) appendFileSync(file, record);
+}
+trace("loaded");
+const save = async () => { trace("save-start"); await Bun.write(stateFile, JSON.stringify(state)); trace("save-end"); };
+const flag = (name) => { const index = args.indexOf(name); return index === -1 ? undefined : args[index + 1]; };
 if (state.fail[key]) { console.error(JSON.stringify({ error: { message: state.fail[key] } })); process.exit(1); }
 const out = (result) => console.log(JSON.stringify({ id: "cli", result }));
 // Herdr labels only a tab it creates with \`tab create\`. A workspace's root tab shows its number.
@@ -47,7 +65,7 @@ if (key === "workspace list") out({ workspaces: state.workspaces });
 else if (key === "workspace create") { const created = workspace(flag("--cwd"), false); out({ workspace: created, root_pane: pane(created.workspace_id, flag("--cwd")) }); }
 else if (key === "tab list") out({ tabs: state.tabs.filter((tab) => tab.workspaceId === flag("--workspace")).map((tab) => ({ label: tab.label })) });
 else if (key === "tab create") out({ root_pane: pane(flag("--workspace"), flag("--cwd"), flag("--label") ?? "1") });
-else if (key === "tab rename") { const tab = state.tabs.find((row) => row.tabId === args[2]); if (!tab) { console.log(JSON.stringify({ error: { code: "tab_not_found", message: "tab " + args[2] + " not found" } })); process.exit(1); } tab.label = args.slice(3).join(" "); out({ type: "tab_renamed" }); }
+else if (key === "tab rename") { const tab = state.tabs.find((row) => row.tabId === args[2]); if (!tab) { trace("tab-not-found"); console.log(JSON.stringify({ error: { code: "tab_not_found", message: "tab " + args[2] + " not found" } })); process.exit(1); } tab.label = args.slice(3).join(" "); out({ type: "tab_renamed" }); }
 else if (key === "pane list") out({ panes: state.tabs.map((tab) => ({ pane_id: tab.paneId, tab_id: tab.tabId, workspace_id: tab.workspaceId, cwd: tab.cwd })) });
 else if (key === "worktree create" || key === "worktree open") {
   const source = state.workspaces.find((row) => row.workspace_id === flag("--workspace"));
@@ -104,6 +122,19 @@ else if (key === "worktree remove") {
 }
 else if (key === "pane exit") { await save(); await hook("pane.exited", { event: "pane_exited", data: { type: "pane_exited", pane_id: args[2], workspace_id: args[3] } }); }
 else { console.error("unsupported " + key); process.exit(2); }
-await save();
+// Detached parent cleanup can read while a child replacement opens its workspace.
+// A read must not write its older snapshot over that new topology.
+if (!["workspace list", "tab list", "pane list", "agent list", "plugin list", "pane get"].includes(key)) await save();
 `;
+}
+
+/** Retain only sanitized topology before the device's afterEach removes its root. */
+export async function retainHerdrTrace(root: string) {
+  const trace = Bun.file(`${root}/herdr-topology.jsonl`);
+  if (!(await trace.exists())) return null;
+  const directory = await mkdtemp(path.join(tmpdir(), "operator-herdr-failure-"));
+  const file = `${directory}/herdr-topology.jsonl`;
+  const text = await trace.slice(0, 262144).text();
+  await Bun.write(file, text);
+  return { file, tail: text.slice(-16384) };
 }
