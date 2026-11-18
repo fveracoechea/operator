@@ -199,8 +199,7 @@ function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof laun
       reviewHandoffTarget(outgoing) === handoff.nextKind
     );
   }
-  const next = WorkerKinds.names().find((name) => name === handoff.nextKind);
-  return next !== undefined && WorkerKinds.resolve(next).completion === assignment.completion;
+  return reviewHandoffTarget(null) === handoff.nextKind;
 }
 
 function freshLease(handoff: typeof kindHandoffs.$inferSelect) {

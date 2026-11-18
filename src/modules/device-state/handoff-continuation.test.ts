@@ -137,6 +137,26 @@ test.each(["configured", "default", "legacy"])(
   },
 );
 
+test.each(["pr-feedback", "implementation"])(
+  "legacy continuation refuses recorded %s instead of the association default",
+  (nextKind) => {
+    using client = new Database(":memory:");
+    const db = seed(client, null, nextKind);
+    const expected = { ...identity, nextKind };
+    const before = client.serialize();
+    expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+    expect(readContinuation(client, target, context, process.ppid)).toMatchObject(refusal);
+    expect(validateContinuation(db, expected)).toMatchObject(refusal);
+    expect(
+      reservedContinuation(db, expected, target.repository, {
+        ...target,
+        kind: JSON.stringify(WorkerKinds.resolve(nextKind)),
+      }),
+    ).toMatchObject(refusal);
+    expect(client.serialize()).toEqual(before);
+  },
+);
+
 test("publication PID can observe but cannot authorize effects until this process owns the hold", () => {
   using client = new Database(":memory:");
   const db = seed(client);

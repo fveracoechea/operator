@@ -652,6 +652,95 @@ Database.prototype.prepare = function(sql, ...args) {
   expect(db.serialize()).toEqual(before);
 }, 180000);
 
+test.each(["pr-feedback", "implementation"])(
+  "legacy CLI continuation refuses recorded %s without fallback or effects",
+  async (nextKind) => {
+    const { source, worker } = await pendingContinuation();
+    using db = fixtureDatabase();
+    db.query("UPDATE launches SET kind = NULL").run();
+    continuationFault(db, "pending", source, process.pid);
+    db.query("UPDATE kind_handoffs SET next_kind = ?").run(nextKind);
+    const before = db.serialize();
+    const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+    const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+    const result = await processResult(continuationChild(source, worker.paneId, process.pid));
+    expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(4);
+    expect(JSON.parse(result.stdout)).toMatchObject({ reason: "handoff_continuation_refused" });
+    expect(db.serialize()).toEqual(before);
+    expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+    expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+  },
+  180000,
+);
+
+test.each([1, 2])(
+  "effect-time continuation check %s preserves the Defect at the command boundary",
+  async (check) => {
+    const { source, worker } = await pendingContinuation();
+    using db = fixtureDatabase();
+    const parent = publisher();
+    try {
+      continuationFault(db, "pending", source, parent.pid);
+      const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+      const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+      const preload = `${root}/effect-defect.ts`;
+      await Bun.write(
+        preload,
+        `import { Database } from "bun:sqlite";
+import { writeFileSync } from "node:fs";
+const prepare=Database.prototype.prepare, exec=Database.prototype.exec;
+let claimWritten=false, claimCommitted=false, checks=0;
+Database.prototype.prepare=function(sql,...args) {
+  if(claimCommitted && sql.includes('from "kind_handoffs" inner join "sources"') && ++checks===${check}) {
+    writeFileSync(${JSON.stringify(`${root}/effect-defect-reached`)},String(checks));
+    throw new Error("effect-time continuation defect ${check}", {cause: {original: true}});
+  }
+  const statement=prepare.call(this,sql,...args);
+  if(sql.startsWith('update "kind_handoffs" set ') && sql.includes('"outgoing_launch_id" =')) {
+    const run=statement.run;
+    statement.run=function(...bindings) { const result=run.apply(this,bindings); claimWritten=true; return result; };
+  }
+  return statement;
+};
+Database.prototype.exec=function(sql,...args) {
+  const result=exec.call(this,sql,...args);
+  if(sql==="COMMIT" && claimWritten) claimCommitted=true;
+  return result;
+};`,
+      );
+      const child = continuationChild(source, worker.paneId, parent.pid, { preload });
+      db.query("UPDATE kind_handoffs SET owner_pid = ? WHERE owner_pid = ?").run(
+        child.pid,
+        parent.pid,
+      );
+      await Bun.write(`${root}/publish-release`, "exit");
+      const result = await processResult(child);
+      expect(await Bun.file(`${root}/effect-defect-reached`).text()).toBe(String(check));
+      expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(1);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        operation: "dispatch",
+        reason: "dispatch_defect",
+        blockers: [
+          { reason: "dispatch_defect", detail: `Error: effect-time continuation defect ${check}` },
+        ],
+      });
+      expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+      expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+      expect(
+        db.query("SELECT handoff_state, handoff_detail, owner_pid FROM kind_handoffs").all(),
+      ).toEqual([{ handoff_state: "pending", handoff_detail: null, owner_pid: child.pid }]);
+      expect(db.query("SELECT state FROM launches").all()).toEqual([{ state: "running" }]);
+      expect(db.query("SELECT supervising_session, supervising_pane FROM sources").all()).toEqual([
+        { supervising_session: "ses_supervisor", supervising_pane: "synthetic-supervisor-pane" },
+      ]);
+    } finally {
+      await Bun.write(`${root}/publish-release`, "exit");
+      await processResult(parent);
+    }
+  },
+  180000,
+);
+
 test.each([
   "claim-loss",
   "preclose-loss",
