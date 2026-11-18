@@ -46,8 +46,9 @@ test.each([
   {
     name: "assignment kind requirement",
     file: "work-sources/plan.ts",
-    before: "kind: z.enum(WorkerKinds.names()),",
-    after: 'kind: z.enum(WorkerKinds.names()).default("research"),',
+    before: "kind: z.enum([...WorkerKinds.names(), ...Object.keys(definitions)]),",
+    after:
+      'kind: z.enum([...WorkerKinds.names(), ...Object.keys(definitions)]).default("research"),',
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "a plan assignment without a kind",
   },
