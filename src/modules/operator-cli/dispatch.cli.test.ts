@@ -22,5 +22,5 @@ test("one-off dispatch behavior through the isolated CLI seam", async () => {
     new Response(child.stderr).text(),
   ]);
   expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("19 pass");
+  expect(`${stdout}\n${stderr}`).toContain("20 pass");
 }, 120000);
