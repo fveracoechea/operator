@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { decidePhase } from "./phase-machine.ts";
 
 const nameSchema = z.enum([
   "research",
@@ -18,7 +19,22 @@ const definitionSchema = z.object({
   guide: z.string(),
   skillsToRead: z.array(z.string()).default([]),
   dispatchable: z.boolean(),
-  workPhases: z.array(z.object({ name: z.string(), goal: z.string() })),
+  workPhases: z.array(
+    z.object({
+      name: z.string(),
+      goal: z.string(),
+      guard: z
+        .enum([
+          "report_submitted",
+          "pr_associated",
+          "round_recorded",
+          "pr_ready",
+          "worktree_clean",
+          "pr_merged",
+        ])
+        .optional(),
+    }),
+  ),
 });
 type WorkerKind = z.infer<typeof definitionSchema>;
 
@@ -102,6 +118,9 @@ const kinds: Record<z.infer<typeof nameSchema>, WorkerKind> = {
 
 /** Kind policy is shared by plan registration and launch snapshots. ADR-0029. */
 export const WorkerKinds = {
+  decidePhase(facts: Parameters<typeof decidePhase>[0], event?: Parameters<typeof decidePhase>[1]) {
+    return decidePhase(facts, event);
+  },
   names() {
     return nameSchema.options;
   },
