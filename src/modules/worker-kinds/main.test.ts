@@ -116,4 +116,3 @@ test("imperative PR owners share the phase ownership, round, and cleanliness pol
   expect(WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: true })).toBe(true);
   expect(WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: false })).toBe(false);
 });
-
