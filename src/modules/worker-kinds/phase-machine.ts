@@ -1,4 +1,5 @@
 import type { NextStep } from "../../lib/cli-result.ts";
+import { refusesPrGuard } from "./pr-policy.ts";
 
 export type PhaseGuard =
   | "report_submitted"
@@ -85,7 +86,7 @@ const reportTail: Rule[] = [
 const prTail: Rule[] = [
   { when: (facts) => facts.pr.merged, phase: () => complete },
   {
-    when: (facts) => facts.handedOff === true,
+    when: (facts) => refusesPrGuard({ guard: "ownership", handedOff: facts.handedOff === true }),
     phase: () => ({
       phase: "handoff",
       next: { why: "This launch handed the PR to its reviewer. Stop here." },
@@ -174,7 +175,10 @@ export function decidePhase(facts: PhaseFacts, event?: PhaseEvent) {
     ...closing,
     phase: work?.name ?? closing.phase,
   };
-  if (event !== undefined && facts.handedOff === true)
+  if (
+    event !== undefined &&
+    refusesPrGuard({ guard: "ownership", handedOff: facts.handedOff === true })
+  )
     return {
       kind: facts.kind.name,
       ...current,
@@ -189,7 +193,7 @@ export function decidePhase(facts: PhaseFacts, event?: PhaseEvent) {
     pr_associated: facts.pr.associated,
     round_recorded: facts.pr.rounds > 0,
     pr_ready: facts.pr.ready,
-    worktree_clean: facts.worktreeClean,
+    worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),
     pr_merged: facts.pr.merged,
   };
   const missing = requiredGuards(facts, event).find((guard) => !guards[guard]);
@@ -204,7 +208,11 @@ export function decidePhase(facts: PhaseFacts, event?: PhaseEvent) {
         state: { [missing]: false },
       },
     };
-  if (event === "round" && !facts.reviewEnded && facts.pr.rounds >= 2)
+  if (
+    event === "round" &&
+    !facts.reviewEnded &&
+    refusesPrGuard({ guard: "round", rounds: facts.pr.rounds })
+  )
     return {
       kind: facts.kind.name,
       phase: current.phase,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { decidePhase } from "./phase-machine.ts";
+import { refusesPrGuard } from "./pr-policy.ts";
 
 const nameSchema = z.enum([
   "research",
@@ -118,6 +119,9 @@ const kinds: Record<z.infer<typeof nameSchema>, WorkerKind> = {
 
 /** Kind policy is shared by plan registration and launch snapshots. ADR-0029. */
 export const WorkerKinds = {
+  refusesPrGuard(facts: Parameters<typeof refusesPrGuard>[0]) {
+    return refusesPrGuard(facts);
+  },
   decidePhase(facts: Parameters<typeof decidePhase>[0], event?: Parameters<typeof decidePhase>[1]) {
     return decidePhase(facts, event);
   },
