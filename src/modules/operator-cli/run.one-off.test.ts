@@ -82,6 +82,7 @@ test("one-off dispatch keeps a failed launch available for ordinary dispatch and
 }, 60000);
 
 test.each([
+  [["abandon", "--kind", "answer", "--brief", "-"]],
   [["dispatch", "--kind", "research"]],
   [["dispatch", "--brief", "-"]],
   [["dispatch", "--kind", "research", "--brief", "-", "--source", "s"]],

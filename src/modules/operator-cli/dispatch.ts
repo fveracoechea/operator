@@ -51,6 +51,7 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
   const brief = values["--brief"];
   if (kind !== undefined || brief !== undefined) {
     if (
+      operation !== "dispatch" ||
       sourceId !== undefined ||
       assignment !== undefined ||
       kind === undefined ||
