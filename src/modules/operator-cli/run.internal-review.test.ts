@@ -15,11 +15,19 @@ import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 import { expectWorkflowRefusal } from "./worker-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
+import { continuationProgress } from "./continuation-diagnostics-fixture.ts";
 
 // Internal review is on by default, so these tests set no review setting. ADR-0020.
 
 let root = "";
 let checkout = "";
+let continuationScenario: string | undefined;
+
+function startContinuationScenario(name: string) {
+  continuationScenario = name;
+  continuationProgress("start", name);
+}
+
 const workerPanes = new Map<string, string>();
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
@@ -174,6 +182,10 @@ async function setup(host: "opencode" | "claude-code") {
 afterEach(async () => {
   workerPanes.clear();
   await rm(root, { recursive: true, force: true });
+  if (continuationScenario !== undefined) {
+    continuationProgress("complete", continuationScenario);
+    continuationScenario = undefined;
+  }
 });
 
 async function dispatch(source: string, assignment = "implement") {
@@ -502,6 +514,9 @@ async function publicationRetriesBeforeClaim() {
 test.each(["publish", "expire"] as const)(
   "a continuation waits read-only for exact PID publication and can %s safely",
   async (mode) => {
+    startContinuationScenario(
+      `a continuation waits read-only for exact PID publication and can ${mode} safely`,
+    );
     const { source, worker } = await pendingContinuation();
     using db = fixtureDatabase();
     const parent = publisher();
@@ -568,6 +583,9 @@ test.each([
 ] as const)(
   "a continuation rechecks %s transactionally without fallback or supervisor overwrite",
   async (mode) => {
+    startContinuationScenario(
+      `a continuation rechecks ${mode} transactionally without fallback or supervisor overwrite`,
+    );
     const { source, worker } = await pendingContinuation();
     using db = fixtureDatabase();
     const parent = publisher();
@@ -659,6 +677,9 @@ test.each([
 ] as const)(
   "foreign continuation refuses %s without effects or supervisor changes",
   async (mode) => {
+    startContinuationScenario(
+      `foreign continuation refuses ${mode} without effects or supervisor changes`,
+    );
     const { source, worker } = await pendingContinuation();
     using db = fixtureDatabase();
     const parent = publisher();
@@ -698,6 +719,9 @@ test.each([
 );
 
 test("timer renewal leaves a lost continuation lease unchanged and refuses the next launch", async () => {
+  startContinuationScenario(
+    "timer renewal leaves a lost continuation lease unchanged and refuses the next launch",
+  );
   const { source, worker } = await pendingContinuation();
   using db = fixtureDatabase();
   continuationFault(db, "pending", source, process.pid);
@@ -770,6 +794,9 @@ test("pruning an ended assignment removes its generic handoff without deleting r
 }, 180000);
 
 test("an internal flag grants no supervisor dispatch fallback, while ordinary recovery remains authorized", async () => {
+  startContinuationScenario(
+    "an internal flag grants no supervisor dispatch fallback, while ordinary recovery remains authorized",
+  );
   const { source, worker } = await pendingContinuation();
   using db = fixtureDatabase();
   const before = db.serialize();
@@ -791,6 +818,9 @@ test("an internal flag grants no supervisor dispatch fallback, while ordinary re
 test.each(["opencode", "claude-code"] as const)(
   "automatic kind handoff preserves distinct supervisor and %s worker identities",
   async (host) => {
+    startContinuationScenario(
+      `automatic kind handoff preserves distinct supervisor and ${host} worker identities`,
+    );
     const source = await setup(host);
     const worker = await dispatch(source);
     const caller = {
