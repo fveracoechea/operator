@@ -1,11 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { DeviceSettings } from "./main.ts";
 
-const root = await mkdtemp("/tmp/opencode/pr424-kind-settings-");
+const root = await mkdtemp(path.join(tmpdir(), "pr424-kind-settings-"));
 afterAll(() => rm(root, { recursive: true, force: true }));
 const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
 
