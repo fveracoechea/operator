@@ -67,7 +67,7 @@ export function failure(
         phase: context.phase,
       }),
     );
-  printRefusal(reason, detail, context);
+  printResolvedRefusal(reason, detail, context, context);
   process.exitCode = code;
 }
 
@@ -78,8 +78,19 @@ export function printRefusal(
   context: ResultContext | ResultContext[],
 ) {
   const grouped = Array.isArray(context);
-  const contexts = grouped ? context : [context];
   const worker = grouped ? outputContext() : { ...outputContext(), ...context };
+  printResolvedRefusal(reason, detail, context, worker);
+}
+
+/** Render the checked snapshot without another state read between JSON and text. */
+function printResolvedRefusal(
+  reason: string,
+  detail: string,
+  context: ResultContext | ResultContext[],
+  worker: Partial<ResultContext>,
+) {
+  const grouped = Array.isArray(context);
+  const contexts = grouped ? context : [context];
   const phase = worker.kind === undefined ? "" : ` [kind=${worker.kind} phase=${worker.phase}]`;
   console.error(oneLine(`operator: ${reason}: ${detail}${phase}`));
   console.error(

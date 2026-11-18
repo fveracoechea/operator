@@ -350,6 +350,59 @@ test("a failed output phase refresh does not fall back to its initial snapshot",
   expect(process.exitCode).toBe(1);
 });
 
+test.each([
+  { tag: "Err", json: true },
+  { tag: "Defect", json: true },
+  { tag: "Err", json: false },
+  { tag: "Defect", json: false },
+] as const)(
+  "actual CLI refusal consumes one output snapshot before a possible second $tag (json=$json)",
+  async ({ tag, json }) => {
+    const error = spyOn(console, "error");
+    const defect = fromThrowable(
+      () => {
+        // oxlint-disable-next-line unthrown/no-throw -- Inject the original defect at a module boundary.
+        throw new Error("original second output defect");
+      },
+      (cause, fail) => fail(cause),
+    )();
+    const read = spyOn(DeviceState, "readSources")
+      .mockReturnValueOnce(Ok([source]))
+      .mockReturnValueOnce(Ok([source]))
+      .mockReturnValue(
+        tag === "Err"
+          ? Err({ reason: "state_busy", detail: "Second output lock.", next: { why: "Retry." } })
+          : defect,
+      );
+    const submit = spyOn(ReportAssignments, "submit").mockReturnValue(
+      ErrAsync({
+        reason: "report_pending",
+        detail: "Already submitted.",
+        next: { command: "operator report resume", why: "Resume." },
+      }) as never,
+    );
+    if (json)
+      expect(
+        await run(["report", "submit", "--file", "fixture.json"], OperatorCli.main),
+      ).toMatchObject({
+        operation: "report_submit",
+        reason: "report_pending",
+        kind: "research",
+        phase: "acceptance",
+        next: { command: "operator report resume" },
+      });
+    else await OperatorCli.main(["report", "submit", "--file", "fixture.json"]);
+    expect(error.mock.calls).toEqual([
+      ["operator: report_pending: Already submitted. [kind=research phase=acceptance]"],
+      ["next: operator report resume"],
+    ]);
+    expect(log).toHaveBeenCalledTimes(json ? 1 : 0);
+    expect(process.exitCode).toBe(3);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2);
+  },
+);
+
 test.each(["socket", "pane"] as const)(
   "an absent worker %s leaves ordinary reads untyped",
   async (missing) => {
