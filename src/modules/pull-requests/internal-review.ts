@@ -213,6 +213,11 @@ async function runHandoff(
   }
   const recovery = await recoveryGate(request, facts);
   if (recovery !== null) return { ok: false, error: recovery };
+  // Recovery can await live PR/Git reads; it cannot extend a continuation's authorization.
+  if (request.continuation !== undefined) {
+    const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
+    if (checked.tag !== "Ok") return { ok: false, error: failure(checked) };
+  }
   const decision = decideInternalReview({
     event: "handoff",
     implementer: { state: facts.implementer.state, paneId: facts.implementer.paneId },
@@ -393,19 +398,21 @@ function waitForPublication(
 export function dispatch(input: DispatchInput) {
   return dispatchPermission(input).flatMap(({ continuation }) => {
     if (continuation === null) return supervisorDispatch(input);
-    return handoff({ ...input, afterPid: input.afterPid ?? null, continuation }).flatMap((launch) =>
-      launch === null
-        ? ErrAsync<Failure>({
-            reason: "handoff_continuation_refused",
-            detail: "The pending continuation was consumed. No replacement was dispatched.",
-            next: {
-              command: "operator next",
-              why: "Read the assignment's recorded next action.",
-            },
-            state: { continuationAuthorized: false },
-          })
-        : OkAsync(launch),
-    );
+    return WorkerDispatch.checkHandoff(input)
+      .flatMap(() => handoff({ ...input, afterPid: input.afterPid ?? null, continuation }))
+      .flatMap((launch) =>
+        launch === null
+          ? ErrAsync<Failure>({
+              reason: "handoff_continuation_refused",
+              detail: "The pending continuation was consumed. No replacement was dispatched.",
+              next: {
+                command: "operator next",
+                why: "Read the assignment's recorded next action.",
+              },
+              state: { continuationAuthorized: false },
+            })
+          : OkAsync(launch),
+      );
   });
 }
 
@@ -415,9 +422,9 @@ function supervisorDispatch(input: DispatchInput) {
     const recorded = source?.handoffs.find((row) => row.assignment === input.assignment);
     if (recorded === undefined || recorded.handoffState === "done")
       return WorkerDispatch.dispatch(input);
-    return handoff({ ...input, afterPid: input.afterPid ?? null }).flatMap((launch) =>
-      launch === null ? WorkerDispatch.dispatch(input) : OkAsync(launch),
-    );
+    return WorkerDispatch.checkHandoff(input)
+      .flatMap(() => handoff({ ...input, afterPid: input.afterPid ?? null }))
+      .flatMap((launch) => (launch === null ? WorkerDispatch.dispatch(input) : OkAsync(launch)));
   });
 }
 

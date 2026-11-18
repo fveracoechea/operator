@@ -5,6 +5,7 @@ import type { Refusal } from "../../lib/cli-result.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
+import { readRecoveryReceipt } from "./internal-review-recovery.ts";
 import { assignments, kindHandoffs, launches, sources } from "./schema.ts";
 
 export type HandoffContinuation = {
@@ -72,7 +73,7 @@ export function inspectContinuation(
     .where(and(eq(launches.sourceId, target.sourceId), eq(launches.assignment, target.assignment)))
     .orderBy(desc(launches.attempt))
     .get();
-  if (!continuationFacts({ source, assignment, handoff, latest, context: { pane, socket } }))
+  if (!continuationFacts(db, { source, assignment, handoff, latest, context: { pane, socket } }))
     return Err(continuationRefusal());
   const identity: HandoffContinuation = {
     ...target,
@@ -152,14 +153,16 @@ function sameContinuation(left: HandoffContinuation, right: HandoffContinuation)
   );
 }
 
-function continuationFacts(facts: {
+type ContinuationFacts = {
   source: typeof sources.$inferSelect;
   assignment: typeof assignments.$inferSelect;
   handoff: typeof kindHandoffs.$inferSelect;
   latest: typeof launches.$inferSelect | undefined;
   context: { pane: string; socket: string };
-}) {
-  const { source, assignment, handoff, latest, context } = facts;
+};
+
+function continuationFacts(db: Db, facts: ContinuationFacts) {
+  const { source, assignment, handoff, latest } = facts;
   if (
     source.state !== "open" ||
     assignment.completion !== "pr" ||
@@ -173,8 +176,25 @@ function continuationFacts(facts: {
     !["running", "interrupted", "finished"].includes(latest.state)
   )
     return false;
-  if (context.pane !== latest.paneId || context.socket !== latest.herdrSocket) return false;
-  if (!freshLease(handoff)) return false;
+  return freshLease(handoff) && continuationOwner(db, facts, latest);
+}
+
+function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof launches.$inferSelect) {
+  const { source, assignment, handoff, context } = facts;
+  if (context.socket !== latest.herdrSocket) return false;
+  const receipt = readRecoveryReceipt(db, source.repository, source.id, assignment.key);
+  const recovered =
+    receipt.tag === "Ok" &&
+    receipt.value?.implementerLaunchId === latest.id &&
+    handoff.nextKind === "review";
+  if (context.pane !== latest.paneId && (context.pane !== source.supervisingPane || !recovered))
+    return false;
+  // An explicitly recovered promotion can retain its original report-kind snapshot.
+  if (recovered) return true;
+  if (latest.kind !== null) {
+    const outgoing = WorkerKinds.snapshotSchema().parse(JSON.parse(latest.kind));
+    return outgoing.completion === assignment.completion && outgoing.nextKind === handoff.nextKind;
+  }
   const next = WorkerKinds.names().find((name) => name === handoff.nextKind);
   return next !== undefined && WorkerKinds.resolve(next).completion === assignment.completion;
 }

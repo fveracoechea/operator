@@ -145,7 +145,7 @@ export type InternalReview = z.infer<typeof internalReviewSchema>;
 const handoffSchema = z.object({
   assignment: z.string(),
   outgoingLaunchId: z.string(),
-  nextKind: z.enum(WorkerKinds.names()),
+  nextKind: WorkerKinds.snapshotSchema().shape.name,
   handoffState: z.enum(["pending", "failed", "done"]),
   handoffDetail: z.string().nullable(),
   handoffRunning: z.boolean(),

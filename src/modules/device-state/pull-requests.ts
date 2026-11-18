@@ -2,6 +2,7 @@ import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
@@ -148,6 +149,7 @@ export function activeOwner(db: Db, launchId: string) {
 function insertInternalReview(
   db: Db,
   review: { sourceId: string; assignment: string; implementerLaunchId: string },
+  nextKind: string,
 ) {
   const now = new Date().toISOString();
   db.insert(internalReviews)
@@ -172,7 +174,7 @@ function insertInternalReview(
       sourceId: review.sourceId,
       assignment: review.assignment,
       outgoingLaunchId: review.implementerLaunchId,
-      nextKind: "review",
+      nextKind,
       handoffState: "pending",
       handoffDetail: null,
       startedAt: now,
@@ -208,6 +210,7 @@ export function associatePullRequest(
         ({
           source,
           assignment,
+          launch,
         }): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
           const existing = current(db, source.id, assignment.key);
           if (existing !== undefined)
@@ -271,11 +274,18 @@ export function associatePullRequest(
             .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
             .run();
           if (internalReview)
-            insertInternalReview(db, {
-              sourceId: source.id,
-              assignment: assignment.key,
-              implementerLaunchId: launchId,
-            });
+            insertInternalReview(
+              db,
+              {
+                sourceId: source.id,
+                assignment: assignment.key,
+                implementerLaunchId: launchId,
+              },
+              launch.kind === null
+                ? "review"
+                : (WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)).nextKind ??
+                    "review"),
+            );
           if (review)
             requestAssignmentReview(db, {
               repository: source.repository,

@@ -125,14 +125,14 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
   const migrations = beforeHistory
     .query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id")
     .all();
-  expect(migrations).toHaveLength(22);
+  expect(migrations).toHaveLength(23);
   beforeHistory.close();
   // Neither a fixed promotion implementation nor repeated association repairs retained state.
   expect(
     (await device.run(["pr", "associate"], { cwd: worktree, pane: worker.paneId })).output.reason,
   ).toBe("pr_unchanged");
-  const missing = await device.run(["handoff", "--source", source, "--assignment", "build"]);
-  expect(missing.output.reason).toBe("handoff_not_found");
+  const missing = await device.run(["dispatch", "--source", source, "--assignment", "build"]);
+  expect(missing.output.reason).toBe("assignment_not_dispatchable");
   const database = Bun.file(`${device.root}/state/operator/operator.sqlite`);
   const before = await database.arrayBuffer();
   const fakeReceipt = await device.writeText("fake-receipt.md", "Pretend recovery was authorized.");
@@ -225,7 +225,7 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
     )
     .run(source);
   expect(
-    (await device.run(["handoff", "--source", source, "--assignment", "build"])).output.reason,
+    (await device.run(["dispatch", "--source", source, "--assignment", "build"])).output.reason,
   ).toBe("internal_review_recovery_incompatible");
   corrupt
     .query(
@@ -234,12 +234,12 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
     .run(originalMessage, source);
   corrupt.close();
   await Bun.write(`${worktree}/local-after-recovery`, "unlanded correction");
-  const unsafeRetry = await device.run(["handoff", "--source", source, "--assignment", "build"]);
+  const unsafeRetry = await device.run(["dispatch", "--source", source, "--assignment", "build"]);
   expect(unsafeRetry.output.reason).toBe("pr_worktree_unclean");
   expect(await Bun.file(`${worktree}/local-after-recovery`).text()).toBe("unlanded correction");
   await rm(`${worktree}/local-after-recovery`);
   await device.setHerdr({ fail: {} });
-  const handed = await device.run(["handoff", "--source", source, "--assignment", "build"]);
+  const handed = await device.run(["dispatch", "--source", source, "--assignment", "build"]);
   expect(handed.code, handed.stderr).toBe(0);
   const reviewed = await device.run(["source", "show", "--source", source]);
   expect(reviewed.output).toMatchObject({

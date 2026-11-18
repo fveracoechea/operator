@@ -136,7 +136,23 @@ const plan = {
   ],
 };
 
-async function setup(host: "opencode" | "claude-code") {
+const customBuild = {
+  completion: "pr",
+  resources: "worktree",
+  profile: "careful",
+  nextKind: "custom-review",
+  guide: "custom-build/SKILL.md",
+  workPhases: [{ name: "build", goal: "Implement the assigned change." }],
+};
+const customReview = {
+  completion: "pr",
+  resources: "pane",
+  nextKind: "pr-feedback",
+  guide: "custom-review/SKILL.md",
+  workPhases: [{ name: "inspect", goal: "Review the assigned change independently." }],
+};
+
+async function setup(host: "opencode" | "claude-code", custom = false) {
   root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-pr-")));
   checkout = `${root}/checkout`;
   await mkdir(checkout);
@@ -150,12 +166,19 @@ async function setup(host: "opencode" | "claude-code") {
   await symlink(cli, `${root}/tools/operator`);
   await tool("opencode", opencode);
   await tool("claude", claude);
+  const superAgent =
+    host === "opencode" ? { host, model: "test/reasoner" } : { host, model: "precise-model" };
   await Bun.write(
     `${root}/config/operator/config.json`,
-    JSON.stringify({
-      superAgent:
-        host === "opencode" ? { host, model: "test/reasoner" } : { host, model: "precise-model" },
-    }),
+    JSON.stringify(
+      custom
+        ? {
+            superAgent,
+            profiles: { careful: { reasoningEffort: "high" } },
+            kinds: { "custom-build": customBuild, "custom-review": customReview },
+          }
+        : { superAgent },
+    ),
     { createPath: true },
   );
   await cp(Bun.fileURLToPath(new URL("../../../skills", import.meta.url)), `${root}/release`, {
@@ -170,11 +193,38 @@ async function setup(host: "opencode" | "claude-code") {
   await mkdir(upstream, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${upstream}/code-review`);
   await writeGuideSkills(upstream);
+  if (custom) {
+    await Bun.write(`${skills}/custom-build/SKILL.md`, "# Build\nImplement the change.\n", {
+      createPath: true,
+    });
+    await Bun.write(`${upstream}/custom-review/SKILL.md`, "# Review\nReview independently.\n", {
+      createPath: true,
+    });
+  }
   await writeClaudeHookSettings(`${root}/home`);
   await writeOpenCodePlugin(`${root}/config`);
   expect((await run(["project", "register"])).code).toBe(0);
   expect((await run(["herdr", "install"])).code).toBe(0);
-  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify(
+      custom
+        ? {
+            trackerKey: plan.trackerKey,
+            assignments: [
+              {
+                key: "implement",
+                trackerKey: "github:example/one#12",
+                instructions: "Implement the change.",
+                kind: "custom-build",
+                branch: "task/12-implement",
+                dependencies: [],
+              },
+            ],
+          }
+        : plan,
+    ),
+  );
   const registered = await run(["source", "register", "--file", `${root}/plan.json`]);
   return z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
 }
@@ -319,8 +369,8 @@ function workerCaller(paneId: string, host: "opencode" | "claude-code" = "openco
   };
 }
 
-async function pendingContinuation() {
-  const source = await setup("opencode");
+async function pendingContinuation(custom = false) {
+  const source = await setup("opencode", custom);
   const worker = await dispatch(source);
   const head = await commit(worker.worktreePath, "work.txt");
   await github({ pulls: [pull({ head, isDraft: true })] });
@@ -956,6 +1006,140 @@ test("pr associate of a draft hands implementation to review and writes no note"
   });
   expect((await shown(source)).launches).toHaveLength(2);
 }, 180000);
+
+test("a custom-kind draft handoff inherits installed guides and registered defaults while retaining launch snapshots", async () => {
+  const source = await setup("opencode", true);
+  const worker = await dispatch(source);
+  const outgoing = (await shown(source)).launches[0];
+  expect(outgoing).toMatchObject({
+    kind: {
+      name: "custom-build",
+      completion: "pr",
+      resources: "worktree",
+      profile: "careful",
+      nextKind: "custom-review",
+      readsNote: false,
+      dispatchable: true,
+      skillsToRead: [],
+      guide: `${root}/config/opencode/skills/custom-build/SKILL.md`,
+      workPhases: [{ name: "build", goal: "Implement the assigned change." }],
+    },
+  });
+  const configFile = `${root}/config/operator/config.json`;
+  const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+  await Bun.write(
+    configFile,
+    JSON.stringify({
+      ...config,
+      kinds: {
+        "custom-build": {
+          ...customBuild,
+          nextKind: "pr-feedback",
+          workPhases: [{ name: "changed", goal: "Changed work." }],
+        },
+        "custom-review": customReview,
+      },
+    }),
+  );
+  expect((await shown(source)).launches[0]).toEqual(outgoing);
+  const head = await commit(worker.worktreePath, "work.txt");
+  await github({ pulls: [pull({ head, isDraft: true })] });
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });
+  expect(await handedOff(source)).toMatchObject({ handoffState: "done" });
+  expect((await run(["source", "show", "--source", source])).output).toMatchObject({
+    data: {
+      handoffs: [{ nextKind: "custom-review", handoffState: "done" }],
+      launches: [
+        { state: "finished", kind: outgoing?.kind },
+        {
+          state: "running",
+          worktreePath: worker.worktreePath,
+          profile: "careful",
+          kind: {
+            name: "custom-review",
+            completion: "pr",
+            resources: "worktree",
+            profile: "careful",
+            nextKind: "pr-feedback",
+            readsNote: false,
+            dispatchable: true,
+            skillsToRead: [],
+            guide: `${root}/home/.agents/skills/custom-review/SKILL.md`,
+            workPhases: [{ name: "inspect", goal: "Review the assigned change independently." }],
+          },
+        },
+      ],
+    },
+  });
+  const brief = await Bun.file(worker.brief).text();
+  expect(brief).toContain("Worker kind: `custom-review`");
+  expect(brief).toContain(`Guide: \`${root}/home/.agents/skills/custom-review/SKILL.md\``);
+  expect(brief).toContain("Start profile: `careful`");
+  expect(brief).toContain("## Handoff\n\nPR #7:");
+  expect(brief).not.toContain("## Note");
+  expect(
+    await Array.fromAsync(
+      new Bun.Glob("**/*").scan({ cwd: path.dirname(worker.brief), dot: true, onlyFiles: true }),
+    ),
+  ).toEqual(["brief.md"]);
+  expect(await calls("herdr-calls.jsonl", `"pane","close","${worker.paneId}"`)).toBe(1);
+  const snapshots = (await shown(source)).launches;
+  await Bun.write(
+    configFile,
+    JSON.stringify({
+      ...config,
+      kinds: {
+        "custom-build": customBuild,
+        "custom-review": {
+          ...customReview,
+          readsNote: true,
+          workPhases: [{ name: "changed", goal: "Changed review." }],
+        },
+      },
+    }),
+  );
+  expect((await shown(source)).launches).toEqual(snapshots);
+}, 180000);
+
+test.each(["selected-host guide", "cross-completion", "unknown next", "removed recorded target"])(
+  "an invalid custom-kind handoff refuses %s before effects or state changes",
+  async (mode) => {
+    const { source, worker } = await pendingContinuation(true);
+    const configFile = `${root}/config/operator/config.json`;
+    const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+    const kinds: Record<string, typeof customBuild | typeof customReview> = {
+      "custom-build": customBuild,
+      "custom-review": customReview,
+    };
+    if (mode === "selected-host guide") {
+      await rm(`${root}/home/.agents/skills/custom-review/SKILL.md`);
+      await Bun.write(`${root}/home/.claude/skills/custom-review/SKILL.md`, "# Review\n", {
+        createPath: true,
+      });
+    }
+    if (mode === "cross-completion")
+      kinds["custom-review"] = { ...customReview, completion: "report", nextKind: "answer" };
+    if (mode === "unknown next") kinds["custom-build"] = { ...customBuild, nextKind: "missing" };
+    if (mode === "removed recorded target") {
+      kinds["custom-build"] = { ...customBuild, nextKind: "pr-feedback" };
+      delete kinds["custom-review"];
+    }
+    await Bun.write(configFile, JSON.stringify({ ...config, kinds }));
+    const database = Bun.file(`${root}/state/operator/operator.sqlite`);
+    const before = await database.bytes();
+    const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+    const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+    expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+      code: 3,
+      output: { reason: "invalid_settings", next: { decider: "super-agent" } },
+    });
+    expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+    expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+    expect(await database.bytes()).toEqual(before);
+    expect(await git(worker.worktreePath, "status", "--porcelain")).toBe("");
+  },
+  180000,
+);
 
 test("a failed reviewer start shows as replace_worker, and a dispatch starts the reviewer", async () => {
   const source = await setup("opencode");
