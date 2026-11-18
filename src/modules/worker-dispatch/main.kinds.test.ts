@@ -2,6 +2,7 @@ import { afterAll, afterEach, expect, mock, setSystemTime, test } from "bun:test
 import { Database } from "bun:sqlite";
 import { ErrAsync, Ok } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { dispatchDevice, removeDevices } from "./dispatch-fixture.ts";
@@ -229,12 +230,19 @@ test("another assignment's running-cap wait does not block a failed worker's rep
   });
 });
 
-test("refreshing a promoted brief keeps its recorded kind and profile", async () => {
+test("refresh and replacement briefs isolate answered questions and keep the promoted snapshot", async () => {
   await using device = await dispatchDevice();
   expect(await WorkerDispatch.dispatch(device.request("survey"))).toMatchObject({ tag: "Ok" });
   const launch = (await device.launches("survey"))[0];
   if (launch === undefined) expect.unreachable("The report launch is missing.");
   const id = crypto.randomUUID();
+  const definition = await DeviceSettings.kind({
+    paths: device.paths,
+    name: "implementation",
+    host: "claude-code",
+  });
+  if (definition.tag !== "Ok") expect.unreachable("The installed implementation kind is missing.");
+  const kind = { ...definition.value, profile: "careful", nextKind: "pr-feedback" };
   expect(
     DeviceState.changeReport(
       device.paths,
@@ -272,6 +280,7 @@ test("refreshing a promoted brief keeps its recorded kind and profile", async ()
               sourceId: device.sourceId,
               key: "build",
               completion: "pr",
+              kind: "implementation",
               state: "running",
             },
             promotion: {
@@ -287,12 +296,77 @@ test("refreshing a promoted brief keeps its recorded kind and profile", async ()
               handoverLaunchId: id,
               promotedAt: "2026-01-01",
             },
-            launch: { ...facts.launch, id, name: "pr-one-build", assignment: "build", attempt: 1 },
+            launch: {
+              ...facts.launch,
+              id,
+              name: "pr-one-build",
+              assignment: "build",
+              attempt: 1,
+              kind: JSON.stringify(kind),
+              internalReview: false,
+            },
           },
         });
       },
     ).tag,
   ).toBe("Ok");
+  for (const row of [
+    {
+      assignment: "build",
+      key: "human",
+      state: "answered",
+      answer: "Keep b.ts out.",
+      by: "person",
+    },
+    {
+      assignment: "build",
+      key: "super",
+      state: "answered",
+      answer: "Use the reader name.",
+      by: "super-agent",
+    },
+    { assignment: "build", key: "open", state: "open", answer: null, by: null },
+    { assignment: "build", key: "withdrawn", state: "withdrawn", answer: null, by: null },
+    {
+      assignment: "survey",
+      key: "other",
+      state: "answered",
+      answer: "OTHER ASSIGNMENT ANSWER",
+      by: "person",
+    },
+  ]) {
+    expect(
+      DeviceState.changeQuestion(
+        device.paths,
+        {
+          by: "key",
+          repository: "example/one",
+          checkout: device.checkout,
+          sourceId: device.sourceId,
+          assignment: row.assignment,
+        },
+        row.key,
+        () =>
+          Ok({
+            insert: {
+              sourceId: device.sourceId,
+              assignment: row.assignment,
+              key: row.key,
+              launchId: row.assignment === "build" ? id : launch.id,
+              question: `${row.key} question`,
+              askedAt: "2026-01-01",
+              state: row.state,
+              answer: row.answer,
+              answeredBy: row.by,
+              answeredAt: row.answer === null ? null : "2026-01-02",
+              endedAt: row.state === "withdrawn" ? "2026-01-02" : null,
+            },
+          }),
+      ).tag,
+    ).toBe("Ok");
+  }
+  // Later settings cannot rewrite the kept launch's resolved kind or guide.
+  await Bun.write(device.paths.config, "{}");
   const refreshed = await WorkerDispatch.refreshBrief(device.request("build"));
   expect(refreshed.tag).toBe("Ok");
   const brief = await Bun.file(
@@ -302,7 +376,27 @@ test("refreshing a promoted brief keeps its recorded kind and profile", async ()
       assignment: "build",
     }).brief,
   ).text();
-  expect(brief).toContain("Worker kind: `research`");
+  expect(brief).toContain("Worker kind: `implementation`");
+  expect(brief).toContain(
+    `Guide: \`${device.paths.skillHosts["claude-code"]}/worker-agent/kinds/implementation.md\``,
+  );
+  expect(brief).toContain("Phase: `build`");
   expect(brief).toContain("Start profile: `careful`");
   expect(brief).toContain("Completion: `pr`.");
+  expect(brief).toContain(
+    "### `human`\n\nBy: `person`\n\n> human question\n\nAnswer:\n\n> Keep b.ts out.",
+  );
+  expect(brief).toContain(
+    "### `super`\n\nBy: `super-agent`\n\n> super question\n\nAnswer:\n\n> Use the reader name.",
+  );
+  expect(brief).not.toMatch(/OTHER ASSIGNMENT ANSWER|open question|withdrawn question/);
+  device.exited("p2");
+  device.reopening();
+  const replacement = await WorkerDispatch.dispatch(device.request("build"));
+  expect(replacement.tag).toBe("Ok");
+  if (replacement.tag !== "Ok") expect.unreachable("The replacement was refused.");
+  const replaced = await Bun.file(replacement.value.brief).text();
+  expect(replaced).toContain("Keep b.ts out.");
+  expect(replaced).toContain("Use the reader name.");
+  expect(replaced).not.toMatch(/OTHER ASSIGNMENT ANSWER|open question|withdrawn question/);
 });
