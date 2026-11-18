@@ -393,19 +393,18 @@ function waitForPublication(
 export function dispatch(input: DispatchInput) {
   return dispatchPermission(input).flatMap(({ continuation }) => {
     if (continuation === null) return supervisorDispatch(input);
-    return handoff({ ...input, afterPid: input.afterPid ?? null, continuation }).flatMap(
-      (launch) =>
-        launch === null
-          ? ErrAsync<Failure>({
-              reason: "handoff_continuation_refused",
-              detail: "The pending continuation was consumed. No replacement was dispatched.",
-              next: {
-                command: "operator next",
-                why: "Read the assignment's recorded next action.",
-              },
-              state: { continuationAuthorized: false },
-            })
-          : OkAsync(launch),
+    return handoff({ ...input, afterPid: input.afterPid ?? null, continuation }).flatMap((launch) =>
+      launch === null
+        ? ErrAsync<Failure>({
+            reason: "handoff_continuation_refused",
+            detail: "The pending continuation was consumed. No replacement was dispatched.",
+            next: {
+              command: "operator next",
+              why: "Read the assignment's recorded next action.",
+            },
+            state: { continuationAuthorized: false },
+          })
+        : OkAsync(launch),
     );
   });
 }

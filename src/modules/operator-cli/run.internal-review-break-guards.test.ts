@@ -43,9 +43,18 @@ test.each([
   {
     name: "clean worktree",
     file: "worker-kinds/phase-machine.ts",
-    replacements: [['associate: ["worktree_clean"],', "associate: [],"]],
+    replacements: [["worktree_clean: facts.worktreeClean,", "worktree_clean: true,"]],
     testFile: guards,
     pattern: "associate refuses a ready PR",
+  },
+  {
+    name: "review-local clean worktree",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [
+      ["when: (facts) => facts.internalReview && facts.changed,", "when: () => false,"],
+    ],
+    testFile: "pull-requests/internal-review-machine.test.ts",
+    pattern: "with internal review on, each unready PR",
   },
   {
     name: "implementer pane closed",
@@ -57,9 +66,16 @@ test.each([
   {
     name: "handed-off launch refused",
     file: "worker-kinds/phase-machine.ts",
-    replacements: [["if (event !== undefined && facts.handedOff === true)", "if (false)"]],
+    replacements: [["event !== undefined && facts.handedOff === true", "false"]],
     testFile: guards,
     pattern: "a failed handoff shows",
+  },
+  {
+    name: "review-local handed-off launch refused",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [["return facts.implementer", "return false"]],
+    testFile: "pull-requests/internal-review-machine.test.ts",
+    pattern: "each round refusal names its reason",
   },
   {
     name: "two rounds",
@@ -202,8 +218,10 @@ test.each([
       expect(original).toContain(before);
       changed = changed.replace(before, after);
     }
+    expect(changed).not.toBe(original);
     try {
       await Bun.write(file, changed);
+      expect(await Bun.file(file).text()).toBe(changed);
       const child = Bun.spawn(
         [
           process.execPath,
