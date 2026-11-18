@@ -126,7 +126,6 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
 }
 
 type Launch = Extract<Awaited<ReturnType<typeof WorkerDispatch.dispatch>>, { tag: "Ok" }>["value"];
-type Step = { ok: true; launch: Launch | null } | { ok: false; error: Failure };
 type RecoveryAudit = NonNullable<
   Extract<ReturnType<typeof DeviceState.readInternalReviewRecovery>, { tag: "Ok" }>["value"]
 >;
@@ -202,61 +201,62 @@ function failure(
   };
 }
 
-async function runHandoff(
+function runHandoff(
   request: HandoffRequest & { repository: string },
   facts: Claimed,
-): Promise<Step> {
-  await afterExit(request.afterPid);
-  if (request.continuation !== undefined) {
-    const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
-    if (checked.tag !== "Ok") return { ok: false, error: failure(checked) };
-  }
-  const recovery = await recoveryGate(request, facts);
-  if (recovery !== null) return { ok: false, error: recovery };
-  // Recovery can await live PR/Git reads; it cannot extend a continuation's authorization.
-  if (request.continuation !== undefined) {
-    const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
-    if (checked.tag !== "Ok") return { ok: false, error: failure(checked) };
-  }
-  const decision = decideInternalReview({
-    event: "handoff",
-    implementer: { state: facts.implementer.state, paneId: facts.implementer.paneId },
-    reviewerStarted: facts.latest.id !== facts.implementer.id,
-  });
-  // Stryker disable next-line ConditionalExpression: equivalent: the handoff event always decides a handoff
-  if (decision.result !== "handoff")
-    return {
-      ok: false,
-      // Stryker disable next-line ObjectLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
-      error: {
-        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
-        reason: "handoff_defect",
-        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
-        detail: "The handoff event decided no handoff.",
-        next: handoffRecovery,
-      },
-    };
-  if (decision.closePane) {
-    const closed = await closeImplementer(facts);
-    if (closed !== null) return { ok: false, error: closed };
-  }
-  if (!decision.dispatch) return { ok: true, launch: null };
-  const ended = DeviceState.finishImplementer(
-    request.paths,
-    facts.implementer.id,
-    request.continuation,
-  );
-  if (ended.tag !== "Ok") return { ok: false, error: failure(ended) };
-  const started = await WorkerDispatch.dispatch({
-    paths: request.paths,
-    cwd: facts.checkout,
-    sourceId: request.sourceId,
-    assignment: request.assignment,
-    handoff: true,
-    continuation: request.continuation,
-  });
-  if (started.tag !== "Ok") return { ok: false, error: failure(started) };
-  return { ok: true, launch: started.value };
+): AsyncResult<Launch | null, Failure> {
+  return fromPromise(async () => {
+    await afterExit(request.afterPid);
+    if (request.continuation !== undefined) {
+      const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
+      if (checked.tag !== "Ok") return checked.map(() => null);
+    }
+    const recovery = await recoveryGate(request, facts);
+    if (recovery !== null) return Err(recovery);
+    // Recovery can await live PR/Git reads; it cannot extend a continuation's authorization.
+    if (request.continuation !== undefined) {
+      const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
+      if (checked.tag !== "Ok") return checked.map(() => null);
+    }
+    const decision = decideInternalReview({
+      event: "handoff",
+      implementer: { state: facts.implementer.state, paneId: facts.implementer.paneId },
+      reviewerStarted: facts.latest.id !== facts.implementer.id,
+    });
+    // Stryker disable next-line ConditionalExpression: equivalent: the handoff event always decides a handoff
+    if (decision.result !== "handoff")
+      return Err(
+        // Stryker disable next-line ObjectLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+        {
+          // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+          reason: "handoff_defect",
+          // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+          detail: "The handoff event decided no handoff.",
+          next: handoffRecovery,
+        },
+      );
+    if (decision.closePane) {
+      const closed = await closeImplementer(facts);
+      if (closed !== null) return Err(closed);
+    }
+    if (!decision.dispatch) return Ok(null);
+    const ended = DeviceState.finishImplementer(
+      request.paths,
+      facts.implementer.id,
+      request.continuation,
+    );
+    if (ended.tag !== "Ok") return Err(failure(ended));
+    const started = await WorkerDispatch.dispatch({
+      paths: request.paths,
+      cwd: facts.checkout,
+      sourceId: request.sourceId,
+      assignment: request.assignment,
+      handoff: true,
+      continuation: request.continuation,
+    });
+    if (started.tag !== "Ok") return Err(failure(started));
+    return Ok(started.value);
+  }, qualify).flatMap((result) => result);
 }
 
 type HandoffRequest = {
@@ -295,7 +295,7 @@ export function handoff(request: HandoffRequest) {
         return fromPromise(async () => {
           try {
             const step = await runHandoff({ ...request, repository: project.repository }, facts);
-            if (step.ok) return Ok(step.launch);
+            if (step.tag !== "Err") return step;
             // A failed reviewer start already ended the handoff, and next shows that launch.
             DeviceState.failHandoff(
               request.paths,
