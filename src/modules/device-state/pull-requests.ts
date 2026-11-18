@@ -8,6 +8,7 @@ import {
   assignments,
   cleanups,
   internalReviews,
+  kindHandoffs,
   launches,
   projects,
   pullRequests,
@@ -147,22 +148,38 @@ export function activeOwner(db: Db, launchId: string) {
 function insertInternalReview(
   db: Db,
   review: { sourceId: string; assignment: string; implementerLaunchId: string },
+  nextKind: string,
 ) {
   const now = new Date().toISOString();
   db.insert(internalReviews)
     .values({
       ...review,
       state: "reviewing",
+      // Historical columns stay for migration history; kind_handoffs owns new transitions.
+      handoffState: "done",
+      handoffDetail: null,
+      startedAt: now,
+      updatedAt: now,
+      ownerPid: null,
+      leaseAt: null,
+      readyHead: null,
+      commentId: null,
+      commentUrl: null,
+      endedAt: null,
+    })
+    .run();
+  db.insert(kindHandoffs)
+    .values({
+      sourceId: review.sourceId,
+      assignment: review.assignment,
+      outgoingLaunchId: review.implementerLaunchId,
+      nextKind,
       handoffState: "pending",
       handoffDetail: null,
       startedAt: now,
       updatedAt: now,
       ownerPid: process.pid,
       leaseAt: now,
-      readyHead: null,
-      commentId: null,
-      commentUrl: null,
-      endedAt: null,
     })
     .run();
 }
@@ -255,11 +272,15 @@ export function associatePullRequest(
             .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
             .run();
           if (internalReview)
-            insertInternalReview(db, {
-              sourceId: source.id,
-              assignment: assignment.key,
-              implementerLaunchId: launchId,
-            });
+            insertInternalReview(
+              db,
+              {
+                sourceId: source.id,
+                assignment: assignment.key,
+                implementerLaunchId: launchId,
+              },
+              "review",
+            );
           if (review)
             requestAssignmentReview(db, {
               repository: source.repository,

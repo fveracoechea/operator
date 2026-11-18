@@ -54,6 +54,7 @@ import {
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
 import { recoverInternalReview, readInternalReviewRecovery } from "./internal-review-recovery.ts";
+import { readContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 import {
   acknowledgeCoordinationWaits,
@@ -168,9 +169,10 @@ export const DeviceState = {
     launch: LaunchReservation,
     maxRunning?: number,
     supervisor?: Supervisor,
+    continuation?: HandoffContinuation,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor),
+      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor, continuation),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
@@ -284,24 +286,54 @@ export const DeviceState = {
     sourceId: string,
     assignment: string,
     afterPid: number | null,
+    continuation?: HandoffContinuation,
   ) {
     return writing(paths, (client) =>
-      claimHandoff(client, repository, sourceId, assignment, afterPid),
+      claimHandoff(client, repository, sourceId, assignment, afterPid, continuation),
     );
   },
   startHandoff(paths: Paths, sourceId: string, assignment: string, pid: number) {
     return writing(paths, (client) => startHandoff(client, sourceId, assignment, pid));
   },
-  failHandoff(paths: Paths, sourceId: string, assignment: string, detail: string) {
-    return writing(paths, (client) => failHandoff(client, sourceId, assignment, detail));
+  failHandoff(
+    paths: Paths,
+    sourceId: string,
+    assignment: string,
+    detail: string,
+    continuation?: HandoffContinuation,
+  ) {
+    return writing(paths, (client) =>
+      failHandoff(client, sourceId, assignment, detail, continuation),
+    );
   },
   /** Renew this process's lease on a running handoff until the returned stop runs. */
-  holdHandoff(paths: Paths, sourceId: string, assignment: string) {
-    return hold(() => writing(paths, (client) => renewHandoff(client, sourceId, assignment)));
+  holdHandoff(
+    paths: Paths,
+    sourceId: string,
+    assignment: string,
+    continuation?: HandoffContinuation,
+  ) {
+    return hold(() =>
+      writing(paths, (client) => renewHandoff(client, sourceId, assignment, continuation)),
+    );
   },
   /** Ends the implementer launch whose pane the handoff closed. */
-  finishImplementer(paths: Paths, launchId: string) {
-    return writing(paths, (client) => finishImplementer(client, launchId));
+  finishImplementer(paths: Paths, launchId: string, continuation?: HandoffContinuation) {
+    return writing(paths, (client) => finishImplementer(client, launchId, continuation));
+  },
+  readHandoffContinuation(
+    paths: Paths,
+    target: Parameters<typeof readContinuation>[1],
+    context: Parameters<typeof readContinuation>[2],
+    publishingPid: number,
+  ) {
+    return reading(paths, (client) => readContinuation(client, target, context, publishingPid));
+  },
+  /** Revalidates and renews the current continuation in one write transaction before its effect. */
+  checkHandoffContinuation(paths: Paths, continuation: HandoffContinuation) {
+    return writing(paths, (client) =>
+      renewHandoff(client, continuation.sourceId, continuation.assignment, continuation),
+    );
   },
   /** Ends a running internal review ready or skipped, and queues the assignment reviewer with `queueReview`. */
   endInternalReview(

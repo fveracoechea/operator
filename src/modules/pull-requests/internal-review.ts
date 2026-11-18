@@ -271,7 +271,7 @@ export function handoff(request: HandoffRequest) {
       .toAsync()
       .flatMap((facts): AsyncResult<{ reason: string; data: object }, Failure> => {
         const data = { sourceId: request.sourceId, assignment: request.assignment };
-        if (facts.review.handoffState === "done")
+        if (facts.handoff.handoffState === "done")
           return OkAsync({ reason: "handoff_unchanged", data: { ...data, reviewer: null } });
         const release = DeviceState.holdHandoff(
           request.paths,

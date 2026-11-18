@@ -53,11 +53,18 @@ export function storedSource(
       completion: row.completion,
       state: row.state,
     })),
+    ...storedRecords(rows),
+  };
+}
+
+function storedRecords(rows: Partial<Omit<Stored, "source" | "assignments">>) {
+  return {
     launches: rows.launches ?? [],
     pullRequests: rows.pullRequests ?? [],
     reports: rows.reports ?? [],
     cleanups: rows.cleanups ?? [],
     internalReviews: rows.internalReviews ?? [],
+    handoffs: rows.handoffs ?? [],
     internalReviewRounds: rows.internalReviewRounds ?? [],
     promotions: rows.promotions ?? [],
     questions: rows.questions ?? [],
