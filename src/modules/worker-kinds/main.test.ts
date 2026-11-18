@@ -107,3 +107,13 @@ test("snapshots preserve fallback paths and accept earlier snapshots without the
   const current = { ...snapshot, skillsToRead: ["/upstream/show-me/SKILL.md"] };
   expect(WorkerKinds.snapshotSchema().parse(current)).toEqual(current);
 });
+
+test("imperative PR owners share the phase ownership, round, and cleanliness policy", () => {
+  expect(WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: true })).toBe(true);
+  expect(WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: false })).toBe(false);
+  expect(WorkerKinds.refusesPrGuard({ guard: "round", rounds: 1 })).toBe(false);
+  expect(WorkerKinds.refusesPrGuard({ guard: "round", rounds: 2 })).toBe(true);
+  expect(WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: true })).toBe(true);
+  expect(WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: false })).toBe(false);
+});
+

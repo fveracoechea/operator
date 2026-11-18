@@ -1,3 +1,4 @@
+import { refusesPrGuard } from "./pr-policy.ts";
 import { z } from "zod";
 
 const nameSchema = z.enum([
@@ -102,6 +103,9 @@ const kinds: Record<z.infer<typeof nameSchema>, WorkerKind> = {
 
 /** Kind policy is shared by plan registration and launch snapshots. ADR-0029. */
 export const WorkerKinds = {
+  refusesPrGuard(facts: Parameters<typeof refusesPrGuard>[0]) {
+    return refusesPrGuard(facts);
+  },
   names() {
     return nameSchema.options;
   },

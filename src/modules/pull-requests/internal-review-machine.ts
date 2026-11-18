@@ -1,6 +1,7 @@
 // The internal review of a PR assignment: reviewing with at most two rounds, then ready or
 // skipped. This decides the associate, handoff, round, ready, and skip events. ADR-0003, ADR-0020.
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 type Review = { state: string; rounds: { head: string }[] };
 type Disposition = { round: number; finding: number; disposition: "applied" | "declined" };
@@ -145,7 +146,9 @@ const associateRules: Rule<AssociateFacts>[] = [
   },
   // The reviewer reads exactly the PR, so no work may stay outside it.
   {
-    when: (facts) => facts.internalReview && facts.changed,
+    when: (facts) =>
+      facts.internalReview &&
+      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),
     refuse: () =>
       refused(
         "pr_worktree_unclean",
@@ -164,7 +167,7 @@ const associateRules: Rule<AssociateFacts>[] = [
 
 /** The launch that the handoff ended no longer owns the PR, also while its pane still runs. */
 export function decideOwnership(facts: { implementer: boolean }): Refusal | null {
-  return facts.implementer
+  return WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: facts.implementer })
     ? refused(
         "pr_handed_off",
         `This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. ${unchanged}`,
@@ -182,7 +185,8 @@ const roundRules: Rule<RoundFacts>[] = [
       ),
   },
   {
-    when: (facts) => facts.review.rounds.length >= 2,
+    when: (facts) =>
+      WorkerKinds.refusesPrGuard({ guard: "round", rounds: facts.review.rounds.length }),
     refuse: () =>
       refused(
         "internal_review_round_limit",
@@ -295,7 +299,8 @@ const readyRules: Rule<ReadyFacts>[] = [
   },
   // The comment describes the code on GitHub, so the worktree holds exactly the PR head.
   {
-    when: (facts) => facts.changed,
+    when: (facts) =>
+      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),
     refuse: () =>
       refused(
         "pr_worktree_unclean",
