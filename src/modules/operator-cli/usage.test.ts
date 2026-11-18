@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { z } from "zod";
 import { invalidArguments, runUsage, workflowArguments } from "./usage.ts";
+import { withOutputContext } from "./output.ts";
 
 const release = { version: "9.9.9", commit: "abc", artifactIdentity: "sha256:1" };
 
@@ -8,6 +9,31 @@ afterEach(() => {
   mock.restore();
   process.exitCode = 0;
 });
+
+test.each(["--help", "--version"])(
+  "plain worker %s retains text and appends phase recovery",
+  async (flag) => {
+    const output = capture();
+    await withOutputContext(
+      () => ({
+        kind: "research",
+        phase: "investigate",
+        next: { command: "operator report submit --file <file>", why: "Submit." },
+      }),
+      async () => {
+        expect(runUsage([flag], release, false)).toBe(true);
+      },
+    );
+    if (flag === "--help") usageText(output.log.mock.calls[0]?.[0] as string | undefined);
+    else expect(output.log.mock.calls[0]).toEqual(["operator 9.9.9"]);
+    expect(output.log.mock.calls.slice(1)).toEqual([
+      ["kind: research; phase: investigate"],
+      ["next: operator report submit --file <file>"],
+    ]);
+    expect(output.error).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
+  },
+);
 
 function capture() {
   process.exitCode = 9;
@@ -106,6 +132,38 @@ test.each([true, false])("invalid arguments print the usage, json %p", (json) =>
   );
   expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
     "operator: invalid_arguments: The command arguments are not supported.",
+    "next: operator --help",
+  ]);
+  expect(process.exitCode).toBe(2);
+});
+
+test("version and argument refusals preserve a worker's phase and next action", async () => {
+  const output = capture();
+  await withOutputContext(
+    () => ({
+      kind: "research",
+      phase: "investigate",
+      next: { command: "operator report submit --file <file>", why: "Submit." },
+    }),
+    async () => {
+      runUsage(["--version", "--json"], release, true);
+      invalidArguments(true);
+    },
+  );
+  expect(JSON.parse(String(output.log.mock.calls[0]?.[0]))).toMatchObject({
+    kind: "research",
+    phase: "investigate",
+    next: { command: "operator report submit --file <file>", why: "Submit." },
+  });
+  expect(JSON.parse(String(output.log.mock.calls[1]?.[0]))).toMatchObject({
+    operation: "parse_arguments",
+    kind: "research",
+    phase: "investigate",
+    next: { command: "operator --help", why: "Read the supported command syntax." },
+  });
+  expect(output.log).toHaveBeenCalledTimes(2);
+  expect(output.error.mock.calls.map((call) => String(call[0]))).toEqual([
+    "operator: invalid_arguments: The command arguments are not supported. [kind=research phase=investigate]",
     "next: operator --help",
   ]);
   expect(process.exitCode).toBe(2);
