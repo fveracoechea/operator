@@ -13,7 +13,7 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { planSchema, storedPlanSchema, promotionSchema, questionPlan } from "./plan.ts";
+import { configuredPlanSchema, storedPlanSchema, promotionSchema, questionPlan } from "./plan.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
@@ -393,12 +393,12 @@ function retention(
 
 /** Parses a supplied plan, checks its profiles against device settings, and writes the source. */
 function registerPlan(input: Input, supply: () => Promise<object>) {
-  return fromPromise(
-    async () => planSchema.parse(await supply()),
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  )
-    .flatMap((plan) =>
-      DeviceSettings.show(input.paths).flatMap(({ data: settings }) => {
+  return DeviceSettings.show(input.paths)
+    .flatMap(({ data: settings }) =>
+      fromPromise(
+        async () => configuredPlanSchema(settings.config.kinds).parse(await supply()),
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ).flatMap((plan) => {
         const missing = plan.assignments.find(
           (assignment) =>
             assignment.profile !== undefined &&
@@ -1238,7 +1238,7 @@ function decideAssignmentRow(
   const decision = decideAssignment({
     assignment: current,
     dependencies,
-    dispatchable: assignment.kind === null || WorkerKinds.resolve(assignment.kind).dispatchable,
+    dispatchable: WorkerKinds.dispatchable(assignment.kind),
     // A start whose dispatching process stopped can be replaced.
     launch: launch?.abandoned === true ? "abandoned" : launch?.state,
     ...pullRequestFacts(pullRequest),

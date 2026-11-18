@@ -482,7 +482,7 @@ export function decodeSource(input: StoredSource) {
     ...source,
     planned: assignments.map((assignment) => ({
       ...assignment,
-      kind: z.enum(WorkerKinds.names()).nullable().parse(storedKinds.get(assignment.key)),
+      kind: z.string().nullable().parse(storedKinds.get(assignment.key)),
     })),
   };
 }
