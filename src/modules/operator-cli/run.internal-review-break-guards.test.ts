@@ -44,10 +44,14 @@ test.each([
     name: "clean worktree",
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
-      ["when: (facts) => facts.internalReview && facts.changed,", "when: () => false,"],
+      [
+        'facts.internalReview &&\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed })',
+        "facts.internalReview && false",
+      ],
     ],
     testFile: guards,
     pattern: "associate refuses a ready PR",
+    assertion: "pr_worktree_unclean",
   },
   {
     name: "implementer pane closed",
@@ -59,16 +63,28 @@ test.each([
   {
     name: "handed-off launch refused",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["return facts.implementer", "return false"]],
+    replacements: [
+      [
+        'return WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: facts.implementer })',
+        "return false",
+      ],
+    ],
     testFile: guards,
     pattern: "cannot close the implementer",
+    assertion: "pr_handed_off",
   },
   {
     name: "two rounds",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["facts.review.rounds.length >= 2", "facts.review.rounds.length >= 3"]],
+    replacements: [
+      [
+        'WorkerKinds.refusesPrGuard({ guard: "round", rounds: facts.review.rounds.length })',
+        'WorkerKinds.refusesPrGuard({ guard: "round", rounds: facts.review.rounds.length - 1 })',
+      ],
+    ],
     testFile: flow,
     pattern: "at most two rounds",
+    assertion: "internal_review_round_limit",
   },
   {
     name: "newer head for round two",
@@ -117,9 +133,15 @@ test.each([
   {
     name: "a ready step refuses an unclean worktree",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => facts.changed,", "when: () => false,"]],
+    replacements: [
+      [
+        'when: (facts) =>\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),',
+        "when: () => false,",
+      ],
+    ],
     testFile: ready,
     pattern: "rendered comment",
+    assertion: "pr_worktree_unclean",
   },
   {
     name: "a ready step refuses a worktree away from the PR head",
@@ -225,6 +247,17 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.assertion !== undefined) {
+        const output = `${stdout}${stderr}`;
+        console.info(`${change.name}:\n${output}`);
+        expect(output).toContain("1 fail");
+        expect(output).toContain("error: expect(received).toMatchObject(expected)");
+        expect(output).toMatch(new RegExp(`-\\s+"reason": "${change.assertion}"`));
+        expect(output).toMatch(
+          new RegExp(`at .*\\(.*${change.testFile.replaceAll(".", "\\.")}:\\d+:\\d+\\)`),
+        );
+        expect(output).not.toContain("Unhandled error");
+      }
     } finally {
       await Bun.write(file, original);
     }
