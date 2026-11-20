@@ -43,6 +43,17 @@ test.each([1, 2, "finish", "dispatch", "reservation"] as const)(
     });
     spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
     spyOn(WorkerDispatch, "checkHandoff").mockReturnValue(OkAsync(undefined));
+    const publication = DeviceState.readHandoffContinuation;
+    let publicationReads = 0;
+    spyOn(DeviceState, "readHandoffContinuation").mockImplementation((...args) => {
+      publicationReads++;
+      if (publicationReads === 1) return publication(...args);
+      return Err({
+        reason: "handoff_continuation_refused" as const,
+        detail: "The already published receipt must not be polled again before its effect checks.",
+        next: { command: "operator next", why: "Recover the stopped handoff." },
+      });
+    });
     const cause = new Error("original continuation fault", { cause: { original: true } });
     const defect = await fromPromise(Promise.reject(cause), (error, unexpected) =>
       unexpected(error),
@@ -107,6 +118,7 @@ test.each([1, 2, "finish", "dispatch", "reservation"] as const)(
     });
     expect(result.tag, JSON.stringify(result)).toBe("Defect");
     expect(result.tag === "Defect" ? result.cause : undefined).toBe(expectedCause);
+    expect(publicationReads).toBe(1);
     expect(checks).toBe(check === 1 ? 1 : 2);
     expect(failed).not.toHaveBeenCalled();
     expect(closed).toHaveBeenCalledTimes(check === 1 || check === 2 ? 0 : 1);
