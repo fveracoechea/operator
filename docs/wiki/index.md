@@ -8,9 +8,10 @@ The [constraints page](issue-373-user-constraints.md) records the source and aut
 - [Worker-kind spec history](issue-373-scope.md): Dated scope, amendment reversals, and architecture sources for #373.
 - [Landing history](issue-373-landing.md): Commit-pinned delivery snapshots, the released batch hold, and landing safeguards with the local-qualification exception.
 
-## User constraints and known limitations
+## User constraints and coordination lessons
 
-- [User constraints](issue-373-user-constraints.md): The 2026-11-20 delegation and local-qualification decision, excluded device/release work, and missing chief-of-staff procedure pointers.
+- [User constraints](issue-373-user-constraints.md): The 2026-11-20 delegation, local-qualification and later ownership decisions, excluded device/release work, and chief-of-staff procedure pointers.
+- [Native delegation retro](issue-373-native-delegation-retro.md): The 2026-11-20 PR #420 routing failure, verified sources, bounded process correction, and deferred environment changes.
 
 ## Reading and updates
 

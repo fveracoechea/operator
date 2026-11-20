@@ -33,6 +33,17 @@ It did not authorize this documentation agent to merge or mark ready.
 It granted no runtime or release authority.
 As with the earlier decisions, the source was the supervising session's dated delegation; no public transcript URL was supplied.
 
+## Later ownership decision on 2026-11-20
+
+After the initial wiki commit, `fveracoechea/operator@4ee11c1`, the supervising session relayed the person's instruction to take ownership of the existing stack.
+On 2026-11-20, that delegation stated that no other agent owned the stack.
+This superseded the unresolved ownership assumption in the earlier local inventory, `/tmp/opencode/issue373-local-work-map.md`, for this completion effort.
+That inventory remained a dated source, not an ownership block after the handoff.
+The source of the later decision was this review assignment's supervising-session delegation; no public transcript URL was supplied.
+The decision retained work-preservation requirements and the [landing safeguards](issue-373-landing.md#native-git-and-github-safeguards-recorded-on-2026-11-20).
+It did not waive independent review or any local test or quality gate.
+It granted this documentation reviewer no ready, merge, runtime, release, or real-state authority.
+
 ## Known chief-of-staff pointer limitation
 
 On 2026-11-20, at `fveracoechea/operator@3f40479`, the [chief-of-staff skill](https://github.com/fveracoechea/operator/blob/3f40479dd188a53ef43d945bc04afa5cdd88eb30/.agents/skills/chief-of-staff/SKILL.md) named four sibling procedure paths.
@@ -40,3 +51,7 @@ The repository tree at that commit contained none of their targets: `../retro/SK
 This was a checkout-local pointer limitation, not proof that the skills were absent from every host installation.
 On 2026-11-20, the documentation assignment excluded repairing those pointers or editing globally installed skills.
 This entry retained the limitation for a later authorized task rather than treating missing procedures as executed.
+
+Later on 2026-11-20, the [native delegation retro](issue-373-native-delegation-retro.md#procedure-access-and-existing-checks) verified the four procedures under `/home/fveracoechea/.agents/skills/`.
+This supplemented the checkout-local limitation without repairing the relative links.
+The retro used the installed retro procedure; locating the other three procedures did not establish their execution.

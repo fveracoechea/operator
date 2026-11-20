@@ -71,6 +71,10 @@ Independent native-agent review and passing local tests and full quality checks 
 No failed local gate could be bypassed.
 The other safeguards and the documentation agent's draft-only boundary remained unchanged.
 
+Later on 2026-11-20, the [ownership decision](issue-373-user-constraints.md#later-ownership-decision-on-2026-11-20) resolved the earlier inventory's uncertainty about another agent owning the stack.
+It retained original work, recoverable refs, and exact-candidate qualification as requirements; it did not expand this documentation reviewer's authority.
+The [native delegation retro](issue-373-native-delegation-retro.md) recorded a separate routing failure, not a failed PR #420 code qualification.
+
 ## Baseline evidence limit recorded on 2026-11-20
 
 On 2026-11-20, the delegation named `/tmp/opencode/issue373-baseline-main-d0fba12-20261119` as a baseline artifact location.
