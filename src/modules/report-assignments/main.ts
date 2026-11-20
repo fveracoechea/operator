@@ -63,6 +63,7 @@ function decide(facts: Facts, command: Command, promote?: string) {
     assignments: facts.assignments,
     launch: facts.launch,
     latest: facts.reports.at(-1) ?? null,
+    reports: facts.reports,
     caller: caller(),
     promotion:
       promote === undefined ? undefined : { sourceState: facts.source.state, key: promote },
@@ -323,7 +324,12 @@ function returnReport(input: {
         update: { decision: "returned", decidedAt: new Date().toISOString(), followUp: text },
       }));
       if (recorded.tag !== "Ok") {
-        await rm(staged);
+        const cleanup = await fromPromise(
+          () => rm(staged),
+          (cause, defect) => defect(cause),
+        );
+        if (cleanup.tag === "Defect")
+          console.error("Report follow-up cleanup failed:", String(cleanup.cause));
         return stop(recorded);
       }
       await publish(staged, followUp);
