@@ -74,7 +74,7 @@ test.each([
       ],
     ],
     testFile: guards,
-    pattern: "cannot close the implementer",
+    pattern: "a failed handoff shows",
     assertion: "pr_handed_off",
   },
   {
