@@ -82,6 +82,36 @@ test("parses dispatch and Herdr commands", () => {
   expect(dispatchArgs(["herdr", "event", "--json"])).toEqual({ operation: "herdr_event" });
 });
 
+test("only registered dispatch accepts a numeric continuation publication PID", async () => {
+  const called = spies();
+  quiet();
+  expect(
+    await runDispatch(
+      ["dispatch", "--source", "s", "--assignment", "a", "--after-pid", "123"],
+      paths,
+      true,
+    ),
+  ).toBe(true);
+  expect(called.dispatch).toHaveBeenCalledWith({
+    paths,
+    cwd: process.cwd(),
+    sourceId: "s",
+    assignment: "a",
+    afterPid: 123,
+  });
+  called.dispatch.mockClear();
+  for (const args of [
+    ["dispatch", "--source", "s", "--assignment", "a", "--after-pid", "invalid"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--after-pid", "12345678901"],
+    ["abandon", "--source", "s", "--assignment", "a", "--after-pid", "123"],
+    ["dispatch", "--kind", "implementation", "--brief", "task.md", "--after-pid", "123"],
+  ]) {
+    expect(dispatchArgs(args)).toBeNull();
+    expect(await runDispatch(args, paths, true)).toBe(false);
+  }
+  expect(called.dispatch).not.toHaveBeenCalled();
+});
+
 test("abandon passes its exact selector and preserves the result and next without launching or observing a worker", async () => {
   const called = spies();
   const next = { command: "operator next --source s", why: "Read remaining work." };

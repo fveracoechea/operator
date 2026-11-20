@@ -44,32 +44,6 @@ async function captureContinuationOutput(
   return output;
 }
 
-test("continuation authorization through the isolated CLI seam", async () => {
-  const root = Bun.fileURLToPath(new URL("../../../", import.meta.url));
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      `${root}/tools/test-watchdog.ts`,
-      `${root}/src/modules/operator-cli/run.internal-review.test.ts`,
-      "--test-name-pattern",
-      "foreign continuation refuses|waits read-only|rechecks|automatic kind handoff preserves distinct|internal flag|timer renewal",
-    ],
-    {
-      cwd: root,
-      env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    captureContinuationOutput(child.stdout, "stdout"),
-    captureContinuationOutput(child.stderr, "stderr"),
-  ]);
-  expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("\n38 pass\n");
-}, 180000);
-
 test("continuation diagnostics survive a stopped isolated subprocess with bounded noisy output", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "operator-continuation-diagnostics-"));
   const progress = Bun.fileURLToPath(
