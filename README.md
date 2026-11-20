@@ -4,7 +4,6 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 
 <img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
 
-
 > Inspired by Matrix: an Operator loads programs, guides missions, and keeps the crew in the field connected.
 
 Operator is based on [Matt Pocock's agent skills and workflow](https://github.com/mattpocock/skills).
@@ -308,8 +307,8 @@ operator next --json
 operator next --wait --timeout 300 --json
 operator herdr install --json
 operator dispatch --source <source-id> --assignment <key> --json
-operator dispatch --kind research --brief /absolute/path/task.md [--intent "<person's words>"] [--profile <name>] [--tracker-key <key>] --json
-operator ask --question "<question>" [--profile <name>] --json
+operator dispatch --kind research --brief /absolute/path/task.md [--intent-file /absolute/path/intent.txt] [--profile <name>] [--tracker-key <key>] --json
+operator ask --file /absolute/path/question.txt [--profile <name>] --json
 operator source take-over --source <source-id> --person-instructed --json
 operator source reset --source <source-id> --person-instructed --json
 operator source prune --json
@@ -323,11 +322,21 @@ The SuperAgent runs it in the background, so worker events reach it without text
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
 `dispatch --kind --brief` creates a one-off source with one planned assignment and starts its worker.
 Use `--brief -` to read the task from stdin.
+Optional `--intent-file <path|->` reads the person's words as plain text.
+The task and intent cannot both select stdin. Supply a file for at least one field.
 The kind fixes completion and supplies resources and a default profile.
 Without `--tracker-key`, the source gets `<kind>:<8 hex digits>`.
 One-off sources use the same next actions, report promotion, reset, and prune as registered plans.
 They never gain another planned assignment.
 `ask` is the `answer` preset, with pane resources and a CLI-written question brief.
+Use `ask --file -` with a quoted heredoc to preserve literal prose (ADR-0032):
+
+```sh
+operator ask --file - --json <<'QUESTION'
+Why does `next --wait` return this row? Keep $HOME literal.
+QUESTION
+```
+
 The agent session that dispatches a source's work or waits for that source supervises it, together with its Herdr pane. Operator reads the session from `OPENCODE_SESSION_ID` or `CLAUDE_CODE_SESSION_ID`.
 A coordination command for that source from another session refuses with `source_supervised_elsewhere` and names the supervising session and pane. `source take-over` moves supervision to the calling session on the person's instruction.
 OpenCode WorkerAgents use the full TUI, with the `worker` agent and selected model and effort set before attachment.

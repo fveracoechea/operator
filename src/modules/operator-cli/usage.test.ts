@@ -51,6 +51,12 @@ function usageText(text: string | undefined) {
     "       operator internal-review recover --source id --assignment key --launch id --pr number --head sha --person-instructed [--json]",
   );
   expect(usage).toContain("       operator abandon --source id --assignment key [--json]");
+  expect(usage).toContain(
+    "       operator dispatch --kind kind --brief path|- [--intent-file path|-] [--profile name] [--tracker-key key] [--json]",
+  );
+  expect(usage).toContain("       operator ask --file path|- [--profile name] [--json]");
+  expect(String(text)).not.toContain("--question");
+  expect(String(text)).not.toContain("--intent text");
 }
 
 test.each([

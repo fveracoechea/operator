@@ -29,8 +29,11 @@ async function sources() {
 }
 
 test("ask dispatches an answer kind", async () => {
-  const question = "Why does `next --wait` return ended sources?\n## Not a brief section";
-  const result = await device.run(["ask", "--question", question]);
+  const question =
+    "Why does `next --wait` return ended sources?\n## Not a brief section\nKeep $HOME and $(literal) unchanged.";
+  const file = `${device.root}/question.txt`;
+  await Bun.write(file, question);
+  const result = await device.run(["ask", "--file", file]);
   expect(result.code, result.stderr).toBe(0);
   const data = asked.parse(result.output).data;
   expect(result.output).toMatchObject({
@@ -68,7 +71,7 @@ test("ask dispatches an answer kind", async () => {
   // The question stays quoted, so its text cannot open a brief section.
   const brief = await Bun.file(data.brief).text();
   expect(brief).toContain(
-    "> Why does `next --wait` return ended sources?\n> ## Not a brief section",
+    "> Why does `next --wait` return ended sources?\n> ## Not a brief section\n> Keep $HOME and $(literal) unchanged.",
   );
   expect(brief).not.toContain("\n## Not a brief section");
   expect(brief).toContain("Completion: `report`");
@@ -98,8 +101,8 @@ test("ask dispatches an answer kind", async () => {
 }, 60000);
 
 test("the same question asked twice gets two sources", async () => {
-  const first = await device.run(["ask", "--question", "Where is the brief written?"]);
-  const second = await device.run(["ask", "--question", "Where is the brief written?"]);
+  const first = await device.run(["ask", "--file", "-"], { stdin: "Where is the brief written?" });
+  const second = await device.run(["ask", "--file", "-"], { stdin: "Where is the brief written?" });
   expect([first.code, second.code]).toEqual([0, 0]);
   expect(asked.parse(first.output).data.sourceId).not.toBe(
     asked.parse(second.output).data.sourceId,
@@ -108,29 +111,36 @@ test("the same question asked twice gets two sources", async () => {
 }, 60000);
 
 test("ask starts the worker with a named start profile", async () => {
-  const result = await device.run(["ask", "--question", "What changed?", "--profile", "careful"]);
+  const result = await device.run(["ask", "--file", "-", "--profile", "careful"], {
+    stdin: "What changed?\nKeep `ticks`, $HOME and $(literal).",
+  });
   expect(result.code, result.stderr).toBe(0);
   const data = asked.parse(result.output).data;
   const shown = await device.run(["source", "show", "--source", data.sourceId]);
   expect(shown.output).toMatchObject({
     data: { launches: [{ profile: "careful", reasoningEffort: "high" }] },
   });
+  expect(await Bun.file(data.brief).text()).toContain(
+    "> What changed?\n> Keep `ticks`, $HOME and $(literal).",
+  );
 }, 60000);
 
 test("a question with no letters or digits gets a fixed assignment key", async () => {
-  const result = await device.run(["ask", "--question", "???"]);
+  const result = await device.run(["ask", "--file", "-"], { stdin: "???" });
   expect(result.code, result.stderr).toBe(0);
   expect(result.output).toMatchObject({ data: { assignment: "question" } });
 }, 60000);
 
 test("a question that opens with a long token gets a key within the plan's limit", async () => {
-  const result = await device.run(["ask", "--question", `${"a".repeat(250)} is what?`]);
+  const result = await device.run(["ask", "--file", "-"], { stdin: `${"a".repeat(250)} is what?` });
   expect(result.code, result.stderr).toBe(0);
   expect(result.output).toMatchObject({ data: { assignment: "a".repeat(60) } });
 }, 60000);
 
 test("ask refuses an unknown profile and writes no source", async () => {
-  const result = await device.run(["ask", "--question", "What changed?", "--profile", "missing"]);
+  const result = await device.run(["ask", "--file", "-", "--profile", "missing"], {
+    stdin: "What changed?",
+  });
   expect(result).toMatchObject({ code: 3, output: { reason: "source_profile_missing" } });
   expect(await sources()).toEqual([]);
   expect(await device.herdrCalls()).not.toContain("agent start");
@@ -138,7 +148,7 @@ test("ask refuses an unknown profile and writes no source", async () => {
 
 test("a failed ask keeps its registered source and the dispatch owner's recovery and checked facts", async () => {
   await device.setHerdr({ fail: { "plugin list": "plugin unavailable" } });
-  const result = await device.run(["ask", "--question", "Why does this stop?"]);
+  const result = await device.run(["ask", "--file", "-"], { stdin: "Why does this stop?" });
   expect(result).toMatchObject({
     code: 1,
     output: {
@@ -168,19 +178,36 @@ test("a failed ask keeps its registered source and the dispatch owner's recovery
 
 test.each([
   [["ask"]],
-  [["ask", "--question"]],
-  [["ask", "--question", "   "]],
-  [["ask", "--question", "--profile"]],
-  [["ask", "--question", "a", "--question", "b"]],
-  [["ask", "--question", "a", "--profile", "Bad Name"]],
-  [["ask", "--question", "a", "--source", "x"]],
-  [["ask", "extra", "--question", "a"]],
+  [["ask", "--file"]],
+  [["ask", "--file", "   "]],
+  [["ask", "--file", "--profile"]],
+  [["ask", "--file", "a", "--file", "b"]],
+  [["ask", "--file", "a", "--profile", "Bad Name"]],
+  [["ask", "--file", "a", "--source", "x"]],
+  [["ask", "extra", "--file", "a"]],
+  [["ask", "--question", "What changed?"]],
+  [["ask", "--question", "-"]],
 ])(
   "ask refuses %j with usage",
   async (args) => {
     const result = await device.run(args);
     expect(result).toMatchObject({ code: 2, output: { reason: "invalid_arguments" } });
     expect(await sources()).toEqual([]);
+  },
+  60000,
+);
+
+test.each([
+  { file: "-", stdin: " \n\t", reason: "invalid_source_plan", code: 2 },
+  { file: "missing-question.txt", stdin: undefined, reason: "source_io_failed", code: 1 },
+])(
+  "ask refuses $reason without source or launch effects",
+  async ({ file, stdin, reason, code }) => {
+    const calls = await device.herdrCalls();
+    const result = await device.run(["ask", "--file", file], { stdin });
+    expect(result).toMatchObject({ code, output: { operation: "ask", reason } });
+    expect(await sources()).toEqual([]);
+    expect(await device.herdrCalls()).toEqual(calls);
   },
   60000,
 );

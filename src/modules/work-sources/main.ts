@@ -54,6 +54,7 @@ import { missingWorkers } from "./missing-workers.ts";
 // Bun has no synchronous directory metadata API.
 import { lstatSync } from "node:fs";
 import type { ResultContext } from "../../lib/cli-result.ts";
+import { readTextInput } from "../../lib/read-text-input.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
@@ -531,19 +532,26 @@ export const WorkSources = {
     input: Input & {
       kind: string;
       brief: string;
-      intent?: string;
+      intentFile?: string;
       profile?: string;
       trackerKey?: string;
     },
   ) {
     return registerPlan(
       input,
-      async () =>
-        oneOffPlan({
+      async () => {
+        z.string()
+          .refine((brief) => brief !== "-" || input.intentFile !== "-", {
+            message: "The brief and intent cannot both read stdin. Supply a file for either field.",
+          })
+          .parse(input.brief);
+        return oneOffPlan({
           ...input,
-          instructions:
-            input.brief === "-" ? await Bun.stdin.text() : await Bun.file(input.brief).text(),
-        }),
+          instructions: await readTextInput(input.brief),
+          intent:
+            input.intentFile === undefined ? undefined : await readTextInput(input.intentFile),
+        });
+      },
       true,
     );
   },
@@ -551,8 +559,14 @@ export const WorkSources = {
    * Registers a SuperAgent's question as a one-off source with one answer-kind report
    * assignment, so the question needs no plan file. ADR-0027.
    */
-  ask(input: Input & { question: string; profile?: string }) {
-    return registerPlan(input, async () => questionPlan(input.question, input.profile));
+  ask(input: Input & { file: string; profile?: string }) {
+    return registerPlan(input, async () => {
+      const question = z
+        .string()
+        .refine((text) => text.trim() !== "")
+        .parse(await readTextInput(input.file));
+      return questionPlan(question, input.profile);
+    });
   },
   show(input: Input & { sourceId: string }) {
     return read(input).map((sources) => {

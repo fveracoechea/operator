@@ -30,7 +30,7 @@ export function dispatchArgs(args: string[]) {
         "--assignment",
         "--kind",
         "--brief",
-        "--intent",
+        "--intent-file",
         "--profile",
         "--tracker-key",
       ].includes(flag) ||
@@ -62,7 +62,7 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
       operation: "one_off_dispatch" as const,
       kind,
       brief,
-      intent: values["--intent"],
+      intentFile: values["--intent-file"],
       profile: values["--profile"],
       trackerKey: values["--tracker-key"],
     };

@@ -22,5 +22,5 @@ test("ask behavior through the isolated CLI seam", async () => {
     new Response(child.stderr).text(),
   ]);
   expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("15 pass");
+  expect(`${stdout}\n${stderr}`).toContain("19 pass");
 }, 120000);

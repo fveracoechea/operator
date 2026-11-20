@@ -21,7 +21,7 @@ The kind fixes completion and supplies resource and profile defaults.
 An optional tracker key links the work to a tracker; without it, the CLI generates `<kind>:<8 hex digits>`.
 The source never gains another planned assignment, but promotion can add a PR assignment after an accepted report.
 
-`operator ask --question <text>` is the `answer` preset of one-off dispatch.
+`operator ask --file <path|->` is the `answer` preset of one-off dispatch, with prose input as ADR-0032 decides.
 
 - Each question gets the new tracker key `ask:<8 hex digits>`, so the same question asked twice never meets an open parent.
 - The assignment key is the first six words of the question as a slug, or `question` when the question has no letters or digits.

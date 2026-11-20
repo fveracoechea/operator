@@ -36,13 +36,15 @@ test.each(["file", "stdin"])(
     const file = `${root}/task.md`;
     await Bun.write(file, "Build the queue.");
     const stdin = spyOn(Bun.stdin, "text").mockResolvedValue("Build the queue.");
+    const intentFile = `${root}/intent.txt`;
+    await Bun.write(intentFile, "Keep ordering.");
     const request = {
       paths,
       cwd,
       kind: "prototype",
       brief: reader === "stdin" ? "-" : file,
       trackerKey: "queue:42",
-      intent: "Keep ordering.",
+      intentFile,
       profile: "careful",
     };
     const registered = await WorkSources.oneOff(request);
@@ -83,6 +85,40 @@ test.each(["file", "stdin"])(
       error: { reason: "source_parent_open" },
     });
     expect(await Bun.file(paths.database).arrayBuffer()).toEqual(before);
+  },
+);
+
+test("oneOff refuses two stdin selectors before reading either input or looking up a project", async () => {
+  const stdin = spyOn(Bun.stdin, "text").mockResolvedValue("Do not read this stream.");
+  const project = spyOn(Projects, "current");
+  expect(
+    await WorkSources.oneOff({ paths, cwd: root, kind: "answer", brief: "-", intentFile: "-" }),
+  ).toMatchObject({
+    tag: "Err",
+    error: { reason: "invalid_source_plan", state: { inputValid: false } },
+  });
+  expect(stdin).not.toHaveBeenCalled();
+  expect(project).not.toHaveBeenCalled();
+  expect(await Bun.file(paths.database).exists()).toBe(false);
+});
+
+test.each(["ask", "oneOff"] as const)(
+  "%s keeps input IO failures separate from reader defects",
+  async (operation) => {
+    const project = spyOn(Projects, "current");
+    const read = spyOn(Bun.stdin, "text").mockRejectedValue(
+      Object.assign(new Error("Input unavailable"), { code: "EIO" }),
+    );
+    const request = { paths, cwd: root, kind: "answer", brief: "-", file: "-" };
+    expect(await WorkSources[operation](request)).toMatchObject({
+      tag: "Err",
+      error: { reason: "source_io_failed", state: { code: "EIO" } },
+    });
+    const cause = new TypeError("Broken input reader");
+    read.mockRejectedValue(cause);
+    expect(await WorkSources[operation](request)).toMatchObject({ tag: "Defect", cause });
+    expect(project).not.toHaveBeenCalled();
+    expect(await Bun.file(paths.database).exists()).toBe(false);
   },
 );
 

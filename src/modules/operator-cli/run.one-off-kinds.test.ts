@@ -140,7 +140,9 @@ test.each([
 );
 
 test("ask and one-off answer share the plan's built-in snapshot and pane defaults", async () => {
-  const asked = await device.run(["ask", "--question", "Explain queue.", "--profile", "careful"]);
+  const asked = await device.run(["ask", "--file", "-", "--profile", "careful"], {
+    stdin: "Explain queue.",
+  });
   const oneOff = await device.run(
     ["dispatch", "--kind", "answer", "--brief", "-", "--profile", "careful"],
     { stdin: "Explain queue." },
@@ -219,7 +221,7 @@ test.each([
     const calls = await device.herdrCalls();
     for (const command of [
       ["dispatch", "--kind", name, "--brief", "-"],
-      ["ask", "--question", "Explain queue."],
+      ["ask", "--file", "-"],
       ["source", "register", "--file", plan],
     ]) {
       const result = await device.run(command, { stdin: "Inspect queue." });

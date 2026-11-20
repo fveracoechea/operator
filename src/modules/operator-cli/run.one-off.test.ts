@@ -89,6 +89,8 @@ test.each([
   [["dispatch", "--kind", "research", "--brief", "-", "--assignment", "a"]],
   [["dispatch", "--kind", "research", "--brief", "-", "--completion", "pr"]],
   [["dispatch", "--kind", "research", "--brief", "-", "--kind", "answer"]],
+  [["dispatch", "--kind", "research", "--brief", "-", "--intent", "inline prose"]],
+  [["dispatch", "--kind", "research", "--brief", "-", "--intent", "-"]],
 ])(
   "one-off dispatch refuses mixed or unsupported flags %j",
   async (args) => {
@@ -100,6 +102,11 @@ test.each([
 );
 
 test("one-off dispatch reads stdin and preserves tracker, intent and profile", async () => {
+  const intent = `${device.root}/intent.txt`;
+  await Bun.write(
+    intent,
+    "Explain the queue without changing it.\nKeep `ticks`, $HOME and $(literal).",
+  );
   const result = await device.run(
     [
       "dispatch",
@@ -109,8 +116,8 @@ test("one-off dispatch reads stdin and preserves tracker, intent and profile", a
       "-",
       "--tracker-key",
       "github:example/one#42",
-      "--intent",
-      "Explain the queue without changing it.",
+      "--intent-file",
+      intent,
       "--profile",
       "careful",
     ],
@@ -130,7 +137,7 @@ test("one-off dispatch reads stdin and preserves tracker, intent and profile", a
             kind: "answer",
             trackerKey: "github:example/one#42",
             instructions: "Describe queue ordering.",
-            intent: "Explain the queue without changing it.",
+            intent: "Explain the queue without changing it.\nKeep `ticks`, $HOME and $(literal).",
             profile: "careful",
             resources: "pane",
           },
@@ -140,7 +147,62 @@ test("one-off dispatch reads stdin and preserves tracker, intent and profile", a
     },
   });
   expect(await Bun.file(data.brief).text()).toContain("> Explain the queue without changing it.");
+  expect(await Bun.file(data.brief).text()).toContain("> Keep `ticks`, $HOME and $(literal).");
 }, 60000);
+
+test("one-off dispatch reads a task file and literal intent from stdin", async () => {
+  const file = `${device.root}/task.md`;
+  await Bun.write(file, "Describe `queue` ordering.\nKeep $TASK and $(task) literal.");
+  const result = await device.run(
+    ["dispatch", "--kind", "answer", "--brief", file, "--intent-file", "-"],
+    {
+      stdin: "Keep `ticks`, $HOME and $(literal).\nPreserve this second line.",
+    },
+  );
+  expect(result.code, result.stderr).toBe(0);
+  const data = z
+    .object({ data: z.object({ sourceId: z.string(), brief: z.string() }) })
+    .parse(result.output).data;
+  expect((await device.run(["source", "show", "--source", data.sourceId])).output).toMatchObject({
+    data: {
+      plan: {
+        assignments: [
+          {
+            instructions: "Describe `queue` ordering.\nKeep $TASK and $(task) literal.",
+            intent: "Keep `ticks`, $HOME and $(literal).\nPreserve this second line.",
+          },
+        ],
+      },
+    },
+  });
+  expect(await Bun.file(data.brief).text()).toContain(
+    "> Keep `ticks`, $HOME and $(literal).\n> Preserve this second line.",
+  );
+}, 60000);
+
+test.each([
+  { brief: "-", intent: "-", text: "Do not split stdin.", reason: "invalid_source_plan", code: 2 },
+  {
+    brief: "-",
+    intent: "missing-intent.txt",
+    text: "Read the queue.",
+    reason: "source_io_failed",
+    code: 1,
+  },
+])(
+  "one-off dispatch refuses $reason without source or launch effects",
+  async ({ brief, intent, text, reason, code }) => {
+    const calls = await device.herdrCalls();
+    const result = await device.run(
+      ["dispatch", "--kind", "answer", "--brief", brief, "--intent-file", intent],
+      { stdin: text },
+    );
+    expect(result).toMatchObject({ code, output: { reason } });
+    expect((await device.run(["next"])).output).toMatchObject({ data: { sources: [] } });
+    expect(await device.herdrCalls()).toEqual(calls);
+  },
+  60000,
+);
 
 test.each(["prototype", "implementation"])(
   "one-off %s dispatch derives its completion and worktree",

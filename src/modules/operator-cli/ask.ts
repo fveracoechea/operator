@@ -14,7 +14,7 @@ export function askArgs(args: string[]) {
     }
     const value = rest.next().value;
     if (
-      (flag !== "--question" && flag !== "--profile") ||
+      (flag !== "--file" && flag !== "--profile") ||
       Object.hasOwn(values, flag) ||
       value === undefined ||
       value.startsWith("--")
@@ -22,11 +22,11 @@ export function askArgs(args: string[]) {
       return null;
     values[flag] = value;
   }
-  const question = values["--question"];
+  const file = values["--file"];
   const profile = values["--profile"];
-  if (question === undefined || question.trim() === "") return null;
+  if (file === undefined || file.trim() === "") return null;
   if (profile !== undefined && !/^[a-z][a-z0-9-]*$/.test(profile)) return null;
-  return { question, profile };
+  return { file, profile };
 }
 
 /**
