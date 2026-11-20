@@ -326,6 +326,7 @@ export function handoff(request: HandoffRequest) {
 
 type DispatchInput = Omit<HandoffRequest, "afterPid" | "continuation"> & {
   afterPid?: number | null;
+  kind?: string;
 };
 type DispatchPermission = { continuation: HandoffContinuation | null };
 type DispatchOutcome = Launch | { sourceId: string; assignment: string; parked: boolean };
@@ -405,6 +406,13 @@ function waitForPublication(
 /** A foreign continuation never falls back to ordinary supervisor dispatch. */
 export function dispatch(input: DispatchInput): AsyncResult<DispatchOutcome, Failure> {
   return dispatchPermission(input).flatMap(({ continuation }) => {
+    if (input.kind !== undefined && continuation !== null)
+      return ErrAsync<Failure>({
+        reason: "handoff_continuation_refused",
+        detail: "A recorded continuation cannot fill an assignment kind. Nothing changed.",
+        next: { command: "operator next", why: "Read the recorded continuation action." },
+        state: { continuationAuthorized: false },
+      });
     if (continuation === null) return supervisorDispatch(input);
     return WorkerDispatch.checkHandoff(input)
       .flatMap(() => handoff({ ...input, afterPid: input.afterPid ?? null, continuation }))
@@ -448,6 +456,13 @@ function supervisorDispatch(input: DispatchInput): AsyncResult<DispatchOutcome, 
         .toAsync()
         .flatMap(() => supervisorDispatch(input));
     const recorded = source?.handoffs.find((row) => row.assignment === input.assignment);
+    if (
+      parking !== null &&
+      parking !== undefined &&
+      "origin" in parking &&
+      parking.state === "resuming"
+    )
+      return WorkerDispatch.dispatch(input);
     if (recorded === undefined || recorded.handoffState === "done")
       return WorkerDispatch.dispatch(input);
     return WorkerDispatch.checkHandoff(input)

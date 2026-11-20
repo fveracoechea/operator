@@ -204,9 +204,19 @@ export const DeviceState = {
     maxRunning?: number,
     supervisor?: Supervisor,
     continuation?: HandoffContinuation,
+    fillKind?: string,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor, continuation),
+      reserveLaunch(
+        client,
+        checkout,
+        repository,
+        launch,
+        maxRunning,
+        supervisor,
+        continuation,
+        fillKind,
+      ),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {

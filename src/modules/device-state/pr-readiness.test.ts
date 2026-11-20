@@ -6,6 +6,17 @@ import { migrationsFolder } from "./database.ts";
 import { insertRow } from "./state-fixture.ts";
 import { prReadinessSchema, recordPrReady } from "./pr-readiness.ts";
 
+test("readiness retains legacy facts and accepts unknown heads only with explicit migration origin", () => {
+  const ready = { head: "known", at: "then", note: "/notes/ready.md", dispositions: [] };
+  expect(prReadinessSchema.parse(ready)).toEqual(ready);
+  expect(prReadinessSchema.safeParse({ ...ready, head: null }).success).toBe(false);
+  expect(prReadinessSchema.parse({ ...ready, head: null, origin: "migration-0026" })).toEqual({
+    ...ready,
+    head: null,
+    origin: "migration-0026",
+  });
+});
+
 test("readiness records complete dispositions and replaces only the completed outgoing handoff", () => {
   using client = new Database(":memory:");
   migrate(drizzle(client), { migrationsFolder });
@@ -66,7 +77,7 @@ test("readiness records complete dispositions and replaces only the completed ou
 });
 
 test("persisted dispositions keep tolerant decoding, trimmed reasons and positive identifiers", () => {
-  const schema = prReadinessSchema.shape.dispositions.element;
+  const schema = prReadinessSchema.options[1].shape.dispositions.element;
   expect(
     schema.parse({
       round: 2,

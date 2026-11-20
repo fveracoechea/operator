@@ -28,6 +28,8 @@ const row: Parameters<typeof parkedObservation>[0] = {
   mergeCommit: null,
   mergedAt: null,
   relay: null,
+  parkingRaw:
+    '{"launchId":"l","head":"h","at":"then","note":null,"state":"parked","events":[],"parentSeen":false}',
   parking: {
     launchId: "l",
     head: "h",

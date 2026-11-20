@@ -3,7 +3,7 @@ import { z } from "zod";
 import { qualify } from "./owner.ts";
 import { DeviceState } from "../device-state/main.ts";
 
-const persistedDisposition = DeviceState.prReadinessSchema().shape.dispositions.element;
+const persistedDisposition = DeviceState.prReadinessSchema().options[1].shape.dispositions.element;
 const dispositionSchema = z.discriminatedUnion("disposition", [
   persistedDisposition.options[0].strict(),
   persistedDisposition.options[1].strict(),

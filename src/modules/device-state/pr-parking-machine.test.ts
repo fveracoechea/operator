@@ -14,6 +14,9 @@ const allowed: ParkingFacts = {
   leaseOwned: true,
   outgoingMatches: true,
   hasEvents: true,
+  migrationOrigin: false,
+  historicalOwnerIdle: false,
+  historicalLaunchState: "finished",
 };
 
 test.each([
@@ -58,4 +61,26 @@ test("repeated parking completion and unrelated launch activation do nothing", (
   expect(decideParking({ ...allowed, event: "activate", state: null })).toEqual({
     result: "unchanged",
   });
+});
+
+test("migration resume requires its own idle-owner witness, not a nullable head or finished state", () => {
+  const migration = {
+    ...allowed,
+    event: "resume" as const,
+    state: "parked" as const,
+    migrationOrigin: true,
+    launchFinished: false,
+    historicalOwnerIdle: true,
+  };
+  expect(decideParking(migration)).toEqual({ result: "transition", state: "resuming" });
+  expect(decideParking({ ...migration, historicalOwnerIdle: false })).toEqual({
+    result: "refused",
+  });
+  expect(decideParking({ ...migration, historicalOwnerIdle: false, launchFinished: true })).toEqual(
+    { result: "refused" },
+  );
+  expect(decideParking({ ...migration, migrationOrigin: false })).toEqual({ result: "refused" });
+  expect(decideParking({ ...migration, feedbackOwner: false })).toEqual({ result: "refused" });
+  expect(decideParking({ ...migration, launchMatches: false })).toEqual({ result: "refused" });
+  expect(decideParking({ ...migration, hasEvents: false })).toEqual({ result: "refused" });
 });

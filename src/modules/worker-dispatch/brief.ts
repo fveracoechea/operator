@@ -23,7 +23,7 @@ type BriefInput = {
   branch: string | null;
   reports: { directory: string; files: string[] };
   followUps: { directory: string; files: string[] };
-  pullRequest: { number: number; url: string; readiness?: { head: string } | null } | null;
+  pullRequest: { number: number; url: string; readiness?: { head: string | null } | null } | null;
   dependencyReports: ReturnType<typeof WorkSources.dependencyReports>;
   stack: { assignment: string; number: number; branch: string } | null;
   internalReview: boolean;
@@ -106,7 +106,11 @@ function handoff(input: BriefInput) {
       input.pullRequest?.readiness !== undefined &&
       input.pullRequest.readiness !== null
     )
-      facts.push(`Ready head: \`${input.pullRequest.readiness.head}\`.`);
+      facts.push(
+        input.pullRequest.readiness.head === null
+          ? "Ready head: unknown (release migration)."
+          : `Ready head: \`${input.pullRequest.readiness.head}\`.`,
+      );
     if (input.review !== null) facts.push(...reviewFacts(input.review));
     return section("Handoff", facts.join("\n"));
   }

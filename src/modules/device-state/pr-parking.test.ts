@@ -11,7 +11,27 @@ import {
   claimParkedRead,
   finishParkedRead,
   resumeParkedPullRequest,
+  prParkingSchema,
 } from "./pr-parking.ts";
+
+test("parking retains legacy facts and accepts unknown heads only with explicit migration origin", () => {
+  const park = {
+    launchId: "old",
+    head: "known",
+    at: "then",
+    note: "/notes/park.md",
+    state: "parked" as const,
+    events: [],
+  };
+  expect(prParkingSchema.parse(park)).toEqual({ ...park, parentSeen: false });
+  expect(prParkingSchema.safeParse({ ...park, head: null }).success).toBe(false);
+  expect(prParkingSchema.parse({ ...park, head: null, origin: "migration-0026" })).toEqual({
+    ...park,
+    parentSeen: false,
+    head: null,
+    origin: "migration-0026",
+  });
+});
 
 function fixture() {
   const db = new Database(":memory:");

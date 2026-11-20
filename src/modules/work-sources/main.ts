@@ -1156,7 +1156,11 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   > = {
     pullRequest: pullRequest.waitStopped ? ("stopped" as const) : pullRequest.waitState,
     relay: pullRequest.relay?.state,
-    parked: pullRequest.parking?.state === "parked",
+    parked:
+      pullRequest.parking?.state === "parked" ||
+      (pullRequest.parking !== null &&
+        "origin" in pullRequest.parking &&
+        pullRequest.parking.state === "resuming"),
     prClosed: pullRequest.parking?.state === "closed",
   };
   if (pullRequest.parking !== null && pullRequest.parking.events.length > 0)
@@ -1327,10 +1331,16 @@ function decideAssignmentRow(
   });
   const cap =
     decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
+  const kind: { kind?: string | null } = { kind: assignment.kind };
   const row = described(
     input,
     source,
-    { assignment: assignment.key, ...decision, ...cap },
+    {
+      assignment: assignment.key,
+      ...kind,
+      ...decision,
+      ...cap,
+    },
     { assignment: assignment.key, launch, pullRequest, report, cleanup, review },
   );
   return retained.length > 0 ? { ...row, retainedResources: retained } : row;

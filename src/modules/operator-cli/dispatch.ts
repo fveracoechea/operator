@@ -51,7 +51,7 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
   const assignment = values["--assignment"];
   const kind = values["--kind"];
   const brief = values["--brief"];
-  if (kind !== undefined || brief !== undefined) {
+  if (brief !== undefined) {
     if (
       operation !== "dispatch" ||
       sourceId !== undefined ||
@@ -76,7 +76,7 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
 function dispatchTarget(values: Record<string, string>, operation: "dispatch" | "abandon") {
   if (
     Object.keys(values).some(
-      (flag) => !["--source", "--assignment", "--after-pid", "json"].includes(flag),
+      (flag) => !["--source", "--assignment", "--after-pid", "--kind", "json"].includes(flag),
     )
   )
     return null;
@@ -85,14 +85,24 @@ function dispatchTarget(values: Record<string, string>, operation: "dispatch" | 
   if (sourceId === undefined || assignment === undefined) return null;
   const afterPid = values["--after-pid"];
   if (operation === "abandon")
-    return afterPid === undefined ? { operation, sourceId, assignment } : null;
+    return afterPid === undefined && values["--kind"] === undefined
+      ? { operation, sourceId, assignment }
+      : null;
   if (afterPid !== undefined && !/^\d{1,10}$/.test(afterPid)) return null;
-  return {
+  const parsed: {
+    operation: "dispatch";
+    sourceId: string;
+    assignment: string;
+    afterPid: number | null;
+    kind?: string;
+  } = {
     operation: "dispatch" as const,
     sourceId,
     assignment,
     afterPid: afterPid === undefined ? null : Number(afterPid),
   };
+  if (values["--kind"] !== undefined) parsed.kind = values["--kind"];
+  return parsed;
 }
 
 export const dispatchExitCodes = {
@@ -101,6 +111,8 @@ export const dispatchExitCodes = {
   source_parent_open: 4,
   source_io_failed: 1,
   kind_not_dispatchable: 4,
+  assignment_kind_set: 4,
+  assignment_kind_required: 4,
   assignment_not_dispatchable: 4,
   running_cap_reached: 4,
   launch_failed: 1,
@@ -196,6 +208,7 @@ export async function runDispatch(
         sourceId: parsed.sourceId,
         assignment: parsed.assignment,
         afterPid: parsed.afterPid,
+        kind: parsed.kind,
       }).map((data) => ({ reason: "parked" in data ? "pr_parked" : "worker_launched", data }))
     : parsed.operation === "abandon"
       ? WorkSources.abandon({

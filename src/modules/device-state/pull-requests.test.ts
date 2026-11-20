@@ -8,6 +8,7 @@ import { readSources, registerSource } from "./sources.ts";
 import { registerProject, removeProject } from "./projects.ts";
 import { observePane, reserveLaunch, updateLaunch } from "./launches.ts";
 import {
+  activeOwner,
   associatePullRequest,
   recordPullRequestMerge,
   recordPullRequestWait,
@@ -16,6 +17,29 @@ import {
   worktreeOwners,
 } from "./pull-requests.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
+import {
+  beforeKindsMigration,
+  historicalAssignment,
+  migrateKinds,
+} from "./kind-migration-fixture.ts";
+
+test("a migration marker with an unknown head does not authorize merge ownership; the current known head and idle owner are required", () => {
+  using client = beforeKindsMigration();
+  historicalAssignment(client, { key: "old" });
+  migrateKinds(client);
+  const db = drizzle(client);
+  expect(activeOwner(db, "launch-old", "observed-head")).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_inactive" },
+  });
+  client.exec("UPDATE pull_requests SET parking = json_set(parking, '$.head', 'observed-head')");
+  expect(activeOwner(db, "launch-old", "wrong-head")).toMatchObject({ tag: "Err" });
+  expect(activeOwner(db, "launch-old", "observed-head")).toMatchObject({ tag: "Ok" });
+  client
+    .query("UPDATE launches SET owner_pid = ?, lease_at = ?")
+    .run(process.pid, new Date().toISOString());
+  expect(activeOwner(db, "launch-old", "observed-head")).toMatchObject({ tag: "Err" });
+});
 
 function fixture() {
   const db = new Database(":memory:");

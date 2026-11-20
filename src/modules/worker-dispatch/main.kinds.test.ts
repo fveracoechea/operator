@@ -42,7 +42,7 @@ test("a dispatch persists its resolved kind and absolute host guide", async () =
   expect(await device.launches("read")).toMatchObject([{ kind }]);
 });
 
-test("a legacy assignment keeps a null kind in its new launch and brief", async () => {
+test("a legacy assignment requires an explicit kind before a new launch without changing its plan", async () => {
   await using device = await dispatchDevice();
   const source = await device.source();
   if (source === undefined) expect.unreachable("The registered source is missing.");
@@ -53,11 +53,20 @@ test("a legacy assignment keeps a null kind in its new launch and brief", async 
     device.sourceId,
   );
   db.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(device.sourceId);
+  const plan = db.query("SELECT plan FROM sources").get();
   const result = await WorkerDispatch.dispatch(device.request("read"));
-  expect(result).toMatchObject({ tag: "Ok", value: { kind: null } });
-  expect(await device.launches("read")).toMatchObject([{ kind: null }]);
-  if (result.tag !== "Ok") expect.unreachable("The legacy launch failed.");
-  expect(await Bun.file(result.value.brief).text()).not.toContain("Worker kind:");
+  expect(result).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "assignment_kind_required",
+      next: {
+        command: `operator dispatch --source ${device.sourceId} --assignment read --kind <kind>`,
+      },
+    },
+  });
+  expect(await device.launches("read")).toEqual([]);
+  expect(db.query("SELECT plan FROM sources").get()).toEqual(plan);
+  expect(device.herdr.startAgent).not.toHaveBeenCalled();
 });
 
 test("an ended source's empty decision rows refuse dispatch without a kind or cap misclassification", async () => {

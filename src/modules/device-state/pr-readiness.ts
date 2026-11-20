@@ -7,7 +7,7 @@ import { recordKindHandoff } from "./kind-handoff-record.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 const place = { round: z.number().int().positive(), finding: z.number().int().positive() };
-export const prReadinessSchema = z.object({
+const readiness = z.object({
   head: z.string().min(1),
   at: z.string().min(1),
   note: z.string().min(1).nullable(),
@@ -18,6 +18,10 @@ export const prReadinessSchema = z.object({
     ]),
   ),
 });
+export const prReadinessSchema = z.union([
+  readiness.extend({ origin: z.literal("migration-0026"), head: z.string().min(1).nullable() }),
+  readiness,
+]);
 export type PrReadiness = z.infer<typeof prReadinessSchema>;
 
 /** Readiness and its fresh next launch are one write, under the caller's active-owner check. */
