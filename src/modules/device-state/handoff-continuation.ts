@@ -87,9 +87,8 @@ export function inspectContinuation(
   if (options.expected !== undefined && !sameContinuation(identity, options.expected))
     return Err(continuationRefusal());
   if (handoff.ownerPid === process.pid) return Ok({ identity, published: true });
-  return options.publishingPid !== undefined &&
-    options.publishingPid > 0 &&
-    handoff.ownerPid === options.publishingPid
+  const { publishingPid = 0 } = options;
+  return publishingPid > 0 && handoff.ownerPid === publishingPid
     ? Ok({ identity, published: false })
     : Err(continuationRefusal());
 }
@@ -203,6 +202,6 @@ function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof laun
 
 function freshLease(handoff: typeof kindHandoffs.$inferSelect) {
   const now = Date.now();
-  const timestamp = Date.parse(handoff.leaseAt ?? "");
+  const timestamp = Date.parse(String(handoff.leaseAt));
   return Number.isFinite(timestamp) && timestamp <= now && !ownerGone(handoff, now);
 }
