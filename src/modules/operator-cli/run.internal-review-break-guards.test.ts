@@ -52,10 +52,14 @@ test.each([
     name: "review-local clean worktree",
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
-      ["when: (facts) => facts.internalReview && facts.changed,", "when: () => false,"],
+      [
+        'facts.internalReview &&\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed })',
+        "false",
+      ],
     ],
     testFile: "pull-requests/internal-review-machine.test.ts",
     pattern: "with internal review on, each unready PR",
+    assertion: "pr_worktree_unclean",
   },
   {
     name: "implementer pane closed",

@@ -258,6 +258,27 @@ async function calls(file: string, text: string) {
     .filter((line) => line.includes(text)).length;
 }
 
+async function paneCloseEntered(source: string) {
+  // Readiness checks precede pane close in the asynchronous continuation. Observe its live
+  // claim while waiting, so a terminal failure is reported instead of mistaken for slow startup.
+  let claimed = false;
+  for (
+    let attempt = 0;
+    attempt < 100 && !(await Bun.file(`${root}/pane-close-entered`).exists());
+    attempt++
+  ) {
+    const state = await shown(source);
+    const review = state.internalReviews[0];
+    // Recovery starts with a pending row whose previous owner stopped. Only its new claim
+    // proves this dispatch started, after which losing the claim is a failure.
+    claimed ||= review?.handoffRunning === true;
+    expect(review, JSON.stringify(state)).toMatchObject({ handoffState: "pending" });
+    if (claimed) expect(review).toMatchObject({ handoffRunning: true });
+    await Bun.sleep(10);
+  }
+  return Bun.file(`${root}/pane-close-entered`).exists();
+}
+
 async function commit(worktree: string, file: string) {
   await Bun.write(`${worktree}/${file}`, `${file}\n`);
   await git(worktree, "add", ".");
@@ -331,13 +352,7 @@ test("a running handoff shows wait with kind_handoff and launches no second work
   await Bun.write(file, JSON.stringify({ ...state, pausePaneClose: true }));
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });
   try {
-    for (
-      let attempt = 0;
-      attempt < 100 && !(await Bun.file(`${root}/pane-close-entered`).exists());
-      attempt++
-    )
-      await Bun.sleep(10);
-    expect(await Bun.file(`${root}/pane-close-entered`).exists()).toBe(true);
+    expect(await paneCloseEntered(source)).toBe(true);
     expect(await entry(source)).toMatchObject({
       action: "wait",
       reason: "kind_handoff",
@@ -418,6 +433,7 @@ test("stopped handoff recovery serializes competing dispatches and preserves the
   await herdrFail({});
   // The recovery process holds the handoff while waiting for this synthetic parent, before any close effect.
   using db = new Database(`${root}/state/operator/operator.sqlite`);
+  db.exec("PRAGMA busy_timeout = 5000");
   db.query("UPDATE kind_handoffs SET handoff_state = 'pending', owner_pid = ?, lease_at = ?").run(
     process.pid,
     new Date().toISOString(),
@@ -477,13 +493,7 @@ test("stopped handoff recovery serializes competing dispatches and preserves the
     "--json",
   ]);
   try {
-    for (
-      let attempt = 0;
-      attempt < 100 && !(await Bun.file(`${root}/pane-close-entered`).exists());
-      attempt++
-    )
-      await Bun.sleep(10);
-    expect(await Bun.file(`${root}/pane-close-entered`).exists()).toBe(true);
+    expect(await paneCloseEntered(source)).toBe(true);
     expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
       code: 4,
       output: { reason: "handoff_running" },
