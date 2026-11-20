@@ -103,17 +103,16 @@ function handoff(input: BriefInput) {
     const facts: string[] = [];
     if (pr !== null) facts.push(`PR #${pr.number}: ${pr.url}`);
     if (head !== null) facts.push(`Head: \`${head}\`.`);
-    if (
-      input.review === null &&
-      input.pullRequest?.readiness !== undefined &&
-      input.pullRequest.readiness !== null
-    )
-      facts.push(
-        input.pullRequest.readiness.head === null
-          ? "Ready head: unknown (release migration)."
-          : `Ready head: \`${input.pullRequest.readiness.head}\`.`,
-      );
     if (input.review !== null) facts.push(...reviewFacts(input.review));
+    else {
+      const readiness = input.pullRequest?.readiness ?? null;
+      if (readiness !== null)
+        facts.push(
+          readiness.head === null
+            ? "Ready head: unknown (release migration)."
+            : `Ready head: \`${readiness.head}\`.`,
+        );
+    }
     return section("Handoff", facts.join("\n"));
   }
   return "";
