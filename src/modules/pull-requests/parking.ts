@@ -35,6 +35,11 @@ type BatchObservation = Extract<
   { tag: "Ok" }
 >["value"][number];
 
+/** A migrated unknown head becomes known only through the current parked observation. */
+function observedParking(parking: Parked["parking"], observed: Observation) {
+  return "origin" in parking ? { ...parking, head: observed.head } : parking;
+}
+
 /** The same observation decision advances both live-wait and parked cursors. */
 export function parkedObservation(row: Parked, facts: BatchObservation) {
   const relay = row.relay === null ? null : relaySchema.parse(JSON.parse(row.relay));
@@ -68,10 +73,10 @@ export function parkedObservation(row: Parked, facts: BatchObservation) {
   return {
     sourceId: row.sourceId,
     assignment: row.assignment,
-    previous: JSON.stringify(row.parking),
+    previous: row.parkingRaw,
     progress: decision.progress === undefined ? row.progress : JSON.stringify(decision.progress),
     parking: {
-      ...row.parking,
+      ...observedParking(row.parking, facts.observed),
       state: facts.observed.state === "CLOSED" ? ("closed" as const) : row.parking.state,
       events: [...row.parking.events, ...events],
       parentSeen: row.parking.parentSeen || parentMerged,
@@ -80,6 +85,35 @@ export function parkedObservation(row: Parked, facts: BatchObservation) {
 }
 
 /** A claimed device batch records cursors and durable events before any resumed worker can start. */
+function finishObservedMerge(
+  input: { paths: Paths },
+  row: Parked,
+  observed: Observation,
+): AsyncResult<undefined, Refusal> {
+  const merged = verifiedMerge(observed, row.parking.head);
+  if (merged === null || row.parking.launchId === null) return OkAsync(undefined);
+  return DeviceState.recordPullRequestMerge(
+    input.paths,
+    row.parking.launchId,
+    { number: row.number, ...merged },
+    (rows) => WorkSources.stateAfter(rows),
+  )
+    .toAsync()
+    .flatMap(() => DeviceState.worktreeOwners(input.paths))
+    .flatMap((owners) => {
+      const owner = owners.find((owner) => owner.launchId === row.parking.launchId);
+      return owner === undefined
+        ? OkAsync(undefined)
+        : cleanup({
+            paths: input.paths,
+            cwd: owner.checkout,
+            sourceId: row.sourceId,
+            assignment: row.assignment,
+            personInstructed: false,
+          }).map(() => undefined);
+    });
+}
+
 export function observeParked(input: { paths: Paths }): AsyncResult<undefined, Refusal> {
   return DeviceState.claimParkedRead(input.paths)
     .toAsync()
@@ -110,27 +144,8 @@ export function observeParked(input: { paths: Paths }): AsyncResult<undefined, R
           for (const [index, row] of claim.rows.entries()) {
             const facts = observed.value[index];
             if (facts === undefined) continue;
-            const merged = verifiedMerge(facts.observed, row.parking.head);
-            if (merged === null) continue;
-            const saved = DeviceState.recordPullRequestMerge(
-              input.paths,
-              row.parking.launchId,
-              { number: row.number, ...merged },
-              (rows) => WorkSources.stateAfter(rows),
-            );
+            const saved = await finishObservedMerge(input, row, facts.observed);
             if (saved.tag !== "Ok") return saved.map(() => undefined);
-            const owners = DeviceState.worktreeOwners(input.paths);
-            if (owners.tag !== "Ok") return owners.map(() => undefined);
-            const owner = owners.value.find((owner) => owner.launchId === row.parking.launchId);
-            if (owner === undefined) continue;
-            const cleaned = await cleanup({
-              paths: input.paths,
-              cwd: owner.checkout,
-              sourceId: row.sourceId,
-              assignment: row.assignment,
-              personInstructed: false,
-            });
-            if (cleaned.tag !== "Ok") return cleaned.map(() => undefined);
           }
           return Ok(undefined);
         }, qualify).flatMap((result) => result);

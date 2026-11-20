@@ -234,10 +234,6 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     }),
   },
   {
-    when: (facts) => active(facts) && facts.launch === "failed",
-    decide: () => ({ action: "replace_worker", reason: "launch_failed", blockers: [] }),
-  },
-  {
     when: ({ assignment, prClosed }) => assignment.state === "pr-open" && prClosed === true,
     decide: () => ({ action: "clean_up", reason: "pr_closed", blockers: [] }),
   },
@@ -253,6 +249,10 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: ({ assignment, parked }) => assignment.state === "pr-open" && parked === true,
     decide: () => ({ action: "wait", reason: "pr_parked", blockers: [] }),
+  },
+  {
+    when: (facts) => active(facts) && facts.launch === "failed",
+    decide: () => ({ action: "replace_worker", reason: "launch_failed", blockers: [] }),
   },
   {
     when: (facts) => active(facts) && facts.launch === "interrupted",

@@ -225,8 +225,15 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function dispatch(source: string, assignment = "implement") {
-  const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
+async function dispatch(source: string, assignment = "implement", kind?: string) {
+  const launched = await run([
+    "dispatch",
+    "--source",
+    source,
+    "--assignment",
+    assignment,
+    ...(kind === undefined ? [] : ["--kind", kind]),
+  ]);
   expect(launched.code, launched.stderr).toBe(0);
   const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string(), brief: z.string() }) })
@@ -1293,8 +1300,13 @@ test.each(["custom", "legacy"] as const)(
   "ready association actually dispatches %s feedback without supervisor recovery",
   async (kind) => {
     const source = await setup("opencode", plan, kind);
-    const worker = await dispatch(source);
+    const worker = await dispatch(
+      source,
+      "implement",
+      kind === "legacy" ? "implementation" : undefined,
+    );
     const before = (await shown(source)).launches[0];
+    if (kind === "legacy") expect(before?.kind).toMatchObject({ name: "implementation" });
     const head = await commit(worker.worktreePath, "ready.txt");
     await github({ pulls: [pull({ head, isDraft: false })] });
     expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });

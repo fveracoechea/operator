@@ -169,8 +169,15 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) => completeParking(client, target, continuation));
   },
-  resumeParkedPullRequest(paths: Paths, target: Parameters<typeof resumeParkedPullRequest>[1]) {
-    return writing(paths, (client) => resumeParkedPullRequest(client, target));
+  resumeParkedPullRequest(
+    paths: Paths,
+    target: Parameters<typeof resumeParkedPullRequest>[1],
+    fillKind?: string,
+    supervisor?: Parameters<typeof resumeParkedPullRequest>[3],
+  ) {
+    return writing(paths, (client) =>
+      resumeParkedPullRequest(client, target, fillKind, supervisor),
+    );
   },
   claimParkedRead(paths: Paths) {
     return writing(paths, (client) => claimParkedRead(client, Date.now()));
@@ -207,9 +214,19 @@ export const DeviceState = {
     maxRunning?: number,
     supervisor?: Supervisor,
     continuation?: HandoffContinuation,
+    fillKind?: string,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor, continuation),
+      reserveLaunch(
+        client,
+        checkout,
+        repository,
+        launch,
+        maxRunning,
+        supervisor,
+        continuation,
+        fillKind,
+      ),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {

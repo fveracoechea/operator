@@ -281,7 +281,9 @@ test("a promoted assignment whose worker stopped starts in the promoted report's
   git(worktree, "branch", "-m", "task/survey", "task/build");
   device.reopening();
 
-  expect(await WorkerDispatch.dispatch(device.request("build"))).toMatchObject({
+  expect(
+    await WorkerDispatch.dispatch({ ...device.request("build"), kind: "implementation" }),
+  ).toMatchObject({
     tag: "Ok",
     value: { attempt: 1, name: "pr-one-9-build", branch: "task/build", worktreePath: worktree },
   });
@@ -312,7 +314,9 @@ test("a promoted assignment whose worktree is gone is not started anywhere else"
   const worktree = `${device.root}/worktrees/report-one-6-survey`;
   git(device.checkout, "worktree", "remove", "--force", worktree);
 
-  expect(await WorkerDispatch.dispatch(device.request("build"))).toMatchObject({
+  expect(
+    await WorkerDispatch.dispatch({ ...device.request("build"), kind: "implementation" }),
+  ).toMatchObject({
     tag: "Err",
     error: {
       reason: "promotion_worktree_missing",
