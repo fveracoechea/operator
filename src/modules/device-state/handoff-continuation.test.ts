@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { migrationsFolder } from "./database.ts";
+import { recordPrReady } from "./pr-readiness.ts";
 import {
   inspectContinuation,
   readContinuation,
@@ -16,6 +17,7 @@ import {
   kindHandoffs,
   launches,
   projects,
+  pullRequests,
   sources,
   workerMessages,
 } from "./schema.ts";
@@ -92,7 +94,7 @@ function seed(
       reasoningEffort: "medium",
       release: '{"version":"fixture"}',
       skills: "[]",
-      startedAt: "now",
+      startedAt: "2026-11-17T00:00:00.000Z",
     })
     .run();
   db.insert(kindHandoffs)
@@ -165,6 +167,123 @@ test.each(["pr-feedback", "implementation"])(
     expect(client.serialize()).toEqual(before);
   },
 );
+
+test.each(["custom", "legacy"])(
+  "a typed ready receipt authorizes %s feedback without changing its snapshot",
+  (mode) => {
+    using client = new Database(":memory:");
+    const kind =
+      mode === "legacy"
+        ? null
+        : JSON.stringify({
+            ...WorkerKinds.resolve("implementation"),
+            name: "custom",
+            nextKind: null,
+          });
+    const db = seed(client, kind);
+    client.exec("UPDATE kind_handoffs SET handoff_state = 'done'");
+    db.insert(pullRequests)
+      .values({
+        ...target,
+        number: 7,
+        url: "https://github.com/owner/repo/pull/7",
+        branch: "task/build",
+        associatedAt: "now",
+        progress: "{}",
+        waitState: "idle",
+      })
+      .run();
+    const at = new Date().toISOString();
+    expect(
+      recordPrReady(
+        db,
+        { ...target, launchId: "outgoing" },
+        {
+          head: "pushed",
+          at,
+          note: null,
+          dispositions: [],
+        },
+        "pr-feedback",
+      ),
+    ).toMatchObject({ tag: "Ok" });
+    const checked = { ...identity, startedAt: at, nextKind: "pr-feedback" };
+    expect(inspectContinuation(db, target, context)).toMatchObject({
+      tag: "Ok",
+      value: { identity: checked, published: true },
+    });
+    expect(db.select().from(launches).get()?.kind).toBe(kind);
+    client.exec("UPDATE kind_handoffs SET started_at = 'replayed'");
+    expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  },
+);
+
+test("a ready receipt from another PR branch refuses continuation without writes", () => {
+  using client = new Database(":memory:");
+  const db = seed(client, JSON.stringify(WorkerKinds.resolve("review")), "pr-feedback");
+  const at = new Date().toISOString();
+  db.insert(pullRequests)
+    .values({
+      ...target,
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      branch: "task/another-assignment",
+      associatedAt: "now",
+      progress: "{}",
+      waitState: "idle",
+      readiness: JSON.stringify({ head: "pushed", at, note: null, dispositions: [] }),
+    })
+    .run();
+  client.query("UPDATE kind_handoffs SET started_at = ?").run(at);
+  const checked = { ...identity, startedAt: at, nextKind: "pr-feedback" };
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(readContinuation(client, target, context, process.ppid)).toMatchObject(refusal);
+  expect(validateContinuation(db, checked)).toMatchObject(refusal);
+  expect(
+    reservedContinuation(db, checked, target.repository, {
+      ...target,
+      kind: JSON.stringify(WorkerKinds.resolve("pr-feedback")),
+    }),
+  ).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
+
+test.each([
+  ["missing readiness", "UPDATE pull_requests SET readiness = NULL"],
+  ["another repository", "UPDATE pull_requests SET repository = 'other/repo'"],
+  ["a later outgoing launch", "UPDATE launches SET started_at = '2999-01-01'"],
+] as const)("feedback continuation refuses %s without writes", (_name, change) => {
+  using client = new Database(":memory:");
+  const db = seed(client, JSON.stringify(WorkerKinds.resolve("review")), "pr-feedback");
+  db.insert(pullRequests)
+    .values({
+      ...target,
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      branch: "task/build",
+      associatedAt: "now",
+      progress: "{}",
+      waitState: "idle",
+      readiness: JSON.stringify({
+        head: "pushed",
+        at: identity.startedAt,
+        note: null,
+        dispositions: [],
+      }),
+    })
+    .run();
+  const checked = { ...identity, nextKind: "pr-feedback" };
+  expect(inspectContinuation(db, target, context)).toMatchObject({
+    tag: "Ok",
+    value: { identity: checked },
+  });
+  client.exec(change);
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(validateContinuation(db, checked)).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
 
 test("publication PID can observe but cannot authorize effects until this process owns the hold", () => {
   using client = new Database(":memory:");

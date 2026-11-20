@@ -125,7 +125,7 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
   const migrations = beforeHistory
     .query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id")
     .all();
-  expect(migrations).toHaveLength(23);
+  expect(migrations).toHaveLength(25);
   beforeHistory.close();
   // Neither a fixed promotion implementation nor repeated association repairs retained state.
   expect(
@@ -290,6 +290,38 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
   expect((await device.run(["source", "show", "--source", unrelatedSource])).output).toMatchObject({
     data: { assignments: [{ key: "unrelated", state: "running" }] },
   });
+  // The old recovery authorization belongs to the implementation-to-review transition only.
+  const round = await device.writeText("round.md", "## Findings\n");
+  const summary = await device.writeText("ready.md", "## Overview\nReviewed.\n## Dispositions\n");
+  expect(
+    (await device.run(["pr", "round", "--file", round], { cwd: worktree, pane: reviewerPane }))
+      .code,
+  ).toBe(0);
+  expect(
+    (await device.run(["pr", "ready", "--file", summary], { cwd: worktree, pane: reviewerPane }))
+      .code,
+  ).toBe(0);
+  let feedbackStarted = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const current = await device.run(["source", "show", "--source", source]);
+    const facts = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({ state: z.string(), kind: z.object({ name: z.string() }).nullable() }),
+          ),
+        }),
+      })
+      .parse(current.output);
+    if (
+      facts.data.launches.some((row) => row.state === "running" && row.kind?.name === "pr-feedback")
+    ) {
+      feedbackStarted = true;
+      break;
+    }
+    await Bun.sleep(50);
+  }
+  expect(feedbackStarted).toBe(true);
 });
 
 test.each(["ready", "dirty", "head", "owner", "ambiguous"])(

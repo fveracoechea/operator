@@ -8,6 +8,7 @@ The kind and data decision lands in #382; the phase decision lands in #383.
 Later tickets supply kind transitions and parking.
 Amended 2026-11-17: draft association starts the recorded kind handoff; dispatch recovers failed or stopped handoffs.
 Amended 2026-11-19: each assignment permits at most two report returns, including replacement launches, then requires the person's decision.
+Amended 2026-11-17 in #389: explicit readiness replaces inferred review or wait evidence and starts the feedback handoff.
 
 ## Context
 
@@ -44,18 +45,16 @@ A third return refuses and preserves the work while asking the person whether to
 The report-return limit is independent of the PR review-round limit.
 The PR tail associates a PR, records at most two review rounds, becomes ready, handles feedback, and ends at merge or park.
 Report acceptance and the PR merge gate remain separate lifecycle decisions.
-Before explicit ready-transition records exist, a kind-declared work-phase readiness guard requires recorded evidence for the same head.
-It uses a ready or skipped review, or an eligible-head observation that passed the non-draft and merge checks.
-Association without internal review does not itself prove readiness.
-Missing or stale evidence remains unknown and sends the owner to its PR wait.
+The readiness guard requires an explicit recorded ready transition.
+Ready association without internal review records that transition under the clean-worktree and pushed-head guards.
+Neither an ended review nor an eligible wait observation substitutes for readiness.
 An ended review stays in feedback after a newer head, without reopening review rounds or the ready step.
 The canonical merge lifecycle gathers the current GitHub and local facts once.
 Observing an associated PR does not require a historical eligibility receipt or a clean worktree.
 An already merged PR takes verification and cleanup, without requesting a new merge.
 A new merge requires both a recorded ready frontier and the fresh merge gate.
-An ended ready or skipped review proves that frontier.
-Without a review record, an earlier eligible wait observation proves it, even after a newer head.
-An earlier observation cannot override an active review.
+The explicit ready transition proves that frontier, also after a newer head.
+A skip records permission only; the reviewer still runs guarded ready without rounds or a summary comment.
 The phase machine also checks current worktree cleanliness.
 Cleanup independently retains unlanded work until the person authorizes its removal.
 
@@ -70,6 +69,8 @@ The outgoing worker's closing command starts it, and the next launch follows the
 A running handoff is a wait; a failed or stopped handoff needs a replacement worker, not a separate recovery command.
 Draft association with internal review starts the fresh review launch in the same worktree.
 The fresh reviewer reads no implementer note.
+Ready ends the reviewer and starts fresh pr-feedback through the same recorded handoff and recovery rules.
+Its first launch and replacements receive complete dispositions and the optional reviewer note.
 
 ## Consequences
 

@@ -114,12 +114,7 @@ function worktreeWorker(
   });
 }
 
-function recorded(
-  paths: OperatorPaths,
-  selected: Worker,
-  clean: boolean,
-  head: string | null,
-): Result<Facts, Refusal> {
+function recorded(paths: OperatorPaths, selected: Worker, clean: boolean): Result<Facts, Refusal> {
   const read = DeviceState.readSources(paths, selected.source.repository, selected.source.id);
   return read.flatMap((rows) => {
     const source = rows[0];
@@ -128,7 +123,7 @@ function recorded(
     const report = source.reports.findLast((row) => row.assignment === key);
     const pr = source.pullRequests.find((row) => row.assignment === key);
     const review = source.internalReviews.find((row) => row.assignment === key);
-    const reviewEnded = review !== undefined && ["ready", "skipped"].includes(review.state);
+    const reviewEnded = pr !== undefined && pr.readiness !== null;
     return Ok({
       kind: selected.kind,
       report:
@@ -142,14 +137,16 @@ function recorded(
       pr: {
         associated: pr !== undefined,
         rounds: source.internalReviewRounds.filter((row) => row.assignment === key).length,
-        // A historical eligibleHead is not a current non-draft observation. #389 owns new evidence.
-        ready: pr !== undefined && head !== null && review?.readyHead === head && reviewEnded,
+        ready: reviewEnded,
         merged: pr !== undefined && pr.mergedAt !== null,
         parked: false,
       },
       internalReview: selected.launch.internalReview === true,
       reviewEnded,
-      handedOff: review !== undefined && review.implementerLaunchId === selected.launch.id,
+      reviewSkipped: review?.state === "skipped",
+      handedOff:
+        source.handoffs.some((row) => row.outgoingLaunchId === selected.launch.id) ||
+        review?.implementerLaunchId === selected.launch.id,
       worktreeClean: clean,
     });
   });
@@ -170,12 +167,12 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   if (selection.tag !== "Ok") return phaseReadFailure(args, event, selection);
   const selected = selection.value;
   if (selected === null) return run();
-  const { clean, head } = await worktreeObservation(selected, event);
-  const initial = recorded(paths, selected, clean, head);
+  const { clean } = await worktreeObservation(selected, event);
+  const initial = recorded(paths, selected, clean);
   if (initial.tag !== "Ok") return phaseReadFailure(args, event, initial);
   return withOutputContext(
     () => {
-      const facts = recorded(paths, selected, clean, head);
+      const facts = recorded(paths, selected, clean);
       if (facts.tag !== "Ok") return { failure: facts };
       const phase = WorkerKinds.decidePhase(facts.value);
       return { kind: phase.kind, phase: phase.phase, next: phase.next };

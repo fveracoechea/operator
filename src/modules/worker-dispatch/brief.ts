@@ -23,7 +23,7 @@ type BriefInput = {
   branch: string | null;
   reports: { directory: string; files: string[] };
   followUps: { directory: string; files: string[] };
-  pullRequest: { number: number; url: string } | null;
+  pullRequest: { number: number; url: string; readiness?: { head: string } | null } | null;
   dependencyReports: ReturnType<typeof WorkSources.dependencyReports>;
   stack: { assignment: string; number: number; branch: string } | null;
   internalReview: boolean;
@@ -40,7 +40,7 @@ type BriefInput = {
 /** Quoted record prose cannot introduce template sections. */
 function quote(text: string) {
   return text
-    .split("\n")
+    .split(/\r\n?|\n/)
     .map((line) => `> ${line}`)
     .join("\n");
 }
@@ -101,6 +101,12 @@ function handoff(input: BriefInput) {
     const facts: string[] = [];
     if (pr !== null) facts.push(`PR #${pr.number}: ${pr.url}`);
     if (head !== null) facts.push(`Head: \`${head}\`.`);
+    if (
+      input.review === null &&
+      input.pullRequest?.readiness !== undefined &&
+      input.pullRequest.readiness !== null
+    )
+      facts.push(`Ready head: \`${input.pullRequest.readiness.head}\`.`);
     if (input.review !== null) facts.push(...reviewFacts(input.review));
     return section("Handoff", facts.join("\n"));
   }
@@ -194,7 +200,7 @@ export function renderBrief(input: BriefInput) {
     (input.kind?.readsNote === true ||
       (input.kind?.readsNote === "promotion" && input.promotion !== null))
   )
-    sections.push(section("Note", `\`${note}\``));
+    sections.push(section("Note", quote(note)));
   if (input.events !== undefined && input.events.length > 0)
     sections.push(section("Events", input.events.map(quote).join("\n\n")));
   sections.push(...history(input));

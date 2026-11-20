@@ -18,7 +18,6 @@ import {
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import { owned, reviewEnded } from "./internal-review.ts";
-import { progressSchema } from "./wait-machine.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Request = { paths: Paths; cwd: string };
@@ -160,11 +159,7 @@ function guarded(
 /** Earlier readiness is a phase witness, not a substitute for the fresh merge decision. */
 async function mergePhase(owner: Owner): Promise<Failure | null> {
   if (owner.kind === null) return null;
-  const ready =
-    owner.reviewState === null
-      ? owner.progress !== null &&
-        progressSchema.parse(JSON.parse(owner.progress)).eligibleHead !== null
-      : owner.reviewState === "ready" || owner.reviewState === "skipped";
+  const ready = reviewEnded(owner);
   const status = await ToolInvocation.run({
     tool: "git",
     args: ["status", "--porcelain", "--untracked-files=normal"],

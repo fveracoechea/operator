@@ -18,7 +18,7 @@ export type MergeConditions = {
   notDraft: boolean;
   /** A stacked PR's parent merged and the relay finished, so no parent commit rides along. */
   stackRelayed: boolean;
-  /** The internal review ended ready or skipped, or the assignment has none. ADR-0020. */
+  /** Compatibility wire name for the explicit pr_ready transition, not the review's end. */
   reviewEnded: boolean;
 };
 type WaitEvent =

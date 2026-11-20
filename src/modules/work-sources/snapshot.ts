@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DeviceState } from "../device-state/main.ts";
+import { DeviceState } from "../device-state/main.ts";
 import { storedPlanSchema } from "./plan.ts";
 import { assignmentStateSchema, type AssignmentState } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
@@ -61,6 +61,7 @@ const pullRequestSchema = z.object({
   url: z.string(),
   branch: z.string(),
   associatedAt: z.string(),
+  readiness: DeviceState.storedPrReadinessSchema(),
   waitState: z.enum(["idle", "waiting", "reported", "timed_out", "not_open"]),
   waitAt: z.string().nullable(),
   waitStopped: z.boolean(),

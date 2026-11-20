@@ -8,10 +8,12 @@ import { workerDevice } from "./worker-fixture.ts";
 
 type Device = Awaited<ReturnType<typeof workerDevice>>;
 let device: Device | undefined;
+const workerPanes = new Map<string, string>();
 
 afterEach(async () => {
   if (device !== undefined) await rm(device.root, { recursive: true, force: true });
   device = undefined;
+  workerPanes.clear();
 });
 
 // Each test starts about fifty processes in a row: the public CLI, Git, and the controlled tools.
@@ -54,6 +56,41 @@ async function git(cwd: string, ...args: string[]) {
 
 async function gitFails(cwd: string, ...args: string[]) {
   return (await (device as Device).exec(["git", ...args], cwd)).code !== 0;
+}
+
+function run(args: string[], cwd: string) {
+  return (device as Device).run(args, { cwd, pane: workerPanes.get(cwd) });
+}
+
+async function feedbackOwner(source: string, worktree: string) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const state = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({
+              state: z.string(),
+              paneId: z.string().nullable(),
+              worktreePath: z.string().nullable(),
+              kind: z.object({ name: z.string() }).nullable(),
+            }),
+          ),
+        }),
+      })
+      .parse((await (device as Device).run(["source", "show", "--source", source])).output);
+    const latest = state.data.launches.findLast((launch) => launch.worktreePath === worktree);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      workerPanes.set(worktree, latest.paneId);
+      return latest.paneId;
+    }
+    expect(Date.now(), JSON.stringify(state)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 }
 
 type Pull = Record<string, unknown> & { number: number };
@@ -103,6 +140,7 @@ async function stackedDevice() {
 async function openParent(source: string) {
   const owner = await (device as Device).dispatch(source, "parent");
   const worktree = owner.worktreePath ?? "";
+  workerPanes.set(worktree, owner.paneId);
   await Bun.write(`${worktree}/shared.txt`, "base\n");
   await git(worktree, "add", ".");
   await git(worktree, "commit", "-q", "-m", "parent");
@@ -116,8 +154,9 @@ async function openParent(source: string) {
       state: "OPEN",
     });
   });
-  const associated = await (device as Device).run(["pr", "associate"], { cwd: worktree });
+  const associated = await run(["pr", "associate"], worktree);
   expect(associated.code, associated.stderr).toBe(0);
+  await feedbackOwner(source, worktree);
   return { worktree, head: await git(worktree, "rev-parse", "HEAD") };
 }
 
@@ -125,6 +164,7 @@ async function openParent(source: string) {
 async function openChild(source: string, content = "child\n") {
   const owner = await (device as Device).dispatch(source, "child");
   const worktree = owner.worktreePath ?? "";
+  workerPanes.set(worktree, owner.paneId);
   await Bun.write(`${worktree}/child.txt`, "child\n");
   await Bun.write(`${worktree}/shared.txt`, content);
   await git(worktree, "add", ".");
@@ -142,9 +182,10 @@ async function openChild(source: string, content = "child\n") {
       checks: [{ name: "ci", conclusion: "SUCCESS" }],
     });
   });
-  const associated = await (device as Device).run(["pr", "associate"], { cwd: worktree });
+  const associated = await run(["pr", "associate"], worktree);
   expect(associated.code, associated.stderr).toBe(0);
-  return { worktree, brief: owner.brief, paneId: owner.paneId };
+  const paneId = await feedbackOwner(source, worktree);
+  return { worktree, brief: owner.brief, paneId };
 }
 
 /** GitHub squash-merges the parent into main, deletes its branch, and main moves on. */
@@ -170,13 +211,14 @@ async function mergeParent(
 }
 
 function wait(cwd: string) {
-  return (device as Device).run(["pr", "wait", "--timeout", "0"], { cwd });
+  return run(["pr", "wait", "--timeout", "0"], cwd);
 }
 
 async function replaceChild(source: string, paneId: string) {
   const current = device as Device;
   expect((await current.exec(["herdr", "pane", "exit", paneId, "w1"], current.main)).code).toBe(0);
   const replacement = await current.dispatch(source, "child");
+  workerPanes.set(replacement.worktreePath ?? "", replacement.paneId);
   return { paneId: replacement.paneId, brief: await Bun.file(replacement.brief).text() };
 }
 
@@ -190,7 +232,7 @@ for (const conflict of [false, true]) {
       parent.head,
       conflict ? { file: "shared.txt", text: "main edit\n" } : undefined,
     );
-    const merged = await (device as Device).run(["pr", "merge"], { cwd: parent.worktree });
+    const merged = await run(["pr", "merge"], parent.worktree);
     expect(merged.code, merged.stderr).toBe(0);
     expect(merged.output).toMatchObject({ reason: "pr_merged", data: { state: "merged" } });
     if (conflict)
@@ -448,7 +490,7 @@ test("a stacked PR moved to main by hand stays ineligible until its relay finish
     data: { mergeConditions: { defaultBase: true, stackRelayed: false } },
   });
   // The guarded merge reads the same condition, so it refuses before any merge request.
-  const merge = await (device as Device).run(["pr", "merge"], { cwd: child.worktree });
+  const merge = await run(["pr", "merge"], child.worktree);
   expect(merge.output).toMatchObject({ reason: "pr_merge_blocked" });
   expect(JSON.stringify(merge.output)).toContain("a finished parent-merge relay");
   expect(await pull(8)).toMatchObject({ state: "OPEN" });

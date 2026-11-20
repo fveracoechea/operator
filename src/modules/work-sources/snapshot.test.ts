@@ -55,6 +55,36 @@ test("decodes persisted plans and strips storage-only assignment fields", () => 
   });
   expect(decodeSource(input).assignments[0]).not.toHaveProperty("sourceId");
 });
+
+test("decodes a non-null ready receipt with complete dispositions and rejects malformed receipts", () => {
+  const receipt = {
+    head: "pushed-head",
+    at: "2026-11-18T01:00:00.000Z",
+    note: "/device/reviewer.md",
+    dispositions: [
+      { round: 1, finding: 1, disposition: "applied" },
+      { round: 2, finding: 3, disposition: "declined", reason: "The owner already checks this." },
+    ],
+  };
+  const source = storedSource([{ key: "work", completion: "pr", state: "pr-open" }], {
+    launches: [storedLaunch("work")],
+    pullRequests: [storedPullRequest("work", { readiness: JSON.stringify(receipt) })],
+  });
+  expect<unknown>(decodeSource(source).pullRequests[0]?.readiness).toEqual(receipt);
+  const pr = source.pullRequests[0] ?? expect.unreachable("Missing PR fixture");
+  pr.readiness = JSON.stringify({
+    ...receipt,
+    dispositions: [
+      {
+        round: 1,
+        finding: 1,
+        disposition: "declined",
+        reason: " ",
+      },
+    ],
+  });
+  expect(() => decodeSource(source)).toThrow();
+});
 test("rejects malformed plans, unknown states, mismatched parents and assignment sets", () => {
   expect(() => decodeSource({ ...input, source: { ...input.source, plan: "broken" } })).toThrow();
   expect(() => decodeSource({ ...input, source: { ...input.source, state: "unknown" } })).toThrow();
@@ -138,6 +168,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     url: "https://github.com/example/one/pull/7",
     branch: "task/3",
     associatedAt: "now",
+    readiness: null,
     progress: "{}",
     waitState: "waiting",
     waitAt: "now",
@@ -209,6 +240,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
       url: pr.url,
       branch: "task/3",
       associatedAt: "now",
+      readiness: null,
       waitState: "waiting",
       waitAt: "now",
       waitStopped: false,
@@ -322,6 +354,7 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
     url: "u",
     branch: "task/3",
     associatedAt: "now",
+    readiness: null,
     progress: "{}",
     waitState: "reported",
     waitAt: "now",

@@ -436,7 +436,7 @@ Bracket-prefixed prose such as `[Hold] Wait for approval.` remains plain text.
 operator pr associate --json
 operator pr round --file <findings.md> --json
 operator pr wait --timeout 300 --json
-operator pr ready --file <summary.md> --json
+operator pr ready --file <summary.md> --note <reviewer-note.md> --json
 operator pr merge --json
 operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
 operator cleanup --source <source-id> --assignment <key> --json
@@ -445,7 +445,7 @@ operator cleanup --source <source-id> --assignment <key> --json
 The WorkerAgent runs the `pr` commands in its worktree.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
 `pr merge` merges only a ready PR whose base is the default branch.
-It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and an internal review that ended ready or skipped.
+It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and recorded `pr_ready`.
 It asks GitHub for the merge in the background, then records it only after GitHub shows the PR merged.
 `pr round` records the findings of one internal review round at the worktree head, and refuses a third round or a second round at the first round's head.
 Both review commands read markdown from a file or stdin and refuse JSON.
@@ -474,6 +474,15 @@ EOF
 Disposition bullets read `- 1.1 applied` or `- 1.1 declined: <reason>`.
 The first number selects the round; the second selects its finding, starting at 1.
 Malformed bullets report their line number and the next command. A refusal changes nothing.
+`pr ready` ends the review launch and starts fresh `pr-feedback` in the same worktree.
+Ready-PR association with internal review off does the same.
+Both transitions require a clean worktree at the pushed PR head.
+The first feedback brief and replacements include recorded rounds, dispositions, decline reasons, the ready head, and the summary link.
+Optional `--note <file|->` copies up to 60 lines into assignment device files and quotes them in feedback briefs.
+Review briefs receive no note.
+Only one of `--file` and `--note` can select stdin.
+`internal-review skip --person-instructed` records permission only.
+The live reviewer then runs `operator pr ready --json` without rounds or a summary comment.
 
 The SuperAgent runs `dispatch` from the controlling checkout when `next` shows a failed kind handoff.
 Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.

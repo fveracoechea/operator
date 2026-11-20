@@ -126,6 +126,7 @@ export function storedPullRequest(
     url: "https://github.com/example/one/pull/7",
     branch: `task/${assignment}`,
     associatedAt: "2026-01-02T00:00:00.000Z",
+    readiness: null,
     progress: "{}",
     waitState: "idle",
     waitAt: null,

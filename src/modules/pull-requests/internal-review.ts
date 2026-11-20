@@ -53,9 +53,9 @@ export function worktreeFacts(worktree: string) {
   }, qualify);
 }
 
-/** An assignment without an internal review, from before ADR-0020 or with it off, has ended it. */
-export function reviewEnded(owner: Owner) {
-  return owner.reviewState === null || ["ready", "skipped"].includes(owner.reviewState);
+/** The legacy merge-condition name now witnesses only an explicit ready transition. */
+export function reviewEnded(owner: Pick<Owner, "readiness">) {
+  return owner.readiness !== null;
 }
 
 /**
@@ -164,7 +164,7 @@ async function recoveryGate(request: HandoffRequest & { repository: string }, fa
   );
   if (read.tag !== "Ok") return failure(read);
   const audit = read.value;
-  if (audit === null) return null;
+  if (audit === null || audit.implementerLaunchId !== facts.handoff.outgoingLaunchId) return null;
   const confirmed = DeviceState.recoverInternalReview(request.paths, {
     ...audit,
     launchId: audit.implementerLaunchId,
@@ -489,6 +489,9 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
 
 /** Refuses a PR command of the launch that the handoff ended. */
 export function owned(owner: Owner): AsyncResult<Owner, Failure> {
-  const refusal = decideOwnership({ implementer: owner.implementerLaunchId === owner.launchId });
+  const refusal = decideOwnership({
+    implementer:
+      owner.implementerLaunchId === owner.launchId || owner.outgoingLaunchId === owner.launchId,
+  });
   return refusal === null ? OkAsync(owner) : ErrAsync(refusal);
 }

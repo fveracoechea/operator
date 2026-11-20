@@ -47,13 +47,82 @@ const verifyRecovery = {
 };
 
 /** A running owner of `other` with PR #7 recorded, and a cleanup start that never runs. */
-async function owner(relay: string | null = null, assignments?: string[], typed = false) {
+async function owner(
+  relay: string | null = null,
+  assignments?: string[],
+  typed = false,
+  ready = true,
+  reviewState?: "ready" | "skipped",
+) {
   const device = await prDevice({ assignments });
-  const started = device.start("other", {
+  const outgoing = device.start("other", {
     kind: typed ? JSON.stringify(WorkerKinds.resolve("implementation")) : null,
   });
-  device.associate(started.launchId, 7, "task/other", relay);
-  const head = git(started.worktree, "rev-parse", "HEAD");
+  const head = git(outgoing.worktree, "rev-parse", "HEAD");
+  const readiness = {
+    head,
+    at: new Date().toISOString(),
+    note: null,
+    dispositions: [],
+  };
+  let started = outgoing;
+  if (reviewState === undefined)
+    device.associate(outgoing.launchId, 7, "task/other", relay, ready ? readiness : undefined);
+  else {
+    expect(
+      DeviceState.associatePullRequest(
+        device.paths,
+        outgoing.launchId,
+        {
+          number: 7,
+          url: "https://github.com/example/one/pull/7",
+          branch: "task/other",
+          relay,
+        },
+        false,
+        true,
+      ).tag,
+    ).toBe("Ok");
+    expect(DeviceState.finishImplementer(device.paths, outgoing.launchId).tag).toBe("Ok");
+    started = device.start("other", {
+      worktree: outgoing.worktree,
+      add: false,
+      kind: JSON.stringify(WorkerKinds.resolve("review")),
+    });
+    if (reviewState === "skipped")
+      expect(
+        DeviceState.endInternalReview(
+          device.paths,
+          {
+            sourceId: device.sourceId,
+            assignment: "other",
+            launchId: null,
+          },
+          { state: "skipped", readyHead: null, commentId: null, commentUrl: null },
+          false,
+        ).tag,
+      ).toBe("Ok");
+    expect(
+      DeviceState.endInternalReview(
+        device.paths,
+        {
+          sourceId: device.sourceId,
+          assignment: "other",
+          launchId: started.launchId,
+        },
+        { state: reviewState, readyHead: head, commentId: null, commentUrl: null, readiness },
+        false,
+      ).tag,
+    ).toBe("Ok");
+  }
+  if (ready) {
+    expect(DeviceState.finishImplementer(device.paths, started.launchId).tag).toBe("Ok");
+    started = device.start("other", {
+      worktree: outgoing.worktree,
+      add: false,
+      kind: typed ? JSON.stringify(WorkerKinds.resolve("pr-feedback")) : null,
+    });
+  }
   // A live process that is not this one, so the recorded cleanup stays visibly running.
   const detach = spyOn(ToolInvocation, "detach").mockReturnValue(process.ppid);
   // A background merge request is read once each second, which the units skip.
@@ -91,16 +160,15 @@ test("a typed merge owner refuses hidden untracked work before requesting a merg
 });
 
 test("a typed merge owner without a ready frontier refuses without side effects", async () => {
-  const { device, head, input, detach } = await owner(null, undefined, true);
+  const { device, head, input, detach } = await owner(null, undefined, true, false);
   await using _ = device;
   device.answer(() => succeeded(pullRequestBody({ head })));
   expect<unknown>(await merge(input)).toMatchObject({
     tag: "Err",
     error: {
-      reason: "pr_not_ready",
-      kind: "implementation",
-      phase: "feedback",
-      state: { pr_ready: false },
+      reason: "pr_merge_blocked",
+      conditions: { reviewEnded: false },
+      state: { conditions: { reviewEnded: false } },
     },
   });
   expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
@@ -111,14 +179,8 @@ test("a typed merge owner without a ready frontier refuses without side effects"
 test.each(["ready", "skipped"] as const)(
   "a typed %s review frontier still requires a fresh gate before merging",
   async (reviewState) => {
-    const { device, head, input, detach } = await owner(null, undefined, true);
+    const { device, head, input, detach } = await owner(null, undefined, true, true, reviewState);
     await using _ = device;
-    const read = DeviceState.worktreeOwners;
-    spyOn(DeviceState, "worktreeOwners").mockImplementation((paths) =>
-      read(paths).map((rows) =>
-        rows.map((row) => ({ ...row, reviewState, reviewReadyHead: head })),
-      ),
-    );
     device.answer(() => succeeded(pullRequestBody({ head, approved: false })));
     expect<unknown>(await merge(input)).toMatchObject({
       tag: "Err",

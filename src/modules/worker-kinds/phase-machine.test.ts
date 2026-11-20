@@ -12,6 +12,15 @@ function prFacts(): PhaseFacts {
   };
 }
 
+test("skip permission has a clean ready frontier without fabricated rounds or readiness", () => {
+  const facts = { ...prFacts(), reviewSkipped: true, pr: { ...prFacts().pr, associated: true } };
+  expect(decidePhase(facts, "ready")).toMatchObject({ phase: "ready", refusal: undefined });
+  expect(decidePhase({ ...facts, worktreeClean: false }, "ready")).toMatchObject({
+    refusal: { reason: "pr_worktree_unclean" },
+  });
+  expect(decidePhase(facts, "merge")).toMatchObject({ refusal: { reason: "pr_not_ready" } });
+});
+
 test("tail decisions include their complete next-action contract", () => {
   const facts = prFacts();
   expect(decidePhase(facts)).toEqual({

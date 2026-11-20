@@ -136,15 +136,35 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         ({ source }) =>
           source.pullRequests.find((row) => row.assignment === input.assignment) ?? null,
       )
-      .let("review", ({ source }) => {
+      .let("review", ({ source, pullRequest }) => {
         const review = source.internalReviews.find((row) => row.assignment === input.assignment);
+        const dispositions = new Map(
+          (pullRequest?.readiness?.dispositions ?? []).map((item) => [
+            `${item.round}.${item.finding}`,
+            item,
+          ]),
+        );
         return review === undefined
           ? null
           : {
               state: review.state,
-              rounds: source.internalReviewRounds.filter(
-                (round) => round.assignment === input.assignment,
-              ),
+              rounds: source.internalReviewRounds
+                .filter((round) => round.assignment === input.assignment)
+                .map((round) => ({
+                  ...round,
+                  findings: round.findings.map((finding, index) => {
+                    const disposition = dispositions.get(`${round.number}.${index + 1}`);
+                    return disposition === undefined
+                      ? finding
+                      : {
+                          ...finding,
+                          disposition:
+                            disposition.disposition === "declined"
+                              ? `declined: ${disposition.reason}`
+                              : "applied",
+                        };
+                  }),
+                })),
               readyHead: review.readyHead,
               comment: review.commentUrl,
             };
@@ -333,6 +353,12 @@ function place(input: {
   }));
 }
 
+async function reviewerNote(settings: Pick<Settings, "kind" | "pullRequest">) {
+  if (settings.kind?.readsNote !== true) return null;
+  const file = settings.pullRequest?.readiness?.note ?? null;
+  return file === null ? null : Bun.file(file).text();
+}
+
 function writeBrief(
   request: Request,
   settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
@@ -406,6 +432,7 @@ function writeBrief(
         stack: settings.stack,
         internalReview: settings.internalReview,
         review: settings.review,
+        note: await reviewerNote(settings),
         promotion:
           promotion === null ? null : { report: promotion.report, number: promotion.reportNumber },
         adoption: settings.adoption,

@@ -53,6 +53,7 @@ import {
   startHandoff,
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
+import { prReadinessSchema, storedPrReadinessSchema } from "./pr-readiness.ts";
 import { recoverInternalReview, readInternalReviewRecovery } from "./internal-review-recovery.ts";
 import { readContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
@@ -147,6 +148,12 @@ function hold(renew: () => void) {
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
+  prReadinessSchema() {
+    return prReadinessSchema;
+  },
+  storedPrReadinessSchema() {
+    return storedPrReadinessSchema;
+  },
   checkCompatibility(paths: Paths, firstRegistration = false) {
     return compatibility(paths, firstRegistration);
   },

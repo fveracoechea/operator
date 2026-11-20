@@ -46,19 +46,21 @@ function skipArgs(flags: string[]) {
 }
 
 /** The reviewer names its findings or summary file. Its worktree still selects the assignment. */
-function fileArgs<O extends string>(operation: O, flags: string[]) {
-  let json = false;
-  let file: string | undefined;
+function proseArgs(flags: string[], allowed: string[]) {
+  const seen = new Set<string>();
+  const parsed: { file?: string; note?: string } = {};
   const rest = flags.values();
   for (const flag of rest) {
-    if (flag === "--json" && !json) json = true;
-    else if (flag === "--file" && file === undefined) {
-      const value = rest.next().value;
-      if (value === undefined || value.startsWith("--")) return null;
-      file = value;
-    } else return null;
+    if (seen.has(flag)) return null;
+    seen.add(flag);
+    if (flag === "--json") continue;
+    if (!allowed.includes(flag)) return null;
+    const value = rest.next().value;
+    if (value === undefined || value.startsWith("--")) return null;
+    if (flag === "--file") parsed.file = value;
+    else parsed.note = value;
   }
-  return file === undefined ? null : { operation, file };
+  return parsed.file === "-" && parsed.note === "-" ? null : parsed;
 }
 
 /** No owner flag selects an assignment or a PR. The caller's worktree is the only selector. */
@@ -67,8 +69,16 @@ export function pullRequestArgs(args: string[]) {
   if (group === "cleanup") return cleanupArgs(args.slice(1));
   if (group === "internal-review")
     return name === "recover" ? recoveryArgs(flags) : skipArgs(args.slice(1));
-  if (group === "pr" && name === "round") return fileArgs("pr_round" as const, flags);
-  if (group === "pr" && name === "ready") return fileArgs("pr_ready" as const, flags);
+  if (group === "pr" && name === "round") {
+    const parsed = proseArgs(flags, ["--file"]);
+    return parsed?.file === undefined
+      ? null
+      : { operation: "pr_round" as const, file: parsed.file };
+  }
+  if (group === "pr" && name === "ready") {
+    const parsed = proseArgs(flags, ["--file", "--note"]);
+    return parsed === null ? null : { operation: "pr_ready" as const, ...parsed };
+  }
   const command = ownerCommands.find((known) => known === name);
   if (group !== "pr" || command === undefined) return null;
   return ownerArgs(command, flags);
@@ -150,7 +160,7 @@ export async function runPullRequests(
         : parsed.operation === "pr_round"
           ? PullRequests.round({ ...input, file: parsed.file })
           : parsed.operation === "pr_ready"
-            ? PullRequests.ready({ ...input, file: parsed.file })
+            ? PullRequests.ready({ ...input, ...readyInput(parsed) })
             : parsed.operation === "pr_merge"
               ? PullRequests.merge(input)
               : parsed.operation === "pr_associate"
@@ -164,4 +174,11 @@ export async function runPullRequests(
     json,
   });
   return true;
+}
+
+function readyInput(parsed: { file?: string; note?: string }) {
+  const input: { file?: string; note?: string } = {};
+  if (parsed.file !== undefined) input.file = parsed.file;
+  if (parsed.note !== undefined) input.note = parsed.note;
+  return input;
 }

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { migrationsFolder } from "./database.ts";
 import { idleForMigration, migrationBlockers } from "./migration-policy.ts";
@@ -296,4 +298,19 @@ test("a kind handoff holds migrations only after its table exists and while its 
     );
     expect(db.serialize()).toEqual(before);
   }
+});
+
+test("future upgrades wait for live stack effects once managed-stack records exist", () => {
+  using db = new Database(":memory:");
+  migrate(drizzle(db), { migrationsFolder });
+  db.query(
+    "INSERT INTO stack_operations VALUES ('operation', 'source', 'child', 'launch', 1, 'planned', '{}', NULL, ?, ?)",
+  ).run(process.pid, new Date().toISOString());
+  expect(idleForMigration(db, 23)).toMatchObject({ tag: "Ok" });
+  expect(idleForMigration(db, 24)).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_migration_blocked" },
+  });
+  db.exec("UPDATE stack_operations SET owner_pid = NULL");
+  expect(idleForMigration(db, 24)).toMatchObject({ tag: "Ok" });
 });

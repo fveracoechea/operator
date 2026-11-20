@@ -8,10 +8,41 @@ import { WorkSources } from "../work-sources/main.ts";
 import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { associationBody, failed, git, prDevice, repository, succeeded } from "./device-fixture.ts";
-import { dispatch, dispatchPermission, handoff } from "./internal-review.ts";
+import { dispatch, dispatchPermission, handoff, owned, reviewEnded } from "./internal-review.ts";
 import { PullRequests } from "./main.ts";
 
+test("the merge readiness witness is an explicit transition, never an ended or absent review", () => {
+  expect(reviewEnded({ readiness: null })).toBe(false);
+  expect(
+    reviewEnded({
+      readiness: { head: "pushed", at: "now", note: null, dispositions: [] },
+    }),
+  ).toBe(true);
+});
+
 afterEach(() => mock.restore());
+
+test("a ready handoff fences its outgoing owner at the PR interface before pane closure", async () => {
+  await using device = await prDevice();
+  const started = device.start("parent");
+  expect(
+    DeviceState.associatePullRequest(device.paths, started.launchId, {
+      number: 7,
+      url: `https://github.com/${repository}/pull/7`,
+      branch: "task/parent",
+      relay: null,
+      readiness: { head: "h", at: "now", note: null, dispositions: [] },
+    }).tag,
+  ).toBe("Ok");
+  const read = DeviceState.worktreeOwners(device.paths);
+  expect(read.tag).toBe("Ok");
+  if (read.tag !== "Ok") return;
+  const owner = read.value[0] ?? expect.unreachable("Missing recorded owner");
+  expect(
+    await owned({ ...owner, worktreePath: started.worktree, branch: "task/parent" }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_handed_off" } });
+  expect(device.calls).toEqual([]);
+});
 
 test.each([1, 2, "finish", "dispatch", "reservation"] as const)(
   "effect-time check %s retains the original cause through the PR facade",
