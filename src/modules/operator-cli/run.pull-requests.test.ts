@@ -17,6 +17,8 @@ import { expectWorkflowRefusal } from "./worker-fixture.ts";
 
 let root = "";
 let checkout = "";
+let initialHead = "";
+const workerPanes = new Map<string, string>();
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
@@ -27,7 +29,7 @@ const gitEnv = {
   GIT_COMMITTER_EMAIL: "fixture@example.com",
 };
 
-function environment() {
+function environment(cwd = checkout) {
   return Environment.child({
     ...gitEnv,
     HOME: `${root}/home`,
@@ -35,12 +37,13 @@ function environment() {
     XDG_STATE_HOME: `${root}/state`,
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     HERDR_SOCKET_PATH: `${root}/herdr.sock`,
+    HERDR_PANE_ID: workerPanes.get(cwd) ?? "synthetic-supervisor-pane",
     PATH: `${root}/tools:${Environment.read().PATH}`,
   });
 }
 
 async function exec(args: string[], cwd = checkout) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(args, { cwd, env: environment(cwd), stdout: "pipe", stderr: "pipe" });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -113,6 +116,7 @@ async function setup(host: "opencode" | "claude-code") {
   await Bun.write(`${checkout}/README.md`, "fixture\n");
   await git(checkout, "add", ".");
   await git(checkout, "commit", "-q", "-m", "fixture");
+  initialHead = await git(checkout, "rev-parse", "HEAD");
   await tool("herdr", fakeHerdrScript(root));
   await tool("gh", fakeGithubScript(root));
   await symlink(cli, `${root}/tools/operator`);
@@ -150,15 +154,53 @@ async function setup(host: "opencode" | "claude-code") {
 }
 
 afterEach(async () => {
+  workerPanes.clear();
   await rm(root, { recursive: true, force: true });
 });
 
 async function dispatch(source: string, assignment = "implement") {
   const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
   expect(launched.code, launched.stderr).toBe(0);
-  return z
+  const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string(), brief: z.string() }) })
     .parse(launched.output).data;
+  workerPanes.set(worker.worktreePath, worker.paneId);
+  return worker;
+}
+
+async function feedbackWorker(source: string, worker: { worktreePath: string; paneId: string }) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const shown = await run(["source", "show", "--source", source]);
+    const latest = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({
+              state: z.string(),
+              paneId: z.string().nullable(),
+              worktreePath: z.string().nullable(),
+              kind: z.object({ name: z.string() }).nullable(),
+            }),
+          ),
+        }),
+      })
+      .parse(shown.output)
+      .data.launches.at(-1);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      expect(latest.worktreePath).toBe(worker.worktreePath);
+      expect(latest.paneId).not.toBe(worker.paneId);
+      worker.paneId = latest.paneId;
+      workerPanes.set(worker.worktreePath, latest.paneId);
+      return;
+    }
+    expect(Date.now(), JSON.stringify(shown.output)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 }
 
 type Pull = Record<string, unknown> & { number: number };
@@ -175,6 +217,7 @@ function pull(change: Record<string, unknown> = {}): Pull {
     headRefName: "task/12-implement",
     headRepository: "example/one",
     state: "OPEN",
+    head: initialHead,
     ...change,
   };
 }
@@ -236,6 +279,7 @@ function describeHosts() {
           },
         },
       });
+      await feedbackWorker(source, worker);
       expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
         code: 0,
         output: { reason: "pr_unchanged" },
@@ -398,6 +442,7 @@ test("a wait polls until new feedback arrives and simultaneous waits report it o
   const worker = await dispatch(source);
   await github({ pulls: [pull()] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await github({ queue: [{}, { comments: [{ id: "C1", body: "Later." }] }] });
   const polled = await run(["pr", "wait", "--timeout", "1"], worker.worktreePath);
   expect(polled).toMatchObject({
@@ -473,10 +518,12 @@ test("PR commands resolve only the recorded worktree of the running owner and re
   // A subdirectory and a linked path resolve through the real Git top level.
   await mkdir(`${worker.worktreePath}/src`);
   await symlink(worker.worktreePath, `${root}/linked`);
+  workerPanes.set(`${worker.worktreePath}/src`, worker.paneId);
   expect(await run(["pr", "associate"], `${worker.worktreePath}/src`)).toMatchObject({
     code: 0,
     output: { reason: "pr_associated" },
   });
+  await feedbackWorker(source, worker);
   expect(await run(["pr", "associate"], `${root}/linked`)).toMatchObject({
     output: { reason: "pr_unchanged" },
   });
@@ -527,6 +574,7 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
   const worker = await dispatch(source);
   await github({ pulls: [pull({ comments: [{ id: "C1", body: "First." }] })] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await Bun.write(`${worker.worktreePath}/unlanded.txt`, "partial work\n");
   expect((await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).output).toMatchObject({
     reason: "pr_events_observed",
@@ -570,8 +618,9 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
         { key: "second", state: "ready" },
       ],
       launches: [
-        { attempt: 1, state: "interrupted" },
-        { attempt: 2, state: "running" },
+        { attempt: 1, state: "finished" },
+        { attempt: 2, state: "interrupted" },
+        { attempt: 3, state: "running" },
       ],
     },
   });
@@ -601,6 +650,7 @@ test("an unanswered GitHub read is a visible failure and records no wait result"
   const worker = await dispatch(source);
   await github({ pulls: [pull()] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await github({ fail: "upstream fault" });
   expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
     code: 1,
@@ -680,9 +730,10 @@ test("a killed wait and an idle owner between waits need attention", async () =>
   const worker = await dispatch(source);
   await github({ pulls: [pull()] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   const child = Bun.spawn([process.execPath, cli, "pr", "wait", "--timeout", "600", "--json"], {
     cwd: worker.worktreePath,
-    env: environment(),
+    env: environment(worker.worktreePath),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -727,6 +778,7 @@ test("a replacement after a failed replacement start continues on the PR worktre
   const worker = await dispatch(source);
   await github({ pulls: [pull()] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await Bun.write(`${worker.worktreePath}/unlanded.txt`, "partial work\n");
   await exec(["herdr", "pane", "exit", worker.paneId, "w1"]);
   await setHerdr({ fail: { "worktree open": "herdr refused" } });

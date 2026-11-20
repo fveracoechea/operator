@@ -102,9 +102,15 @@ async function github(
 const resultSchema = z.object({ reason: z.string(), data: z.looseObject({}).optional() });
 
 /** The worker's public commands. The test plays the reviewer and CI on the controlled GitHub. */
-async function workPullRequest(key: string, worktree: string, options: { leaveNotes: boolean }) {
+async function workPullRequest(
+  source: string,
+  key: string,
+  worktree: string,
+  options: { leaveNotes: boolean; pane: string },
+) {
+  let pane = options.pane;
   function run(args: string[]) {
-    return cli(args, { cwd: worktree });
+    return cli(args, { cwd: worktree, pane });
   }
   const number = key === "implement" ? 7 : 8;
   const branch = await git(worktree, "branch", "--show-current");
@@ -127,8 +133,25 @@ async function workPullRequest(key: string, worktree: string, options: { leaveNo
     state.branches[branch] = first;
   });
   expect(await run(["pr", "associate"])).toMatchObject({ code: 0 });
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const state = await shown(source);
+    const latest = state.launches.findLast((launch) => launch.assignment === key);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      expect(latest.worktreePath).toBe(worktree);
+      expect(latest.paneId).not.toBe(pane);
+      pane = latest.paneId;
+      break;
+    }
+    expect(Date.now(), JSON.stringify(state)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 
-  // The first round brings review feedback. The owner fixes it and pushes to the same PR.
+  // Fresh pr-feedback handles GitHub feedback and pushes fixes to the same PR.
   const feedback = resultSchema.parse((await run(["pr", "wait", "--timeout", "0"])).output);
   expect(feedback).toMatchObject({
     reason: "pr_events_observed",
@@ -241,8 +264,9 @@ async function supervise(
           });
           expect(submitted.code, submitted.stderr).toBe(0);
         } else {
-          await workPullRequest(key, worker.worktreePath, {
+          await workPullRequest(source, key, worker.worktreePath, {
             leaveNotes: options.leaveNotes === key,
+            pane: worker.paneId,
           });
           // Git deletes the empty `.git/worktrees` folder when cleanup removes the last worktree,
           // and a worktree start in the same repository at that moment fails. The SuperAgent
@@ -283,7 +307,16 @@ async function shown(source: string) {
       data: z.looseObject({
         state: z.string(),
         assignments: z.array(z.looseObject({ key: z.string(), state: z.string() })),
-        launches: z.array(z.looseObject({ assignment: z.string(), host: z.string() })),
+        launches: z.array(
+          z.looseObject({
+            assignment: z.string(),
+            host: z.string(),
+            state: z.string(),
+            paneId: z.string().nullable(),
+            worktreePath: z.string().nullable(),
+            kind: z.object({ name: z.string() }).nullable(),
+          }),
+        ),
       }),
     })
     .parse(result.output).data;

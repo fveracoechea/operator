@@ -215,6 +215,7 @@ const statusSchema = z.object({
         paneId: z.string().nullable(),
         worktreePath: z.string().nullable(),
         internalReview: z.boolean().nullable(),
+        kind: z.object({ name: z.string() }).nullable(),
       }),
     ),
     internalReviews: z.array(
@@ -519,7 +520,7 @@ test("the removed handoff command is refused without closing a pane or starting 
   expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(0);
 }, 180000);
 
-test("with internal review off, associate records a ready PR and the owner keeps it", async () => {
+test("with internal review off, associate records a ready PR and hands it to fresh pr-feedback", async () => {
   const source = await setup("opencode");
   await Bun.write(
     `${root}/config/operator/config.json`,
@@ -556,10 +557,29 @@ test("with internal review off, associate records a ready PR and the owner keeps
     output: { reason: "pr_associated", data: { internalReview: null } },
   });
   expect((await shown(source)).internalReviews).toEqual([]);
-  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(0);
-  expect(
-    await run(["pr", "round", "--file", await findings([])], worker.worktreePath),
-  ).toMatchObject({
+  const deadline = Date.now() + 30000;
+  let state = await shown(source);
+  while (
+    state.launches.at(-1)?.kind?.name !== "pr-feedback" ||
+    state.launches.at(-1)?.state !== "running"
+  ) {
+    expect(Date.now(), JSON.stringify(state)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+    state = await shown(source);
+  }
+  expect(state.launches).toMatchObject([
+    { state: "finished", kind: { name: "implementation" } },
+    { state: "running", worktreePath: worker.worktreePath, kind: { name: "pr-feedback" } },
+  ]);
+  expect(state.launches[1]?.paneId).not.toBe(worker.paneId);
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes + 1);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts + 1);
+  const round = ["pr", "round", "--file", await findings([])];
+  workerPanes.set(
+    worker.worktreePath,
+    state.launches[1]?.paneId ?? expect.unreachable("Missing feedback pane"),
+  );
+  expect(await run(round, worker.worktreePath)).toMatchObject({
     code: 3,
     output: { reason: "internal_review_not_recorded" },
   });
