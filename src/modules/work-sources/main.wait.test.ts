@@ -7,7 +7,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "./main.ts";
 import { actionKey, addKeys, dropKeys } from "./coordination.ts";
-import { storedLaunch, storedSource } from "./source-fixture.ts";
+import { storedLaunch, storedReport, storedSource } from "./source-fixture.ts";
 
 const root = "/isolated/wait";
 const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
@@ -114,6 +114,81 @@ test("a scope that never returned a set returns every action at once and records
   expect(calls.read).toHaveBeenCalledWith(paths, "example/one", undefined);
   expect(calls.supervision).not.toHaveBeenCalled();
 });
+
+test.each([
+  {
+    oldAction: "resume_worker",
+    oldReason: "follow_up_returned",
+    action: "worker_attention",
+    reason: "follow_up_returned",
+    state: "reported",
+    decision: "returned",
+    cleanup: null,
+  },
+  {
+    oldAction: "retry_cleanup",
+    oldReason: "cleanup_failed",
+    action: "clean_up",
+    reason: "cleanup_failed",
+    state: "completed",
+    decision: "accepted",
+    cleanup: "failed",
+  },
+  {
+    oldAction: "retry_cleanup",
+    oldReason: "cleanup_unfinished",
+    action: "clean_up",
+    reason: "cleanup_stopped",
+    state: "completed",
+    decision: "accepted",
+    cleanup: "pending",
+  },
+])(
+  "$oldAction/$oldReason returns once in each existing wait scope",
+  async ({ oldAction, oldReason, action, reason, state, decision, cleanup }) => {
+    const source = storedSource(
+      [
+        { key: "a", completion: "report", state },
+        { key: "b", completion: "report", state: "running" },
+      ],
+      {
+        launches: [storedLaunch("a")],
+        reports: [storedReport("a", { decision, cleanupState: cleanup })],
+      },
+    );
+    const old = addKeys([
+      actionKey("one", { assignment: "a", action: oldAction, reason: oldReason }),
+    ])(null);
+    for (const { sourceId, session, scope } of [
+      { sourceId: undefined, session: undefined, scope: "" },
+      { sourceId: "one", session: undefined, scope: "one" },
+      { sourceId: undefined, session: "ses-1", scope: "session:ses-1" },
+    ]) {
+      const calls = device(old, session, [source]);
+      const input = { paths, cwd: root, sourceId, timeoutSeconds: 0 };
+      expect(await WorkSources.wait(input)).toMatchObject({
+        tag: "Ok",
+        value: {
+          reason: "next_actions_changed",
+          data: { sources: [{ actions: [{ assignment: "a", action, reason }] }] },
+        },
+      });
+      expect(calls.start).toHaveBeenCalledWith(
+        paths,
+        { repository: "example/one", scope },
+        { pane: session === undefined ? null : "pane-1", session: session ?? null },
+      );
+      const returned = finished(calls, old) ?? expect.unreachable("No action keys were stored.");
+      mock.restore();
+      device(returned, session, [source]);
+      expect(await WorkSources.wait(input)).toMatchObject({
+        tag: "Ok",
+        value: { reason: "next_wait_timed_out", data: { sources: [] } },
+      });
+      mock.restore();
+    }
+  },
+);
 
 test("parked batch failures stop the coordination read without acknowledging actions and release its lease", async () => {
   const calls = device(null, undefined, [ready]);

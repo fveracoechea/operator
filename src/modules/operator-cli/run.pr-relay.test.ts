@@ -303,7 +303,7 @@ test("a child starts on the open parent's branch and is relayed onto main after 
     "Parent: `parent`, PR #6, branch `task/21-parent`.",
   );
   expect(await stack("child")).toMatchObject({
-    reason: "pr_feedback_loop",
+    reason: "assignment_active",
     pullRequest: {
       stack: { parent: { assignment: "parent", number: 6 }, state: "stacked", blocker: null },
     },
@@ -341,7 +341,7 @@ test("a child starts on the open parent's branch and is relayed onto main after 
   expect(await git(parent.worktree, "rev-parse", "HEAD")).toBe(parent.head);
   expect(await git((device as Device).main, "rev-parse", "HEAD")).toBe(controller);
   expect(await stack("child")).toMatchObject({
-    reason: "pr_feedback_loop",
+    reason: "assignment_active",
     pullRequest: { stack: { state: "relayed" } },
   });
 
@@ -388,8 +388,8 @@ test("a conflict aborts the relay, keeps the branch, and needs attention until t
   expect(await git(remote, "rev-parse", "refs/heads/task/22-child")).toBe(before);
   expect(await baseChanges()).toBe(0);
   expect(await stack("child")).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_relay_blocked",
+    action: "wait",
+    reason: "assignment_active",
     pullRequest: { stack: { state: "blocked", blocker: { reason: "relay_conflict" } } },
   });
 
@@ -405,7 +405,7 @@ test("a conflict aborts the relay, keeps the branch, and needs attention until t
   });
   expect(await git(remote, "rev-parse", "refs/heads/task/22-child")).toBe(resolved);
   expect(await baseChanges()).toBe(1);
-  expect(await stack("child")).toMatchObject({ reason: "pr_feedback_loop" });
+  expect(await stack("child")).toMatchObject({ reason: "assignment_active" });
 });
 
 test("a failed base change stays a blocker, and the next wait continues without a second push", async () => {
@@ -424,8 +424,8 @@ test("a failed base change stays a blocker, and the next wait continues without 
   expect(await git(remote, "rev-parse", "refs/heads/task/22-child")).toBe(pushed);
   expect(await pull(8)).toMatchObject({ baseRefName: "task/21-parent" });
   expect(await stack("child")).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_relay_blocked",
+    action: "wait",
+    reason: "assignment_active",
   });
 
   await github((state) => {

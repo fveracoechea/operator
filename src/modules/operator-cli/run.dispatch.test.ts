@@ -684,12 +684,13 @@ test.each(["review", "pr-feedback"])("%s cannot be plainly dispatched", async (k
       data: {
         sources: [
           {
-            actions: [
+            actions: [],
+            waits: [
               {
                 assignment: "implement",
-                action: "owner_attention",
-                reason: "kind_not_dispatchable",
-                next: { decider: "super-agent" },
+                action: "wait",
+                reason: "kind_handoff",
+                next: { command: `operator next --source ${source} --wait` },
               },
             ],
           },

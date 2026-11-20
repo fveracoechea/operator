@@ -6,6 +6,7 @@ Accepted - 2026-11-11.
 Amends ADR-0022 and ADR-0001. Builds on ADR-0025, which makes the agent session the supervisor.
 Decided in the SuperAgent retro of 2026-11-11, finding 1.
 Amended 2026-11-18: coordination waits batch parked PR observations on one durable 15-minute schedule.
+Amended 2026-11-20: renamed assignment actions return once per scope; only worker-idle attention retains the settling period. Decided in #373 and #393.
 
 ## Context
 
@@ -32,7 +33,7 @@ Closed, unmerged PRs name abandonment while preserving unlanded work.
 A SuperAgent command from an agent session, such as `dispatch`, `message send`, or `question escalate`, records the actions that it added to its named source, or to a source that it registered, as returned by every wait of that session.
 A wait reads the stored set on each read, so a change that its own session made never ends it.
 
-`pr_wait_timed_out`, `pr_wait_stopped`, `pr_owner_idle`, and `worker_idle` count only once they lasted a minute, because an owner usually starts its next PR wait, or a worker turns active, within that time.
+`worker_idle` counts only once it lasts a minute, because a worker usually turns active within that time.
 
 A wait without a source from an agent session has its own scope for that session. It covers every source that the session supervises in every project, and it claims the current project's open sources that nobody supervises yet. Without a session, it covers the current project as before.
 
@@ -48,6 +49,7 @@ A wait without a source from an agent session has its own scope for that session
 - An action that disappears and reappears between two waits, with no wait running, is not new to the next wait.
 - A parked change can wait up to 15 minutes for observation, without a background watcher or a quiet wake.
 - A stored set from an earlier release holds tuples, which read as the same keys, so a project or source wait returns only rows that name a question or message once after an upgrade. The first session wait has no stored set, so it returns every open action once.
+- Renamed assignment actions have new keys. Each scope returns them once without migrating its stored set (ADR-0001).
 
 ## Alternatives considered
 

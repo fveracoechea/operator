@@ -85,7 +85,7 @@ The wait does not return for:
 
 - an action that went away or turned back into a wait,
 - an action that your session added with its own command, such as `message send`, `message close`, `question escalate`, `dispatch`, or `source register`,
-- `pr_wait_timed_out`, `pr_wait_stopped`, `pr_owner_idle`, or `worker_idle` that clears within a minute, for example an owner that starts its next PR wait.
+- `worker_idle` that clears within a minute, for example an owner that starts its next PR wait.
 
 `--source <source-id>` waits on one source and makes your session its supervisor.
 
@@ -131,6 +131,6 @@ After a reset, register the same parent again with a new plan when the person wa
 `next --all` shows `source_ended` with `endedAt` and `prunableAt` for an ended source. `next` shows `prune_source` once 14 days have passed.
 Run `operator source prune --json` to delete every eligible ended source of the project, with its briefs, reports, and supporting files.
 There is no archive. Copy report content that another project needs into that project's plan before the producer is pruned.
-A source with an open cleanup or a running worker stays, and its `retry_cleanup` or `person_decision` row stays in `next`.
+A source with an open cleanup or a running worker stays, and its `clean_up` or `person_decision` row stays in `next`.
 The result lists the `retained` worktrees, branches, and unmerged PRs of each pruned source, because prune never removes them. Tell the person, because no Operator record of them remains.
 Prune stops at its first failure and keeps that source's records.

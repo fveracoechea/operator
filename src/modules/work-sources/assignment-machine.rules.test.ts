@@ -65,10 +65,10 @@ test("each rule matches only its own assignment state", () => {
   ).toEqual(decision("wait", "assignment_active"));
   expect<unknown>(
     decide(reportRow("completed"), { report: { decision: "accepted", cleanup: "pending" } }),
-  ).toEqual(decision("retry_cleanup", "cleanup_unfinished"));
+  ).toEqual(decision("clean_up", "cleanup_stopped"));
   expect<unknown>(
     decide(reportRow("completed"), { report: { decision: "accepted", cleanup: "failed" } }),
-  ).toEqual(decision("retry_cleanup", "cleanup_failed"));
+  ).toEqual(decision("clean_up", "cleanup_failed"));
   // Only reported work waits for review.
   expect<unknown>(
     decide(reportRow("running"), { report: { decision: null, cleanup: null } }),
@@ -81,7 +81,7 @@ test("each rule matches only its own assignment state", () => {
 test("only reported work with a returned report and a running worker resumes", () => {
   const returned = { decision: "returned" as const, cleanup: null };
   expect<unknown>(decide(reportRow("reported"), { report: returned, launch: "running" })).toEqual(
-    decision("resume_worker", "follow_up_returned"),
+    decision("worker_attention", "follow_up_returned"),
   );
   expect<unknown>(decide(reportRow("running"), { report: returned, launch: "running" })).toEqual(
     decision("wait", "assignment_active"),
@@ -100,12 +100,12 @@ test("only reported work with a returned report and a running worker resumes", (
   );
 });
 
-test("PR attention rules apply only to open PR work", () => {
+test("legacy PR and relay facts do not add coordination actions for a live owner", () => {
   expect<unknown>(decide(prRow("running"), { relay: "blocked" })).toEqual(
     decision("wait", "assignment_active"),
   );
   expect<unknown>(decide(prRow("pr-open"), { relay: "blocked" })).toEqual(
-    decision("owner_attention", "pr_relay_blocked"),
+    decision("wait", "assignment_active"),
   );
   expect<unknown>(decide(prRow("running"), { pullRequest: "not_open" })).toEqual(
     decision("wait", "assignment_active"),
@@ -160,17 +160,17 @@ test("an internal review handoff is a wait while it runs, and a retry after it s
   );
 });
 
-test("a running internal review is a wait until its reviewer starts the PR wait", () => {
+test("review and PR feedback work share assignment_active while their worker runs", () => {
   expect<unknown>(
     decide(prRow("pr-open"), { launch: "running", pullRequest: "idle", reviewing: true }),
-  ).toEqual(decision("wait", "internal_review_running"));
+  ).toEqual(decision("wait", "assignment_active"));
   // The reviewer waits on the PR only after it marks it ready, so the feedback loop runs.
   expect<unknown>(
     decide(prRow("pr-open"), { launch: "running", pullRequest: "waiting", reviewing: true }),
-  ).toEqual(decision("wait", "pr_feedback_loop"));
+  ).toEqual(decision("wait", "assignment_active"));
   expect<unknown>(
     decide(prRow("pr-open"), { launch: "running", pullRequest: "idle", reviewing: false }),
-  ).toEqual(decision("wait", "pr_feedback_loop"));
+  ).toEqual(decision("wait", "assignment_active"));
   // Only an open PR has a running review.
   expect<unknown>(
     decide(prRow("running"), { launch: "running", pullRequest: "idle", reviewing: true }),
@@ -183,5 +183,22 @@ test("a running internal review is a wait until its reviewer starts the PR wait"
       activity: "idle",
       reviewing: true,
     }),
-  ).toEqual(decision("owner_attention", "pr_owner_idle"));
+  ).toEqual(decision("worker_attention", "worker_idle"));
+});
+
+test("a stopped PR wait replaces only an owner without a live launch", () => {
+  for (const launch of [undefined, "finished", "interrupted"] as const)
+    expect<unknown>(decide(prRow("pr-open"), { launch, pullRequest: "stopped" })).toEqual(
+      decision("replace_worker", "worker_interrupted"),
+    );
+  for (const launch of ["starting", "running"] as const)
+    expect<unknown>(decide(prRow("pr-open"), { launch, pullRequest: "stopped" })).toEqual(
+      decision("wait", launch === "starting" ? "launch_starting" : "assignment_active"),
+    );
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", pullRequest: "stopped", activity: "idle" }),
+  ).toEqual(decision("worker_attention", "worker_idle"));
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "finished", pullRequest: "stopped", parked: true }),
+  ).toEqual(decision("wait", "pr_parked"));
 });
