@@ -1,6 +1,8 @@
 import { WorkSources } from "../work-sources/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { exitCodeOf, failure } from "./output.ts";
+import { PullRequests } from "../pull-requests/main.ts";
+import { dispatchArgs, dispatchExitCodes } from "./dispatch.ts";
 
 // The SuperAgent commands that coordinate one source's work, by their first two arguments. A wait
 // coordinates only with --wait. Reads, worker commands, and commands that carry the person's
@@ -16,7 +18,7 @@ const coordination: Record<string, (args: string[]) => string | null> = {
   message: ([, command]) =>
     command === "send" || command === "ring" || command === "close" ? `message_${command}` : null,
   cleanup: () => "cleanup",
-  handoff: () => "handoff",
+  pr: ([, command]) => (command === "merge" ? "pr_merge" : null),
 };
 
 /** The operation and source of a coordination command, or null for any other arguments. */
@@ -44,6 +46,27 @@ export async function refuseUnsupervised(
 ) {
   const command = coordinatedSource(args);
   if (command === null) return false;
+  const parsed = dispatchArgs(args);
+  if (parsed?.operation === "dispatch" && parsed.afterPid !== null) {
+    const permitted = await PullRequests.dispatchPermission({
+      paths,
+      cwd: process.cwd(),
+      ...parsed,
+    });
+    if (permitted.tag === "Ok") return false;
+    if (permitted.tag === "Err") {
+      failure(
+        command.operation,
+        permitted.error.reason,
+        permitted.error.detail,
+        exitCodeOf(permitted.error.reason, dispatchExitCodes),
+        json,
+        permitted.error,
+      );
+      return true;
+    }
+    return false;
+  }
   const checked = await WorkSources.checkSupervisor({
     paths,
     cwd: process.cwd(),

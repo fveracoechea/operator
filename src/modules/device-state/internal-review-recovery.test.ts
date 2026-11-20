@@ -88,12 +88,25 @@ test("recovery records the attested provenance and a real pending handoff withou
   expect(review).toMatchObject({
     state: "reviewing",
     implementer_launch_id: "implementer",
-    handoff_state: "pending",
-    owner_pid: process.pid,
+    handoff_state: "done",
+    owner_pid: null,
+    lease_at: null,
     ready_head: null,
     ended_at: null,
   });
   expect(Date.parse(review?.started_at ?? "")).toBeGreaterThanOrEqual(before);
+  expect(client.query("SELECT * FROM kind_handoffs").all()).toMatchObject([
+    {
+      source_id: input.sourceId,
+      assignment: input.assignment,
+      outgoing_launch_id: input.launchId,
+      next_kind: "review",
+      handoff_state: "pending",
+      owner_pid: process.pid,
+      lease_at: review?.started_at,
+      started_at: review?.started_at,
+    },
+  ]);
   expect(client.query("SELECT * FROM launches").get()).toEqual(launch);
   expect(client.query("SELECT * FROM internal_review_rounds").all()).toEqual([]);
   expect(client.query("SELECT * FROM worker_messages").get()).toMatchObject({

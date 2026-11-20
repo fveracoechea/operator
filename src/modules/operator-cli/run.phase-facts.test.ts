@@ -95,6 +95,10 @@ beforeAll(async () => {
           number: 7,
           url: "https://github.com/example/one/pull/7",
           headRefName: "task/pr",
+          head: (
+            await device.exec(["git", "rev-parse", "HEAD"], pr.worktreePath ?? "")
+          ).stdout.trim(),
+          isDraft: true,
           headRepository: "example/one",
           state: "OPEN",
         },
@@ -102,6 +106,10 @@ beforeAll(async () => {
           number: 8,
           url: "https://github.com/example/one/pull/8",
           headRefName: "task/other",
+          head: (
+            await device.exec(["git", "rev-parse", "HEAD"], otherPr.worktreePath ?? "")
+          ).stdout.trim(),
+          isDraft: true,
           headRepository: "example/one",
           state: "OPEN",
         },
@@ -743,11 +751,24 @@ test("an active review uses its own state and recorded round count", async () =>
 
 test("an outgoing implementer's closing result names the handoff instead of reviewer work", async () => {
   const { own } = reviews();
+  own.kind = JSON.stringify(WorkerKinds.resolve("implementation"));
   required(source.internalReviews.find((row) => row.assignment === "pr")).implementerLaunchId =
     own.id;
   expect(await run()).toMatchObject({
+    kind: "implementation",
     phase: "handoff",
     next: { why: "This launch handed the PR to its reviewer. Stop here." },
+  });
+});
+
+test("a directly adopted reviewer is not mistaken for its outgoing implementer", async () => {
+  const { own } = reviews();
+  required(source.internalReviews.find((row) => row.assignment === "pr")).implementerLaunchId =
+    own.id;
+  expect(await run()).toMatchObject({
+    kind: "review",
+    phase: "review",
+    next: { command: "operator pr round --file <file>", why: "Record the review findings." },
   });
 });
 
@@ -779,8 +800,20 @@ test.each([
   { name: "historical wait", review: null, receipt: "head", readyHead: null, allowed: false },
   { name: "stale wait", review: null, receipt: "older", readyHead: null, allowed: false },
   { name: "no witness", review: null, receipt: null, readyHead: null, allowed: false },
-  { name: "current ready", review: "ready", receipt: null, readyHead: "head", allowed: true },
-  { name: "current skipped", review: "skipped", receipt: null, readyHead: "head", allowed: true },
+  {
+    name: "current ready without explicit receipt",
+    review: "ready",
+    receipt: null,
+    readyHead: "head",
+    allowed: false,
+  },
+  {
+    name: "current skipped without explicit receipt",
+    review: "skipped",
+    receipt: null,
+    readyHead: "head",
+    allowed: false,
+  },
   { name: "stale ready", review: "ready", receipt: null, readyHead: "older", allowed: false },
   { name: "active review", review: "reviewing", receipt: null, readyHead: "head", allowed: false },
   {
@@ -790,33 +823,30 @@ test.each([
     readyHead: "head",
     allowed: false,
   },
-] as const)(
-  "a declared readiness exit checks its own current-head witness: $name",
-  async (scenario) => {
-    if (scenario.review === null) prActor();
-    else {
-      reviews();
-      const review = required(source.internalReviews.find((row) => row.assignment === "pr"));
-      review.state = scenario.review;
-      review.readyHead = scenario.readyHead;
-    }
-    readinessGuard();
-    required(source.pullRequests.find((row) => row.assignment === "pr")).progress = JSON.stringify({
-      seen: [],
-      failures: [],
-      eligibleHead: scenario.receipt,
-    });
-    const associate = spyOn(PullRequests, "associate").mockReturnValue(
-      OkAsync({ reason: "pr_unchanged", data: {} }) as never,
-    );
-    expect(await run(["pr", "associate"])).toMatchObject(
-      scenario.allowed
-        ? { reason: "pr_unchanged" }
-        : { reason: "pr_not_ready", state: { pr_ready: false } },
-    );
-    expect(associate).toHaveBeenCalledTimes(scenario.allowed ? 1 : 0);
-  },
-);
+] as const)("a declared readiness exit refuses inferred evidence: $name", async (scenario) => {
+  if (scenario.review === null) prActor();
+  else {
+    reviews();
+    const review = required(source.internalReviews.find((row) => row.assignment === "pr"));
+    review.state = scenario.review;
+    review.readyHead = scenario.readyHead;
+  }
+  readinessGuard();
+  required(source.pullRequests.find((row) => row.assignment === "pr")).progress = JSON.stringify({
+    seen: [],
+    failures: [],
+    eligibleHead: scenario.receipt,
+  });
+  const associate = spyOn(PullRequests, "associate").mockReturnValue(
+    OkAsync({ reason: "pr_unchanged", data: {} }) as never,
+  );
+  expect(await run(["pr", "associate"])).toMatchObject(
+    scenario.allowed
+      ? { reason: "pr_unchanged" }
+      : { reason: "pr_not_ready", state: { pr_ready: false } },
+  );
+  expect(associate).toHaveBeenCalledTimes(scenario.allowed ? 1 : 0);
+});
 
 test.each([
   { status: "completed", exitCode: 0, stdout: " head\n", stderr: "" },
@@ -825,7 +855,7 @@ test.each([
   { status: "unavailable", tool: "git", detail: "missing" },
   { status: "no-answer", detail: "interrupted" },
 ] satisfies Invocation[])(
-  "a declared readiness exit checks the observed HEAD %j",
+  "an observed HEAD cannot substitute for the recorded ready transition %j",
   async (observation) => {
     reviews();
     const review = required(source.internalReviews.find((row) => row.assignment === "pr"));
@@ -841,11 +871,45 @@ test.each([
     const associate = spyOn(PullRequests, "associate").mockReturnValue(
       OkAsync({ reason: "pr_unchanged", data: {} }) as never,
     );
-    const allowed = observation.status === "completed" && observation.stdout === " head\n";
-    expect(await run(["pr", "associate"])).toMatchObject(
-      allowed ? { reason: "pr_unchanged" } : { reason: "pr_not_ready", state: { pr_ready: false } },
+    expect(await run(["pr", "associate"])).toMatchObject({
+      reason: "pr_not_ready",
+      state: { pr_ready: false },
+    });
+    expect(associate).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["head", "older"])(
+  "a declared readiness exit uses the explicit receipt at %s, never wait eligibility",
+  async (readyHead) => {
+    prActor();
+    readinessGuard();
+    required(source.pullRequests.find((row) => row.assignment === "pr")).readiness = JSON.stringify(
+      {
+        head: readyHead,
+        at: "2026-11-18T01:00:00.000Z",
+        dispositions: [],
+        note: null,
+      },
     );
-    expect(associate).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    const associate = spyOn(PullRequests, "associate").mockReturnValue(
+      OkAsync({
+        reason: "pr_unchanged",
+        data: {
+          sourceId: source.source.id,
+          assignment: "pr",
+          branch: "task/pr",
+          number: 7,
+          url: "https://github.com/example/one/pull/7",
+          state: "pr-open",
+          base: "main",
+          stack: null,
+          internalReview: null,
+        },
+      }),
+    );
+    expect(await run(["pr", "associate"])).toMatchObject({ reason: "pr_unchanged" });
+    expect(associate).toHaveBeenCalledTimes(1);
   },
 );
 

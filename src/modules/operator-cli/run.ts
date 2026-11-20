@@ -13,7 +13,7 @@ import { runSkills } from "./skills.ts";
 import { runLauncher } from "./launcher.ts";
 import { runReadiness } from "./readiness.ts";
 import { runSources } from "./sources.ts";
-import { runDispatch } from "./dispatch.ts";
+import { dispatchArgs, runDispatch } from "./dispatch.ts";
 import { runAsk } from "./ask.ts";
 import { pullRequestArgs, pullRequestExitCodes, runPullRequests } from "./pull-requests.ts";
 import { reportArgs, runReports } from "./reports.ts";
@@ -114,12 +114,7 @@ function worktreeWorker(
   });
 }
 
-function recorded(
-  paths: OperatorPaths,
-  selected: Worker,
-  clean: boolean,
-  head: string | null,
-): Result<Facts, Refusal> {
+function recorded(paths: OperatorPaths, selected: Worker, clean: boolean): Result<Facts, Refusal> {
   const read = DeviceState.readSources(paths, selected.source.repository, selected.source.id);
   return read.flatMap((rows) => {
     const source = rows[0];
@@ -128,7 +123,7 @@ function recorded(
     const report = source.reports.findLast((row) => row.assignment === key);
     const pr = source.pullRequests.find((row) => row.assignment === key);
     const review = source.internalReviews.find((row) => row.assignment === key);
-    const reviewEnded = review !== undefined && ["ready", "skipped"].includes(review.state);
+    const reviewEnded = pr !== undefined && pr.readiness !== null;
     return Ok({
       kind: selected.kind,
       report:
@@ -142,14 +137,19 @@ function recorded(
       pr: {
         associated: pr !== undefined,
         rounds: source.internalReviewRounds.filter((row) => row.assignment === key).length,
-        // A historical eligibleHead is not a current non-draft observation. #389 owns new evidence.
-        ready: pr !== undefined && head !== null && review?.readyHead === head && reviewEnded,
+        ready: reviewEnded,
         merged: pr !== undefined && pr.mergedAt !== null,
-        parked: false,
+        parked:
+          DeviceState.prParkingSchema()
+            .nullable()
+            .parse(JSON.parse(pr?.parking ?? "null"))?.state === "parked",
       },
       internalReview: selected.launch.internalReview === true,
       reviewEnded,
-      handedOff: review !== undefined && review.implementerLaunchId === selected.launch.id,
+      reviewSkipped: review?.state === "skipped",
+      handedOff:
+        source.handoffs.some((row) => row.outgoingLaunchId === selected.launch.id) ||
+        (review?.implementerLaunchId === selected.launch.id && selected.kind.name !== "review"),
       worktreeClean: clean,
     });
   });
@@ -157,6 +157,8 @@ function recorded(
 
 /** Commands and results share the same phase decision over the launch's immutable kind. */
 async function withWorkerContext(args: string[], paths: OperatorPaths, run: () => Promise<void>) {
+  const pr = pullRequestArgs(args);
+  if (pr?.operation === "pr_merge" && "sourceId" in pr) return run();
   let selection: Result<Worker | null, Refusal>;
   const event = eventOf(args);
   if (event !== undefined && event !== "submit" && event !== "resume") {
@@ -170,12 +172,12 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   if (selection.tag !== "Ok") return phaseReadFailure(args, event, selection);
   const selected = selection.value;
   if (selected === null) return run();
-  const { clean, head } = await worktreeObservation(selected, event);
-  const initial = recorded(paths, selected, clean, head);
+  const { clean } = await worktreeObservation(selected, event);
+  const initial = recorded(paths, selected, clean);
   if (initial.tag !== "Ok") return phaseReadFailure(args, event, initial);
   return withOutputContext(
     () => {
-      const facts = recorded(paths, selected, clean, head);
+      const facts = recorded(paths, selected, clean);
       if (facts.tag !== "Ok") return { failure: facts };
       const phase = WorkerKinds.decidePhase(facts.value);
       return { kind: phase.kind, phase: phase.phase, next: phase.next };
@@ -237,6 +239,28 @@ function phaseReadFailure(
 
 export async function run(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  const dispatch = dispatchArgs(args);
+  if (
+    dispatch?.operation === "one_off_dispatch" &&
+    dispatch.brief === "-" &&
+    dispatch.intentFile === "-"
+  ) {
+    failure(
+      "dispatch",
+      "invalid_source_plan",
+      "The brief and intent cannot both read stdin. Supply a file for either field.",
+      2,
+      json,
+      {
+        next: {
+          command: "operator dispatch --kind <kind> --brief <path|->",
+          why: "Correct the kind, brief, or optional one-off flags before dispatching again.",
+        },
+        state: { inputValid: false },
+      },
+    );
+    return;
+  }
   const started = await startup(args, json);
   if (started === null) return;
   await withWorkerContext(args, started.paths, async () => {

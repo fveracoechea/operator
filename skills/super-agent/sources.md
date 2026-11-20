@@ -75,7 +75,7 @@ Run no wait per source, and no filter or sleep loop of your own.
 
 The wait blocks until an action appears that it has not returned yet, then returns `next_actions_changed` with only those actions.
 Each source in the answer has its `id` and `repository`, and each action has its full ids, such as `assignment`, `question.key`, or `message.key`.
-It returns `next_wait_timed_out` with no actions after `--timeout <seconds>`, 300 by default.
+It returns `next_wait_timed_out` with no actions after `--timeout <seconds>`, 540 by default. Longer timeouts are allowed.
 A change between two waits returns at once. A scope that never returned an action set returns every action at once, without the ends of sources that already ended.
 A source that ends returns its `source_ended` action once.
 Add `--all` for the whole board of the scope, with its waits and ended sources.
@@ -85,7 +85,7 @@ The wait does not return for:
 
 - an action that went away or turned back into a wait,
 - an action that your session added with its own command, such as `message send`, `message close`, `question escalate`, `dispatch`, or `source register`,
-- `pr_wait_timed_out`, `pr_wait_stopped`, `pr_owner_idle`, or `worker_idle` that clears within a minute, for example an owner that starts its next PR wait.
+- `worker_idle` that clears within a minute, for example an owner that starts its next PR wait.
 
 `--source <source-id>` waits on one source and makes your session its supervisor.
 
@@ -107,7 +107,7 @@ One agent session supervises a source. The session that last ran the source's wa
 A wait without `--source` claims only open sources that nobody supervises yet, so it never takes another SuperAgent's sources.
 The session counts, not the pane: a new session in the same pane, for example after `/clear` or a restart, supervises nothing.
 
-Another session's `dispatch`, `next --wait --source`, report decision, question answer or escalation, steering message, `cleanup`, or `handoff` for the source refuses with `source_supervised_elsewhere`. Its detail names the supervising session and pane.
+Another session's `dispatch`, `next --wait --source`, report decision, question answer or escalation, steering message, or `cleanup` for the source refuses with `source_supervised_elsewhere`. Its detail names the supervising session and pane.
 Reads such as `next` and `source show` still work.
 Leave the source to its named session. Tell the person, and take it over only when the person tells you to.
 Run `operator source take-over --source <source-id> --person-instructed --json` from your own session. `--person-instructed` attests the person's instruction. It does not grant authority.
@@ -131,6 +131,6 @@ After a reset, register the same parent again with a new plan when the person wa
 `next --all` shows `source_ended` with `endedAt` and `prunableAt` for an ended source. `next` shows `prune_source` once 14 days have passed.
 Run `operator source prune --json` to delete every eligible ended source of the project, with its briefs, reports, and supporting files.
 There is no archive. Copy report content that another project needs into that project's plan before the producer is pruned.
-A source with an open cleanup or a running worker stays, and its `retry_cleanup` or `person_decision` row stays in `next`.
+A source with an open cleanup or a running worker stays, and its `clean_up` or `person_decision` row stays in `next`.
 The result lists the `retained` worktrees, branches, and unmerged PRs of each pruned source, because prune never removes them. Tell the person, because no Operator record of them remains.
 Prune stops at its first failure and keeps that source's records.

@@ -35,14 +35,14 @@ test("CLI preserves next and checked state on success", async () => {
     OkAsync({
       reason: "review_next",
       data: { requests: [] },
-      next: { command: "operator review wait", why: "Wait for a review request." },
+      next: { command: "operator next --wait", why: "Wait for a review request." },
       state: { requests: 0 },
     }),
   );
   await OperatorCli.main(["review", "next", "--json"]);
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
     outcome: "completed",
-    next: { command: "operator review wait", why: "Wait for a review request." },
+    next: { command: "operator next --wait", why: "Wait for a review request." },
     state: { requests: 0 },
   });
   expect(error).not.toHaveBeenCalled();

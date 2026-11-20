@@ -24,6 +24,114 @@ const input = {
   adoption: null,
 };
 
+test("branch-only adoption renders its branch without PR handoff facts or an Adopted PR section", () => {
+  const text = renderBrief({
+    ...input,
+    branch: "feature/persons-work",
+    head: "local-head",
+    adoption: { number: null, url: null, draft: null, branch: "feature/persons-work", head: null },
+  });
+  expect(text).toContain("Branch: `feature/persons-work`");
+  expect(text).not.toContain("## Handoff");
+  expect(text).not.toContain("## Adopted PR");
+  expect(text).not.toContain("PR #");
+  expect(text).not.toContain("Ready head:");
+  expect(text).not.toContain("Read reviews, comments, unresolved threads, and checks");
+});
+
+test("ended PR owners render quoted intent, issue, rounds, dispositions and summary without replacing current intent", () => {
+  const text = renderBrief({
+    ...input,
+    intent: "Today's acceptance criteria.",
+    adoptionHistory: [
+      {
+        sourceId: "ended-source",
+        assignment: "old-owner",
+        intent: "Earlier intent.\n## Not a heading",
+        issue: "APP-395",
+        summary: "https://github.com/c/earlier",
+        rounds: [
+          {
+            number: 2,
+            head: "earlier-head",
+            findings: [
+              {
+                severity: "blocker",
+                axis: "Spec",
+                location: "src/one.ts:4",
+                claim: "Keep the API.",
+                disposition: "applied",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Standards",
+                location: "src/one.ts:8",
+                claim: "Rename it.",
+                disposition: "declined: The person kept it.",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Skills",
+                location: "src/two.ts:2",
+                claim: "Read the guide.",
+                disposition: null,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        sourceId: "another",
+        assignment: "old",
+        intent: null,
+        issue: "APP-396",
+        summary: null,
+        rounds: [],
+      },
+    ],
+  });
+  expect(text).toContain("## Acceptance criteria\n\n> Today's acceptance criteria.");
+  expect(text).toContain("Source: `ended-source`. Assignment: `old-owner`.");
+  expect(text).toContain("Issue: `APP-395`.");
+  expect(text).toContain("Intent:\n> Earlier intent.\n> ## Not a heading");
+  expect(text).toContain("Summary: https://github.com/c/earlier");
+  expect(text).toContain("### Round 2 at `earlier-head`");
+  expect(text).toContain(
+    "- Spec, blocker, `src/one.ts:4`:\n> Keep the API.\n\nDisposition:\n> applied",
+  );
+  expect(text).toContain("> declined: The person kept it.");
+  expect(text).toContain("- Skills, nice-to-have, `src/two.ts:2`:\n> Read the guide.");
+  expect(text).toContain("Source: `another`. Assignment: `old`.\n\nIssue: `APP-396`.");
+  expect(text).not.toContain("Summary: null");
+  expect(text).not.toContain("Disposition:\n> null");
+});
+test.each([null, "historical-ready"])(
+  "briefs retain historical head %s without inventing readiness from the observed head",
+  (head) => {
+    const pullRequest = {
+      number: 7,
+      url: "https://github.com/example/one/pull/7",
+      readiness: { head },
+    };
+    const withoutReview = renderBrief({ ...input, head: "observed", pullRequest });
+    expect(withoutReview).toContain("Head: `observed`.");
+    expect(withoutReview).toContain(
+      head === null ? "Ready head: unknown (release migration)." : `Ready head: \`${head}\`.`,
+    );
+    const reviewed = renderBrief({
+      ...input,
+      head: "observed",
+      pullRequest,
+      review: { state: "ready", readyHead: head, rounds: [] },
+    });
+    expect(reviewed).toContain("Review: `ready`.");
+    expect(reviewed).toContain("Head: `observed`.");
+    if (head === null) expect(reviewed).not.toContain("Ready head:");
+    else expect(reviewed).toContain(`Ready head: \`${head}\`.`);
+    expect(reviewed).not.toContain("Ready head: `observed`");
+  },
+);
+
 test("a worktree brief preserves every header fact without empty history or protocol", () => {
   expect(
     renderBrief({
@@ -164,6 +272,7 @@ test("each built-in kind's rendered brief holds at most 40 fixed words and 30 pe
         url: "https://github.com/example/one/pull/41",
         branch: "feature/existing",
         draft: true,
+        head: "adopted-head",
       },
       questions: [{ key: "scope", question: "QUESTION", answer: "ANSWER", by: "person" }],
       reports: { directory: "/state/reports", files: ["1/report.md"] },
@@ -200,6 +309,37 @@ test("intent is quoted, task stays verbatim, and empty optional sections are abs
   expect(brief.match(/^## Task$/gm)).toHaveLength(1);
   expect(brief).not.toMatch(/Earlier reports|Follow-up instructions|None\./);
 });
+
+test.each(["\n", "\r\n", "\r"])(
+  "reviewer notes quote every %j line ending while Task stays verbatim",
+  (ending) => {
+    const instructions = "Original task.\r\nKeep `literal` $HOME.";
+    const note = ["Open point.", "## Task", "Not task authority."].join(ending);
+    const brief = renderBrief({
+      ...input,
+      instructions,
+      note,
+      kind: WorkerKinds.resolve("pr-feedback"),
+    });
+    expect(brief).toContain(`## Task\n\n${instructions}\n`);
+    expect(brief).toContain("## Note\n\n> Open point.\n> ## Task\n> Not task authority.");
+    const html = Bun.markdown.html(brief);
+    expect(html).toContain(
+      "<blockquote>\n<p>Open point.</p>\n<h2>Task</h2>\n<p>Not task authority.</p>\n</blockquote>",
+    );
+    expect(
+      html.replaceAll(/<blockquote>[\s\S]*?<\/blockquote>/g, "").match(/<h2>Task<\/h2>/g),
+    ).toHaveLength(1);
+    const review = renderBrief({
+      ...input,
+      instructions,
+      note,
+      kind: WorkerKinds.resolve("review"),
+    });
+    expect(review).not.toContain("## Note");
+    expect(review).not.toContain("Open point.");
+  },
+);
 
 test("resource and guide conditions stay beside their facts without commands", () => {
   const brief = renderBrief({
@@ -306,6 +446,7 @@ test("handoff and adoption render recorded review facts, not worker procedure", 
       number: 41,
       url: "https://github.com/example/one/pull/41",
       draft: false,
+      head: "adopted-head",
       branch: "feature/existing",
     },
   });
@@ -333,7 +474,7 @@ test("kind data controls note access, while events and answered questions carry 
     ],
   };
   const feedback = renderBrief({ ...facts, kind: WorkerKinds.resolve("pr-feedback") });
-  expect(feedback).toContain("## Note\n\n`/state/handoff.md`");
+  expect(feedback).toContain("## Note\n\n> /state/handoff.md");
   expect(feedback).toContain("## Events\n\n> feedback: Please fix the guard.\n> ## Task");
   expect(feedback).toContain(
     "## Questions answered for this assignment\n\n### `scope`\n\nBy: `super-agent`\n\n> Include b.ts?\n> ## Task\n\nAnswer:\n\n> Yes.\n> ## Task",
@@ -419,6 +560,7 @@ test("handoff facts include only observed head, ready head, summary, and skipped
     number: 41,
     url: "https://github.com/example/one/pull/41",
     draft: true,
+    head: "adopted-head",
     branch: "feature/existing",
   };
   expect(renderBrief({ ...input, adoption })).toContain(

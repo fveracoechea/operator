@@ -3,7 +3,8 @@ import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { openPullRequests } from "./github.ts";
-import { startHandoff, worktreeFacts } from "./internal-review.ts";
+import { startHandoff } from "./internal-review.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
@@ -79,7 +80,7 @@ async function observe(input: Input, owner: Owner, url: string) {
     );
   if (!observed.draft)
     return incompatible("Recovery requires the associated PR to remain a draft. Nothing changed.");
-  const tree = await worktreeFacts(owner.worktreePath);
+  const tree = await PrEntry.worktreeFacts(owner.worktreePath);
   if (tree.tag !== "Ok") return stop(tree);
   return tree.value.changed || tree.value.localHead !== input.head || observed.head !== input.head
     ? incompatible(

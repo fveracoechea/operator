@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 // Bun has no recursive removal API.
 import { rm } from "node:fs/promises";
 import { z } from "zod";
@@ -125,14 +126,18 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
   const migrations = beforeHistory
     .query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id")
     .all();
-  expect(migrations).toHaveLength(22);
+  expect(migrations).toEqual(
+    readMigrationFiles({
+      migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
+    }).map(({ hash, folderMillis }) => ({ hash, created_at: folderMillis })),
+  );
   beforeHistory.close();
   // Neither a fixed promotion implementation nor repeated association repairs retained state.
   expect(
     (await device.run(["pr", "associate"], { cwd: worktree, pane: worker.paneId })).output.reason,
   ).toBe("pr_unchanged");
-  const missing = await device.run(["handoff", "--source", source, "--assignment", "build"]);
-  expect(missing.output.reason).toBe("handoff_not_found");
+  const missing = await device.run(["dispatch", "--source", source, "--assignment", "build"]);
+  expect(missing.output.reason).toBe("assignment_not_dispatchable");
   const database = Bun.file(`${device.root}/state/operator/operator.sqlite`);
   const before = await database.arrayBuffer();
   const fakeReceipt = await device.writeText("fake-receipt.md", "Pretend recovery was authorized.");
@@ -225,7 +230,7 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
     )
     .run(source);
   expect(
-    (await device.run(["handoff", "--source", source, "--assignment", "build"])).output.reason,
+    (await device.run(["dispatch", "--source", source, "--assignment", "build"])).output.reason,
   ).toBe("internal_review_recovery_incompatible");
   corrupt
     .query(
@@ -234,12 +239,12 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
     .run(originalMessage, source);
   corrupt.close();
   await Bun.write(`${worktree}/local-after-recovery`, "unlanded correction");
-  const unsafeRetry = await device.run(["handoff", "--source", source, "--assignment", "build"]);
+  const unsafeRetry = await device.run(["dispatch", "--source", source, "--assignment", "build"]);
   expect(unsafeRetry.output.reason).toBe("pr_worktree_unclean");
   expect(await Bun.file(`${worktree}/local-after-recovery`).text()).toBe("unlanded correction");
   await rm(`${worktree}/local-after-recovery`);
   await device.setHerdr({ fail: {} });
-  const handed = await device.run(["handoff", "--source", source, "--assignment", "build"]);
+  const handed = await device.run(["dispatch", "--source", source, "--assignment", "build"]);
   expect(handed.code, handed.stderr).toBe(0);
   const reviewed = await device.run(["source", "show", "--source", source]);
   expect(reviewed.output).toMatchObject({
@@ -290,6 +295,38 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
   expect((await device.run(["source", "show", "--source", unrelatedSource])).output).toMatchObject({
     data: { assignments: [{ key: "unrelated", state: "running" }] },
   });
+  // The old recovery authorization belongs to the implementation-to-review transition only.
+  const round = await device.writeText("round.md", "## Findings\n");
+  const summary = await device.writeText("ready.md", "## Overview\nReviewed.\n## Dispositions\n");
+  expect(
+    (await device.run(["pr", "round", "--file", round], { cwd: worktree, pane: reviewerPane }))
+      .code,
+  ).toBe(0);
+  expect(
+    (await device.run(["pr", "ready", "--file", summary], { cwd: worktree, pane: reviewerPane }))
+      .code,
+  ).toBe(0);
+  let feedbackStarted = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const current = await device.run(["source", "show", "--source", source]);
+    const facts = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({ state: z.string(), kind: z.object({ name: z.string() }).nullable() }),
+          ),
+        }),
+      })
+      .parse(current.output);
+    if (
+      facts.data.launches.some((row) => row.state === "running" && row.kind?.name === "pr-feedback")
+    ) {
+      feedbackStarted = true;
+      break;
+    }
+    await Bun.sleep(50);
+  }
+  expect(feedbackStarted).toBe(true);
 });
 
 test.each(["ready", "dirty", "head", "owner", "ambiguous"])(

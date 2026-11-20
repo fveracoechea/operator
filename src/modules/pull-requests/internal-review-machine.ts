@@ -1,5 +1,5 @@
 // The internal review of a PR assignment: reviewing with at most two rounds, then ready or
-// skipped. This decides the associate, handoff, round, ready, and skip events. ADR-0003, ADR-0020.
+// skipped. This decides the handoff, round, ready, and skip events. ADR-0003, ADR-0020.
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 
@@ -7,16 +7,6 @@ type Review = { state: string; rounds: { head: string }[] };
 type Disposition = { round: number; finding: number; disposition: "applied" | "declined" };
 type PullRequest = { state: string; head: string; draft: boolean };
 
-type AssociateFacts = {
-  event: "associate";
-  /** The resolved internal review value of the associating launch. */
-  internalReview: boolean;
-  draft: boolean;
-  /** Uncommitted changes or untracked files in the worktree. */
-  changed: boolean;
-  localHead: string | null;
-  prHead: string;
-};
 type HandoffFacts = {
   event: "handoff";
   implementer: { state: string; paneId: string | null };
@@ -32,6 +22,7 @@ type RoundFacts = {
 };
 type ReadyFacts = {
   event: "ready";
+  readyRecorded?: boolean;
   review: { state: string; rounds: { head: string; findings: { severity: string }[] }[] };
   implementer: boolean;
   dispositions: Disposition[];
@@ -52,25 +43,25 @@ type SkipFacts = {
   /** GitHub is read only for a skip that the local facts permit. */
   pr: PullRequest | null;
 };
-type Facts = AssociateFacts | HandoffFacts | RoundFacts | ReadyFacts | SkipFacts;
+type Facts = HandoffFacts | RoundFacts | ReadyFacts | SkipFacts;
 
 type Refusal = ResultContext & { result: "refused"; reason: string; detail: string };
 type Decision =
   | Refusal
-  | { result: "associate"; review: boolean }
   | { result: "handoff"; closePane: boolean; dispatch: boolean }
   | { result: "round"; number: number; head: string }
-  | { result: "ready"; head: string; comment: "post" | "update" | "keep"; markReady: boolean }
+  | {
+      result: "ready";
+      head: string;
+      comment: "post" | "update" | "keep" | "none";
+      markReady: boolean;
+    }
   | { result: "skip"; head: string; markReady: boolean };
 type Rule<F> = { when: (facts: F) => boolean; refuse: (facts: F) => Refusal };
 
 const unchanged = "Nothing was changed.";
 
 const recovery = {
-  pr_draft_required: {
-    command: "gh pr ready --undo",
-    why: "Convert the PR to a draft before associating it for internal review.",
-  },
   pr_worktree_unclean: {
     decider: "super-agent",
     question:
@@ -133,44 +124,12 @@ function refused(
   return { result: "refused", reason, detail, ...context, next: context.next ?? recovery[reason] };
 }
 
-// With internal review off, the association behaves as before ADR-0020.
-const associateRules: Rule<AssociateFacts>[] = [
-  // A ready PR would skip the review, so only a draft starts one.
-  {
-    when: (facts) => facts.internalReview && !facts.draft,
-    refuse: () =>
-      refused(
-        "pr_draft_required",
-        `Internal review is on, so the PR must be a draft. Convert it with gh pr ready --undo, then associate again. ${unchanged}`,
-      ),
-  },
-  // The reviewer reads exactly the PR, so no work may stay outside it.
-  {
-    when: (facts) =>
-      facts.internalReview &&
-      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),
-    refuse: () =>
-      refused(
-        "pr_worktree_unclean",
-        `Commit or remove the changed and untracked files, push, then associate again. ${unchanged}`,
-      ),
-  },
-  {
-    when: (facts) => facts.internalReview && facts.localHead !== facts.prHead,
-    refuse: (facts) =>
-      refused(
-        "pr_worktree_unsynced",
-        `The worktree is at ${facts.localHead ?? "no commit"}, but the PR head is ${facts.prHead}. Push, then associate again. ${unchanged}`,
-      ),
-  },
-];
-
 /** The launch that the handoff ended no longer owns the PR, also while its pane still runs. */
 export function decideOwnership(facts: { implementer: boolean }): Refusal | null {
   return WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: facts.implementer })
     ? refused(
         "pr_handed_off",
-        `This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. ${unchanged}`,
+        `This launch handed the PR to its next worker, so it runs no more PR commands. Stop here. ${unchanged}`,
       )
     : null;
 }
@@ -178,10 +137,18 @@ export function decideOwnership(facts: { implementer: boolean }): Refusal | null
 const roundRules: Rule<RoundFacts>[] = [
   {
     when: (facts) => facts.review.state !== "reviewing",
-    refuse: () =>
+    refuse: (facts) =>
       refused(
         "internal_review_ended",
         `The internal review has ended, so it takes no more rounds. ${unchanged}`,
+        facts.review.state === "skipped"
+          ? {
+              next: {
+                command: "operator pr ready",
+                why: "The person skipped internal review; run the guarded ready transition.",
+              },
+            }
+          : {},
       ),
   },
   {
@@ -238,7 +205,8 @@ function undecided(facts: ReadyFacts) {
 
 const readyRules: Rule<ReadyFacts>[] = [
   {
-    when: (facts) => facts.review.state !== "reviewing",
+    when: (facts) =>
+      facts.readyRecorded === true || !["reviewing", "skipped"].includes(facts.review.state),
     refuse: (facts) =>
       refused(
         "internal_review_ended",
@@ -250,7 +218,7 @@ const readyRules: Rule<ReadyFacts>[] = [
     refuse: () => refused("pr_not_open", `The PR is not open. Ask the SuperAgent. ${unchanged}`),
   },
   {
-    when: (facts) => facts.review.rounds.length === 0,
+    when: (facts) => facts.review.state !== "skipped" && facts.review.rounds.length === 0,
     refuse: () =>
       refused(
         "internal_review_round_missing",
@@ -258,7 +226,7 @@ const readyRules: Rule<ReadyFacts>[] = [
       ),
   },
   {
-    when: (facts) => unknown(facts).length > 0,
+    when: (facts) => facts.review.state !== "skipped" && unknown(facts).length > 0,
     refuse: (facts) =>
       refused(
         "internal_review_summary_invalid",
@@ -266,7 +234,7 @@ const readyRules: Rule<ReadyFacts>[] = [
       ),
   },
   {
-    when: (facts) => repeated(facts).length > 0,
+    when: (facts) => facts.review.state !== "skipped" && repeated(facts).length > 0,
     refuse: (facts) =>
       refused(
         "internal_review_summary_invalid",
@@ -275,7 +243,7 @@ const readyRules: Rule<ReadyFacts>[] = [
   },
   // The comment states every recorded finding, so none can drop out of the public trace.
   {
-    when: (facts) => undecided(facts).length > 0,
+    when: (facts) => facts.review.state !== "skipped" && undecided(facts).length > 0,
     refuse: (facts) =>
       refused(
         "internal_review_summary_incomplete",
@@ -285,6 +253,7 @@ const readyRules: Rule<ReadyFacts>[] = [
   // The reviewer's own blocker fixes need a review at a newer head.
   {
     when: (facts) =>
+      facts.review.state !== "skipped" &&
       facts.review.rounds.length === 1 &&
       facts.dispositions.some(
         (item) =>
@@ -362,15 +331,6 @@ const skipRules: Rule<SkipFacts>[] = [
   },
 ];
 
-function associate(facts: AssociateFacts): Decision {
-  return (
-    associateRules.find((rule) => rule.when(facts))?.refuse(facts) ?? {
-      result: "associate",
-      review: facts.internalReview,
-    }
-  );
-}
-
 /**
  * The handoff closes the implementer's pane while its session runs, then starts the reviewer
  * unless a later launch already did. A repeated handoff skips each finished step.
@@ -406,23 +366,22 @@ function ready(facts: ReadyFacts): Decision {
     readyRules.find((rule) => rule.when(facts))?.refuse(facts) ?? {
       result: "ready",
       head: facts.pr.head,
-      comment: commentEffect[facts.posted],
+      comment: facts.review.state === "skipped" ? "none" : commentEffect[facts.posted],
       markReady: facts.pr.draft,
     }
   );
 }
 
-/** A skip ends the review with no comment, and marks a draft ready. */
+/** A skip records the person's permission; the reviewer still runs guarded ready. */
 function skip(facts: SkipFacts): Decision {
   const refusal = skipRules.find((rule) => rule.when(facts))?.refuse(facts);
   if (refusal !== undefined) return refusal;
   // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent: the open PR rule already refused a PR that was not read
   if (facts.pr === null) return refused("pr_not_open", "");
-  return { result: "skip", head: facts.pr.head, markReady: facts.pr.draft };
+  return { result: "skip", head: facts.pr.head, markReady: false };
 }
 
 export function decideInternalReview(facts: Facts): Decision {
-  if (facts.event === "associate") return associate(facts);
   if (facts.event === "ready") return ready(facts);
   if (facts.event === "skip") return skip(facts);
   return facts.event === "handoff" ? handoff(facts) : round(facts);

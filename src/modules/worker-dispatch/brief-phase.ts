@@ -3,7 +3,7 @@ import { WorkerKinds } from "../worker-kinds/main.ts";
 type Facts = {
   kind: Parameters<typeof WorkerKinds.decidePhase>[0]["kind"] | null;
   report: { decision: "accepted" | "returned" | null } | null;
-  pullRequest: { mergedAt: string | null } | null;
+  pullRequest: { mergedAt: string | null; readiness?: object | null } | null;
   review: { state: "reviewing" | "ready" | "skipped"; rounds: number } | null;
   internalReview: boolean;
 };
@@ -24,11 +24,12 @@ export function briefPhase(facts: Facts) {
     pr: {
       associated: facts.pullRequest !== null,
       rounds: facts.review?.rounds ?? 0,
-      ready: facts.review?.state === "ready" || facts.review?.state === "skipped",
+      ready: facts.pullRequest?.readiness !== undefined && facts.pullRequest.readiness !== null,
       merged: facts.pullRequest !== null && facts.pullRequest.mergedAt !== null,
       parked: false,
     },
     internalReview: facts.internalReview,
+    reviewSkipped: facts.review?.state === "skipped",
     // Stryker disable next-line BooleanLiteral: equivalent: this observation has no event, so decidePhase reads worktreeClean only in guards it does not evaluate
     worktreeClean: true,
   }).phase;

@@ -4,6 +4,7 @@
 
 Accepted - 2026-11-11.
 Decided in the SuperAgent retro of 2026-11-11, finding 2.
+Amended 2026-11-17: `ask` is the `answer` preset of one-off dispatch, and its source is a one-off source.
 
 ## Context
 
@@ -14,8 +15,13 @@ That reading filled 180k to 360k characters of the SuperAgent's context per sess
 
 ## Decision
 
-`operator ask --question <text>` registers the question as a new source with one read-only report assignment and dispatches its worker in the same command.
-The CLI builds the plan. The SuperAgent writes no plan file.
+One-off dispatch creates a one-off source with exactly one planned assignment and dispatches it in the same command.
+The SuperAgent supplies a kind and a brief, without a plan file.
+The kind fixes completion and supplies resource and profile defaults.
+An optional tracker key links the work to a tracker; without it, the CLI generates `<kind>:<8 hex digits>`.
+The source never gains another planned assignment, but promotion can add a PR assignment after an accepted report.
+
+`operator ask --file <path|->` is the `answer` preset of one-off dispatch, with prose input as ADR-0032 decides.
 
 - Each question gets the new tracker key `ask:<8 hex digits>`, so the same question asked twice never meets an open parent.
 - The assignment key is the first six words of the question as a slug, or `question` when the question has no letters or digits.
@@ -30,9 +36,9 @@ The refusal names the `operator dispatch` command that starts it again, and `nex
 ## Consequences
 
 - A question that needs more than one status call costs the SuperAgent one command and one report read.
-- `ask` composes `source register` and `dispatch` and adds no new state, so `next`, reports, acceptance, reset, and prune treat the source like any other.
+- One-off dispatch uses the same source lifecycle, so `next`, reports, acceptance, promotion, reset, and prune treat the source like any other.
 - Each question is its own source, so `next` shows one source row per open question.
-- A question for work that changes files still needs a supplied plan with `worktree` resources.
+- Work that changes files can use one-off dispatch with a worktree kind instead of a supplied plan.
 
 ## Alternatives considered
 

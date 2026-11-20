@@ -13,7 +13,7 @@ import {
   type Paths,
 } from "./request.ts";
 import { claimCleanup, cleanupResult, cleanupReviewer, launch, syncReviewer } from "./reviewer.ts";
-import { rows, wait } from "./watch.ts";
+import { rows, upkeep, type ReviewScope } from "./watch.ts";
 import type { Target } from "./github.ts";
 import { markerPrefix } from "./review-body.ts";
 
@@ -286,11 +286,7 @@ export const ReviewRequests = {
   next(paths: Paths) {
     return next(paths);
   },
-  /**
-   * Watches every open request until a round, a move, an end, or an action needs attention. It
-   * returns the requests that its events name and those with an action, or with `all` every one.
-   */
-  wait(input: { paths: Paths; timeoutSeconds: number; all?: boolean }) {
-    return wait(input);
+  upkeep(input: { paths: Paths; scopes: readonly ReviewScope[]; observe?: boolean }) {
+    return upkeep(input);
   },
 };

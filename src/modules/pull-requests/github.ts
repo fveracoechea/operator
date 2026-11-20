@@ -1,4 +1,4 @@
-import { Err, Ok, fromPromise, type Result } from "unthrown";
+import { Err, Ok, fromPromise, type Result, type AsyncResult } from "unthrown";
 import { z } from "zod";
 import { ReviewRequests } from "../review-requests/main.ts";
 import { GithubApi } from "../github-api/main.ts";
@@ -20,33 +20,37 @@ const effectRecovery = {
 };
 
 const author = z.object({ login: z.string() }).nullable();
+const pageInfo = z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() });
 const comment = z.object({
   id: z.string(),
   body: z.string(),
   url: z.string(),
   author,
+  updatedAt: z.string().optional(),
 });
 
+const pullRequestFields = `
+      state isDraft baseRefName headRefName headRefOid reviewDecision mergeQueueEntry { id }
+      mergeCommit { oid }
+      reviews(first: 100) { pageInfo { hasNextPage endCursor } nodes { id state body url updatedAt author { login } } }
+      comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id body url updatedAt author { login } } }
+      reviewThreads(first: 100) {
+        pageInfo { hasNextPage endCursor }
+        totalCount
+        nodes { id isResolved path comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id body url updatedAt author { login } } } }
+      }
+      commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { totalCount nodes {
+        __typename
+        ... on CheckRun { id name status conclusion detailsUrl startedAt completedAt }
+        ... on StatusContext { id context state targetUrl createdAt }
+      } } } } } }
+`;
 const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
     viewerDefaultMergeMethod
-    pullRequest(number: $number) {
-      state isDraft baseRefName headRefName headRefOid reviewDecision
-      mergeCommit { oid }
-      reviews(last: 100) { nodes { id state body url author { login } } }
-      comments(last: 100) { nodes { id body url author { login } } }
-      reviewThreads(last: 100) {
-        totalCount
-        nodes { isResolved path comments(last: 50) { nodes { id body url author { login } } } }
-      }
-      commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { totalCount nodes {
-        __typename
-        ... on CheckRun { name status conclusion detailsUrl }
-        ... on StatusContext { context state targetUrl }
-      } } } } } }
-    }
+    pullRequest(number: $number) { ${pullRequestFields} }
   }
 }`;
 
@@ -64,17 +68,21 @@ const pullRequestAnswer = z.object({
         isDraft: z.boolean(),
         reviewDecision: z.string().nullable(),
         mergeCommit: z.object({ oid: z.string() }).nullable(),
+        mergeQueueEntry: z.object({ id: z.string() }).nullable(),
         reviews: z.object({
+          pageInfo: pageInfo.optional(),
           nodes: z.array(comment.extend({ state: z.string() })),
         }),
-        comments: z.object({ nodes: z.array(comment) }),
+        comments: z.object({ nodes: z.array(comment), pageInfo: pageInfo.optional() }),
         reviewThreads: z.object({
+          pageInfo: pageInfo.optional(),
           totalCount: z.number().int(),
           nodes: z.array(
             z.object({
+              id: z.string().optional(),
               isResolved: z.boolean(),
               path: z.string(),
-              comments: z.object({ nodes: z.array(comment) }),
+              comments: z.object({ nodes: z.array(comment), pageInfo: pageInfo.optional() }),
             }),
           ),
         }),
@@ -90,6 +98,9 @@ const pullRequestAnswer = z.object({
                         z.union([
                           z.object({
                             __typename: z.literal("CheckRun"),
+                            id: z.string().optional(),
+                            startedAt: z.string().nullable().optional(),
+                            completedAt: z.string().nullable().optional(),
                             name: z.string(),
                             status: z.string(),
                             conclusion: z.string().nullable(),
@@ -97,6 +108,8 @@ const pullRequestAnswer = z.object({
                           }),
                           z.object({
                             __typename: z.literal("StatusContext"),
+                            id: z.string().optional(),
+                            createdAt: z.string().optional(),
                             context: z.string(),
                             state: z.string(),
                             targetUrl: z.string().nullable(),
@@ -166,6 +179,7 @@ const parentAnswer = z.object({
 
 export type FeedbackItem = {
   id: string;
+  version?: string;
   kind: "review" | "comment" | "thread_comment";
   author: string | null;
   fromViewer: boolean;
@@ -177,8 +191,14 @@ export type FeedbackItem = {
   path: string | null;
   threadResolved: boolean | null;
 };
-export type Check = { name: string; state: "pending" | "passing" | "failing"; url: string | null };
+export type Check = {
+  name: string;
+  state: "pending" | "passing" | "failing";
+  url: string | null;
+  generation?: string;
+};
 export type Observation = {
+  queueEntry?: string | null;
   state: "OPEN" | "MERGED" | "CLOSED";
   head: string;
   mergeCommit: string | null;
@@ -206,7 +226,8 @@ const failingConclusions = [
 
 function checkRun(status: string, conclusion: string | null): Check["state"] {
   if (status !== "COMPLETED" || conclusion === null) return "pending";
-  return failingConclusions.includes(conclusion) ? "failing" : "passing";
+  if (failingConclusions.includes(conclusion)) return "failing";
+  return ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(conclusion) ? "passing" : "pending";
 }
 
 function statusContext(state: string): Check["state"] {
@@ -234,7 +255,9 @@ function query<T>(fields: string[], schema: z.ZodType<T>) {
         next: readRecovery,
         state: { requestStatus: answer.status },
       });
-    const parsed = schema.safeParse(answer.value.body);
+    const parsed = z
+      .intersection(z.looseObject({ errors: z.array(z.unknown()).max(0).optional() }), schema)
+      .safeParse(answer.value.body);
     return parsed.success
       ? Ok(parsed.data)
       : Err({
@@ -319,7 +342,7 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
     extra: Pick<FeedbackItem, "reviewState" | "path" | "threadResolved">,
   ): FeedbackItem {
     const login = node.author?.login ?? null;
-    return {
+    const feedback: FeedbackItem = {
       id: node.id,
       kind,
       author: login,
@@ -329,12 +352,20 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
       url: node.url,
       ...extra,
     };
+    if (node.updatedAt !== undefined)
+      feedback.version = JSON.stringify([
+        node.updatedAt,
+        node.body,
+        extra.reviewState,
+        extra.threadResolved,
+      ]);
+    return feedback;
   }
   const none = { reviewState: null, path: null, threadResolved: null };
   const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts ?? null;
   const contexts = rollup?.nodes ?? [];
   const threads = pr.reviewThreads;
-  return {
+  const observed: Observation = {
     state: pr.state,
     head: pr.headRefOid,
     mergeCommit: pr.mergeCommit?.oid ?? null,
@@ -363,28 +394,277 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
         ),
       ),
     ],
-    checksComplete: rollup === null || unread(rollup) === 0,
-    checks: contexts.map((context) =>
-      context.__typename === "CheckRun"
-        ? {
-            name: context.name,
-            state: checkRun(context.status, context.conclusion),
-            url: context.detailsUrl,
-          }
-        : {
-            name: context.context,
-            state: statusContext(context.state),
-            url: context.targetUrl,
-          },
-    ),
+    checksComplete: rollup !== null && unread(rollup) === 0,
+    checks: contexts.map((context): Check => {
+      const check: Check =
+        context.__typename === "CheckRun"
+          ? {
+              name: context.name,
+              state: checkRun(context.status, context.conclusion),
+              url: context.detailsUrl,
+            }
+          : {
+              name: context.context,
+              state: statusContext(context.state),
+              url: context.targetUrl,
+            };
+      if (context.id !== undefined)
+        check.generation =
+          context.__typename === "CheckRun"
+            ? JSON.stringify([context.id, context.startedAt, context.completedAt])
+            : JSON.stringify([context.id, context.createdAt]);
+      return check;
+    }),
   };
+  observed.queueEntry = pr.mergeQueueEntry === null ? null : pr.mergeQueueEntry.id;
+  return observed;
 }
 
 export function observePullRequest(repository: string, number: number) {
   return query(
     ["-f", `query=${pullRequestQuery}`, ...repositoryFields(repository), "-F", `number=${number}`],
     pullRequestAnswer,
-  ).map(({ data }) => observation(data));
+  ).flatMap(({ data }) =>
+    completeFeedback([{ repository, number, parent: null }], [data.repository]).map(() =>
+      observation(data),
+    ),
+  );
+}
+
+type ParkedTarget = { repository: string; number: number; parent: number | null };
+const batchRepository = pullRequestAnswer.shape.data.shape.repository.extend({
+  parent: parentAnswer.shape.data.shape.repository.shape.pullRequest.optional(),
+});
+type BatchRepository = z.infer<typeof batchRepository>;
+const connections = ["reviews", "comments", "reviewThreads"] as const;
+
+function incompleteFeedback(): GithubReadFailure {
+  return {
+    reason: "github_invalid_response",
+    detail:
+      "GitHub feedback pages were incomplete, repeated a cursor, or changed head. No observation cursors changed.",
+    next: readRecovery,
+  };
+}
+
+function feedbackSelection(target: ParkedTarget, index: number, repository?: BatchRepository) {
+  const [owner, name] = target.repository.split("/");
+  let fields = pullRequestFields;
+  for (const connection of connections) {
+    const page = repository?.pullRequest[connection].pageInfo;
+    if (page?.hasNextPage && page.endCursor !== null)
+      fields = fields.replace(
+        `${connection}(first: 100)`,
+        `${connection}(first: 100, after: ${JSON.stringify(page.endCursor)})`,
+      );
+  }
+  return `r${index}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) {
+    defaultBranchRef { name } viewerDefaultMergeMethod pullRequest(number: ${target.number}) { ${fields} }
+    ${target.parent === null ? "" : `parent: pullRequest(number: ${target.parent}) { state baseRefName headRefOid }`}
+  }`;
+}
+
+function feedbackPending(repository: BatchRepository) {
+  return connections.some((connection) => repository.pullRequest[connection].pageInfo?.hasNextPage);
+}
+
+function appendFeedback(
+  previous: BatchRepository,
+  next: BatchRepository,
+  cursors: Map<object, Set<string>>,
+): Result<undefined, GithubReadFailure> {
+  if (previous.pullRequest.headRefOid !== next.pullRequest.headRefOid)
+    return Err(incompleteFeedback());
+  for (const connection of connections) {
+    const page = previous.pullRequest[connection];
+    if (!page.pageInfo?.hasNextPage) continue;
+    const read = next.pullRequest[connection];
+    if (!advancePage(page, read.pageInfo, cursors)) return Err(incompleteFeedback());
+    // Keep the parsed connection types correlated rather than mixing review and thread nodes.
+    if (connection === "reviews")
+      previous.pullRequest.reviews.nodes.push(...next.pullRequest.reviews.nodes);
+    if (connection === "comments")
+      previous.pullRequest.comments.nodes.push(...next.pullRequest.comments.nodes);
+    if (connection === "reviewThreads")
+      previous.pullRequest.reviewThreads.nodes.push(...next.pullRequest.reviewThreads.nodes);
+    page.pageInfo = read.pageInfo;
+  }
+  return Ok(undefined);
+}
+
+/** Cursor identity belongs to one connection, including its terminal response. */
+function advancePage(
+  connection: { pageInfo?: z.infer<typeof pageInfo> },
+  next: z.infer<typeof pageInfo> | undefined,
+  cursors: Map<object, Set<string>>,
+) {
+  const previous = connection.pageInfo?.endCursor;
+  if (previous === undefined || previous === null || next === undefined) return false;
+  const seen = cursors.get(connection) ?? new Set([previous]);
+  if (next.endCursor === null) return !next.hasNextPage;
+  if (seen.has(next.endCursor)) return false;
+  seen.add(next.endCursor);
+  cursors.set(connection, seen);
+  return true;
+}
+
+/** Continuation requests remain device batches. No per-PR polling or schedule lives here. */
+function completeFeedback(
+  targets: ParkedTarget[],
+  repositories: BatchRepository[],
+): AsyncResult<undefined, GithubReadFailure> {
+  return fromPromise(
+    async () => {
+      const cursors = new Map<object, Set<string>>();
+      for (const repository of repositories)
+        for (const connection of connections) {
+          const page = repository.pullRequest[connection];
+          if (page.pageInfo === undefined && page.nodes.length >= 100)
+            return Err(incompleteFeedback());
+          if (page.pageInfo?.hasNextPage && page.pageInfo.endCursor === null)
+            return Err(incompleteFeedback());
+        }
+      for (let round = 0; repositories.some(feedbackPending); round++) {
+        if (round >= 1000) return Err(incompleteFeedback());
+        const selections = targets.map((target, index) =>
+          feedbackSelection(target, index, repositories[index]),
+        );
+        const read = await query(
+          ["-f", `query=query ParkedFeedbackPages { ${selections.join("\n")} }`],
+          z.object({ data: z.looseObject({}) }),
+        );
+        if (read.tag !== "Ok") return read.map(() => undefined);
+        for (const [index, previous] of repositories.entries()) {
+          const next = batchRepository.safeParse(read.value.data[`r${index}`]);
+          if (!next.success) return Err(incompleteFeedback());
+          const appended = appendFeedback(previous, next.data, cursors);
+          if (appended.tag !== "Ok") return appended;
+        }
+      }
+      return completeThreadComments(repositories);
+    },
+    (cause, defect) => defect(cause),
+  ).flatMap((result) => result);
+}
+
+const threadPage = z.object({
+  pullRequest: z.object({ headRefOid: z.string() }),
+  comments: z.object({ pageInfo, nodes: z.array(comment) }),
+});
+function completeThreadComments(
+  repositories: BatchRepository[],
+): AsyncResult<undefined, GithubReadFailure> {
+  return fromPromise(
+    async () => {
+      const cursors = new Map<object, Set<string>>();
+      const threads = repositories.flatMap((repository) =>
+        repository.pullRequest.reviewThreads.nodes.map((thread) => ({
+          thread,
+          head: repository.pullRequest.headRefOid,
+        })),
+      );
+      if (
+        threads.some(
+          ({ thread }) =>
+            thread.comments.pageInfo === undefined && thread.comments.nodes.length >= 100,
+        )
+      )
+        return Err(incompleteFeedback());
+      for (let round = 0; ; round++) {
+        const pending = threads.filter(({ thread }) => thread.comments.pageInfo?.hasNextPage);
+        if (pending.length === 0) return Ok(undefined);
+        if (
+          round >= 1000 ||
+          pending.some(
+            ({ thread }) => thread.id === undefined || thread.comments.pageInfo?.endCursor === null,
+          )
+        )
+          return Err(incompleteFeedback());
+        const selections = pending.map(
+          (
+            { thread },
+            index,
+          ) => `t${index}: node(id: ${JSON.stringify(thread.id)}) { ... on PullRequestReviewThread {
+        pullRequest { headRefOid } comments(first: 100, after: ${JSON.stringify(thread.comments.pageInfo?.endCursor)}) { pageInfo { hasNextPage endCursor } nodes { id body url updatedAt author { login } } }
+      } }`,
+        );
+        const read = await query(
+          ["-f", `query=query ParkedThreadPages { ${selections.join("\n")} }`],
+          z.object({ data: z.record(z.string(), threadPage) }),
+        );
+        if (read.tag !== "Ok") return read.map(() => undefined);
+        for (const [index, { thread, head }] of pending.entries()) {
+          const next = read.value.data[`t${index}`];
+          if (
+            next === undefined ||
+            next.pullRequest.headRefOid !== head ||
+            !advancePage(thread.comments, next.comments.pageInfo, cursors)
+          )
+            return Err(incompleteFeedback());
+          thread.comments.nodes.push(...next.comments.nodes);
+          thread.comments.pageInfo = next.comments.pageInfo;
+        }
+      }
+    },
+    (cause, defect) => defect(cause),
+  ).flatMap((result) => result);
+}
+
+/** All parked assignments and their recorded parents share one GitHub read, not one request per PR. */
+export function observeParkedPullRequests(targets: ParkedTarget[]) {
+  const selections = targets.map((target, index) => feedbackSelection(target, index));
+  return query(
+    ["-f", `query=query ParkedPRs { viewer { login } ${selections.join("\n")} }`],
+    z.object({ data: z.looseObject({ viewer: z.object({ login: z.string() }) }) }),
+  )
+    .flatMap(
+      ({
+        data,
+      }): Result<
+        { repositories: BatchRepository[]; viewer: { login: string } },
+        GithubReadFailure
+      > => {
+        const repositories: BatchRepository[] = [];
+        for (let index = 0; index < targets.length; index++) {
+          const parsed = batchRepository.safeParse(data[`r${index}`]);
+          if (
+            !parsed.success ||
+            (targets[index]?.parent !== null && parsed.data.parent === undefined)
+          )
+            return Err({
+              reason: "github_invalid_response",
+              detail:
+                "GitHub did not describe every parked PR and recorded parent. No cursors changed.",
+              next: readRecovery,
+            });
+          const repository = parsed.data;
+          if (!observation({ viewer: data.viewer, repository }).checksComplete)
+            return Err({
+              reason: "github_invalid_response",
+              detail:
+                "GitHub returned an incomplete check set for a parked PR. No cursors changed; inspect the full checks before retrying the batch.",
+              next: readRecovery,
+            });
+          repositories.push(repository);
+        }
+        return Ok({ repositories, viewer: data.viewer });
+      },
+    )
+    .flatMap(({ repositories, viewer }) =>
+      completeFeedback(targets, repositories).map(() =>
+        repositories.map((repository) => ({
+          observed: observation({ viewer, repository }),
+          parent:
+            repository.parent === undefined
+              ? null
+              : {
+                  state: repository.parent.state,
+                  head: repository.parent.headRefOid,
+                  base: repository.parent.baseRefName,
+                },
+        })),
+      ),
+    );
 }
 
 type GithubEffectFailure = ResultContext & {
@@ -718,6 +998,92 @@ export function markReady(id: string) {
         detail: errors.map((error) => error.message).join(" ") || "The PR stayed a draft.",
         next: effectRecovery,
         state: { readyConfirmed: false },
+      });
+    return Ok(undefined);
+  });
+}
+
+const mergeQueueQuery = `query MergeQueueFacts($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { id state headRefOid isMergeQueueEnabled mergeQueueEntry { id } }
+  }
+}`;
+const mergeQueueAnswer = z.object({
+  data: z.object({
+    repository: z.object({
+      pullRequest: z.object({
+        id: z.string(),
+        state: z.enum(["OPEN", "MERGED", "CLOSED"]),
+        headRefOid: z.string(),
+        isMergeQueueEnabled: z.boolean(),
+        mergeQueueEntry: z.object({ id: z.string() }).nullable(),
+      }),
+    }),
+  }),
+});
+
+/** Queue policy and membership are observed independently of any earlier enqueue response. */
+export function readMergeQueue(repository: string, number: number) {
+  return query(
+    ["-f", `query=${mergeQueueQuery}`, ...repositoryFields(repository), "-F", `number=${number}`],
+    mergeQueueAnswer,
+  ).map(({ data }) => ({
+    id: data.repository.pullRequest.id,
+    state: data.repository.pullRequest.state,
+    head: data.repository.pullRequest.headRefOid,
+    enabled: data.repository.pullRequest.isMergeQueueEnabled,
+    entry: data.repository.pullRequest.mergeQueueEntry?.id ?? null,
+  }));
+}
+
+const enqueueMutation = `mutation EnqueuePR($id: ID!, $head: GitObjectID!) {
+  enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) { mergeQueueEntry { id } }
+}`;
+const enqueueAnswer = z.object({
+  data: z
+    .object({ enqueuePullRequest: z.object({ mergeQueueEntry: z.object({ id: z.string() }) }) })
+    .nullable(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+type EnqueueFailure = ResultContext & {
+  reason: "github_failed" | "github_uncertain" | "pr_enqueue_refused";
+  detail: string;
+};
+
+/** Pin the enqueue to the same head that passed the merge gate. The caller verifies membership. */
+export function enqueuePullRequest(id: string, head: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["graphql", "-f", `query=${enqueueMutation}`, "-f", `id=${id}`, "-f", `head=${head}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, EnqueueFailure> => {
+    if (answer.status !== "succeeded")
+      return Err({
+        reason: answer.status === "failed" ? "github_failed" : "github_uncertain",
+        detail: answer.detail,
+        next: effectRecovery,
+      });
+    const parsed = enqueueAnswer.safeParse(answer.value.body);
+    if (!parsed.success)
+      return Err({
+        reason: "github_uncertain",
+        detail:
+          "GitHub did not describe the enqueue response. Read queue membership before another request.",
+        next: effectRecovery,
+      });
+    if (parsed.data.data === null || (parsed.data.errors?.length ?? 0) > 0)
+      return Err({
+        reason: "pr_enqueue_refused",
+        detail:
+          parsed.data.errors?.map((error) => error.message).join(" ") ??
+          "GitHub refused the enqueue.",
+        next: {
+          decider: "person",
+          question: "Which GitHub queue restriction must be resolved before this PR can enqueue?",
+        },
       });
     return Ok(undefined);
   });

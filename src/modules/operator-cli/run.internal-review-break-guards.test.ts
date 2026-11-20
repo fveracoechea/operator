@@ -33,7 +33,7 @@ const ready = "operator-cli/run.internal-review-ready.test.ts";
 test.each([
   {
     name: "draft required",
-    file: "pull-requests/internal-review-machine.ts",
+    file: "pr-entry/decision.ts",
     replacements: [
       ["when: (facts) => facts.internalReview && !facts.draft,", "when: () => false,"],
     ],
@@ -49,11 +49,24 @@ test.each([
     assertion: "pr_worktree_unclean",
   },
   {
+    name: "review-local clean worktree",
+    file: "pr-entry/decision.ts",
+    replacements: [
+      [
+        'when: (facts) =>\n      (facts.internalReview || !facts.draft) &&\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),',
+        "when: () => false,",
+      ],
+    ],
+    testFile: "pr-entry/decision.test.ts",
+    pattern: "ready entry without internal review requires a clean pushed head",
+    assertion: "pr_worktree_unclean",
+  },
+  {
     name: "implementer pane closed",
     file: "pull-requests/internal-review-machine.ts",
     replacements: [["closePane: !facts.reviewerStarted && live", "closePane: false && live"]],
     testFile: flow,
-    pattern: "hands a clean draft",
+    pattern: "hands implementation to review",
   },
   {
     name: "handed-off launch refused",
@@ -65,7 +78,7 @@ test.each([
       ],
     ],
     testFile: guards,
-    pattern: "cannot close the implementer",
+    pattern: "a failed handoff shows",
     assertion: "pr_handed_off",
   },
   {
@@ -80,6 +93,25 @@ test.each([
     testFile: "worker-kinds/pr-policy.test.ts",
     pattern: "PR ownership remains with a launch only before handoff",
     behaviorFailure: true,
+  },
+  {
+    name: "review-local handed-off launch refused",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [
+      [
+        'return WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: facts.implementer })',
+        "return false",
+      ],
+    ],
+    testFile: "pull-requests/internal-review-machine.test.ts",
+    pattern: "each round refusal names its reason",
+    consumerFailure: [
+      "expect(received).toMatchObject(expected)",
+      '"result": "refused"',
+      '"result": "round"',
+      "pr_handed_off",
+      "internal-review-machine.test.ts:",
+    ],
   },
   {
     name: "shared round policy",
@@ -119,9 +151,9 @@ test.each([
   {
     name: "reviewer start after a stopped handoff",
     file: "device-state/internal-reviews.ts",
-    replacements: [['review.handoffState !== "done" &&', 'review.handoffState === "done" &&']],
+    replacements: [['handoff.handoffState !== "done" &&', 'handoff.handoffState === "done" &&']],
     testFile: flow,
-    pattern: "hands a clean draft",
+    pattern: "hands implementation to review",
   },
   {
     name: "association holds its handoff",
@@ -133,7 +165,7 @@ test.each([
   {
     name: "handoff takes over the association's hold",
     file: "device-state/internal-reviews.ts",
-    replacements: [["review.ownerPid !== afterPid", "true"]],
+    replacements: [["handoff.ownerPid !== afterPid", "true"]],
     testFile: "device-state/pull-requests.test.ts",
     pattern: "takes over its hold",
   },
@@ -169,21 +201,36 @@ test.each([
   {
     name: "a summary names only recorded findings",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => unknown(facts).length > 0,", "when: () => false,"]],
+    replacements: [
+      [
+        'when: (facts) => facts.review.state !== "skipped" && unknown(facts).length > 0,',
+        "when: () => false,",
+      ],
+    ],
     testFile: "pull-requests/internal-review-machine.test.ts",
     pattern: "refuses the ready step",
   },
   {
     name: "a summary decides each finding once",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => repeated(facts).length > 0,", "when: () => false,"]],
+    replacements: [
+      [
+        'when: (facts) => facts.review.state !== "skipped" && repeated(facts).length > 0,',
+        "when: () => false,",
+      ],
+    ],
     testFile: "pull-requests/internal-review-machine.test.ts",
     pattern: "refuses the ready step",
   },
   {
     name: "every finding has a disposition",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => undecided(facts).length > 0,", "when: () => false,"]],
+    replacements: [
+      [
+        'when: (facts) => facts.review.state !== "skipped" && undecided(facts).length > 0,',
+        "when: () => false,",
+      ],
+    ],
     testFile: ready,
     pattern: "rendered comment",
   },
@@ -206,12 +253,12 @@ test.each([
     file: "pull-requests/internal-review-machine.ts",
     replacements: [["when: (facts) => !facts.personInstructed,", "when: () => false,"]],
     testFile: ready,
-    pattern: "person-instructed skip",
+    pattern: "an internal review skip runs at pr ready",
   },
   {
-    name: "merge waits for the end of the review",
+    name: "merge waits for the ready transition",
     file: "pull-requests/internal-review.ts",
-    replacements: [["return owner.reviewState === null ||", "return true ||"]],
+    replacements: [["return owner.readiness !== null;", "return true;"]],
     testFile: ready,
     pattern: "rendered comment",
   },
@@ -237,8 +284,10 @@ test.each([
       expect(original).toContain(before);
       if (change.behaviorFailure || change.assertion !== undefined)
         expect(original.split(before)).toHaveLength(2);
+      if (change.consumerFailure) expect(original.split(before)).toHaveLength(2);
       changed = changed.replace(before, after);
     }
+    expect(changed).not.toBe(original);
     async function story() {
       const child = Bun.spawn(
         [
@@ -282,6 +331,13 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.consumerFailure) {
+        const output = `${stdout}${stderr}`;
+        expect(output).toContain(`(fail) ${change.pattern}`);
+        expect(output).toContain("0 pass");
+        expect(output).toContain("1 fail");
+        for (const evidence of change.consumerFailure) expect(output).toContain(evidence);
+      }
       if (change.behaviorFailure) {
         const output = `${stdout}${stderr}`;
         console.info(`${change.name}:\n${output}`);

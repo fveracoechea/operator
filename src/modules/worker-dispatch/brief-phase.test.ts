@@ -88,13 +88,25 @@ test.each(["ready", "skipped"] as const)(
       briefPhase({
         kind: WorkerKinds.resolve("implementation"),
         report: null,
-        pullRequest: { mergedAt: null },
+        pullRequest: { mergedAt: null, readiness: { head: "h" } },
         review: { state, rounds: 1 },
         internalReview: true,
       }),
     ).toBe("feedback");
   },
 );
+
+test("a recorded skip without readiness asks the replacement reviewer for ready, not rounds", () => {
+  expect(
+    briefPhase({
+      kind: WorkerKinds.resolve("review"),
+      report: null,
+      pullRequest: { mergedAt: null, readiness: null },
+      review: { state: "skipped", rounds: 0 },
+      internalReview: true,
+    }),
+  ).toBe("ready");
+});
 
 test("an associated PR without a review record starts internal review from zero rounds", () => {
   expect(

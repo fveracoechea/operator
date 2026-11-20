@@ -280,10 +280,12 @@ export async function prDevice(options: { assignments?: string[] } = {}) {
     number: number,
     branch: string,
     relay: string | null = null,
+    readiness?: Parameters<typeof DeviceState.associatePullRequest>[2]["readiness"],
   ) {
     const url = `https://github.com/${repository}/pull/${number}`;
     expect(
-      DeviceState.associatePullRequest(paths, launchId, { number, url, branch, relay }).tag,
+      DeviceState.associatePullRequest(paths, launchId, { number, url, branch, relay, readiness })
+        .tag,
     ).toBe("Ok");
   }
 
@@ -337,6 +339,8 @@ export function requestKind(args: string[]) {
   if (args[0] === "graphql") {
     const text = field(args, "query") ?? "";
     if (text.includes("RelayParent")) return "parent";
+    if (text.includes("MergeQueueFacts")) return "merge_queue";
+    if (text.includes("mutation EnqueuePR")) return "enqueue";
     return text.includes("pullRequests(headRefName") ? "association" : "pull_request";
   }
   if (args.includes("PUT")) return "merge";
@@ -355,6 +359,8 @@ type PullRequestFacts = {
   unresolved?: number;
   mergeCommit?: string | null;
   comments?: { id: string; body: string; author: string }[];
+  queueEnabled?: boolean;
+  queueEntry?: string | null;
 };
 
 /** The GraphQL answer that `observePullRequest` reads, for an approved PR with one passing check. */
@@ -369,6 +375,9 @@ export function pullRequestBody(facts: PullRequestFacts = {}) {
           facts.defaultBranch === null ? null : { name: facts.defaultBranch ?? "main" },
         viewerDefaultMergeMethod: "SQUASH",
         pullRequest: {
+          id: "PR_7",
+          isMergeQueueEnabled: facts.queueEnabled ?? false,
+          mergeQueueEntry: queueEntry(facts.queueEntry),
           state: facts.state ?? "OPEN",
           baseRefName: facts.base ?? "main",
           headRefName: "task/parent",
@@ -421,9 +430,13 @@ export function pullRequestBody(facts: PullRequestFacts = {}) {
   };
 }
 
+function queueEntry(id: string | null | undefined) {
+  return id === undefined || id === null ? null : { id };
+}
+
 /** The GraphQL answer that `openPullRequests` reads. */
 export function associationBody(
-  prs: { number: number; base: string; head?: string; owner?: string | null }[],
+  prs: { number: number; base: string; head?: string; oid?: string; owner?: string | null }[],
 ) {
   return {
     data: {
@@ -435,7 +448,7 @@ export function associationBody(
             url: `https://github.com/${repository}/pull/${pr.number}`,
             isDraft: false,
             baseRefName: pr.base,
-            headRefOid: "head-1",
+            headRefOid: pr.oid ?? "head-1",
             headRefName: pr.head ?? "task/other",
             headRepository: pr.owner === null ? null : { nameWithOwner: pr.owner ?? repository },
           })),

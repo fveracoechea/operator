@@ -1,4 +1,4 @@
-import { Ok, OkAsync, fromPromise, type AsyncResult } from "unthrown";
+import { Ok, fromPromise } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
@@ -9,9 +9,8 @@ import {
   apply,
   latestPosted,
   qualify,
+  roundNumber,
   summary,
-  type Failure,
-  type Outcome,
   type Paths,
   type Row,
   type Snapshot,
@@ -20,9 +19,23 @@ import { cleanupResult, cleanupReviewer, failureOf, syncReviewer } from "./revie
 import { decideWatch, type WatchDecision } from "./rounds.ts";
 import type { NextStep } from "../../lib/cli-result.ts";
 
-const pollMs = 30000;
 type Listed = Snapshot;
 type Event = { url: string; kind: string } & Record<string, unknown>;
+export type ReviewScope = { repository: string; sourceIds?: readonly string[]; manual?: boolean };
+
+function inScope(listed: Listed[], scopes: readonly ReviewScope[]) {
+  return listed.filter(
+    ({ request }) =>
+      request !== null &&
+      scopes.some(
+        (scope) =>
+          scope.repository === request.repository &&
+          (request.sourceId === null
+            ? scope.manual !== false
+            : scope.sourceIds === undefined || scope.sourceIds.includes(request.sourceId)),
+      ),
+  );
+}
 
 function targetOf(request: Row): Target {
   return { repository: request.repository, number: request.number, url: request.url };
@@ -43,7 +56,7 @@ export function rows(paths: Paths, listed: Snapshot[]) {
       start_reviewer: `operator review start ${request.url}`,
       replace_reviewer: `operator review start ${request.url}`,
       post_review: `operator review post ${request.url}`,
-      wait_reviews: "operator review wait",
+      wait_reviews: "operator next --wait",
       clean_reviewer: `operator review cleanup ${request.url}`,
     };
     const posted = latestPosted(row.rounds);
@@ -64,7 +77,7 @@ export function rows(paths: Paths, listed: Snapshot[]) {
                 `What intervention does this review need for ${step.reason}? ${reply ?? ""}`.trim(),
             }
           : reply === null
-            ? { command: "operator review wait", why }
+            ? { command: "operator next --wait", why }
             : { decider: "super-agent", question: reply };
     return [
       {
@@ -162,7 +175,14 @@ async function advance(
   if (applied.tag !== "Ok" || applied.value.transition.unchanged === true) return [];
   const event: Event =
     decision.kind === "round"
-      ? { url: request.url, kind: "round_started", trigger: decision.trigger }
+      ? {
+          url: request.url,
+          kind: "round_started",
+          requestId: request.id,
+          round: roundNumber(applied.value.snapshot.rounds),
+          head: decision.head,
+          trigger: decision.trigger,
+        }
       : { url: request.url, kind: "head_moved", from: decision.from, to: decision.to };
   if (applied.value.transition.sync !== true) return [event];
   const synced = await syncReviewer(paths, target, applied.value.snapshot);
@@ -240,8 +260,9 @@ async function resume(paths: Paths, row: Listed): Promise<Event[]> {
   return [];
 }
 
-function pass(paths: Paths) {
+function pass(paths: Paths, scopes: readonly ReviewScope[]) {
   return DeviceState.readReviewRequests(paths)
+    .map((listed) => inScope(listed, scopes))
     .toAsync()
     .flatMap((listed) =>
       fromPromise(async () => {
@@ -253,50 +274,20 @@ function pass(paths: Paths) {
       }, qualify),
     )
     .flatMap((events) =>
-      DeviceState.readReviewRequests(paths).map((after) => ({ events, listed: after })),
+      DeviceState.readReviewRequests(paths).map((after) => ({
+        events,
+        listed: inScope(after, scopes),
+      })),
     );
 }
 
-type Loop = { paths: Paths; deadline: number; first: boolean; all: boolean };
-
-/** The requests that the wait returns: those its events name and those with an action. */
-function shown(requests: ReturnType<typeof rows>, events: Event[], all: boolean) {
-  if (all) return requests;
-  const named = new Set(events.map((event) => event.url));
-  return requests.filter((row) => (row.url !== undefined && named.has(row.url)) || "action" in row);
-}
-
-function poll(loop: Loop): AsyncResult<Outcome, Failure> {
-  const { paths, deadline, first } = loop;
-  return pass(paths).flatMap(({ events, listed }): AsyncResult<Outcome, Failure> => {
-    const listedRows = rows(paths, listed);
-    const requests = shown(listedRows, events, loop.all);
-    if (events.length > 0)
-      return OkAsync({ reason: "review_events_observed", data: { events, requests } });
-    // Only the first pass returns for an action, so a row that waits for the SuperAgent or the
-    // person does not turn repeated waits into a busy loop. A wait finishes moves by itself.
-    if (first && listedRows.some((row) => "action" in row && row.action !== "wait_reviews"))
-      return OkAsync({ reason: "review_actions_ready", data: { events, requests } });
-    if (Date.now() >= deadline)
-      return OkAsync({ reason: "review_wait_timed_out", data: { events, requests } });
-    return fromPromise(() => Bun.sleep(Math.min(pollMs, deadline - Date.now())), qualify).flatMap(
-      () => poll({ ...loop, first: false }),
-    );
-  });
-}
-
-/**
- * Observes every open review request until one changes or an action waits for the SuperAgent,
- * or the timeout passes. It moves reviewers to new heads, starts rounds, marks stale requests,
- * and ends closed PRs inside the loop. Each change is a guarded transition, so two waits never
- * apply the same observation twice. Without `all`, it
- * returns only the requests that its events name and those with an action.
- */
-export function wait(input: { paths: Paths; timeoutSeconds: number; all?: boolean }) {
-  return poll({
-    paths: input.paths,
-    deadline: Date.now() + input.timeoutSeconds * 1000,
-    first: true,
-    all: input.all === true,
-  });
+/** One coordination poll owns review upkeep. Quiet reads add no event. */
+export function upkeep(input: { paths: Paths; scopes: readonly ReviewScope[]; observe?: boolean }) {
+  const read =
+    input.observe === false
+      ? DeviceState.readReviewRequests(input.paths)
+          .toAsync()
+          .map((listed) => ({ events: [] as Event[], listed: inScope(listed, input.scopes) }))
+      : pass(input.paths, input.scopes);
+  return read.map(({ events, listed }) => ({ events, requests: rows(input.paths, listed) }));
 }

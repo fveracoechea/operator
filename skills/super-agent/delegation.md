@@ -23,7 +23,9 @@ WorkerAgents have the same MCP access as you.
 Delegate every other question with `operator ask`, also when a quick look seems enough:
 
 ```sh
-operator ask --question "<question>" --json
+operator ask --file - --json <<'QUESTION'
+<question>
+QUESTION
 ```
 
 `ask` registers the question as a new source with one read-only report assignment and dispatches its worker in the same command, so it needs no plan file.
@@ -41,6 +43,8 @@ The steering message carries it, as [steering.md](steering.md) describes.
 
 The person approved the plan and the authority in its instructions. That is your authority for every routine action, so do not ask the person to approve each command or step.
 Registration, readiness, dispatch, worker replacement, report acceptance and return, PR feedback, the owner's guarded merge, and cleanup retries need no approval.
+For the assignment's own closed PR, follow `clean_up` with `pr_closed` to `operator abandon` without a person stop.
+Abandon deletes no worktree or branch.
 Decide what the instructions and the project context settle, and record the decision. Bring the person only these stops:
 
 - The instructions require human participation, a question is outside your authority, or the authority is unclear. The person owns the goal.
@@ -50,7 +54,7 @@ Decide what the instructions and the project context settle, and record the deci
 - `person_decision` with `cleanup_resource_mismatch`. Operator never removes an unrecorded path, so the person moves it away.
 - `source reset` and `project remove`. They end work or delete history, so they refuse without `--person-instructed`.
 - `source_supervised_elsewhere`, and `source take-over`. Another SuperAgent session supervises the source, so only the person moves it to you.
-- A closed PR, a missing PR worktree, and a parent PR that closed or merged outside the default branch. [pull-requests.md](pull-requests.md) names each one.
+- A missing PR worktree, and a parent PR that closed or merged outside the default branch. [pull-requests.md](pull-requests.md) names each one.
 
 Ask each stop as [questions.md](questions.md) describes, and keep the other work moving meanwhile.
 Remind the person once. When that reminder stays unanswered, offer a fallback that needs no person, for example work that is ready now.

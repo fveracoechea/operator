@@ -155,6 +155,54 @@ export const promotions = sqliteTable(
   ],
 );
 
+// Pinned stack progress retains recovery inputs and previous review evidence.
+export const stackOperations = sqliteTable(
+  "stack_operations",
+  {
+    id: text().primaryKey(),
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    revision: integer().notNull(),
+    state: text().notNull(),
+    data: text().notNull(),
+    reviewHistory: text("review_history"),
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+  },
+  (table) => [
+    uniqueIndex("one_unfinished_stack")
+      .on(table.sourceId, table.assignment)
+      .where(sql`${table.state} NOT IN ('complete', 'cancelled')`),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
+export const stackBases = sqliteTable(
+  "stack_bases",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    branch: text().notNull(),
+    data: text().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
 // One PR for each PR assignment. Its observation progress lets a restarted wait continue.
 export const pullRequests = sqliteTable(
   "pull_requests",
@@ -167,6 +215,9 @@ export const pullRequests = sqliteTable(
     branch: text().notNull(),
     associatedAt: text("associated_at").notNull(),
     progress: text().notNull(),
+    // Explicit ready transition, with complete dispositions and a device-file note reference.
+    readiness: text(),
+    parking: text(),
     waitState: text("wait_state").notNull(),
     waitAt: text("wait_at"),
     // The waiting process and its lease. A gone process or a stale lease is a stopped wait.
@@ -188,6 +239,14 @@ export const pullRequests = sqliteTable(
   ],
 );
 
+// One device-wide schedule across coordination scopes, held only during the batch read.
+export const parkedPrReads = sqliteTable("parked_pr_reads", {
+  id: integer().primaryKey(),
+  lastReadAt: text("last_read_at"),
+  ownerPid: integer("owner_pid"),
+  leaseAt: text("lease_at"),
+});
+
 // The ordered disposal after a verified merge. A failure stays recorded until a retry finishes it.
 export const cleanups = sqliteTable(
   "cleanups",
@@ -205,6 +264,32 @@ export const cleanups = sqliteTable(
     detail: text(),
     updatedAt: text("updated_at").notNull(),
     // The cleaning process and its lease. A gone process or a stale lease is a stopped cleanup.
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
+// The latest kind transition inside one assignment, independent of internal review.
+export const kindHandoffs = sqliteTable(
+  "kind_handoffs",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    outgoingLaunchId: text("outgoing_launch_id")
+      .notNull()
+      .references(() => launches.id),
+    nextKind: text("next_kind").notNull(),
+    handoffState: text("handoff_state").notNull(),
+    handoffDetail: text("handoff_detail"),
+    startedAt: text("started_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
     ownerPid: integer("owner_pid"),
     leaseAt: text("lease_at"),
   },
@@ -320,6 +405,7 @@ export const workerQuestions = sqliteTable(
       .references(() => launches.id),
     question: text().notNull(),
     askedAt: text("asked_at").notNull(),
+    awaitingPersonSeenAt: text("awaiting_person_seen_at"),
     state: text().notNull(),
     answer: text(),
     answeredBy: text("answered_by"),

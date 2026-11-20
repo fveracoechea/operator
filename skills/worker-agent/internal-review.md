@@ -1,8 +1,9 @@
 # Internal review
 
 You are the internal reviewer of a draft PR when your brief says so.
-Operator started you when the implementer associated the draft, so you are a fresh reader. You also own the PR from now until its merge.
-You apply the valid findings yourself, end the review with the ready step, and then run the PR feedback loop and the guarded merge.
+Operator started you when the implementer associated the draft, so you are a fresh reader.
+You own the PR until ready, when a fresh pr-feedback launch takes over.
+Apply the valid findings yourself, then end this launch with the guarded ready step.
 
 Operator records each round and enforces its limits through `operator pr round`.
 `operator pr ready` checks every finding's disposition, posts the summary comment, marks the PR ready, and records the end of the review.
@@ -84,15 +85,21 @@ Give every recorded finding exactly one disposition, and every declined finding 
 Keep each disposition on one line. Keep `## Dispositions` without bullets when no findings were recorded.
 JSON input is not accepted by either review command.
 Commit and push all work, then run `operator pr ready --file <file> --json` in your worktree.
+An optional `--note <file|->` gives the next worker open points to check, not review evidence.
+The note has at most 60 lines and is stored in assignment device files.
+Only one of `--file` and `--note` can select stdin.
 
 It posts one summary comment and then marks the PR ready. The CLI renders one line for each recorded finding with its axis, severity, and disposition, under your overview.
 Do not post the comment or mark the PR ready with `gh`.
 Write no line-level review comments and no other PR comments.
 
-## 6. Own the PR to its merge
+## 6. Stop after the handoff
 
-After the ready step, follow [pull-requests.md](pull-requests.md) from step 3 on: run `operator pr wait --json`, handle each result, and run the guarded merge on `merge_eligible`.
+After ready succeeds, stop.
+Operator starts the next launch through its recorded handoff and recovery rules.
+The [pr-feedback guide](kinds/pr-feedback.md) owns the next worker's claim checks and replies.
 During the review, a wait reports the draft's feedback and failing checks, and never `merge_eligible`.
 
-The person can skip a running review. The SuperAgent records the skip, which marks the PR ready with no comment.
-After that skip, stop the review and continue with this step.
+The person can skip a running review.
+The SuperAgent records permission, without marking the PR ready.
+After that skip, run `operator pr ready --json` without rounds or a summary comment, then stop.

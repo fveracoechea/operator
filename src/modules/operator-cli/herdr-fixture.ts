@@ -48,6 +48,11 @@ const save = async () => {
   lock.run("COMMIT"); lock.close(); lock = null;
 };
 const flag = (name) => { const index = args.indexOf(name); return index === -1 ? undefined : args[index + 1]; };
+if (key === "pane close" && state.pausePaneClose) {
+  await Bun.write(root + "/pane-close-entered", "entered");
+  const deadline = Date.now() + 10000;
+  while (!(await Bun.file(root + "/pane-close-allowed").exists()) && Date.now() < deadline) await Bun.sleep(10);
+}
 if (state.fail[key]) { console.error(JSON.stringify({ error: { message: state.fail[key] } })); process.exit(1); }
 const out = (result) => console.log(JSON.stringify({ id: "cli", result }));
 // Herdr labels only a tab it creates with \`tab create\`. A workspace's root tab shows its number.
@@ -85,7 +90,8 @@ else if (key === "worktree create" || key === "worktree open") {
   const source = state.workspaces.find((row) => row.workspace_id === flag("--workspace"));
   const path = flag("--path") ?? root + "/herdr-home/worktrees/" + flag("--label");
   if (key === "worktree create") {
-    const git = Bun.spawnSync(["git", "-C", source.worktree.checkout_path, "worktree", "add", "-q", "-b", flag("--branch"), path, ...(flag("--base") ? [flag("--base")] : [])], { stderr: "pipe" });
+    const exists = Bun.spawnSync(["git", "-C", source.worktree.checkout_path, "show-ref", "--verify", "--quiet", "refs/heads/" + flag("--branch")]).exitCode === 0;
+    const git = Bun.spawnSync(["git", "-C", source.worktree.checkout_path, "worktree", "add", "-q", ...(exists ? [path, flag("--branch")] : ["-b", flag("--branch"), path, ...(flag("--base") ? [flag("--base")] : [])])], { stderr: "pipe" });
     if (git.exitCode !== 0) { console.error(JSON.stringify({ error: { message: git.stderr.toString() } })); process.exit(1); }
   }
   const created = workspace(path, true);
@@ -95,8 +101,8 @@ else if (key === "worktree create" || key === "worktree open") {
   out({ workspace: created, root_pane: rootPane, worktree: { path, branch: flag("--branch") } });
 }
 else if (key === "agent list") out({ agents: state.agents.map((agent) => ({ name: agent.name, pane_id: agent.paneId })) });
-else if (key === "agent start") { state.agents.push({ name: args[2], paneId: flag("--pane"), kind: flag("--kind"), args: args.slice(args.indexOf("--") + 1) }); out({ type: "agent_started" }); }
-else if (key === "agent rename") { const agent = state.agents.find((row) => row.paneId === args[2]); if (!agent) { console.error("agent not found"); process.exit(1); } agent.name = args[3]; out({ type: "agent_renamed" }); }
+else if (key === "agent start") { state.agents.push({ name: args[2], paneId: flag("--pane"), kind: flag("--kind"), args: args.slice(args.indexOf("--") + 1), caller: { pane: process.env.HERDR_PANE_ID ?? null, opencode: process.env.OPENCODE_SESSION_ID ?? null, claude: process.env.CLAUDE_CODE_SESSION_ID ?? null } }); out({ type: "agent_started" }); }
+else if (key === "agent rename") { const agent = state.agents.find((row) => row.paneId === args[2]); if (!agent) { console.log(JSON.stringify({ error: { code: "agent_not_found", message: "No agent in pane" } })); process.exit(1); } agent.name = args[3]; out({ type: "agent_renamed" }); }
 else if (key === "agent prompt") {
   const agent = state.agents.find((row) => row.name === args[2]);
   const tab = state.tabs.find((row) => row.paneId === agent?.paneId);

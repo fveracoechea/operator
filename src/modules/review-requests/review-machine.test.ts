@@ -198,7 +198,7 @@ test("a renewed add or an observed trigger starts a round with the reviewer that
     error: {
       reason: "review_cleanup_in_progress",
       detail:
-        "The reviewer cleanup of this approved request has not finished. Add the request again after operator review wait or operator review cleanup finishes it. Nothing changed.",
+        "The reviewer cleanup of this approved request has not finished. Add the request again after operator next --wait or operator review cleanup finishes it. Nothing changed.",
     },
   });
   expect(decideReview(facts("round", cleaningUp, { trigger: "re-request" }))).toMatchObject({
@@ -401,9 +401,9 @@ test("a cleanup of an open request holds it against a start and an end", () => {
       error: {
         reason: "review_cleanup_in_progress",
         detail:
-          "The reviewer cleanup of this request has not finished. Start the reviewer after operator review wait or operator review cleanup finishes it. Nothing changed.",
+          "The reviewer cleanup of this request has not finished. Start the reviewer after operator next --wait or operator review cleanup finishes it. Nothing changed.",
         next: {
-          command: "operator review wait",
+          command: "operator next --wait",
           why: "Let the reviewer cleanup finish before continuing.",
         },
       },
@@ -417,7 +417,7 @@ test("a cleanup of an open request holds it against a start and an end", () => {
         detail:
           "Another process cleans up this reviewer now. End the request after it finishes. Nothing changed.",
         next: {
-          command: "operator review wait",
+          command: "operator next --wait",
           why: "Let the reviewer cleanup finish before continuing.",
         },
       },
@@ -486,7 +486,7 @@ test("a post waits while a live cleanup holds the request", () => {
       detail:
         "Another process cleans up this reviewer now. Post after it finishes. Nothing changed.",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Let the reviewer cleanup finish before continuing.",
       },
     },
@@ -549,31 +549,31 @@ test("each refusal states its cause and that nothing changed", () => {
       facts("close", starting, { ownerActive: true }),
       "review_start_in_progress",
       "Wait until the reviewer start ends.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("close", { state: "posting", launchState: "running" }, { ownerActive: true }),
       "review_post_in_progress",
       "Another process posts this review now. Wait for it.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("close", { ...reviewing, sync: "{}" }, { ownerActive: true }),
       "review_reviewer_moving",
       "A wait moves or prompts the reviewer now. End the request after it finishes.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("start", starting, { ownerActive: true }),
       "review_start_in_progress",
       "Another process starts this reviewer.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("start", reviewing),
       "review_reviewer_started",
       "This review request already has its reviewer, and the reviewer has not stopped.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("started", reviewing),
@@ -585,25 +585,25 @@ test("each refusal states its cause and that nothing changed", () => {
       facts("post", starting, { ownerActive: true }),
       "review_start_in_progress",
       "Wait until the reviewer start ends.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("post", { state: "posting", launchState: "running" }, { ownerActive: true }),
       "review_post_in_progress",
       "Another process posts this review now. Do not repeat it.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("post", { ...reviewing, sync: "{}" }, { ownerActive: true }),
       "review_reviewer_moving",
       "A wait moves the reviewer to the new PR head now. Post after the reviewer gets it.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("post", { state: "watching", launchState: "running" }),
       "review_already_posted",
       "This review request is watching, so its review is already posted.",
-      "operator review wait",
+      "operator next --wait",
     ],
     [
       facts("posted", reviewing, { event: "APPROVE" }),
@@ -615,7 +615,7 @@ test("each refusal states its cause and that nothing changed", () => {
       facts("synced", { state: "closed", launchState: "running" }, { ownLease: true }),
       "review_lease_lost",
       "Another process took this review request during the move.",
-      "operator review wait",
+      "operator next --wait",
     ],
   ];
   for (const [input, reason, detail, command] of cases)

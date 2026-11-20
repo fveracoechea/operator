@@ -22,12 +22,26 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
   const source = `--source ${argument(sourceId)}`;
   const target =
     "assignment" in row ? `${source} --assignment ${argument(row.assignment)}` : source;
+  if (
+    "kind" in row &&
+    row.kind === null &&
+    ["ready_assignment", "replace_worker"].includes(row.action)
+  )
+    return {
+      command: `operator dispatch ${target} --kind <kind>`,
+      why: "Name a worker kind for this record from before kinds.",
+    };
   if (row.action === "answer_question")
     return { decider: "super-agent", question: row.question.question };
   if (row.action === "read_reply")
     return {
       command: `operator message close ${target} --key ${argument(row.message.key)}`,
       why: "Read the recorded reply and act on it before closing the message.",
+    };
+  if (row.reason === "pr_closed")
+    return {
+      command: `operator abandon ${target}`,
+      why: "The PR closed without merge; retain its unlanded work.",
     };
   const steering: NextStep = {
     decider: "super-agent",
@@ -42,11 +56,11 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
       command: `operator dispatch ${target}`,
       why: "Replace the stopped worker without deleting its work.",
     },
-    retry_handoff: {
-      command: `operator handoff ${target}`,
-      why: "Resume the internal review handoff.",
+    resume_pr_feedback: {
+      command: `operator dispatch ${target}`,
+      why: "Start fresh PR feedback with the recorded waking events.",
     },
-    retry_cleanup: {
+    clean_up: {
       command:
         "report" in row && row.report !== undefined
           ? `operator report accept ${target}`
@@ -63,8 +77,6 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
         "question" in row ? row.question.question : "May the retained work or resource be removed?",
     },
     worker_attention: steering,
-    owner_attention: steering,
-    resume_worker: steering,
     prune_source: {
       command: "operator source prune",
       why: "The source retention period has elapsed.",

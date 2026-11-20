@@ -37,7 +37,12 @@ test.each([
   {
     name: "running owner in the write transaction",
     file: "device-state/pull-requests.ts",
-    replacements: [['owner?.launch.state !== "running" ||', ""]],
+    replacements: [
+      [
+        '(owner.launch.state !== "running" &&\n      !(options.adopting && owner.launch.state === "starting") &&\n      !parkedMerge) ||',
+        "",
+      ],
+    ],
     testFile: "device-state/pull-requests.test.ts",
     pattern: "a replacement keeps PR open",
   },
@@ -71,10 +76,7 @@ test.each([
     name: "no selector flags",
     file: "operator-cli/pull-requests.ts",
     replacements: [
-      [
-        "      timeoutSeconds = Number(value);\n    } else return null;",
-        "      timeoutSeconds = Number(value);\n    }",
-      ],
+      ['  if (flags.length > 1 || flags.some((flag) => flag !== "--json")) return null;', ""],
     ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "PR commands resolve only the recorded worktree",
@@ -96,7 +98,12 @@ test.each([
   {
     name: "reported feedback",
     file: "pull-requests/wait-machine.ts",
-    replacements: [["!progress.seen.includes(item.id) &&", ""]],
+    replacements: [
+      [
+        "!progress.seen.includes(feedbackKey(item)) &&\n      !progress.seen.includes(item.id) &&",
+        "",
+      ],
+    ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "opencode: the owner associates",
   },
@@ -104,7 +111,10 @@ test.each([
     name: "reported check failures",
     file: "pull-requests/wait-machine.ts",
     replacements: [
-      ['check.state === "failing" && !progress.failures', 'check.state === "failing" && ![]'],
+      [
+        `check.state === "failing" &&\n      !progress.failures.includes(failureKey(observed.head, check)) &&\n      !progress.failures.includes(\`\${observed.head}:\${check.name}\`)`,
+        'check.state === "failing"',
+      ],
     ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "opencode: the owner associates",
@@ -117,11 +127,16 @@ test.each([
     pattern: "opencode: the owner associates",
   },
   {
-    name: "timeout attention",
+    name: "legacy timeout stays with its live owner",
     file: "work-sources/assignment-machine.ts",
-    replacements: [['assignment.state === "pr-open" && pullRequest === "timed_out"', "false"]],
-    testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "opencode: the owner associates",
+    replacements: [
+      [
+        'when: ({ assignment }) => assignment.state === "pr-open",\n    decide: () => ({ action: "wait", reason: "assignment_active", blockers: [] }),',
+        'when: ({ assignment }) => assignment.state === "pr-open",\n    decide: ({ pullRequest }) => pullRequest === "timed_out" ? ({ action: "worker_attention", reason: "worker_idle", blockers: [] }) : ({ action: "wait", reason: "assignment_active", blockers: [] }),',
+      ],
+    ],
+    testFile: "work-sources/assignment-machine.test.ts",
+    pattern: "legacy PR wait results leave a live owner active",
   },
   {
     name: "PR open replacement",
@@ -178,11 +193,16 @@ test.each([
     pattern: "the owner's own items never end a wait alone",
   },
   {
-    name: "stopped wait attention",
+    name: "stopped wait replaces only a lost owner",
     file: "work-sources/assignment-machine.ts",
-    replacements: [['assignment.state === "pr-open" && pullRequest === "stopped"', "false"]],
-    testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "a killed wait and an idle owner",
+    replacements: [
+      [
+        'pullRequest === "stopped" &&\n      launch !== "starting" &&\n      launch !== "running"',
+        'pullRequest === "stopped"',
+      ],
+    ],
+    testFile: "work-sources/assignment-machine.rules.test.ts",
+    pattern: "a stopped PR wait replaces only an owner without a live launch",
   },
   {
     name: "stopped wait lease",
@@ -191,14 +211,14 @@ test.each([
       ["ownerGone({ ownerPid: pr.waitOwnerPid, leaseAt: pr.waitLeaseAt }, now)", "false"],
     ],
     testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "a killed wait and an idle owner",
+    pattern: "a killed wait leaves its live idle owner",
   },
   {
     name: "idle owner attention",
     file: "work-sources/assignment-machine.ts",
     replacements: [['(activity === "idle" || activity === "done")', "false"]],
     testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "a killed wait and an idle owner",
+    pattern: "a killed wait leaves its live idle owner",
   },
   {
     name: "assignment state alone does not block migration",
@@ -298,11 +318,16 @@ test.each([
     pattern: "the parent's state decides the relay",
   },
   {
-    name: "blocked relay attention",
+    name: "blocked relay stays with its live owner",
     file: "work-sources/assignment-machine.ts",
-    replacements: [['relay === "blocked"', 'relay === "unknown"']],
+    replacements: [
+      [
+        'when: ({ assignment }) => assignment.state === "pr-open",\n    decide: () => ({ action: "wait", reason: "assignment_active", blockers: [] }),',
+        'when: ({ assignment }) => assignment.state === "pr-open",\n    decide: ({ relay }) => relay === "blocked" ? ({ action: "worker_attention", reason: "worker_idle", blockers: [] }) : ({ action: "wait", reason: "assignment_active", blockers: [] }),',
+      ],
+    ],
     testFile: "work-sources/assignment-machine.test.ts",
-    pattern: "a blocked relay needs owner attention",
+    pattern: "a blocked relay stays with its live worker",
   },
   {
     name: "one open stack parent",

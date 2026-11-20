@@ -228,7 +228,7 @@ test("a first start refuses a PR that moved, and a replacement keeps the recorde
       reason: "review_head_moved",
       detail: `PR #7 moved to ${project.head} after it was read. Start the reviewer again. Nothing was launched.`,
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Observe the current PR head before starting its reviewer again.",
       },
       state: { expectedHead: project.base, fetchedHead: project.head },
@@ -251,7 +251,7 @@ test("a replacement whose recorded head Git does not hold refuses as a moved PR"
       reason: "review_head_moved",
       detail: `PR #7 moved to ${project.head} after it was read. Start the reviewer again. Nothing was launched.`,
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Observe the current PR head before starting its reviewer again.",
       },
       state: { expectedHead: unknown, fetchedHead: project.head },

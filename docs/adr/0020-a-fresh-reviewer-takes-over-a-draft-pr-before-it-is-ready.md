@@ -4,6 +4,8 @@
 
 Accepted - 2026-10-31.
 Decided in #292.
+Amended 2026-11-17: the draft-to-review handoff uses the generic kind transition and dispatch recovery (ADR-0029).
+Amended 2026-11-17 in #389: ready starts fresh pr-feedback, accepts a reviewer note, and follows a recorded skip without rounds or a comment.
 Amended 2026-11-04: the reviewer brief also gives the person's intent when the plan or the assignment gives one.
 Adds a draft condition to the ADR-0010 merge gate and moves the start of the ADR-0015 assignment reviewer to the ready transition.
 Amended 2026-11-04 in #305 with the answers to its open questions, below.
@@ -29,9 +31,10 @@ The implementer is not needed after the draft exists, because its work is in the
 The associate operation refuses a worktree with uncommitted or unpushed changes, so the handoff leaves no unlanded work behind.
 One worktree with one live agent avoids two writers in one checkout, and it avoids a second worktree and its preparation for every PR.
 
-The reviewer is the PR owner from the handoff to the merge.
-It reviews, applies the valid findings, pushes to the same draft, moves the PR to ready, and then runs the PR feedback loop and the guarded merge.
-This is one planned owner change for each PR, not a fresh worker for each correction.
+The reviewer is the PR owner from the draft handoff to ready.
+It reviews, applies the valid findings, pushes to the same draft, and moves the PR to ready.
+Ready ends that launch and starts fresh pr-feedback in the same assignment and worktree.
+Feedback corrections do not each require another handoff.
 
 The CLI starts the reviewer, because the CLI owns agent launch and the implementer cannot start a WorkerAgent that the SuperAgent supervises.
 The reviewer is a WorkerAgent under the same SuperAgent, and a failed or interrupted start appears in next actions like every other launch.
@@ -64,6 +67,9 @@ The person's merge approval stays the final independent check of every change, i
 The reviewer moves the PR to ready through a guarded CLI operation, not by a direct GitHub call.
 That operation refuses until every recorded round is complete, every finding has a disposition, and the worktree head is pushed and equals the PR head.
 It posts one summary comment, marks the PR ready, and records the ready head.
+It retains complete finding dispositions and decline reasons for the first feedback launch and replacements.
+The reviewer may supply a short handoff note, which only a kind that reads notes receives.
+The reviewer itself still reads no implementer note, so the fresh-reader rule remains intact.
 The comment states each finding and how it was applied, or why the reviewer declined it.
 The reviewer writes its text to the person's writing rules, and the CLI checks that every recorded finding appears in it.
 Declined findings appear in that comment, not in the PR body, because the comment is the one public trace of the internal review and the body stays an account of the change.
@@ -77,7 +83,7 @@ It moves through reviewing, with at most two rounds, and ends ready or skipped.
 The assignment's own states do not change, and a draft PR counts as open.
 Dependents can start on a draft parent, because they already start on an open PR that feedback still changes, and stacked PRs already follow parent changes.
 
-The merge gate refuses a draft PR, and it refuses an assignment whose internal review has not ended ready or skipped.
+The merge gate refuses a draft PR and an assignment without a recorded ready transition.
 The gate sits at merge as well as at the ready operation, because a person or an agent can mark a draft ready outside Operator, and every PR passes through the merge.
 The PR wait reports a draft's feedback and checks to the reviewer, and it never reports merge eligibility for a draft.
 
@@ -88,8 +94,11 @@ A device setting supplies the default, a plan can turn it off or on for all its 
 The most specific value wins: assignment, then plan, then device.
 An adopted PR that is already ready for review gets no internal review, whatever the setting.
 Each launch resolves and records the value, so a running owner keeps it and a replacement resolves it again.
-When it is off, the implementer opens a ready PR, keeps ownership as before, and no reviewer starts.
-On the person's instruction, the SuperAgent can skip a running internal review, which ends it and marks the PR ready with no summary comment.
+When it is off, association of a ready PR records readiness and starts fresh pr-feedback without a reviewer.
+On the person's instruction, the SuperAgent can record a skip of a running internal review.
+That record alone neither marks the PR ready nor changes ownership.
+The reviewer's guarded ready operation then needs no rounds or summary comment and starts pr-feedback.
+A skip is one-way, and a second review uses a review request.
 
 ### Relation to the assignment reviewer
 
@@ -107,18 +116,18 @@ The CLI handoff, round records, guarded ready operation, and merge gate replace 
 The evidence is the accepted review of 36 phase 1 PRs in two repositories, from 2026-10-31 to 2026-11-04.
 
 1. Still open. No phase 1 PR had an approval or a merge while it was a draft, so the evidence does not show what GitHub does, and only a deliberate probe can. Phase 2 does not wait for the answer, because the merge gate refuses a draft itself.
-2. The association starts the handoff as its own process group from the controlling checkout, as a merge starts its cleanup. That process waits for the associate process to end, closes the implementer's pane, ends the implementer launch as finished, and dispatches the reviewer. A failed or stopped handoff shows as `retry_handoff`, and `operator handoff` repeats it from the step where it stopped. A failed reviewer start shows as `replace_worker`.
+2. The association starts a kind handoff inside the same assignment (ADR-0029). It closes the outgoing worker's pane and starts the recorded next kind in the same worktree. A running handoff shows as `wait` with `kind_handoff`. A failed or stopped handoff shows as `replace_worker` with `handoff_failed`; dispatch resumes it from its recorded progress. A failed next launch also needs a replacement. The fresh reviewer receives the record facts and no implementer note.
 3. A launch records only its resolved internal review value, a launch-time resolution under ADR-0014. The implementer and the reviewer are steps of the review, not worker roles: the review record names the implementer launch, and a later launch of a running review is its reviewer. Only a start before the PR exists resolves the value again, so a settings change cannot drop a review that already started.
 4. A round with an applied blocker requires a second round. 24 of 35 reviewed PRs had a round 1 blocker, round 2 found something new in 21 of them and a new blocker in 8, and the one PR that declined every round 1 blocker still moved its head. Each recorded finding carries its severity, so the ready step can check this rule.
 5. The CLI renders one line for each recorded finding, with its axis, severity, and disposition, and checks that every finding appears once. The reviewer writes only a short overview. 14 of 33 phase 1 comments left out declined findings that their round files recorded, none marked severity, and 2 PRs went ready with no comment.
-6. The SuperAgent skips a running review with a person-instructed command from the controlling checkout, as it resets a source or deletes unlanded work. The one phase 1 skip was a person's instruction that the SuperAgent relayed to the worker through Herdr, and ADR-0022 removes typed text as a channel. A SuperAgent command records the skip without a message to the reviewer, which keeps the PR as its owner and learns of the skip when its next review command refuses.
+6. The SuperAgent records a person-instructed skip from the controlling checkout. The live reviewer remains owner until its guarded ready operation performs the handoff without rounds or a summary comment.
 7. The brief reads the reviewer step from the recorded review, never from the draft state. A launch of a running review is its reviewer, and a launch after the review ended is the PR owner, whose brief names the end and the ready head. `next` treats that launch as any PR owner. In phase 1, a replacement after ready acted as owner only because it read the draft state.
 8. Phase 2 ships as two slices: the lifecycle, its records, the handoff, and the rounds first, then the ready step, the merge gate, and the summary comment.
 
 ## Consequences
 
 - Every PR with internal review on costs a second agent session and a cold start in a prepared worktree.
-- The PR owner after the review has the reviewer's context, not the implementer's, so feedback answers rely on the code, the issue, and the comment rather than the implementer's reasoning.
+- The fresh feedback worker receives recorded facts and an optional reviewer note, so its claim checks do not depend on the reviewer's conversation.
 - GitHub shows a draft PR before the review ends, so watchers and CI see work before it is reviewed, but no line-level comments appear.
 - The reviewer checks code that it wrote, so the second round's fresh subagent and the person's approval carry the independent check of those fixes.
 - The two-round limit can leave a declined or open finding, which the summary comment shows to the person rather than a third round.

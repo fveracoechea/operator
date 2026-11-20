@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 // Bun has no temporary-directory, symlink, permission, or recursive removal API.
 import {
   writeClaudeHookSettings,
@@ -19,6 +20,7 @@ import { fakeGithubScript } from "./github-fixture.ts";
 
 let root = "";
 let checkout = "";
+const workerPanes = new Map<string, string>();
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
@@ -29,7 +31,7 @@ const gitEnv = {
   GIT_COMMITTER_EMAIL: "fixture@example.com",
 };
 
-function environment() {
+function environment(cwd = checkout) {
   return Environment.child({
     ...gitEnv,
     HOME: `${root}/home`,
@@ -38,11 +40,14 @@ function environment() {
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     HERDR_SOCKET_PATH: `${root}/herdr.sock`,
     PATH: `${root}/tools:${Environment.read().PATH}`,
+    OPENCODE_SESSION_ID: "ses_synthetic_supervisor",
+    CLAUDE_CODE_SESSION_ID: undefined,
+    HERDR_PANE_ID: workerPanes.get(cwd) ?? "synthetic-supervisor-pane",
   });
 }
 
 async function exec(args: string[], cwd = checkout) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(args, { cwd, env: environment(cwd), stdout: "pipe", stderr: "pipe" });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -150,15 +155,18 @@ async function setup(host: "opencode" | "claude-code") {
 }
 
 afterEach(async () => {
+  workerPanes.clear();
   await rm(root, { recursive: true, force: true });
 });
 
 async function dispatch(source: string, assignment = "implement") {
   const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
   expect(launched.code, launched.stderr).toBe(0);
-  return z
+  const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string(), brief: z.string() }) })
     .parse(launched.output).data;
+  workerPanes.set(worker.worktreePath, worker.paneId);
+  return worker;
 }
 
 type Pull = Record<string, unknown> & { number: number };
@@ -207,6 +215,7 @@ const statusSchema = z.object({
         paneId: z.string().nullable(),
         worktreePath: z.string().nullable(),
         internalReview: z.boolean().nullable(),
+        kind: z.object({ name: z.string() }).nullable(),
       }),
     ),
     internalReviews: z.array(
@@ -248,6 +257,27 @@ async function calls(file: string, text: string) {
     .trim()
     .split("\n")
     .filter((line) => line.includes(text)).length;
+}
+
+async function paneCloseEntered(source: string) {
+  // Readiness checks precede pane close in the asynchronous continuation. Observe its live
+  // claim while waiting, so a terminal failure is reported instead of mistaken for slow startup.
+  let claimed = false;
+  for (
+    let attempt = 0;
+    attempt < 100 && !(await Bun.file(`${root}/pane-close-entered`).exists());
+    attempt++
+  ) {
+    const state = await shown(source);
+    const review = state.internalReviews[0];
+    // Recovery starts with a pending row whose previous owner stopped. Only its new claim
+    // proves this dispatch started, after which losing the claim is a failure.
+    claimed ||= review?.handoffRunning === true;
+    expect(review, JSON.stringify(state)).toMatchObject({ handoffState: "pending" });
+    if (claimed) expect(review).toMatchObject({ handoffRunning: true });
+    await Bun.sleep(10);
+  }
+  return Bun.file(`${root}/pane-close-entered`).exists();
 }
 
 async function commit(worktree: string, file: string) {
@@ -313,7 +343,34 @@ test("associate refuses a ready PR and an unclean or unpushed worktree, and chan
   expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(0);
 }, 180000);
 
-test("a handoff that cannot close the implementer's pane stays retryable, and the implementer stops", async () => {
+test("a running handoff shows wait with kind_handoff and launches no second worker", async () => {
+  const source = await setup("opencode");
+  const worker = await dispatch(source);
+  const head = await commit(worker.worktreePath, "work.txt");
+  await github({ pulls: [pull({ head, isDraft: true })] });
+  const file = Bun.file(`${root}/herdr-state.json`);
+  const state = z.looseObject({}).parse(await file.json());
+  await Bun.write(file, JSON.stringify({ ...state, pausePaneClose: true }));
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });
+  try {
+    expect(await paneCloseEntered(source)).toBe(true);
+    expect(await entry(source)).toMatchObject({
+      action: "wait",
+      reason: "kind_handoff",
+      handoff: { nextKind: "review", state: "pending" },
+    });
+    expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+      code: 4,
+      output: { reason: "handoff_running" },
+    });
+    expect((await shown(source)).launches).toHaveLength(1);
+  } finally {
+    await Bun.write(`${root}/pane-close-allowed`, "continue");
+    expect(await handedOff(source)).toMatchObject({ handoffState: "done" });
+  }
+}, 180000);
+
+test("a failed handoff shows as replace_worker with handoff_failed and starts the next kind", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
   const head = await commit(worker.worktreePath, "work.txt");
@@ -322,8 +379,8 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });
   expect(await handedOff(source)).toMatchObject({ handoffState: "failed" });
   expect(await entry(source)).toMatchObject({
-    action: "retry_handoff",
-    reason: "internal_review_handoff_failed",
+    action: "replace_worker",
+    reason: "handoff_failed",
     internalReview: {
       handoff: { state: "failed", detail: expect.stringContaining("the pane is busy") as unknown },
     },
@@ -338,6 +395,7 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
       code: 4,
       output: {
         reason: "pr_handed_off",
+        kind: "implementation",
         phase: "handoff",
         next: { why: "This launch handed the PR to its reviewer. Stop here." },
         blockers: [
@@ -345,26 +403,134 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
             detail: "This launch no longer owns the PR.",
           },
         ],
+        state: { handedOff: true },
       },
     });
   // A retry that meets the same Herdr failure exits as a dispatch does.
-  expect(await run(["handoff", "--source", source, "--assignment", "implement"])).toMatchObject({
+  expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
     code: 1,
     output: { reason: "herdr_failed" },
   });
   await herdrFail({});
-  expect(await run(["handoff", "--source", source, "--assignment", "implement"])).toMatchObject({
+  expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
     code: 0,
     output: {
-      reason: "handoff_finished",
-      data: { reviewer: { worktreePath: worker.worktreePath } },
+      reason: "worker_launched",
+      data: { kind: { name: "review", readsNote: false }, worktreePath: worker.worktreePath },
     },
   });
   expect((await shown(source)).launches.map((row) => row.state)).toEqual(["finished", "running"]);
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "internal_review_running" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
 }, 180000);
 
-test("with internal review off, associate records a ready PR and the owner keeps it", async () => {
+test("stopped handoff recovery serializes competing dispatches and preserves the recorded next kind", async () => {
+  const source = await setup("opencode");
+  const worker = await dispatch(source);
+  const head = await commit(worker.worktreePath, "work.txt");
+  await github({ pulls: [pull({ head, isDraft: true })] });
+  await herdrFail({ "pane close": "the pane is busy" });
+  expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  expect(await handedOff(source)).toMatchObject({ handoffState: "failed" });
+  await herdrFail({});
+  // The recovery process holds the handoff while waiting for this synthetic parent, before any close effect.
+  using db = new Database(`${root}/state/operator/operator.sqlite`);
+  db.exec("PRAGMA busy_timeout = 5000");
+  db.query("UPDATE kind_handoffs SET handoff_state = 'pending', owner_pid = ?, lease_at = ?").run(
+    process.pid,
+    new Date().toISOString(),
+  );
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      cli,
+      "dispatch",
+      "--source",
+      source,
+      "--assignment",
+      "implement",
+      "--after-pid",
+      String(process.pid),
+      "--json",
+    ],
+    { cwd: checkout, env: environment(worker.worktreePath), stdout: "pipe", stderr: "pipe" },
+  );
+  db.query("UPDATE kind_handoffs SET owner_pid = ?").run(child.pid);
+  try {
+    let state = await shown(source);
+    for (let attempt = 0; attempt < 100 && !state.internalReviews[0]?.handoffRunning; attempt++) {
+      await Bun.sleep(10);
+      state = await shown(source);
+    }
+    expect(await entry(source)).toMatchObject({ action: "wait", reason: "kind_handoff" });
+    expect(state.launches).toHaveLength(1);
+  } finally {
+    child.kill("SIGTERM");
+    await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+  }
+  expect(await entry(source)).toMatchObject({
+    action: "replace_worker",
+    reason: "handoff_failed",
+    handoff: { nextKind: "review", state: "stopped" },
+    next: { command: `operator dispatch --source ${source} --assignment implement` },
+  });
+
+  const stateFile = Bun.file(`${root}/herdr-state.json`);
+  await Bun.write(
+    stateFile,
+    JSON.stringify({ ...z.looseObject({}).parse(await stateFile.json()), pausePaneClose: true }),
+  );
+  const recovering = exec([
+    process.execPath,
+    cli,
+    "dispatch",
+    "--source",
+    source,
+    "--assignment",
+    "implement",
+    "--json",
+  ]);
+  try {
+    expect(await paneCloseEntered(source)).toBe(true);
+    expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+      code: 4,
+      output: { reason: "handoff_running" },
+    });
+    expect((await shown(source)).launches).toHaveLength(1);
+  } finally {
+    await Bun.write(`${root}/pane-close-allowed`, "continue");
+    const result = await recovering;
+    expect(result.code, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      reason: "worker_launched",
+      data: {
+        assignment: "implement",
+        kind: { name: "review" },
+        worktreePath: worker.worktreePath,
+        branch: "task/12-implement",
+      },
+    });
+  }
+  expect((await shown(source)).launches.map((row) => row.state)).toEqual(["finished", "running"]);
+  expect(await handedOff(source)).toMatchObject({ handoffState: "done" });
+  expect(await calls("herdr-calls.jsonl", '"worktree","open"')).toBe(1);
+}, 180000);
+
+test("the removed handoff command is refused without closing a pane or starting a worker", async () => {
+  const source = await setup("opencode");
+  await dispatch(source);
+  expect(await run(["handoff", "--source", source, "--assignment", "implement"])).toMatchObject({
+    code: 2,
+    output: { reason: "invalid_arguments", next: { command: "operator --help" } },
+  });
+  expect((await shown(source)).launches).toHaveLength(1);
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(0);
+}, 180000);
+
+test("with internal review off, associate records a ready PR and hands it to fresh pr-feedback", async () => {
   const source = await setup("opencode");
   await Bun.write(
     `${root}/config/operator/config.json`,
@@ -375,8 +541,12 @@ test("with internal review off, associate records a ready PR and the owner keeps
   );
   const worker = await dispatch(source);
   expect((await shown(source)).launches[0]).toMatchObject({ internalReview: false });
-  await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
-  await github({ pulls: [pull()] });
+  const head = await commit(worker.worktreePath, "notes.txt");
+  await github({ pulls: [pull({ head })] });
+  await Bun.write(`${worker.worktreePath}/unlanded.txt`, "retain this work\n");
+  expect(await git(worker.worktreePath, "status", "--porcelain")).toBe("?? unlanded.txt");
+  const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+  const starts = await calls("herdr-calls.jsonl", '"agent","start"');
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 3,
     output: {
@@ -388,16 +558,38 @@ test("with internal review off, associate records a ready PR and the owner keeps
     },
   });
   expect((await shown(source)).pullRequests).toEqual([]);
-  await rm(`${worker.worktreePath}/notes.txt`);
+  expect(await Bun.file(`${worker.worktreePath}/unlanded.txt`).text()).toBe("retain this work\n");
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+  await rm(`${worker.worktreePath}/unlanded.txt`);
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 0,
     output: { reason: "pr_associated", data: { internalReview: null } },
   });
   expect((await shown(source)).internalReviews).toEqual([]);
-  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(0);
-  expect(
-    await run(["pr", "round", "--file", await findings([])], worker.worktreePath),
-  ).toMatchObject({
+  const deadline = Date.now() + 30000;
+  let state = await shown(source);
+  while (
+    state.launches.at(-1)?.kind?.name !== "pr-feedback" ||
+    state.launches.at(-1)?.state !== "running"
+  ) {
+    expect(Date.now(), JSON.stringify(state)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+    state = await shown(source);
+  }
+  expect(state.launches).toMatchObject([
+    { state: "finished", kind: { name: "implementation" } },
+    { state: "running", worktreePath: worker.worktreePath, kind: { name: "pr-feedback" } },
+  ]);
+  expect(state.launches[1]?.paneId).not.toBe(worker.paneId);
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes + 1);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts + 1);
+  const round = ["pr", "round", "--file", await findings([])];
+  workerPanes.set(
+    worker.worktreePath,
+    state.launches[1]?.paneId ?? expect.unreachable("Missing feedback pane"),
+  );
+  expect(await run(round, worker.worktreePath)).toMatchObject({
     code: 3,
     output: { reason: "internal_review_not_recorded" },
   });

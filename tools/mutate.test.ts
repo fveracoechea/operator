@@ -160,88 +160,93 @@ test("the next test records its effect", async () => {
   expect(await Bun.file(receipt).text()).toBe("reached\n");
 });
 
-test("sandbox tests preserve the actual source readiness command in a private copy", async () => {
-  const cwd = await fixture({});
-  const repository = path.resolve(import.meta.dir, "..");
-  const original = path.join(repository, "src/cli.ts");
-  const copied = path.join(cwd, "src/cli.ts");
-  const receipt = path.join(cwd, "source-command-receipt.json");
-  await cp(path.join(repository, "src"), path.join(cwd, "src"), { recursive: true });
-  await cp(path.join(repository, "skills"), path.join(cwd, "skills"), { recursive: true });
-  await Bun.write(
-    path.join(cwd, "tools/device-fixture.ts"),
-    Bun.file(path.join(repository, "tools/device-fixture.ts")),
-  );
-  const packaged = z
-    .looseObject({})
-    .parse(await Bun.file(path.join(repository, "package.json")).json());
-  await Bun.write(
-    path.join(cwd, "package.json"),
-    JSON.stringify({
-      ...packaged,
-      scripts: { test: "bun test --isolate" },
-    }),
-  );
-  const before = await lstat(copied);
-  const source = await lstat(original);
-  expect(before.isSymbolicLink()).toBe(false);
-  expect(await realpath(copied)).toBe(copied);
-  expect(before.mode % 0o1000).toBe(0o755);
-  expect(before.nlink).toBe(1);
-  expect([before.dev, before.ino]).not.toEqual([source.dev, source.ino]);
-  const sourceText = await Bun.file(original).text();
-  // Stryker inserts this type-check directive without changing the source command's behavior.
-  const identity = new Bun.CryptoHasher("sha256")
-    .update(sourceText.replace("// @ts-nocheck\n", ""))
-    .digest("hex");
-  expect(await Bun.file(copied).text()).toBe(sourceText);
-  // Exercise the real outer annotation before the nested Stryker run copies this command again.
-  const { disableTypeChecks } = await import("@stryker-mutator/instrumenter");
-  const shebang = "#!/usr/bin/env bun\n";
-  const annotatedShebang = `${shebang}// @ts-nocheck\n`;
-  const canonicalSource = sourceText.startsWith(annotatedShebang)
-    ? shebang + sourceText.slice(annotatedShebang.length)
-    : sourceText;
-  const annotated = await disableTypeChecks(
-    { name: copied, content: canonicalSource, mutate: false },
-    { plugins: null },
-  );
-  expect(annotated.content).toBe(annotatedShebang + canonicalSource.slice(shebang.length));
-  const nested = await disableTypeChecks(annotated, { plugins: null });
-  expect(nested.content.replace("// @ts-nocheck\n", "")).toBe(
-    shebang + "// \n" + canonicalSource.slice(shebang.length),
-  );
-  const restored = shebang + annotated.content.slice(annotatedShebang.length);
-  expect(restored).toBe(canonicalSource);
-  expect(new Bun.CryptoHasher("sha256").update(restored).digest("hex")).toBe(identity);
-  console.error(
-    JSON.stringify({
-      phase: "outer-annotation-normalization",
-      annotatedHash: new Bun.CryptoHasher("sha256").update(annotated.content).digest("hex"),
-      nestedHash: new Bun.CryptoHasher("sha256").update(nested.content).digest("hex"),
-      restoredHash: identity,
-      removed: "// @ts-nocheck\n",
-    }),
-  );
-  await Bun.write(copied, restored);
-  console.error(
-    JSON.stringify({
-      phase: "original-private-copy",
-      copied,
-      mode: before.mode % 0o1000,
-      links: before.nlink,
-      dev: before.dev,
-      ino: before.ino,
-      identity,
-    }),
-  );
-  await Bun.write(
-    path.join(cwd, "src/lib/source-readiness-count.ts"),
-    "export function count(n: number) { return n + 1; }\n",
-  );
-  await Bun.write(
-    path.join(cwd, "src/lib/source-readiness-count.test.ts"),
-    `import { expect, test } from "bun:test";
+test.each([0o700, 0o755])(
+  "sandbox tests preserve the actual source readiness command in a private copy with mode %i",
+  async (mode) => {
+    const cwd = await fixture({});
+    const repository = path.resolve(import.meta.dir, "..");
+    const original = path.join(repository, "src/cli.ts");
+    const copied = path.join(cwd, "src/cli.ts");
+    const receipt = path.join(cwd, "source-command-receipt.json");
+    await cp(path.join(repository, "src"), path.join(cwd, "src"), { recursive: true });
+    await cp(path.join(repository, "skills"), path.join(cwd, "skills"), { recursive: true });
+    await Bun.write(
+      path.join(cwd, "tools/device-fixture.ts"),
+      Bun.file(path.join(repository, "tools/device-fixture.ts")),
+    );
+    const packaged = z
+      .looseObject({})
+      .parse(await Bun.file(path.join(repository, "package.json")).json());
+    await Bun.write(
+      path.join(cwd, "package.json"),
+      JSON.stringify({
+        ...packaged,
+        scripts: { test: "bun test --isolate" },
+      }),
+    );
+    const before = await lstat(copied);
+    const source = await lstat(original);
+    expect(before.isSymbolicLink()).toBe(false);
+    expect(await realpath(copied)).toBe(copied);
+    // Git checkouts can restrict executable permissions through the creating process's umask.
+    expect(before.mode % 0o1000).toBe(source.mode % 0o1000);
+    expect((await lstat(root)).mode % 0o1000).toBe(0o700);
+    expect(before.nlink).toBe(1);
+    expect([before.dev, before.ino]).not.toEqual([source.dev, source.ino]);
+    const sourceText = await Bun.file(original).text();
+    // Stryker inserts this type-check directive without changing the source command's behavior.
+    const identity = new Bun.CryptoHasher("sha256")
+      .update(sourceText.replace("// @ts-nocheck\n", ""))
+      .digest("hex");
+    expect(await Bun.file(copied).text()).toBe(sourceText);
+    await chmod(copied, mode);
+    // Exercise the real outer annotation before the nested Stryker run copies this command again.
+    const { disableTypeChecks } = await import("@stryker-mutator/instrumenter");
+    const shebang = "#!/usr/bin/env bun\n";
+    const annotatedShebang = `${shebang}// @ts-nocheck\n`;
+    const canonicalSource = sourceText.startsWith(annotatedShebang)
+      ? shebang + sourceText.slice(annotatedShebang.length)
+      : sourceText;
+    const annotated = await disableTypeChecks(
+      { name: copied, content: canonicalSource, mutate: false },
+      { plugins: null },
+    );
+    expect(annotated.content).toBe(annotatedShebang + canonicalSource.slice(shebang.length));
+    const nested = await disableTypeChecks(annotated, { plugins: null });
+    expect(nested.content.replace("// @ts-nocheck\n", "")).toBe(
+      shebang + "// \n" + canonicalSource.slice(shebang.length),
+    );
+    const restored = shebang + annotated.content.slice(annotatedShebang.length);
+    expect(restored).toBe(canonicalSource);
+    expect(new Bun.CryptoHasher("sha256").update(restored).digest("hex")).toBe(identity);
+    console.error(
+      JSON.stringify({
+        phase: "outer-annotation-normalization",
+        annotatedHash: new Bun.CryptoHasher("sha256").update(annotated.content).digest("hex"),
+        nestedHash: new Bun.CryptoHasher("sha256").update(nested.content).digest("hex"),
+        restoredHash: identity,
+        removed: "// @ts-nocheck\n",
+      }),
+    );
+    await Bun.write(copied, restored);
+    console.error(
+      JSON.stringify({
+        phase: "original-private-copy",
+        copied,
+        mode: before.mode % 0o1000,
+        links: before.nlink,
+        dev: before.dev,
+        ino: before.ino,
+        identity,
+      }),
+    );
+    await Bun.write(
+      path.join(cwd, "src/lib/source-readiness-count.ts"),
+      "export function count(n: number) { return n + 1; }\n",
+    );
+    await Bun.write(
+      path.join(cwd, "src/lib/source-readiness-count.test.ts"),
+      `import { expect, test } from "bun:test";
 // Bun has no permission, file metadata, symlink, or temporary-directory API.
 import { chmod, lstat, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import path from "node:path";
@@ -306,52 +311,55 @@ test("the actual source command passes readiness through its PATH link", async (
   }
 }, 30000);
 `,
-  );
-  const baseline = Bun.spawn(
-    [process.execPath, "test", "--isolate", "src/lib/source-readiness-count.test.ts"],
-    {
-      cwd,
-      env: Environment.child({
-        HOME: root,
-        XDG_CONFIG_HOME: `${root}/config`,
-        XDG_STATE_HOME: `${root}/state`,
-      }),
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [baselineCode, baselineOut, baselineError] = await Promise.all([
-    baseline.exited,
-    new Response(baseline.stdout).text(),
-    new Response(baseline.stderr).text(),
-  ]);
-  console.error(baselineError);
-  expect(baselineCode, baselineOut + baselineError).toBe(0);
-  await rm(receipt);
-  const result = await mutate(cwd, ["src/lib/source-readiness-count.ts"]);
-  console.error(result.stderr);
-  expect(result.code, result.stdout + result.stderr).toBe(0);
-  expect(result.stdout).toContain("0 survivors, 0 untested, 0 incomplete");
-  const observed = z
-    .looseObject({
-      project: z.string(),
-      mode: z.number(),
-      links: z.number(),
-      selectedRealpath: z.string(),
-      cli: z.string(),
-      sourceIdentity: z.string(),
-      readiness: z.unknown(),
-    })
-    .parse(await Bun.file(receipt).json());
-  console.error(JSON.stringify({ phase: "retained-sandbox-receipt", ...observed }));
-  expect(observed.project).toStartWith(`${cwd}/.mutation-`);
-  expect(observed.project).toContain("/sandbox/");
-  expect(observed.mode).toBe(0o755);
-  expect(observed.links).toBe(1);
-  expect(observed.selectedRealpath).toBe(observed.cli);
-  expect(observed.sourceIdentity).toBe(identity);
-  expect(observed.readiness).toMatchObject({ reason: "ready", blockers: [] });
-});
+    );
+    const baseline = Bun.spawn(
+      [process.execPath, "test", "--isolate", "src/lib/source-readiness-count.test.ts"],
+      {
+        cwd,
+        env: Environment.child({
+          HOME: root,
+          XDG_CONFIG_HOME: `${root}/config`,
+          XDG_STATE_HOME: `${root}/state`,
+        }),
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [baselineCode, baselineOut, baselineError] = await Promise.all([
+      baseline.exited,
+      new Response(baseline.stdout).text(),
+      new Response(baseline.stderr).text(),
+    ]);
+    console.error(baselineError);
+    expect(baselineCode, baselineOut + baselineError).toBe(0);
+    await rm(receipt);
+    const result = await mutate(cwd, ["src/lib/source-readiness-count.ts"]);
+    console.error(result.stderr);
+    expect(result.code, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain("0 survivors, 0 untested, 0 incomplete");
+    const observed = z
+      .looseObject({
+        project: z.string(),
+        mode: z.number(),
+        links: z.number(),
+        selectedRealpath: z.string(),
+        cli: z.string(),
+        sourceIdentity: z.string(),
+        readiness: z.unknown(),
+      })
+      .parse(await Bun.file(receipt).json());
+    console.error(JSON.stringify({ phase: "retained-sandbox-receipt", ...observed }));
+    expect(observed.project).toStartWith(`${cwd}/.mutation-`);
+    expect(observed.project).toContain("/sandbox/");
+    expect(observed.mode).toBe(0o755);
+    expect(observed.links).toBe(1);
+    expect(observed.selectedRealpath).toBe(observed.cli);
+    expect(observed.sourceIdentity).toBe(identity);
+    expect(observed.readiness).toMatchObject({ reason: "ready", blockers: [] });
+    expect((await lstat(original)).mode).toBe(source.mode);
+    expect(await Bun.file(original).text()).toBe(sourceText);
+  },
+);
 
 // Early in the file, so a broken reuse fails before the slow tests run.
 test("a rerun reuses verdicts, and a changed test or an incomplete result runs again", async () => {

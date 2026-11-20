@@ -1,10 +1,13 @@
 import { WorkSources } from "../work-sources/main.ts";
+import { PullRequests } from "../pull-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 import { withNext } from "./next.ts";
+import { timeoutSeconds as parseTimeoutSeconds } from "../../lib/timeout-seconds.ts";
+import { ReviewRequests } from "../review-requests/main.ts";
 
 const sourceCommands = ["register", "show", "reset", "take-over", "prune"] as const;
-const defaultTimeoutSeconds = 300;
+const defaultTimeoutSeconds = 540;
 
 // Each operation's value flag. Only prune and next run without their value.
 const valueFlags = {
@@ -72,8 +75,9 @@ function waitFlags(flags: string[]) {
     else if (flag === "--timeout" && timeoutSeconds === undefined) {
       // An absent value reads as "undefined", which the pattern refuses.
       const seconds = String(rest.next().value);
-      if (!/^\d{1,5}$/.test(seconds)) return null;
-      timeoutSeconds = Number(seconds);
+      const parsed = parseTimeoutSeconds(seconds);
+      if (parsed === null) return null;
+      timeoutSeconds = parsed;
     } else if (flag === "--wait" || flag === "--all" || flag === "--timeout") return null;
     else others.push(flag);
   }
@@ -158,6 +162,8 @@ export async function runSources(
           sourceId: parsed.sourceId,
           timeoutSeconds: parsed.timeoutSeconds,
           all: parsed.all,
+          observeParked: () => PullRequests.observeParked({ paths }),
+          reviewUpkeep: (scope) => ReviewRequests.upkeep({ paths, ...scope }),
         })
       : (await execute(parsed, input)).map((data) => ({
           reason: completed[parsed.operation],
@@ -167,12 +173,13 @@ export async function runSources(
     if (value.data === undefined || !("sources" in value.data)) return value;
     return {
       ...value,
-      next: {
-        why:
-          value.data.sources.length === 0
-            ? "No next actions to report."
-            : "Follow the next step on the applicable row.",
-      },
+      next:
+        value.reason === "next_wait_timed_out" && parsed.operation === "next_wait"
+          ? {
+              command: `operator next --wait${parsed.sourceId === undefined ? "" : ` --source '${parsed.sourceId.replaceAll("'", `'\\''`)}'`} --timeout ${parsed.timeoutSeconds}${parsed.all ? " --all" : ""}`,
+              why: "Nothing changed. Continue the same coordination wait.",
+            }
+          : { why: "Follow the next step on the applicable row." },
       data: {
         ...value.data,
         sources: value.data.sources.map((source) => {
@@ -196,6 +203,7 @@ export async function runSources(
     exitCodes: sourceExitCodes,
     defect: "source_defect",
     json,
+    compactTimeout: parsed.operation === "next_wait" && !parsed.all,
   });
   return true;
 }

@@ -7,6 +7,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { dispatchDevice, removeDevices } from "./dispatch-fixture.ts";
 import { WorkerDispatch } from "./main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 afterEach(() => {
   mock.restore();
@@ -42,7 +43,7 @@ test("a dispatch persists its resolved kind and absolute host guide", async () =
   expect(await device.launches("read")).toMatchObject([{ kind }]);
 });
 
-test("a legacy assignment keeps a null kind in its new launch and brief", async () => {
+test("a legacy assignment requires an explicit kind before a new launch without changing its plan", async () => {
   await using device = await dispatchDevice();
   const source = await device.source();
   if (source === undefined) expect.unreachable("The registered source is missing.");
@@ -53,11 +54,20 @@ test("a legacy assignment keeps a null kind in its new launch and brief", async 
     device.sourceId,
   );
   db.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(device.sourceId);
+  const plan = db.query("SELECT plan FROM sources").get();
   const result = await WorkerDispatch.dispatch(device.request("read"));
-  expect(result).toMatchObject({ tag: "Ok", value: { kind: null } });
-  expect(await device.launches("read")).toMatchObject([{ kind: null }]);
-  if (result.tag !== "Ok") expect.unreachable("The legacy launch failed.");
-  expect(await Bun.file(result.value.brief).text()).not.toContain("Worker kind:");
+  expect(result).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "assignment_kind_required",
+      next: {
+        command: `operator dispatch --source ${device.sourceId} --assignment read --kind <kind>`,
+      },
+    },
+  });
+  expect(await device.launches("read")).toEqual([]);
+  expect(db.query("SELECT plan FROM sources").get()).toEqual(plan);
+  expect(device.herdr.startAgent).not.toHaveBeenCalled();
 });
 
 test("an ended source's empty decision rows refuse dispatch without a kind or cap misclassification", async () => {
@@ -161,6 +171,17 @@ test("the handoff launch records the review kind rather than the implementation 
     tag: "Err",
     error: { reason: "assignment_not_dispatchable" },
   });
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await WorkerDispatch.checkHandoff(device.request("impl"))).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+  expect(await WorkerDispatch.checkHandoff(device.request("blocked"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable" },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
   expect(await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true })).toMatchObject(
     {
       tag: "Ok",
@@ -175,6 +196,75 @@ test("the handoff launch records the review kind rather than the implementation 
     },
   );
   expect((await device.launches("impl"))[1]).toMatchObject({ kind: { name: "review" } });
+});
+
+test("a parked feedback successor receives durable events but never substitutes the ready note for an absent park note", async () => {
+  await using device = await dispatchDevice();
+  const first = await WorkerDispatch.dispatch(device.request("impl"));
+  if (first.tag !== "Ok") expect.unreachable("No implementation launch");
+  const implementation = (await device.launches("impl"))[0];
+  if (implementation === undefined) expect.unreachable("No recorded implementation");
+  const note = `${device.root}/reviewer.md`;
+  await Bun.write(note, "Reviewer open points, not a park note.\n");
+  expect(
+    DeviceState.associatePullRequest(device.paths, implementation.id, {
+      number: 7,
+      url: "https://github.com/example/one/pull/7",
+      branch: "task/impl",
+      relay: null,
+      readiness: { head: "h", at: "now", note, dispositions: [] },
+    }).tag,
+  ).toBe("Ok");
+  expect(DeviceState.finishImplementer(device.paths, implementation.id).tag).toBe("Ok");
+  const feedback = await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true });
+  if (feedback.tag !== "Ok") expect.unreachable("No feedback launch");
+  expect(await Bun.file(feedback.value.brief).text()).toContain("Reviewer open points");
+  const latest = (await device.launches("impl")).at(-1);
+  if (latest === undefined) expect.unreachable("No recorded feedback");
+  expect(DeviceState.parkPullRequest(device.paths, latest.id, { head: "h", note: null }).tag).toBe(
+    "Ok",
+  );
+  expect(DeviceState.finishImplementer(device.paths, latest.id).tag).toBe("Ok");
+  const target = { repository: "example/one", sourceId: device.sourceId, assignment: "impl" };
+  expect(DeviceState.completeParking(device.paths, target)).toMatchObject({
+    tag: "Ok",
+    value: true,
+  });
+  expect(await WorkSources.next(device.request("impl"))).toMatchObject({
+    tag: "Ok",
+    value: {
+      sources: [
+        {
+          waits: expect.arrayContaining([
+            expect.objectContaining({ assignment: "impl", reason: "pr_parked" }),
+          ]) as unknown,
+        },
+      ],
+    },
+  });
+  const claim = DeviceState.claimParkedRead(device.paths);
+  if (claim.tag !== "Ok" || claim.value === null) expect.unreachable("No batch claim");
+  const row = claim.value.rows[0];
+  if (row === undefined) expect.unreachable("No parked PR");
+  const event = '{"kind":"feedback","items":[{"body":"Check the recorded retry."}]}';
+  expect(
+    DeviceState.finishParkedRead(device.paths, claim.value.at, [
+      {
+        ...target,
+        previous: JSON.stringify(row.parking),
+        progress: row.progress,
+        parking: { ...row.parking, events: [event] },
+      },
+    ]).tag,
+  ).toBe("Ok");
+  expect(DeviceState.resumeParkedPullRequest(device.paths, target).tag).toBe("Ok");
+  const resumed = await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true });
+  if (resumed.tag !== "Ok") expect.unreachable("No resumed feedback");
+  expect(resumed.value.kind?.name).toBe("pr-feedback");
+  const brief = await Bun.file(resumed.value.brief).text();
+  expect(brief).toContain(event);
+  expect(brief).not.toContain("Reviewer open points");
+  expect(brief).not.toContain("## Note");
 });
 
 test("another assignment's running-cap wait does not block a failed worker's replacement", async () => {
@@ -228,6 +318,46 @@ test("another assignment's running-cap wait does not block a failed worker's rep
   expect(await WorkerDispatch.dispatch({ ...device.request("failed"), sourceId })).toMatchObject({
     tag: "Ok",
   });
+});
+
+test("another assignment's missing successor never changes the selected handoff's kind", async () => {
+  await using device = await dispatchDevice();
+  for (const assignment of ["impl", "parent"]) {
+    expect(await WorkerDispatch.dispatch(device.request(assignment))).toMatchObject({ tag: "Ok" });
+    const launch = (await device.launches(assignment))[0];
+    if (launch === undefined) return expect.unreachable("The fixture starts each implementer.");
+    if (assignment === "impl") {
+      using db = new Database(device.paths.database);
+      db.query("UPDATE launches SET kind = ? WHERE id = ?").run(
+        JSON.stringify({ ...WorkerKinds.resolve("implementation"), nextKind: "removed-review" }),
+        launch.id,
+      );
+    }
+    expect(
+      DeviceState.associatePullRequest(
+        device.paths,
+        launch.id,
+        {
+          number: assignment === "impl" ? 7 : 8,
+          url: `https://github.com/example/one/pull/${assignment === "impl" ? 7 : 8}`,
+          branch: `task/${assignment}`,
+          relay: null,
+        },
+        false,
+        true,
+      ).tag,
+    ).toBe("Ok");
+  }
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await WorkerDispatch.checkHandoff(device.request("parent"))).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(await WorkerDispatch.checkHandoff(device.request("impl"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "invalid_settings", state: { settingsValid: false } },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
 });
 
 test("refresh and replacement briefs isolate answered questions and keep the promoted snapshot", async () => {

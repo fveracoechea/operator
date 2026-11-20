@@ -8,6 +8,7 @@ import { readSources, registerSource } from "./sources.ts";
 import { registerProject, removeProject } from "./projects.ts";
 import { observePane, reserveLaunch, updateLaunch } from "./launches.ts";
 import {
+  activeOwner,
   associatePullRequest,
   recordPullRequestMerge,
   recordPullRequestWait,
@@ -16,6 +17,60 @@ import {
   worktreeOwners,
 } from "./pull-requests.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
+import { changeReviewRequest } from "./review-requests.ts";
+import { Ok } from "unthrown";
+import {
+  beforeKindsMigration,
+  historicalAssignment,
+  migrateKinds,
+} from "./kind-migration-fixture.ts";
+
+test.each([null, "historical-head"])(
+  "owner reads preserve migration readiness and historical head %s",
+  (head) => {
+    using client = beforeKindsMigration();
+    historicalAssignment(client, { key: "old", review: "ready" });
+    client.query("UPDATE internal_reviews SET ready_head = ?, handoff_state = 'done'").run(head);
+    client.exec("UPDATE launches SET worktree_path = '/synthetic/old'");
+    migrateKinds(client);
+    const before = client.serialize();
+    expect(worktreeOwners(client)).toMatchObject({
+      tag: "Ok",
+      value: [
+        {
+          launchId: "launch-old",
+          readiness: { origin: "migration-0026", head, at: "then", note: null, dispositions: [] },
+        },
+      ],
+    });
+    expect(client.serialize()).toEqual(before);
+  },
+);
+
+test("a migration marker with an unknown head does not authorize merge ownership; the current known head and idle owner are required", () => {
+  using client = beforeKindsMigration();
+  historicalAssignment(client, { key: "old" });
+  migrateKinds(client);
+  const db = drizzle(client);
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "observed-head" })).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_inactive" },
+  });
+  client.exec("UPDATE pull_requests SET parking = json_set(parking, '$.head', 'observed-head')");
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "wrong-head" })).toMatchObject({
+    tag: "Err",
+  });
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "observed-head" })).toMatchObject({
+    tag: "Ok",
+  });
+  client
+    .query("UPDATE launches SET owner_pid = ?, lease_at = ?")
+    .run(process.pid, new Date().toISOString());
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "observed-head" })).toMatchObject({
+    tag: "Err",
+  });
+});
 
 function fixture() {
   const db = new Database(":memory:");
@@ -105,6 +160,303 @@ const pr = {
   relay: null,
 };
 
+test.each(["assignment", "review"])(
+  "adoption rechecks a %s owner acquired after reservation without writes",
+  (owner) => {
+    using db = fixture();
+    expect(reserveLaunch(db, "/one", "owner/one", launchRow("incoming", "change")).tag).toBe("Ok");
+    if (owner === "assignment")
+      expect(
+        reserveLaunch(db, "/one", "owner/one", {
+          ...launchRow("racer", "other"),
+          branch: pr.branch,
+        }).tag,
+      ).toBe("Ok");
+    else
+      expect(
+        changeReviewRequest(db, { repository: "owner/one", number: 7 }, () =>
+          Ok({
+            insert: {
+              id: "racing-review",
+              repository: "owner/one",
+              number: 7,
+              url: pr.url,
+              origin: "manual",
+              state: "queued",
+            },
+          }),
+        ).tag,
+      ).toBe("Ok");
+    const before = db.serialize();
+    expect(
+      associatePullRequest(
+        db,
+        "incoming",
+        { ...pr, readiness: { head: "pushed", at: "now", note: null, dispositions: [] } },
+        true,
+        false,
+        true,
+      ),
+    ).toMatchObject({
+      tag: "Err",
+      error: { reason: owner === "assignment" ? "adopt_assignment_owned" : "adopt_review_owned" },
+    });
+    expect(db.serialize()).toEqual(before);
+    expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+      pullRequests: [],
+      internalReviews: [],
+      handoffs: [],
+    });
+  },
+);
+
+test("ready adoption associates a starting owner with readiness and no outgoing handoff", () => {
+  using db = fixture();
+  expect(reserveLaunch(db, "/one", "owner/one", launchRow("adopted", "change")).tag).toBe("Ok");
+  const readiness = { head: "observed-head", at: "now", note: null, dispositions: [] };
+  expect(associatePullRequest(db, "adopted", { ...pr, readiness })).toMatchObject({
+    error: { reason: "pr_owner_inactive" },
+  });
+  expect(
+    associatePullRequest(db, "adopted", { ...pr, readiness }, false, false, true),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { row: { readiness: JSON.stringify(readiness) }, changed: true },
+  });
+  expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+    assignments: [
+      { key: "change", state: "pr-open" },
+      { key: "other", state: "ready" },
+      { key: "read", state: "ready" },
+    ],
+    handoffs: [],
+    internalReviews: [],
+  });
+});
+
+test("draft review adoption creates a reviewer audit without ending or replacing the incoming reviewer", () => {
+  using db = fixture();
+  expect(reserveLaunch(db, "/one", "owner/one", launchRow("adopted", "change")).tag).toBe("Ok");
+  expect(associatePullRequest(db, "adopted", pr, false, true, true)).toMatchObject({ tag: "Ok" });
+  expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+    handoffs: [],
+    internalReviews: [{ state: "reviewing", implementerLaunchId: "adopted", handoffState: "done" }],
+    pullRequests: [{ readiness: null }],
+    launches: [{ state: "starting" }],
+  });
+});
+
+test("ready association durably records readiness and the fresh feedback handoff together", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  const readiness = { head: "h1", at: "now", note: null, dispositions: [] };
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: true },
+  });
+  expect(readSources(db, "owner/one", "s1")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        pullRequests: [{ readiness: JSON.stringify(readiness) }],
+        handoffs: [{ outgoingLaunchId: "l1", nextKind: "pr-feedback", handoffState: "pending" }],
+      },
+    ],
+  });
+  const before = db.serialize();
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: false },
+  });
+  expect(db.serialize()).toEqual(before);
+});
+
+test.each(["first", "repeat"])(
+  "a readiness write fault rolls back the %s association and its feedback handoff",
+  (mode) => {
+    using db = fixture();
+    start(db, "l1", "change", "p1");
+    db.exec("UPDATE launches SET internal_review = 0");
+    if (mode === "repeat") expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+    db.exec(
+      "CREATE TRIGGER fail_ready BEFORE UPDATE OF readiness ON pull_requests BEGIN SELECT RAISE(FAIL, 'original readiness write fault'); END",
+    );
+    const before = db.serialize();
+    const result = associatePullRequest(
+      db,
+      "l1",
+      { ...pr, readiness: { head: "h1", at: "now", note: null, dispositions: [] } },
+      true,
+    );
+    expect(result.tag).toBe("Defect");
+    if (result.tag === "Defect")
+      expect(result.cause).toMatchObject({ message: "original readiness write fault" });
+    expect(db.serialize()).toEqual(before);
+    expect(assignmentState(db, "change")).toEqual({
+      state: mode === "first" ? "running" : "pr-open",
+    });
+    expect(db.query("SELECT readiness FROM pull_requests").all()).toEqual(
+      mode === "first" ? [] : [{ readiness: null }],
+    );
+    expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+    expect(db.query("SELECT * FROM review_requests").all()).toEqual([]);
+  },
+);
+
+test.each(["first", "repeat"])(
+  "a readiness handoff refusal rolls back the %s association without replacing the pending handoff",
+  (mode) => {
+    using db = fixture();
+    start(db, "l1", "change", "p1");
+    db.exec("UPDATE launches SET internal_review = 0");
+    if (mode === "repeat") expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+    insertRow(db, "kind_handoffs", {
+      source_id: "s1",
+      assignment: "change",
+      outgoing_launch_id: "l1",
+      next_kind: "review",
+      handoff_state: "pending",
+    });
+    const before = db.serialize();
+    expect(
+      associatePullRequest(
+        db,
+        "l1",
+        { ...pr, readiness: { head: "h1", at: "now", note: null, dispositions: [] } },
+        true,
+      ),
+    ).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "handoff_running",
+        detail:
+          "Finish the recorded outgoing handoff before starting another. Nothing was changed.",
+        next: { command: "operator next", why: "Read the pending handoff's recovery action." },
+      },
+    });
+    expect(db.serialize()).toEqual(before);
+    expect(assignmentState(db, "change")).toEqual({
+      state: mode === "first" ? "running" : "pr-open",
+    });
+    expect(db.query("SELECT readiness FROM pull_requests").all()).toEqual(
+      mode === "first" ? [] : [{ readiness: null }],
+    );
+    expect(
+      db.query("SELECT outgoing_launch_id, next_kind, handoff_state FROM kind_handoffs").all(),
+    ).toEqual([{ outgoing_launch_id: "l1", next_kind: "review", handoff_state: "pending" }]);
+    expect(db.query("SELECT * FROM review_requests").all()).toEqual([]);
+  },
+);
+
+test("only the exact finished parked owner can record its pinned merge and cleanup once", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+  db.query("UPDATE launches SET state = 'finished'").run();
+  db.query("UPDATE pull_requests SET parking = ?").run(
+    JSON.stringify({ launchId: "l1", head: "parked-head", state: "parked" }),
+  );
+  const before = db.serialize();
+  expect(
+    recordPullRequestMerge(
+      db,
+      "l1",
+      { number: 7, head: "different-head", mergeCommit: "merge" },
+      () => "open",
+    ),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_owner_inactive" } });
+  expect(db.serialize()).toEqual(before);
+  expect(
+    recordPullRequestMerge(
+      db,
+      "l1",
+      { number: 7, head: "parked-head", mergeCommit: "merge" },
+      () => "open",
+    ),
+  ).toMatchObject({ tag: "Ok", value: { changed: true } });
+  expect(db.query("SELECT state FROM assignments WHERE key = 'change'").get()).toEqual({
+    state: "merged",
+  });
+  expect(db.query("SELECT launch_id, step FROM cleanups").all()).toEqual([
+    { launch_id: "l1", step: "remote_branch" },
+  ]);
+  expect(
+    recordPullRequestMerge(
+      db,
+      "l1",
+      { number: 7, head: "parked-head", mergeCommit: "merge" },
+      () => "open",
+    ),
+  ).toMatchObject({ tag: "Ok", value: { changed: false } });
+  expect(db.query("SELECT * FROM cleanups").all()).toHaveLength(1);
+});
+
+test("the same review-off draft owner records ready once, including after its handoff is done", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  db.exec("UPDATE launches SET internal_review = 0");
+  expect(associatePullRequest(db, "l1", pr)).toMatchObject({ tag: "Ok", value: { changed: true } });
+  const readiness = {
+    head: "new-pushed-head",
+    at: "2026-11-18T01:00:00.000Z",
+    note: null,
+    dispositions: [],
+  };
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: true },
+  });
+  expect(readSources(db, "owner/one", "s1")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        pullRequests: [{ readiness: JSON.stringify(readiness) }],
+        handoffs: [{ outgoingLaunchId: "l1", nextKind: "pr-feedback" }],
+      },
+    ],
+  });
+  db.exec("UPDATE kind_handoffs SET handoff_state = 'done', owner_pid = NULL, lease_at = NULL");
+  const before = db.serialize();
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: false },
+  });
+  expect(db.serialize()).toEqual(before);
+});
+
+test.each(["legacy", "review", "branch", "foreign handoff", "replaced"])(
+  "repeat association cannot backfill readiness through %s",
+  (mode) => {
+    using db = fixture();
+    start(db, "l1", "change", "p1");
+    if (mode !== "legacy") db.exec("UPDATE launches SET internal_review = 0");
+    expect(associatePullRequest(db, "l1", pr, false, mode === "review").tag).toBe("Ok");
+    if (mode === "branch") db.exec("UPDATE pull_requests SET branch = 'foreign'");
+    if (mode === "foreign handoff") {
+      start(db, "foreign", "other", "p2");
+      insertRow(db, "kind_handoffs", {
+        source_id: "s1",
+        assignment: "change",
+        outgoing_launch_id: "foreign",
+        next_kind: "review",
+        handoff_state: "pending",
+      });
+    }
+    if (mode === "replaced") interrupt(db, "p1");
+    const before = db.serialize();
+    const result = associatePullRequest(db, "l1", {
+      ...pr,
+      readiness: { head: "h", at: "now", note: null, dispositions: [] },
+    });
+    expect(result).toMatchObject(
+      mode === "foreign handoff" || mode === "replaced"
+        ? { tag: "Err" }
+        : { tag: "Ok", value: { changed: false } },
+    );
+    expect(db.serialize()).toEqual(before);
+  },
+);
+
 function assignmentState(db: Database, key: string) {
   return db.query("SELECT state FROM assignments WHERE key = ?").get(key);
 }
@@ -159,9 +511,36 @@ test("an association holds its handoff, so next never shows it stopped before th
   using db = fixture();
   start(db, "l1", "change", "p1");
   expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
+  expect(db.query("SELECT handoff_state, owner_pid, lease_at FROM internal_reviews").get()).toEqual(
+    {
+      handoff_state: "done",
+      owner_pid: null,
+      lease_at: null,
+    },
+  );
   expect(readSources(db, "owner/one")).toMatchObject({
     tag: "Ok",
     value: [{ internalReviews: [{ handoffState: "pending", handoffRunning: true }] }],
+  });
+});
+
+test("association records the outgoing snapshot's custom successor rather than the legacy review default", () => {
+  using db = fixture();
+  start(
+    db,
+    "l1",
+    "change",
+    "p1",
+    JSON.stringify({ ...WorkerKinds.resolve("implementation"), nextKind: "custom-review" }),
+  );
+  expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
+  expect(readSources(db, "owner/one")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        handoffs: [{ outgoingLaunchId: "l1", nextKind: "custom-review", handoffState: "pending" }],
+      },
+    ],
   });
 });
 
@@ -171,13 +550,13 @@ test("only the handoff that an association started takes over its hold", async (
   expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
   // Another live process stands in for the associating process.
   await using associating = Bun.spawn([process.execPath, "-e", "await Bun.sleep(60000)"]);
-  db.query("UPDATE internal_reviews SET owner_pid = ?").run(associating.pid);
+  db.query("UPDATE kind_handoffs SET owner_pid = ?").run(associating.pid);
   expect(claimHandoff(db, "owner/one", "s1", "change", null)).toMatchObject({
     error: { reason: "handoff_running" },
   });
   expect(claimHandoff(db, "owner/one", "s1", "change", associating.pid)).toMatchObject({
     tag: "Ok",
-    value: { review: { handoffState: "pending", ownerPid: process.pid } },
+    value: { handoff: { handoffState: "pending", ownerPid: process.pid, nextKind: "review" } },
   });
   associating.kill();
 });

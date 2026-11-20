@@ -75,7 +75,7 @@ test("a PR whose internal review has not ended does not merge, also when GitHub 
     reason: "pr_merge_blocked",
     next: {
       command: "operator pr wait",
-      why: "The PR needs an internal review that ended ready or skipped. Nothing was merged or changed.",
+      why: "The PR needs a recorded ready transition (pr_ready). Nothing was merged or changed.",
     },
     state: {
       conditions: {
@@ -88,8 +88,7 @@ test("a PR whose internal review has not ended does not merge, also when GitHub 
         reviewEnded: false,
       },
     },
-    detail:
-      "The PR needs an internal review that ended ready or skipped. Nothing was merged or changed.",
+    detail: "The PR needs a recorded ready transition (pr_ready). Nothing was merged or changed.",
     conditions: {
       approved: true,
       checksPassing: true,
@@ -186,10 +185,10 @@ test("each refusal names every missing condition and carries the observed condit
   ).toEqual({
     result: "refused",
     reason: "pr_merge_blocked",
-    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay, an internal review that ended ready or skipped. ${nothing}`,
+    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay, a recorded ready transition (pr_ready). ${nothing}`,
     next: {
       command: "operator pr wait",
-      why: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay, an internal review that ended ready or skipped. ${nothing}`,
+      why: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished parent-merge relay, a recorded ready transition (pr_ready). ${nothing}`,
     },
     state: { conditions: none },
     conditions: none,

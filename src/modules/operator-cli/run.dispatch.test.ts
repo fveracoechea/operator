@@ -599,7 +599,7 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
   expect(await Bun.file(data.brief).text()).toBe(brief);
 });
 
-test("an existing assignment and its new launch keep a null kind and their old behavior", async () => {
+test("an existing null-kind assignment requires an explicit kind for its next launch", async () => {
   const source = await register();
   const legacy = {
     trackerKey: plan.trackerKey,
@@ -622,19 +622,40 @@ test("an existing assignment and its new launch keep a null kind and their old b
   database.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(source);
   database.close();
   expect((await run(["herdr", "install"])).code).toBe(0);
-  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).bytes();
+  expect(await run(["dispatch", "--source", source, "--assignment", "investigate"])).toMatchObject({
+    code: 4,
+    output: { reason: "assignment_kind_required", state: { kind: null } },
+  });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).bytes()).toEqual(before);
+  const launched = await run([
+    "dispatch",
+    "--source",
+    source,
+    "--assignment",
+    "investigate",
+    "--kind",
+    "research",
+  ]);
   expect(launched).toMatchObject({
     code: 0,
-    output: { data: { kind: null, branch: null, worktreePath: null } },
+    output: { data: { kind: { name: "research" }, branch: null, worktreePath: null } },
   });
-  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).not.toContain(
-    "Worker kind:",
+  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
+    "Worker kind: `research`",
   );
   expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
-    "Phase: `unrecorded`",
+    "Phase: `investigate`",
   );
   expect((await run(["source", "show", "--source", source])).output).toMatchObject({
-    data: { planned: [{ kind: null, completion: "report" }], launches: [{ kind: null }] },
+    data: {
+      planned: [{ kind: "research", completion: "report" }],
+      launches: [{ kind: { name: "research" } }],
+    },
+  });
+  using recorded = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+  expect(recorded.query("SELECT plan FROM sources WHERE id = ?").get(source)).toEqual({
+    plan: JSON.stringify(legacy),
   });
 });
 
@@ -663,12 +684,13 @@ test.each(["review", "pr-feedback"])("%s cannot be plainly dispatched", async (k
       data: {
         sources: [
           {
-            actions: [
+            actions: [],
+            waits: [
               {
                 assignment: "implement",
-                action: "owner_attention",
-                reason: "kind_not_dispatchable",
-                next: { decider: "super-agent" },
+                action: "wait",
+                reason: "kind_handoff",
+                next: { command: `operator next --source ${source} --wait` },
               },
             ],
           },

@@ -1,9 +1,10 @@
 import { PullRequests } from "../pull-requests/main.ts";
+import { timeoutSeconds } from "../../lib/timeout-seconds.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 import { recoveryArgs } from "./internal-review-recovery-args.ts";
 
-const defaultTimeoutSeconds = 300;
+const defaultTimeoutSeconds = 540;
 const ownerCommands = ["associate", "wait", "merge"] as const;
 
 /**
@@ -45,78 +46,88 @@ function skipArgs(flags: string[]) {
   return parsed === null ? null : { operation: "internal_review_skip" as const, ...parsed };
 }
 
-/** The association starts the handoff. The SuperAgent repeats it after a failure. */
-function handoffArgs(flags: string[]) {
-  const values = new Map<string, string>();
-  const rest = flags.values();
-  for (const flag of rest) {
-    if (flag === "--json" && !values.has(flag)) values.set(flag, "");
-    else if (["--source", "--assignment", "--after-pid"].includes(flag) && !values.has(flag)) {
-      const value = rest.next().value;
-      if (value === undefined || value.startsWith("--")) return null;
-      values.set(flag, value);
-    } else return null;
-  }
-  const sourceId = values.get("--source");
-  const assignment = values.get("--assignment");
-  const afterPid = values.get("--after-pid");
-  if (sourceId === undefined || assignment === undefined) return null;
-  if (afterPid !== undefined && !/^\d{1,10}$/.test(afterPid)) return null;
-  return {
-    operation: "handoff" as const,
-    sourceId,
-    assignment,
-    afterPid: afterPid === undefined ? null : Number(afterPid),
-  };
-}
-
 /** The reviewer names its findings or summary file. Its worktree still selects the assignment. */
-function fileArgs<O extends string>(operation: O, flags: string[]) {
-  let json = false;
-  let file: string | undefined;
+function proseArgs(flags: string[], allowed: string[]) {
+  const seen = new Set<string>();
+  const parsed: { file?: string; note?: string } = {};
   const rest = flags.values();
   for (const flag of rest) {
-    if (flag === "--json" && !json) json = true;
-    else if (flag === "--file" && file === undefined) {
-      const value = rest.next().value;
-      if (value === undefined || value.startsWith("--")) return null;
-      file = value;
-    } else return null;
+    if (seen.has(flag)) return null;
+    seen.add(flag);
+    if (flag === "--json") continue;
+    if (!allowed.includes(flag)) return null;
+    const value = rest.next().value;
+    if (value === undefined || value.startsWith("--")) return null;
+    if (flag === "--file") parsed.file = value;
+    else parsed.note = value;
   }
-  return file === undefined ? null : { operation, file };
+  return parsed.file === "-" && parsed.note === "-" ? null : parsed;
 }
 
-/** No owner flag selects an assignment or a PR. The caller's worktree is the only selector. */
+/** Worker commands select by worktree; a supervised parked merge names its assignment. */
 export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
   if (group === "cleanup") return cleanupArgs(args.slice(1));
-  if (group === "handoff") return handoffArgs(args.slice(1));
   if (group === "internal-review")
     return name === "recover" ? recoveryArgs(flags) : skipArgs(args.slice(1));
-  if (group === "pr" && name === "round") return fileArgs("pr_round" as const, flags);
-  if (group === "pr" && name === "ready") return fileArgs("pr_ready" as const, flags);
+  if (group === "pr" && name === "round") {
+    const parsed = proseArgs(flags, ["--file"]);
+    return parsed?.file === undefined
+      ? null
+      : { operation: "pr_round" as const, file: parsed.file };
+  }
+  if (group === "pr" && name === "ready") {
+    const parsed = proseArgs(flags, ["--file", "--note"]);
+    return parsed === null ? null : { operation: "pr_ready" as const, ...parsed };
+  }
   const command = ownerCommands.find((known) => known === name);
   if (group !== "pr" || command === undefined) return null;
   return ownerArgs(command, flags);
 }
 
 function ownerArgs(command: string, flags: string[]) {
-  let json = false;
-  let timeoutSeconds: number | undefined;
+  if (command === "wait") return waitArgs(flags);
+  if (command === "merge") return mergeArgs(flags);
+  if (flags.length > 1 || flags.some((flag) => flag !== "--json")) return null;
+  return { operation: "pr_associate" as const };
+}
+
+type MergeArgs =
+  | { operation: "pr_merge"; sourceId?: never; assignment?: never }
+  | { operation: "pr_merge"; sourceId: string; assignment: string };
+
+function mergeArgs(flags: string[]): MergeArgs | null {
+  if (flags.length <= 1 && flags.every((flag) => flag === "--json"))
+    return { operation: "pr_merge" };
+  if (flags.includes("--person-instructed")) return null;
+  const parsed = assignmentArgs(flags);
+  return parsed === null
+    ? null
+    : { operation: "pr_merge", sourceId: parsed.sourceId, assignment: parsed.assignment };
+}
+
+function waitArgs(flags: string[]) {
+  const values: Record<string, string> = {};
   const rest = flags.values();
   for (const flag of rest) {
-    if (flag === "--json" && !json) json = true;
-    else if (flag === "--timeout" && command === "wait" && timeoutSeconds === undefined) {
-      // An absent value reads as "undefined", which the pattern refuses.
-      const value = String(rest.next().value);
-      if (!/^\d{1,5}$/.test(value)) return null;
-      timeoutSeconds = Number(value);
-    } else return null;
+    if (Object.hasOwn(values, flag)) return null;
+    if (flag === "--json") {
+      values[flag] = "yes";
+      continue;
+    }
+    if (!["--timeout", "--note"].includes(flag)) return null;
+    const value = rest.next().value;
+    if (value === undefined || value.startsWith("--")) return null;
+    values[flag] = value;
   }
-  if (command === "merge") return { operation: "pr_merge" as const };
-  return command === "associate"
-    ? { operation: "pr_associate" as const }
-    : { operation: "pr_wait" as const, timeoutSeconds: timeoutSeconds ?? defaultTimeoutSeconds };
+  const timeout = values["--timeout"];
+  if (timeout !== undefined && timeoutSeconds(timeout) === null) return null;
+  const parsed: { operation: "pr_wait"; timeoutSeconds: number; note?: string } = {
+    operation: "pr_wait",
+    timeoutSeconds: timeout === undefined ? defaultTimeoutSeconds : Number(timeout),
+  };
+  if (values["--note"] !== undefined) parsed.note = values["--note"];
+  return parsed;
 }
 
 export const pullRequestExitCodes = {
@@ -133,6 +144,9 @@ export const pullRequestExitCodes = {
   github_invalid_response: 1,
   pr_merge_refused: 1,
   pr_merge_unverified: 1,
+  pr_enqueue_unverified: 1,
+  pr_enqueue_refused: 1,
+  source_supervised_elsewhere: 4,
   cleanup_failed: 1,
   relay_fetch_failed: 1,
   relay_push_failed: 1,
@@ -169,21 +183,27 @@ export async function runPullRequests(
   const input = { paths, cwd: process.cwd() };
   const result = await (parsed.operation === "cleanup"
     ? PullRequests.cleanup({ ...input, ...parsed })
-    : parsed.operation === "handoff"
-      ? PullRequests.handoff({ ...input, ...parsed })
-      : parsed.operation === "internal_review_recover"
-        ? PullRequests.recoverReview({ ...input, ...parsed })
-        : parsed.operation === "internal_review_skip"
-          ? PullRequests.skipReview({ ...input, ...parsed })
-          : parsed.operation === "pr_round"
-            ? PullRequests.round({ ...input, file: parsed.file })
-            : parsed.operation === "pr_ready"
-              ? PullRequests.ready({ ...input, file: parsed.file })
-              : parsed.operation === "pr_merge"
-                ? PullRequests.merge(input)
-                : parsed.operation === "pr_associate"
-                  ? PullRequests.associate(input)
-                  : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
+    : parsed.operation === "internal_review_recover"
+      ? PullRequests.recoverReview({ ...input, ...parsed })
+      : parsed.operation === "internal_review_skip"
+        ? PullRequests.skipReview({ ...input, ...parsed })
+        : parsed.operation === "pr_round"
+          ? PullRequests.round({ ...input, file: parsed.file })
+          : parsed.operation === "pr_ready"
+            ? PullRequests.ready({ ...input, ...readyInput(parsed) })
+            : parsed.operation === "pr_merge"
+              ? PullRequests.merge(
+                  parsed.sourceId !== undefined
+                    ? { ...input, sourceId: parsed.sourceId, assignment: parsed.assignment }
+                    : input,
+                )
+              : parsed.operation === "pr_associate"
+                ? PullRequests.associate(input)
+                : PullRequests.wait({
+                    ...input,
+                    timeoutSeconds: parsed.timeoutSeconds,
+                    ...readyInput(parsed),
+                  }));
   respond({
     operation: parsed.operation,
     result,
@@ -192,4 +212,11 @@ export async function runPullRequests(
     json,
   });
   return true;
+}
+
+function readyInput(parsed: { file?: string; note?: string }) {
+  const input: { file?: string; note?: string } = {};
+  if (parsed.file !== undefined) input.file = parsed.file;
+  if (parsed.note !== undefined) input.note = parsed.note;
+  return input;
 }
