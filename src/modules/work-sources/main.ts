@@ -1109,6 +1109,7 @@ function dependencyReports(source: Source, assignment: string) {
             report: report.number,
             conclusion: report.conclusion,
             unresolved: report.unresolved,
+            files: report.files,
             reference: reportReference(source.repository, source.id, report),
           },
         ];
