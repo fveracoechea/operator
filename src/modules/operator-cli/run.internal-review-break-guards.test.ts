@@ -52,7 +52,10 @@ test.each([
     name: "review-local clean worktree",
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
-      ["when: (facts) => facts.internalReview && facts.changed,", "when: () => false,"],
+      [
+        'when: (facts) =>\n      (facts.internalReview || !facts.draft) &&\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),',
+        "when: () => false,",
+      ],
     ],
     testFile: "pull-requests/internal-review-machine.test.ts",
     pattern: "with internal review on, each unready PR",
@@ -197,21 +200,36 @@ test.each([
   {
     name: "a summary names only recorded findings",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => unknown(facts).length > 0,", "when: () => false,"]],
+    replacements: [
+      [
+        'when: (facts) => facts.review.state !== "skipped" && unknown(facts).length > 0,',
+        "when: () => false,",
+      ],
+    ],
     testFile: "pull-requests/internal-review-machine.test.ts",
     pattern: "refuses the ready step",
   },
   {
     name: "a summary decides each finding once",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => repeated(facts).length > 0,", "when: () => false,"]],
+    replacements: [
+      [
+        'when: (facts) => facts.review.state !== "skipped" && repeated(facts).length > 0,',
+        "when: () => false,",
+      ],
+    ],
     testFile: "pull-requests/internal-review-machine.test.ts",
     pattern: "refuses the ready step",
   },
   {
     name: "every finding has a disposition",
     file: "pull-requests/internal-review-machine.ts",
-    replacements: [["when: (facts) => undecided(facts).length > 0,", "when: () => false,"]],
+    replacements: [
+      [
+        'when: (facts) => facts.review.state !== "skipped" && undecided(facts).length > 0,',
+        "when: () => false,",
+      ],
+    ],
     testFile: ready,
     pattern: "rendered comment",
   },
@@ -237,9 +255,9 @@ test.each([
     pattern: "person-instructed skip",
   },
   {
-    name: "merge waits for the end of the review",
+    name: "merge waits for the ready transition",
     file: "pull-requests/internal-review.ts",
-    replacements: [["return owner.reviewState === null ||", "return true ||"]],
+    replacements: [["return owner.readiness !== null;", "return true;"]],
     testFile: ready,
     pattern: "rendered comment",
   },
