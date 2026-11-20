@@ -1166,7 +1166,7 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
 
 // An unanswered question, a reply, or a message that needs attention explains an idle worker, so it
 // replaces that attention. A pending message inside its period leaves the idle attention shown.
-const idleReasons = new Set(["worker_idle", "pr_owner_idle"]);
+const idleReasons = new Set(["worker_idle"]);
 
 function wakingReason(events: string[]) {
   const kinds = new Set(
@@ -1407,7 +1407,7 @@ function nextActions(
   const decisions = decide(input, source, now, missing);
   // An ended source keeps the cleanup that its completed work still owes.
   const cleanup = decisions.filter(
-    (decision) => decision.action === "retry_cleanup" || decision.action === "person_decision",
+    (decision) => decision.action === "clean_up" || decision.action === "person_decision",
   );
   if (source.state !== "open") {
     const kept = retention(source, now);

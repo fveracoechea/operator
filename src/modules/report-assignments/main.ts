@@ -343,7 +343,7 @@ function returnReport(input: {
           report: number,
           followUp,
           // A live worker resumes with the follow-up. A stopped worker needs a replacement.
-          next: running ? "resume_worker" : "replace_worker",
+          next: running ? "worker_attention" : "replace_worker",
         },
       });
     },

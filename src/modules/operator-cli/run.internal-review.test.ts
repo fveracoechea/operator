@@ -1151,7 +1151,7 @@ test("pr associate of a draft hands implementation to review and writes no note"
   // The review runs as a wait, and the handoff left no failure in next.
   expect(await entry(source)).toMatchObject({
     action: "wait",
-    reason: "internal_review_running",
+    reason: "assignment_active",
     internalReview: { state: "reviewing", rounds: [], handoff: { state: "done" } },
   });
   // A repeated association or dispatch starts nothing.

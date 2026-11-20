@@ -347,7 +347,7 @@ test("a returned report resumes the live worker with its follow-up", async () =>
       assignment: "read",
       report: 1,
       followUp: `${followUps}/1.md`,
-      next: "resume_worker",
+      next: "worker_attention",
     },
   });
   expect(await Bun.file(`${followUps}/1.md`).text()).toBe("Read b.ts too.\n");

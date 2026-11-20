@@ -28,24 +28,37 @@ const cases: { row: Row; next: NextStep }[] = [
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_cleanup" },
+    row: { ...assignment, reason: "cleanup_failed", blockers: [], action: "clean_up" },
     next: {
       command: "operator cleanup --source source --assignment read",
       why: "Continue the recorded cleanup.",
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_cleanup", report: {} },
+    row: { ...assignment, reason: "cleanup_stopped", blockers: [], action: "clean_up", report: {} },
     next: {
       command: "operator report accept --source source --assignment read",
       why: "Continue the recorded cleanup.",
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_cleanup", report: undefined },
+    row: {
+      ...assignment,
+      reason: "cleanup_stopped",
+      blockers: [],
+      action: "clean_up",
+      report: undefined,
+    },
     next: {
       command: "operator cleanup --source source --assignment read",
       why: "Continue the recorded cleanup.",
+    },
+  },
+  {
+    row: { ...assignment, reason: "pr_closed", blockers: [], action: "clean_up" },
+    next: {
+      command: "operator abandon --source source --assignment read",
+      why: "The PR closed without merge; retain its unlanded work.",
     },
   },
   {
@@ -59,7 +72,7 @@ const cases: { row: Row; next: NextStep }[] = [
     row: { ...assignment, blockers: [], action: "person_decision" },
     next: { decider: "person", question: "May the retained work or resource be removed?" },
   },
-  ...(["worker_attention", "owner_attention", "resume_worker"] as const).map((action) => ({
+  ...(["worker_attention"] as const).map((action) => ({
     row: { ...assignment, blockers: [], action },
     next: {
       decider: "super-agent" as const,

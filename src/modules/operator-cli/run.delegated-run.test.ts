@@ -222,7 +222,7 @@ async function supervise(
         "ready_assignment",
         "replace_worker",
         "review_report",
-        "retry_cleanup",
+        "clean_up",
       ]);
       const key = row.assignment ?? "";
       if (row.action === "ready_assignment" || row.action === "replace_worker") {

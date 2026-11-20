@@ -242,7 +242,7 @@ function describeHosts() {
       });
       expect(await entry(source)).toMatchObject({
         action: "wait",
-        reason: "pr_feedback_loop",
+        reason: "assignment_active",
         pullRequest: { number: 7, wait: "idle" },
       });
 
@@ -286,7 +286,7 @@ function describeHosts() {
         },
       });
       expect(await entry(source)).toMatchObject({
-        reason: "pr_feedback_loop",
+        reason: "assignment_active",
         pullRequest: { wait: "reported" },
       });
 
@@ -297,8 +297,8 @@ function describeHosts() {
         output: { reason: "pr_wait_timed_out", data: { events: [] } },
       });
       expect(await entry(source)).toMatchObject({
-        action: "owner_attention",
-        reason: "pr_wait_timed_out",
+        action: "wait",
+        reason: "assignment_active",
         pullRequest: { wait: "timed_out" },
       });
 
@@ -326,7 +326,7 @@ function describeHosts() {
           },
         },
       });
-      expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+      expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
       expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
         output: { reason: "pr_wait_timed_out" },
       });
@@ -376,8 +376,8 @@ function describeHosts() {
         output: { reason: "pr_not_open", data: { events: [{ kind: "pr_merged" }] } },
       });
       expect(await entry(source)).toMatchObject({
-        action: "owner_attention",
-        reason: "pr_not_open",
+        action: "wait",
+        reason: "assignment_active",
       });
       const shown = await run(["source", "show", "--source", source]);
       expect(shown.output).toMatchObject({
@@ -558,7 +558,7 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
   expect(brief).toContain(`Resources: \`worktree\`, \`${worker.worktreePath}\``);
   expect(brief).toContain("Branch: `task/12-implement`");
   expect(brief).not.toContain("operator pr associate");
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   expect(await run(["pr", "wait", "--timeout", "0"], replacement.worktreePath)).toMatchObject({
     output: { reason: "pr_wait_timed_out" },
   });
@@ -608,8 +608,8 @@ test("an unanswered GitHub read is a visible failure and records no wait result"
   });
   // The failed wait process ended, so its loop is visible as stopped.
   expect(await entry(source)).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_wait_stopped",
+    action: "wait",
+    reason: "assignment_active",
     pullRequest: { wait: "stopped" },
   });
 }, 60000);
@@ -675,7 +675,7 @@ for (const [host, status] of [
     });
   }, 60000);
 
-test("a killed wait and an idle owner between waits need attention", async () => {
+test("a killed wait leaves its live idle owner needing worker attention", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
   await github({ pulls: [pull()] });
@@ -691,28 +691,27 @@ test("a killed wait and an idle owner between waits need attention", async () =>
     expect(Date.now()).toBeLessThan(deadline);
     await Bun.sleep(100);
   }
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   // A running wait is working, even when the host reports idle.
   await activity(worker.paneId, "idle");
-  expect(await entry(source)).toMatchObject({ reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ reason: "assignment_active" });
   child.kill("SIGKILL");
   await child.exited;
   expect(await entry(source)).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_wait_stopped",
+    action: "worker_attention",
+    reason: "worker_idle",
     pullRequest: { wait: "stopped" },
   });
-
   await github({ queue: [{ comments: [{ id: "C1", body: "Fix it." }] }] });
   expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
     output: { reason: "pr_events_observed" },
   });
   await activity(worker.paneId, "working");
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   await activity(worker.paneId, "done");
   expect(await entry(source)).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_owner_idle",
+    action: "worker_attention",
+    reason: "worker_idle",
   });
 }, 60000);
 

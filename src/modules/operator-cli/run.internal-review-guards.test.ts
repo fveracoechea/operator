@@ -404,7 +404,7 @@ test("a failed handoff shows as replace_worker with handoff_failed and starts th
     },
   });
   expect((await shown(source)).launches.map((row) => row.state)).toEqual(["finished", "running"]);
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "internal_review_running" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
 }, 180000);
 
 test("stopped handoff recovery serializes competing dispatches and preserves the recorded next kind", async () => {

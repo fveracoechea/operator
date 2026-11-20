@@ -62,14 +62,8 @@ export function dropKeys(keys: Iterable<string>) {
     storeSet(new Set([...(parseSet(stored) ?? [])].filter((key) => !dropped.has(key))));
 }
 
-// These actions often clear by themselves within a minute: an owner starts its next PR wait, or a
-// worker turns active again. Each wakes a wait only once it lasted the grace period.
-const settlingReasons = new Set([
-  "pr_wait_timed_out",
-  "pr_wait_stopped",
-  "pr_owner_idle",
-  "worker_idle",
-]);
+// An idle worker often turns active within a minute. Attention waits for that grace period.
+const settlingReasons = new Set(["worker_idle"]);
 export const settlingGraceMs = 60000;
 
 function settling(key: string) {
