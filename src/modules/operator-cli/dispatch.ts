@@ -49,15 +49,8 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
   const assignment = values["--assignment"];
   const kind = values["--kind"];
   const brief = values["--brief"];
-  if (kind !== undefined || brief !== undefined) {
-    if (
-      operation !== "dispatch" ||
-      sourceId !== undefined ||
-      assignment !== undefined ||
-      kind === undefined ||
-      brief === undefined
-    )
-      return null;
+  if (kind !== undefined && brief !== undefined) {
+    if (operation !== "dispatch" || sourceId !== undefined || assignment !== undefined) return null;
     return {
       operation: "one_off_dispatch" as const,
       kind,
