@@ -438,7 +438,7 @@ export function endInternalReview(
             end.readiness,
             "pr-feedback",
           );
-          if (recorded.tag === "Err") return Err(recorded.error);
+          if (recorded.tag !== "Ok") return recorded;
         }
         const now = new Date().toISOString();
         const ended = {
