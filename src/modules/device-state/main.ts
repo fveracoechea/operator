@@ -54,7 +54,8 @@ import {
   startHandoff,
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
-import { prReadinessSchema } from "./pr-readiness.ts";
+import { checkAdoption, type AdoptionTarget } from "./adoptions.ts";
+import { prReadinessSchema, storedPrReadinessSchema } from "./pr-readiness.ts";
 import {
   prParkingSchema,
   recordPullRequestQueue,
@@ -174,8 +175,15 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) => completeParking(client, target, continuation));
   },
-  resumeParkedPullRequest(paths: Paths, target: Parameters<typeof resumeParkedPullRequest>[1]) {
-    return writing(paths, (client) => resumeParkedPullRequest(client, target));
+  resumeParkedPullRequest(
+    paths: Paths,
+    target: Parameters<typeof resumeParkedPullRequest>[1],
+    fillKind?: string,
+    supervisor?: Parameters<typeof resumeParkedPullRequest>[3],
+  ) {
+    return writing(paths, (client) =>
+      resumeParkedPullRequest(client, target, fillKind, supervisor),
+    );
   },
   claimParkedRead(paths: Paths) {
     return writing(paths, (client) => claimParkedRead(client, Date.now()));
@@ -185,6 +193,9 @@ export const DeviceState = {
   },
   prReadinessSchema() {
     return prReadinessSchema;
+  },
+  storedPrReadinessSchema() {
+    return storedPrReadinessSchema;
   },
   checkCompatibility(paths: Paths, firstRegistration = false) {
     return compatibility(paths, firstRegistration);
@@ -210,6 +221,7 @@ export const DeviceState = {
     supervisor?: Supervisor,
     continuation?: HandoffContinuation,
     fillKind?: string,
+    adoption?: Pick<AdoptionTarget, "number">,
   ) {
     return writing(paths, (client) =>
       reserveLaunch(
@@ -221,8 +233,12 @@ export const DeviceState = {
         supervisor,
         continuation,
         fillKind,
+        adoption,
       ),
     );
+  },
+  checkAdoption(paths: Paths, target: AdoptionTarget) {
+    return reading(paths, (client) => checkAdoption(client, target));
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
     return writing(paths, (client) => updateLaunch(client, id, change));
@@ -316,6 +332,24 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) =>
       associatePullRequest(client, launchId, pr, review, internalReview),
+    );
+  },
+  /** Adoption enters its selected kind directly, without an outgoing-worker handoff. */
+  adoptPullRequest(
+    paths: Paths,
+    launchId: string,
+    pr: Parameters<typeof associatePullRequest>[2],
+    entry: { internalReview: boolean; assignmentReview: boolean },
+  ) {
+    return writing(paths, (client) =>
+      associatePullRequest(
+        client,
+        launchId,
+        pr,
+        entry.assignmentReview && !entry.internalReview,
+        entry.internalReview,
+        true,
+      ),
     );
   },
   recoverInternalReview(paths: Paths, input: Parameters<typeof recoverInternalReview>[1]) {

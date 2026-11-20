@@ -339,6 +339,12 @@ The kind fixes completion and supplies resources and a default profile.
 Without `--tracker-key`, the source gets `<kind>:<8 hex digits>`.
 One-off sources use the same next actions, report promotion, reset, and prune as registered plans.
 They never gain another planned assignment.
+Use `--adopt <pr-number|pr-url|branch>` to continue the person's own open PR or pushed branch (ADR-0024).
+An adopted branch without a PR enters `implementation`.
+A draft PR enters `implementation` or `review`; a ready PR enters `implementation` or `pr-feedback`, without internal review.
+Plans keep numeric `adopt` fields and the PR's head branch.
+Adoption refuses another author's PR, another repository, report kinds, and existing assignment or review ownership.
+Local-only commits and checked-out worktrees remain under the person's control and block adoption.
 `ask` is the `answer` preset, with pane resources and a CLI-written question brief.
 Use `ask --file -` with a quoted heredoc to preserve literal prose (ADR-0032):
 

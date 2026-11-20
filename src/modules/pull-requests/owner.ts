@@ -6,6 +6,7 @@ import { Err, ErrAsync, Ok, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import type { Refusal, RefusalContext } from "../../lib/cli-result.ts";
@@ -22,6 +23,19 @@ type OwnerFailure = RefusalContext & {
 type Owners = Extract<ReturnType<typeof DeviceState.worktreeOwners>, { tag: "Ok" }>["value"];
 type Recorded = Owners[number] & { worktreePath: string };
 export type Owner = Recorded & { branch: string; parkedHead?: string };
+
+/** A directly adopted draft starts its reviewer without an outgoing implementer launch. */
+export function isImplementer(owner: {
+  implementerLaunchId: string | null;
+  launchId: string;
+  kind: string | null;
+}) {
+  return (
+    owner.implementerLaunchId === owner.launchId &&
+    (owner.kind === null ||
+      WorkerKinds.snapshotSchema().parse(JSON.parse(owner.kind)).name !== "review")
+  );
+}
 
 export function qualify<C, T>(cause: C, defect: (cause: C) => T) {
   if (

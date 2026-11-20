@@ -9,7 +9,7 @@ import { Projects } from "../projects/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { git, prDevice, repository } from "./device-fixture.ts";
-import { qualify, resolveOwner, resolveParkedOwner } from "./owner.ts";
+import { isImplementer, qualify, resolveOwner, resolveParkedOwner } from "./owner.ts";
 
 afterEach(() => {
   mock.restore();
@@ -123,6 +123,55 @@ test("a scoped merge respects the existing historical-owner fence for migrated p
   expect(device.calls).toEqual([]);
 });
 
+test("a scoped migrated owner keeps validated nullable readiness and refuses an unknown parked head", async () => {
+  const { device, input, launchId } = await parkedOwner();
+  await using _ = device;
+  using db = new Database(device.paths.database);
+  const parking = DeviceState.prParkingSchema().parse(
+    JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+  );
+  db.query("UPDATE pull_requests SET readiness = ?, parking = ? WHERE assignment = 'other'").run(
+    JSON.stringify({
+      origin: "migration-0026",
+      head: null,
+      at: "then",
+      note: null,
+      dispositions: [],
+    }),
+    JSON.stringify({ ...parking, origin: "migration-0026" }),
+  );
+  expect(await resolveParkedOwner(input)).toMatchObject({
+    tag: "Ok",
+    value: {
+      launchId,
+      parkedHead: parking.head,
+      readiness: { origin: "migration-0026", head: null },
+    },
+  });
+  db.query("UPDATE pull_requests SET parking = ? WHERE assignment = 'other'").run(
+    JSON.stringify({ ...parking, origin: "migration-0026", head: null }),
+  );
+  const before = db.serialize();
+  expect(await resolveParkedOwner(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_inactive" },
+  });
+  expect(db.serialize()).toEqual(before);
+  expect(device.calls).toEqual([]);
+});
+
+test("a directly adopted reviewer is not an outgoing implementer, while implementation and legacy ownership stay fenced", () => {
+  const owner = { implementerLaunchId: "incoming", launchId: "incoming", kind: null };
+  expect(isImplementer(owner)).toBe(true);
+  expect(
+    isImplementer({ ...owner, kind: JSON.stringify(WorkerKinds.resolve("implementation")) }),
+  ).toBe(true);
+  expect(isImplementer({ ...owner, kind: JSON.stringify(WorkerKinds.resolve("review")) })).toBe(
+    false,
+  );
+  expect(isImplementer({ ...owner, launchId: "later" })).toBe(false);
+});
+
 test("the recorded worktree of a running PR assignment resolves its owner from any folder", async () => {
   await using device = await prDevice();
   const { launchId, worktree } = device.start("parent");
@@ -153,6 +202,41 @@ test("an associated PR keeps its owner", async () => {
     tag: "Ok",
     value: { launchId, assignmentState: "pr-open", pullRequest: 7 },
   });
+});
+
+test("a ready adopted owner carries a validated readiness receipt rather than storage text", async () => {
+  await using device = await prDevice();
+  const { launchId, worktree } = device.start("parent", {
+    kind: JSON.stringify(WorkerKinds.resolve("pr-feedback")),
+  });
+  const readiness = DeviceState.prReadinessSchema().parse({
+    head: "historical-head",
+    at: "historical-time",
+    note: null,
+    dispositions: [{ round: 1, finding: 1, disposition: "applied" }],
+  });
+  expect(
+    DeviceState.adoptPullRequest(
+      device.paths,
+      launchId,
+      {
+        number: 7,
+        url: `https://github.com/${repository}/pull/7`,
+        branch: "task/parent",
+        relay: null,
+        readiness,
+      },
+      { internalReview: false, assignmentReview: false },
+    ).tag,
+  ).toBe("Ok");
+  const owner = await resolveOwner({ paths: device.paths, cwd: worktree });
+  expect(owner.tag).toBe("Ok");
+  if (owner.tag !== "Ok") return;
+  expect(owner.value.readiness).toEqual(readiness);
+  expect(owner.value.readiness?.head).toBe("historical-head");
+  expect(owner.value.readiness?.dispositions[0]?.disposition).toBe("applied");
+  expect(owner.value.outgoingLaunchId).toBeNull();
+  expect(device.calls).toEqual([]);
 });
 
 test("a folder outside Git or outside a recorded worktree selects no owner", async () => {

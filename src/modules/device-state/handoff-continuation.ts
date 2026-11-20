@@ -8,7 +8,7 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import { reviewHandoffTarget } from "./handoff-target.ts";
 import { readRecoveryReceipt } from "./internal-review-recovery.ts";
-import { prReadinessSchema } from "./pr-readiness.ts";
+import { storedPrReadinessSchema } from "./pr-readiness.ts";
 import { assignments, kindHandoffs, launches, pullRequests, sources } from "./schema.ts";
 
 export type HandoffContinuation = {
@@ -89,9 +89,8 @@ export function inspectContinuation(
   if (options.expected !== undefined && !sameContinuation(identity, options.expected))
     return Err(continuationRefusal());
   if (handoff.ownerPid === process.pid) return Ok({ identity, published: true });
-  return options.publishingPid !== undefined &&
-    options.publishingPid > 0 &&
-    handoff.ownerPid === options.publishingPid
+  const { publishingPid = 0 } = options;
+  return publishingPid > 0 && handoff.ownerPid === publishingPid
     ? Ok({ identity, published: false })
     : Err(continuationRefusal());
 }
@@ -196,8 +195,12 @@ function readyContinuation(db: Db, facts: ContinuationFacts, latest: typeof laun
     pr.branch !== latest.branch
   )
     return false;
-  const ready = prReadinessSchema.parse(JSON.parse(pr.readiness));
-  return ready.at === handoff.startedAt && Date.parse(latest.startedAt) <= Date.parse(ready.at);
+  const ready = storedPrReadinessSchema.parse(pr.readiness);
+  return (
+    ready !== null &&
+    ready.at === handoff.startedAt &&
+    Date.parse(latest.startedAt) <= Date.parse(ready.at)
+  );
 }
 
 function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof launches.$inferSelect) {
@@ -254,6 +257,6 @@ function kindContinuation(db: Db, facts: ContinuationFacts, latest: typeof launc
 
 function freshLease(handoff: typeof kindHandoffs.$inferSelect) {
   const now = Date.now();
-  const timestamp = Date.parse(handoff.leaseAt ?? "");
+  const timestamp = Date.parse(String(handoff.leaseAt));
   return Number.isFinite(timestamp) && timestamp <= now && !ownerGone(handoff, now);
 }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 // Bun has no temporary-directory, realpath, symlink, or recursive removal API.
 import { chmod, mkdir, mkdtemp, realpath, rename, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -78,6 +79,12 @@ const projectOutput = z.object({
   data: z.object({ repository: z.string(), checkout: z.string(), registeredAt: z.string() }),
 });
 
+function shippedHistory() {
+  return readMigrationFiles({
+    migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
+  }).map(({ hash, folderMillis }) => ({ hash, created_at: folderMillis }));
+}
+
 test("explicit registration creates one migrated device database and repeats without checkout writes", async () => {
   const cwd = await repository();
   const before = await git(cwd, "status", "--porcelain=v1", "--untracked-files=all");
@@ -89,6 +96,8 @@ test("explicit registration creates one migrated device database and repeats wit
   });
   const initial = projectOutput.parse(first.output).data;
   expect(Number.isNaN(Date.parse(initial.registeredAt))).toBe(false);
+  const database = Bun.file(`${root}/state/operator/operator.sqlite`);
+  const initialBytes = await database.bytes();
   const repeated = await run(cwd);
   expect(repeated.code, repeated.stderr).toBe(0);
   expect(repeated.output).toMatchObject({ reason: "project_unchanged", data: initial });
@@ -96,7 +105,10 @@ test("explicit registration creates one migrated device database and repeats wit
   expect(db.query("SELECT repository, checkout FROM projects").all()).toEqual([
     { repository: "example/one", checkout: cwd },
   ]);
-  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations").all()).toHaveLength(26);
+  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+    shippedHistory(),
+  );
+  expect(await database.bytes()).toEqual(initialBytes);
   expect(db.query("PRAGMA integrity_check").values()).toEqual([["ok"]]);
   expect(await git(cwd, "status", "--porcelain=v1", "--untracked-files=all")).toBe(before);
   expect(
@@ -656,7 +668,9 @@ test("concurrent first registrations publish one complete database and isolate p
     { repository: "example/two", checkout: two },
   ]);
   expect(db.query("PRAGMA integrity_check").values()).toEqual([["ok"]]);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(26);
+  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+    shippedHistory(),
+  );
   expect((await run(one, ["show"])).output).toMatchObject({ data: { repository: "example/one" } });
   expect((await run(two, ["show"])).output).toMatchObject({ data: { repository: "example/two" } });
 });

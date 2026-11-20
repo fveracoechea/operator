@@ -1,9 +1,10 @@
 import { ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { readTextInput } from "../../lib/read-text-input.ts";
 import { qualify, type Owner, type Paths } from "./owner.ts";
-import { startHandoff, worktreeFacts } from "./internal-review.ts";
+import { startHandoff } from "./internal-review.ts";
 import { observeParkedPullRequests, type Observation } from "./github.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 import { decideWait, progressSchema } from "./wait-machine.ts";
@@ -55,6 +56,8 @@ export function parkedObservation(row: Parked, facts: BatchObservation) {
       ? decision.events
           .filter(
             (event) =>
+              event.kind !== "pr_merged" &&
+              event.kind !== "pr_closed" &&
               !(
                 event.kind === "merge_eligible" &&
                 facts.observed.queueEntry !== null &&
@@ -173,67 +176,69 @@ export function parkQuietWait(
   owner: Owner,
   observed: Observation,
 ): AsyncResult<boolean, Refusal> {
-  return worktreeFacts(owner.worktreePath).flatMap((tree): AsyncResult<boolean, Refusal> => {
-    if (
-      tree.localHead === null ||
-      (tree.localHead === observed.head &&
-        (!observed.checksComplete || observed.checks.length === 0))
-    )
-      return ErrAsync({
-        reason: "pr_checks_unknown",
-        detail:
-          "The pushed head or its complete check set could not be verified. The worker remains active; no park note was retained.",
-        next: {
-          command: "operator pr wait",
-          why: "Read complete checks before parking this worker.",
-        },
-      });
-    if (
-      tree.localHead === observed.head &&
-      observed.checks.some((check) => check.state === "pending")
-    ) {
-      return DeviceState.recordPullRequestWait(input.paths, owner.launchId, (row) => ({
-        progress: row.progress,
-        waitState: "idle",
-      }))
-        .toAsync()
-        .map(() => false);
-    }
-    const files = OperatorHome.assignmentFiles(input.paths, {
-      repository: owner.repository,
-      sourceId: owner.sourceId,
-      assignment: owner.assignment,
-    });
-    const note =
-      input.parkNote === null || input.parkNote === undefined
-        ? null
-        : `${files.directory}/park-${crypto.randomUUID()}.md`;
-    return fromPromise(async () => {
-      const staged = await fromPromise(async () => {
-        if (note !== null) await Bun.write(note, input.parkNote ?? "", { createPath: true });
-        return undefined;
-      }, qualify);
-      const parked = staged.flatMap(() =>
-        DeviceState.parkPullRequest(input.paths, owner.launchId, {
-          head: observed.head,
-          note,
-        }),
-      );
-      if (parked.tag !== "Ok" && note !== null) {
-        const removed = await fromPromise(() => Bun.file(note).delete(), qualify);
-        return retainPrimary(
-          parked,
-          removed.map(() => undefined),
-          "park_note_cleanup",
-          { note },
-        );
+  return PrEntry.worktreeFacts(owner.worktreePath).flatMap(
+    (tree): AsyncResult<boolean, Refusal> => {
+      if (
+        tree.localHead === null ||
+        (tree.localHead === observed.head &&
+          (!observed.checksComplete || observed.checks.length === 0))
+      )
+        return ErrAsync({
+          reason: "pr_checks_unknown",
+          detail:
+            "The pushed head or its complete check set could not be verified. The worker remains active; no park note was retained.",
+          next: {
+            command: "operator pr wait",
+            why: "Read complete checks before parking this worker.",
+          },
+        });
+      if (
+        tree.localHead === observed.head &&
+        observed.checks.some((check) => check.state === "pending")
+      ) {
+        return DeviceState.recordPullRequestWait(input.paths, owner.launchId, (row) => ({
+          progress: row.progress,
+          waitState: "idle",
+        }))
+          .toAsync()
+          .map(() => false);
       }
-      return parked;
-    }, qualify)
-      .flatMap((result) => result)
-      .flatMap(() => startHandoff(input.paths, owner))
-      .map(() => true);
-  });
+      const files = OperatorHome.assignmentFiles(input.paths, {
+        repository: owner.repository,
+        sourceId: owner.sourceId,
+        assignment: owner.assignment,
+      });
+      const note =
+        input.parkNote === null || input.parkNote === undefined
+          ? null
+          : `${files.directory}/park-${crypto.randomUUID()}.md`;
+      return fromPromise(async () => {
+        const staged = await fromPromise(async () => {
+          if (note !== null) await Bun.write(note, input.parkNote ?? "", { createPath: true });
+          return undefined;
+        }, qualify);
+        const parked = staged.flatMap(() =>
+          DeviceState.parkPullRequest(input.paths, owner.launchId, {
+            head: observed.head,
+            note,
+          }),
+        );
+        if (parked.tag !== "Ok" && note !== null) {
+          const removed = await fromPromise(() => Bun.file(note).delete(), qualify);
+          return retainPrimary(
+            parked,
+            removed.map(() => undefined),
+            "park_note_cleanup",
+            { note },
+          );
+        }
+        return parked;
+      }, qualify)
+        .flatMap((result) => result)
+        .flatMap(() => startHandoff(input.paths, owner))
+        .map(() => true);
+    },
+  );
 }
 
 function retainPrimary<T>(

@@ -1,11 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { workerDevice } from "./worker-fixture.ts";
 import { z } from "zod";
 
 let root = "";
+const shippedHistory = readMigrationFiles({
+  migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
+}).map(({ hash, folderMillis }) => ({ hash, created_at: folderMillis }));
 afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
@@ -50,6 +54,85 @@ test("dispatch --kind fills a null kind and refuses when the kind is set", async
   expect(db.query("SELECT plan FROM sources").get()).toEqual(plan);
   expect(await Bun.file(`${root}/config/operator/config.json`).text()).toBe(settings);
 });
+
+test.each([
+  ["migration", false],
+  ["ordinary", false],
+  ["migration", true],
+  ["ordinary", true],
+] as const)(
+  "an existing kind refuses dispatch --kind without changing %s parking or ownership, foreign supervisor %s",
+  async (origin, foreign) => {
+    const device = await workerDevice({ github: true });
+    root = device.root;
+    const source = await device.register({
+      trackerKey: "parked-fill-refusal",
+      assignments: [
+        {
+          key: "old",
+          trackerKey: "old",
+          kind: "implementation",
+          instructions: "Keep the PR.",
+          dependencies: [],
+          branch: "task/old",
+        },
+      ],
+    });
+    const worktree = `${root}/old`;
+    expect(
+      (await device.exec(["git", "worktree", "add", "-b", "task/old", worktree], device.main)).code,
+    ).toBe(0);
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    db.exec("UPDATE assignments SET state = 'pr-open', kind = 'pr-feedback'");
+    db.query(
+      "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at, ended_at, worktree_path) VALUES ('historical', ?, 'old', 1, 'finished', 'historical', 'worktree', 'task/old', 'opencode', 'test/reasoner', 'test/reasoner', 'medium', '{\"version\":\"historical\"}', '[]', 'then', 'later', ?)",
+    ).run(source, worktree);
+    const migration =
+      origin === "migration" ? { origin: "migration-0026", head: null } : { head: "h" };
+    const ready = JSON.stringify({ ...migration, at: "then", note: null, dispositions: [] });
+    const parking = JSON.stringify({
+      ...migration,
+      launchId: "historical",
+      at: "then",
+      note: null,
+      state: "parked",
+      events: ['{"kind":"feedback"}'],
+      parentSeen: false,
+    });
+    db.query(
+      "INSERT INTO pull_requests (source_id, assignment, repository, number, url, branch, associated_at, progress, wait_state, readiness, parking) VALUES (?, 'old', 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/old', 'then', '{\"seen\":[],\"failures\":[],\"eligibleHead\":null}', 'idle', ?, ?)",
+    ).run(source, ready, parking);
+    if (foreign) db.exec("UPDATE sources SET supervising_session = 'foreign-session'");
+    const before = db.serialize();
+    const calls = await device.herdrCalls();
+    const result = await device.run([
+      "dispatch",
+      "--source",
+      source,
+      "--assignment",
+      "old",
+      "--kind",
+      "implementation",
+    ]);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toMatchObject(
+      foreign
+        ? { reason: "source_supervised_elsewhere" }
+        : {
+            reason: "assignment_kind_set",
+            state: { kind: "pr-feedback" },
+          },
+    );
+    expect(db.serialize()).toEqual(before);
+    expect(db.query("SELECT parking FROM pull_requests").get()).toEqual({ parking });
+    expect(db.query("SELECT id FROM launches").all()).toEqual([{ id: "historical" }]);
+    expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+    expect((await device.herdrCalls()).filter((call) => call !== "plugin list")).toEqual(
+      calls.filter((call) => call !== "plugin list"),
+    );
+    expect(await Bun.file(`${root}/gh-calls.jsonl`).exists()).toBe(false);
+  },
+);
 
 test.each([
   ["implementation", "kind_completion_changed"],
@@ -188,18 +271,20 @@ test.each(["settings", "profile", "resources", "ownership"] as const)(
 );
 
 test.each([
-  ["finished", "none"],
-  ["failed", "none"],
-  ["interrupted", "none"],
-  ["finished", "ready"],
-  ["failed", "ready"],
-  ["interrupted", "ready"],
-  ["finished", "skipped"],
-  ["failed", "skipped"],
-  ["interrupted", "skipped"],
+  ["finished", "none", false],
+  ["failed", "none", false],
+  ["interrupted", "none", false],
+  ["finished", "ready", false],
+  ["failed", "ready", false],
+  ["interrupted", "ready", false],
+  ["finished", "skipped", false],
+  ["failed", "skipped", false],
+  ["interrupted", "skipped", false],
+  ["finished", "ready", true],
+  ["interrupted", "skipped", true],
 ] as const)(
-  "migration-origin unknown-head parking resumes once from %s with %s review through observed feedback",
-  async (historicalState, reviewState) => {
+  "migration-origin parking resumes once from %s with %s review and known head %s through observed feedback",
+  async (historicalState, reviewState, knownHead) => {
     const device = await workerDevice({ github: true });
     root = device.root;
     const source = await device.register({
@@ -219,9 +304,13 @@ test.each([
     expect(
       (await device.exec(["git", "worktree", "add", "-b", "task/old", worktree], device.main)).code,
     ).toBe(0);
+    const head = (await device.exec(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
     using db = new Database(`${root}/state/operator/operator.sqlite`);
     db.exec(
-      "DELETE FROM __drizzle_migrations WHERE created_at = (SELECT MAX(created_at) FROM __drizzle_migrations); UPDATE assignments SET state = 'pr-open', kind = NULL",
+      "DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000; UPDATE assignments SET state = 'pr-open', kind = NULL",
+    );
+    expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+      shippedHistory.filter((migration) => migration.created_at < 1795125600000),
     );
     db.query(
       "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at, ended_at, worktree_path, herdr_socket) VALUES ('historical', ?, 'old', 1, 'interrupted', 'historical', 'worktree', 'task/old', 'opencode', 'test/reasoner', 'test/reasoner', 'medium', '{}', '[]', 'then', 'later', ?, ?)",
@@ -238,12 +327,15 @@ test.each([
     );
     if (reviewState !== "none")
       db.query(
-        "INSERT INTO internal_reviews (source_id, assignment, state, implementer_launch_id, handoff_state, started_at, updated_at) VALUES (?, 'old', ?, 'historical', 'done', 'then', 'then')",
-      ).run(source, reviewState);
+        "INSERT INTO internal_reviews (source_id, assignment, state, implementer_launch_id, handoff_state, started_at, updated_at, ready_head) VALUES (?, 'old', ?, 'historical', 'done', 'then', 'then', ?)",
+      ).run(source, reviewState, knownHead ? head : null);
     const history = db.query("SELECT * FROM launches").get();
     const reviews = db.query("SELECT * FROM internal_reviews").all();
     const handoffs = db.query("SELECT * FROM kind_handoffs").all();
     expect((await device.run(["--version"])).code).toBe(0);
+    expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+      shippedHistory,
+    );
     expect(await device.next("old")).toMatchObject([{ action: "wait", reason: "pr_parked" }]);
     expect(
       (await device.run(["dispatch", "--source", source, "--assignment", "old"])).code,
@@ -251,8 +343,8 @@ test.each([
     expect(db.query("SELECT id FROM launches").all()).toHaveLength(1);
     expect(
       db.query("SELECT json_extract(parking, '$.head') AS head FROM pull_requests").get(),
-    ).toEqual({ head: null });
-    const head = (await device.exec(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
+    ).toEqual({ head: knownHead ? head : null });
+    const readiness = db.query("SELECT readiness FROM pull_requests").get();
     await Bun.write(
       `${root}/github.json`,
       JSON.stringify({
@@ -291,6 +383,11 @@ test.each([
     expect(db.query("SELECT id FROM launches").all()).toHaveLength(2);
     const brief = z.object({ brief: z.string(), paneId: z.string() }).parse(launched.output.data);
     expect(await Bun.file(brief.brief).text()).toContain("Check this historical resume.");
+    if (knownHead) expect(await Bun.file(brief.brief).text()).toContain(`Ready head: \`${head}\``);
+    if (reviewState === "none")
+      expect(await Bun.file(brief.brief).text()).toContain(
+        "Ready head: unknown (release migration).",
+      );
     const merged = await device.run(["pr", "merge"], { cwd: worktree });
     expect(merged.output).toMatchObject({
       reason: "pr_merge_blocked",
@@ -310,6 +407,13 @@ test.each([
     expect(await Bun.file(replacementBrief.brief).text()).toContain(
       "Check this historical resume.",
     );
+    if (knownHead)
+      expect(await Bun.file(replacementBrief.brief).text()).toContain(`Ready head: \`${head}\``);
+    if (reviewState === "none")
+      expect(await Bun.file(replacementBrief.brief).text()).toContain(
+        "Ready head: unknown (release migration).",
+      );
+    expect(db.query("SELECT readiness FROM pull_requests").get()).toEqual(readiness);
     expect(db.query("SELECT * FROM launches WHERE id = 'historical'").get()).toEqual(history);
     expect(db.query("SELECT * FROM internal_reviews").all()).toEqual(reviews);
     expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual(handoffs);

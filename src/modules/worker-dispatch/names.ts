@@ -26,3 +26,13 @@ export function chooseNames(input: {
   }
   return null;
 }
+
+/** Adoption keeps the branch fixed and avoids every occupied agent or workspace label. */
+export function adoptedNames(branch: string, takenNames: ReadonlySet<string>) {
+  const base = `adopt-${slug(branch)}`.slice(0, 28).replace(/-$/, "");
+  for (let index = 1; index < 1000; index++) {
+    const name = index === 1 ? base : `${base}-${index}`;
+    if (!takenNames.has(name)) return { name, branch };
+  }
+  return null;
+}

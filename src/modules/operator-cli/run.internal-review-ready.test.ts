@@ -226,7 +226,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function dispatch(source: string, assignment = "implement", kind?: "implementation") {
+async function dispatch(source: string, assignment = "implement", kind?: string) {
   const launched = await run([
     "dispatch",
     "--source",
@@ -649,6 +649,45 @@ test("the SuperAgent merges a parked PR through the gate, and a merge-queue repo
   expect(await Bun.file(`${worker.worktreePath}/work.txt`).exists()).toBe(false);
   expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
 }, 120000);
+
+test.each(["worker", "supervisor"] as const)(
+  "corrupt readiness refuses the %s merge before any GitHub or cleanup effect",
+  async (caller) => {
+    const { source, worker, head } =
+      caller === "supervisor" ? await parkedFixture() : await feedbackFixture();
+    await github({
+      pulls: [
+        pull({
+          head,
+          reviewDecision: "APPROVED",
+          checks: [{ name: "ci", conclusion: "SUCCESS" }],
+          isMergeQueueEnabled: true,
+        }),
+      ],
+    });
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    for (const readiness of ["{", "{}", '{"head":null,"at":"now","note":null,"dispositions":[]}']) {
+      db.query("UPDATE pull_requests SET readiness = ?").run(readiness);
+      const before = db.serialize();
+      const reads = await calls("gh-calls.jsonl", "graphql");
+      const closes = await calls("herdr-calls.jsonl", "pane close");
+      const command =
+        caller === "supervisor"
+          ? ["pr", "merge", "--source", source, "--assignment", "implement"]
+          : ["pr", "merge"];
+      expect(
+        await run(command, caller === "supervisor" ? checkout : worker.worktreePath),
+      ).toMatchObject({ code: 4, output: { reason: "state_corrupt" } });
+      expect(await calls("gh-calls.jsonl", "graphql")).toBe(reads);
+      expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+      expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+      expect(await calls("herdr-calls.jsonl", "pane close")).toBe(closes);
+      expect(db.serialize()).toEqual(before);
+      expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+    }
+  },
+  120000,
+);
 
 test.each([true, false])(
   "a parked merge refuses an advanced local and GitHub head before effects: queue %s",
@@ -1620,6 +1659,7 @@ test.each(["custom", "legacy"] as const)(
       kind === "legacy" ? "implementation" : undefined,
     );
     const before = (await shown(source)).launches[0];
+    if (kind === "legacy") expect(before?.kind).toMatchObject({ name: "implementation" });
     const head = await commit(worker.worktreePath, "ready.txt");
     await github({ pulls: [pull({ head, isDraft: false })] });
     expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });

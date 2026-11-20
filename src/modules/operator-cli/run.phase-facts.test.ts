@@ -751,11 +751,24 @@ test("an active review uses its own state and recorded round count", async () =>
 
 test("an outgoing implementer's closing result names the handoff instead of reviewer work", async () => {
   const { own } = reviews();
+  own.kind = JSON.stringify(WorkerKinds.resolve("implementation"));
   required(source.internalReviews.find((row) => row.assignment === "pr")).implementerLaunchId =
     own.id;
   expect(await run()).toMatchObject({
+    kind: "implementation",
     phase: "handoff",
     next: { why: "This launch handed the PR to its reviewer. Stop here." },
+  });
+});
+
+test("a directly adopted reviewer is not mistaken for its outgoing implementer", async () => {
+  const { own } = reviews();
+  required(source.internalReviews.find((row) => row.assignment === "pr")).implementerLaunchId =
+    own.id;
+  expect(await run()).toMatchObject({
+    kind: "review",
+    phase: "review",
+    next: { command: "operator pr round --file <file>", why: "Record the review findings." },
   });
 });
 

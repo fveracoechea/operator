@@ -65,7 +65,7 @@ test.each([
     file: "device-state/compatibility.ts",
     before: "const upgraded = upgrade(paths);",
     after: "const upgraded = Ok(false);",
-    pattern: "startup upgrades matching older",
+    pattern: "startup upgrades matching older prefix 1 before",
     testFile: "operator-cli/run.compatibility.test.ts",
   },
   {
@@ -73,7 +73,7 @@ test.each([
     file: "device-state/compatibility.ts",
     before: "transaction(client, true,",
     after: "transaction(client, false,",
-    pattern: "the protected delete snapshot",
+    pattern: "the protected wal snapshot",
     testFile: "operator-cli/run.compatibility.test.ts",
   },
   {

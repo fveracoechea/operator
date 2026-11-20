@@ -8,19 +8,98 @@ import { WorkSources } from "../work-sources/main.ts";
 import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { associationBody, failed, git, prDevice, repository, succeeded } from "./device-fixture.ts";
-import { dispatch, dispatchPermission, handoff, owned, reviewEnded } from "./internal-review.ts";
+import {
+  dispatch,
+  dispatchPermission,
+  handoff,
+  owned,
+  reviewEnded,
+  round,
+} from "./internal-review.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { PullRequests } from "./main.ts";
 
 test("the merge readiness witness is an explicit transition, never an ended or absent review", () => {
   expect(reviewEnded({ readiness: null })).toBe(false);
   expect(
     reviewEnded({
-      readiness: JSON.stringify({ head: "pushed", at: "now", note: null, dispositions: [] }),
+      readiness: { head: "pushed", at: "now", note: null, dispositions: [] },
     }),
   ).toBe(true);
 });
 
 afterEach(() => mock.restore());
+
+test.each(["review", "implementation"])(
+  "round and ownership adapters allow a direct %s reviewer only",
+  async (kind) => {
+    await using device = await prDevice();
+    const started = device.start("parent", { kind: JSON.stringify(WorkerKinds.resolve(kind)) });
+    const pr = {
+      number: 7,
+      url: `https://github.com/${repository}/pull/7`,
+      branch: "task/parent",
+      relay: null,
+    };
+    expect(
+      (kind === "review"
+        ? DeviceState.adoptPullRequest(device.paths, started.launchId, pr, {
+            internalReview: true,
+            assignmentReview: false,
+          })
+        : DeviceState.associatePullRequest(device.paths, started.launchId, pr, false, true)
+      ).tag,
+    ).toBe("Ok");
+    const file = `${device.root}/findings.md`;
+    await Bun.write(file, "## Findings\n- nice-to-have, Spec, src/api.ts: Keep the API.\n");
+    const before = await Bun.file(device.paths.database).arrayBuffer();
+    const result = await round({ paths: device.paths, cwd: started.worktree, file });
+    const owners = DeviceState.worktreeOwners(device.paths);
+    expect(owners.tag).toBe("Ok");
+    if (owners.tag !== "Ok") return;
+    const owner = owners.value[0] ?? expect.unreachable("Missing owner");
+    const ownership = await owned({
+      ...owner,
+      worktreePath: started.worktree,
+      branch: "task/parent",
+    });
+    if (kind === "review") {
+      expect(result).toMatchObject({
+        tag: "Ok",
+        value: {
+          reason: "pr_round_recorded",
+          data: { round: 1, head: git(started.worktree, "rev-parse", "HEAD"), findings: 1 },
+        },
+      });
+      expect(ownership).toMatchObject({ tag: "Ok", value: { launchId: started.launchId } });
+      expect(DeviceState.readSources(device.paths, repository, device.sourceId)).toMatchObject({
+        tag: "Ok",
+        value: [
+          {
+            internalReviewRounds: [
+              {
+                number: 1,
+                findings: JSON.stringify([
+                  {
+                    axis: "Spec",
+                    severity: "nice-to-have",
+                    location: "src/api.ts",
+                    claim: "Keep the API.",
+                  },
+                ]),
+              },
+            ],
+          },
+        ],
+      });
+    } else {
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "pr_handed_off" } });
+      expect(ownership).toMatchObject({ tag: "Err", error: { reason: "pr_handed_off" } });
+      expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+    }
+    expect(device.calls).toEqual([]);
+  },
+);
 
 test("a ready handoff fences its outgoing owner at the PR interface before pane closure", async () => {
   await using device = await prDevice();
@@ -44,7 +123,7 @@ test("a ready handoff fences its outgoing owner at the PR interface before pane 
   expect(device.calls).toEqual([]);
 });
 
-test.each([1, 2])(
+test.each([1, 2, "finish", "dispatch", "reservation"] as const)(
   "effect-time check %s retains the original cause through the PR facade",
   async (check) => {
     await using device = await prDevice();
@@ -74,6 +153,17 @@ test.each([1, 2])(
     });
     spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
     spyOn(WorkerDispatch, "checkHandoff").mockReturnValue(OkAsync(undefined));
+    const publication = DeviceState.readHandoffContinuation;
+    let publicationReads = 0;
+    spyOn(DeviceState, "readHandoffContinuation").mockImplementation((...args) => {
+      publicationReads++;
+      if (publicationReads === 1) return publication(...args);
+      return Err({
+        reason: "handoff_continuation_refused" as const,
+        detail: "The already published receipt must not be polled again before its effect checks.",
+        next: { command: "operator next", why: "Recover the stopped handoff." },
+      });
+    });
     const cause = new Error("original continuation fault", { cause: { original: true } });
     const defect = await fromPromise(Promise.reject(cause), (error, unexpected) =>
       unexpected(error),
@@ -84,8 +174,49 @@ test.each([1, 2])(
       ++checks === check ? defect : original(...args),
     );
     const failed = spyOn(DeviceState, "failHandoff");
-    const closed = spyOn(Herdr, "closePane");
-    const launched = spyOn(WorkerDispatch, "dispatch");
+    const closed = spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+    const finished = spyOn(DeviceState, "finishImplementer");
+    if (check === "finish") finished.mockReturnValue(defect);
+    const launched = spyOn(WorkerDispatch, "dispatch").mockImplementation((request) => {
+      expect(request).toMatchObject({
+        paths: device.paths,
+        cwd: device.checkout,
+        sourceId: device.sourceId,
+        assignment: "parent",
+        handoff: true,
+        continuation: {
+          repository,
+          sourceId: device.sourceId,
+          assignment: "parent",
+          outgoingLaunchId: owner.launchId,
+          nextKind: "review",
+          pane: "p1",
+          socket,
+        },
+      });
+      return defect.toAsync();
+    });
+    let expectedCause: unknown = cause;
+    if (check === "reservation")
+      launched.mockImplementation((request) => {
+        const read = DeviceState.readSources(device.paths, repository, device.sourceId);
+        const outgoing = read.tag === "Ok" ? read.value[0]?.launches[0] : undefined;
+        if (outgoing === undefined) return expect.unreachable("The outgoing launch exists.");
+        const reserved = DeviceState.reserveLaunch(
+          request.paths,
+          device.checkout,
+          repository,
+          { ...outgoing, id: "reviewer", name: "reviewer", kind: "{" },
+          undefined,
+          { pane: "worker", session: "ses_worker" },
+          request.continuation,
+        );
+        expect(reserved.tag).toBe("Defect");
+        expectedCause = reserved.tag === "Defect" ? reserved.cause : undefined;
+        return reserved
+          .map(() => expect.unreachable("The malformed snapshot cannot reserve."))
+          .toAsync();
+      });
     const exited = Bun.spawn([process.execPath, "-e", ""], { stdout: "ignore", stderr: "ignore" });
     expect(await exited.exited).toBe(0);
     const result = await PullRequests.dispatch({
@@ -96,16 +227,20 @@ test.each([1, 2])(
       afterPid: exited.pid,
     });
     expect(result.tag, JSON.stringify(result)).toBe("Defect");
-    expect(result.tag === "Defect" ? result.cause : undefined).toBe(cause);
-    expect(checks).toBe(check);
+    expect(result.tag === "Defect" ? result.cause : undefined).toBe(expectedCause);
+    expect(publicationReads).toBe(1);
+    expect(checks).toBe(check === 1 ? 1 : 2);
     expect(failed).not.toHaveBeenCalled();
-    expect(closed).not.toHaveBeenCalled();
-    expect(launched).not.toHaveBeenCalled();
+    expect(closed).toHaveBeenCalledTimes(check === 1 || check === 2 ? 0 : 1);
+    expect(finished).toHaveBeenCalledTimes(check === 1 || check === 2 ? 0 : 1);
+    expect(launched).toHaveBeenCalledTimes(check === "dispatch" || check === "reservation" ? 1 : 0);
     expect(DeviceState.readSources(device.paths, repository, device.sourceId)).toMatchObject({
       tag: "Ok",
       value: [
         {
-          launches: [{ state: "running" }],
+          launches: [
+            { state: check === "dispatch" || check === "reservation" ? "finished" : "running" },
+          ],
           handoffs: [{ handoffState: "pending", handoffDetail: null }],
         },
       ],
@@ -168,7 +303,7 @@ async function changeRecoveryWorktree(
     git(owner.worktree, "commit", "--allow-empty", "-m", "new local head");
 }
 
-test("a dispatch defect during handoff keeps the recorded recovery instead of losing its cause", async () => {
+test("an ordinary handoff dispatch defect retains its cause and does not record an operational failure", async () => {
   await using device = await prDevice();
   const socket = `${device.root}/herdr.sock`;
   const started = device.start("parent", { socket });
@@ -188,29 +323,21 @@ test("a dispatch defect during handoff keeps the recorded recovery instead of lo
   ).toBe("Ok");
   spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), HERDR_SOCKET_PATH: socket });
   const close = spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+  const cause = new Error("dispatch defect");
   const dispatch = spyOn(WorkerDispatch, "dispatch").mockReturnValue(
-    fromPromise(Promise.reject(new Error("dispatch defect")), (cause, defect) => defect(cause)),
+    fromPromise(Promise.reject(cause), (cause, defect) => defect(cause)),
   );
-  expect(
-    await handoff({
-      paths: device.paths,
-      cwd: device.checkout,
-      sourceId: device.sourceId,
-      assignment: "parent",
-      afterPid: null,
-    }),
-  ).toMatchObject({
-    tag: "Err",
-    error: {
-      reason: "handoff_defect",
-      detail: "Error: dispatch defect",
-      next: {
-        decider: "super-agent",
-        question:
-          "How should the failed internal-review handoff be recovered from its recorded progress?",
-      },
-    },
+  const failed = spyOn(DeviceState, "failHandoff");
+  const result = await handoff({
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+    afterPid: null,
   });
+  expect(result.tag).toBe("Defect");
+  expect(result.tag === "Defect" ? result.cause : undefined).toBe(cause);
+  expect(failed).not.toHaveBeenCalled();
   expect(close.mock.calls).toEqual([["p1"]]);
   expect(dispatch).toHaveBeenCalledTimes(1);
   expect(DeviceState.readSources(device.paths, repository, device.sourceId)).toMatchObject({
@@ -218,7 +345,7 @@ test("a dispatch defect during handoff keeps the recorded recovery instead of lo
     value: [
       {
         launches: [{ state: "finished", paneId: "p1" }],
-        internalReviews: [{ handoffState: "failed" }],
+        internalReviews: [{ handoffState: "pending" }],
       },
     ],
   });
@@ -348,7 +475,7 @@ test.each([
       error: {
         reason: "internal_review_recovery_incompatible",
         detail:
-          "The recovered handoff no longer matches its authorized PR, branch, and head. Nothing was handed off.",
+          "The recorded recovery does not authorize this handoff. No implementer pane was closed and no successor was started. Handoff progress was claimed before this refusal.",
       },
     });
   if (change === "dirty")
@@ -358,6 +485,86 @@ test.each([
     expect(result).toMatchObject({ error: { reason: "pr_worktree_unsynced" } });
   if (change !== "audit-read")
     expect(confirm).toHaveBeenCalledWith(device.paths, { ...receipt, launchId: owner.launchId });
+  else
+    expect(result).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "state_missing",
+        detail: "missing",
+        next: { command: "operator next", why: "Inspect." },
+      },
+    });
+});
+
+test("a corrupt recovery refusal reports its prior claim without asserting that nothing changed", async () => {
+  await using device = await prDevice();
+  const owner = device.start("parent");
+  expect(
+    DeviceState.associatePullRequest(
+      device.paths,
+      owner.launchId,
+      {
+        number: 415,
+        url: `https://github.com/${repository}/pull/415`,
+        branch: "task/parent",
+        relay: null,
+      },
+      false,
+      true,
+    ).tag,
+  ).toBe("Ok");
+  spyOn(DeviceState, "readInternalReviewRecovery").mockReturnValue(
+    Err({
+      reason: "internal_review_recovery_incompatible",
+      detail:
+        "The recorded assignment does not match the promoted internal review recovery. Nothing was changed.",
+      next: {
+        command: "operator next",
+        why: "Read the assignment's current state before choosing another action.",
+      },
+    }),
+  );
+  const confirm = spyOn(DeviceState, "recoverInternalReview");
+  const close = spyOn(Herdr, "closePane");
+  const launch = spyOn(WorkerDispatch, "dispatch");
+  const result = await handoff({
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+    afterPid: null,
+  });
+  expect(result).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "internal_review_recovery_incompatible",
+      detail:
+        "The recorded recovery does not authorize this handoff. No implementer pane was closed and no successor was started. Handoff progress was claimed before this refusal.",
+      next: {
+        command: "operator next",
+        why: "Read the assignment's current state before choosing another action.",
+      },
+      state: { handoffClaimed: true },
+    },
+  });
+  expect(confirm).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+  expect(launch).not.toHaveBeenCalled();
+  expect(DeviceState.readSources(device.paths, repository, device.sourceId)).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        launches: [{ state: "running" }],
+        handoffs: [
+          {
+            handoffState: "failed",
+            handoffDetail:
+              "internal_review_recovery_incompatible: The recorded recovery does not authorize this handoff. No implementer pane was closed and no successor was started. Handoff progress was claimed before this refusal.",
+          },
+        ],
+      },
+    ],
+  });
 });
 
 test.each(["mismatch", "defect"] as const)(

@@ -1,5 +1,6 @@
-import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult } from "unthrown";
+import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -8,7 +9,7 @@ import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
 import { openPullRequests } from "./github.ts";
-import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import { isImplementer, qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Failure = Refusal;
@@ -39,18 +40,6 @@ async function git(cwd: string, args: string[]) {
   });
   // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code, so the exit code check alone returns null
   return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
-}
-
-/** The worktree's changes, untracked files included, and its head commit. */
-export function worktreeFacts(worktree: string) {
-  return fromPromise(async () => {
-    const status = await git(worktree, ["status", "--porcelain", "--untracked-files=normal"]);
-    return {
-      // An unreadable status cannot prove the worktree clean.
-      changed: status !== "",
-      localHead: await git(worktree, ["rev-parse", "--verify", "HEAD"]),
-    };
-  }, qualify);
 }
 
 /** The legacy merge-condition name now witnesses only an explicit ready transition. */
@@ -177,17 +166,13 @@ async function recoveryGate(request: HandoffRequest & { repository: string }, fa
   const found = await recoveryPullRequest(audit);
   if (found.tag !== "Ok") return failure(found);
   const pr = found.value;
-  const tree = await worktreeFacts(audit.worktreePath);
-  if (tree.tag !== "Ok") return failure(tree);
-  const decision = decideInternalReview({
-    event: "associate",
+  const entry = await PrEntry.prepare({
+    worktree: audit.worktreePath,
     internalReview: true,
     draft: pr.draft,
-    changed: tree.value.changed,
-    localHead: tree.value.localHead,
-    prHead: audit.head,
+    head: audit.head,
   });
-  return decision.result === "refused" ? decision : null;
+  return entry.tag === "Ok" ? null : failure(entry);
 }
 
 function failure(
@@ -212,7 +197,17 @@ function runHandoff(
       if (checked.tag !== "Ok") return checked.map(() => null);
     }
     const recovery = await recoveryGate(request, facts);
-    if (recovery !== null) return Err(recovery);
+    if (recovery !== null)
+      return Err(
+        recovery.reason === "internal_review_recovery_incompatible"
+          ? {
+              ...recovery,
+              detail:
+                "The recorded recovery does not authorize this handoff. No implementer pane was closed and no successor was started. Handoff progress was claimed before this refusal.",
+              state: { ...recovery.state, handoffClaimed: true },
+            }
+          : recovery,
+      );
     // Recovery can await live PR/Git reads; it cannot extend a continuation's authorization.
     if (request.continuation !== undefined) {
       const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
@@ -240,34 +235,32 @@ function runHandoff(
       if (closed !== null) return Err(closed);
     }
     if (!decision.dispatch) return Ok(null);
-    const ended = DeviceState.finishImplementer(
-      request.paths,
-      facts.implementer.id,
-      request.continuation,
-    );
-    if (ended.tag !== "Ok") return Err(failure(ended));
-    const parked = DeviceState.completeParking(
-      request.paths,
-      {
-        repository: request.repository,
-        sourceId: request.sourceId,
-        assignment: request.assignment,
-      },
-      request.continuation,
-    );
-    if (parked.tag !== "Ok") return parked.map(() => null);
-    if (parked.value) return Ok(null);
-    const started = await WorkerDispatch.dispatch({
-      paths: request.paths,
-      cwd: facts.checkout,
-      sourceId: request.sourceId,
-      assignment: request.assignment,
-      handoff: true,
-      continuation: request.continuation,
-    });
-    if (started.tag !== "Ok") return Err(failure(started));
-    return Ok(started.value);
-  }, qualify).flatMap((result) => result);
+    return DeviceState.finishImplementer(request.paths, facts.implementer.id, request.continuation)
+      .toAsync()
+      .flatMap(() =>
+        DeviceState.completeParking(
+          request.paths,
+          {
+            repository: request.repository,
+            sourceId: request.sourceId,
+            assignment: request.assignment,
+          },
+          request.continuation,
+        ),
+      )
+      .flatMap((parked): AsyncResult<Launch | null, Failure> =>
+        parked
+          ? OkAsync(null)
+          : WorkerDispatch.dispatch({
+              paths: request.paths,
+              cwd: facts.checkout,
+              sourceId: request.sourceId,
+              assignment: request.assignment,
+              handoff: true,
+              continuation: request.continuation,
+            }),
+      );
+  }, qualify).flatMap((result): Result<Launch | null, Failure> => result);
 }
 
 type HandoffRequest = {
@@ -448,11 +441,16 @@ function supervisorDispatch(input: DispatchInput): AsyncResult<DispatchOutcome, 
       (row) => row.assignment === input.assignment,
     )?.parking;
     if (source !== undefined && parking?.state === "parked" && parking.events.length > 0)
-      return DeviceState.resumeParkedPullRequest(input.paths, {
-        repository: source.repository,
-        sourceId: input.sourceId,
-        assignment: input.assignment,
-      })
+      return DeviceState.resumeParkedPullRequest(
+        input.paths,
+        {
+          repository: source.repository,
+          sourceId: input.sourceId,
+          assignment: input.assignment,
+        },
+        input.kind,
+        Environment.caller(),
+      )
         .toAsync()
         .flatMap(() => supervisorDispatch(input));
     const recorded = source?.handoffs.find((row) => row.assignment === input.assignment);
@@ -487,12 +485,16 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
       WorkSources.parseFindings(content)
         .toAsync()
         .flatMap((findings) =>
-          worktreeFacts(owner.worktreePath).flatMap(({ localHead }) =>
+          PrEntry.worktreeFacts(owner.worktreePath).flatMap(({ localHead }) =>
             DeviceState.recordInternalReviewRound(input.paths, owner.launchId, (facts) => {
               const decision = decideInternalReview({
                 event: "round",
                 review: { state: facts.review.state, rounds: facts.rounds },
-                implementer: facts.review.implementerLaunchId === facts.launch.id,
+                implementer: isImplementer({
+                  implementerLaunchId: facts.review.implementerLaunchId,
+                  launchId: facts.launch.id,
+                  kind: facts.launch.kind,
+                }),
                 localHead,
               });
               if (decision.result !== "round")
@@ -533,8 +535,7 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
 /** Refuses a PR command of the launch that the handoff ended. */
 export function owned(owner: Owner): AsyncResult<Owner, Failure> {
   const refusal = decideOwnership({
-    implementer:
-      owner.implementerLaunchId === owner.launchId || owner.outgoingLaunchId === owner.launchId,
+    implementer: isImplementer(owner) || owner.outgoingLaunchId === owner.launchId,
   });
   return refusal === null ? OkAsync(owner) : ErrAsync(refusal);
 }

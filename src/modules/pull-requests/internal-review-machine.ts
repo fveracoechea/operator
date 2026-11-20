@@ -1,5 +1,5 @@
 // The internal review of a PR assignment: reviewing with at most two rounds, then ready or
-// skipped. This decides the associate, handoff, round, ready, and skip events. ADR-0003, ADR-0020.
+// skipped. This decides the handoff, round, ready, and skip events. ADR-0003, ADR-0020.
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 
@@ -7,16 +7,6 @@ type Review = { state: string; rounds: { head: string }[] };
 type Disposition = { round: number; finding: number; disposition: "applied" | "declined" };
 type PullRequest = { state: string; head: string; draft: boolean };
 
-type AssociateFacts = {
-  event: "associate";
-  /** The resolved internal review value of the associating launch. */
-  internalReview: boolean;
-  draft: boolean;
-  /** Uncommitted changes or untracked files in the worktree. */
-  changed: boolean;
-  localHead: string | null;
-  prHead: string;
-};
 type HandoffFacts = {
   event: "handoff";
   implementer: { state: string; paneId: string | null };
@@ -53,12 +43,11 @@ type SkipFacts = {
   /** GitHub is read only for a skip that the local facts permit. */
   pr: PullRequest | null;
 };
-type Facts = AssociateFacts | HandoffFacts | RoundFacts | ReadyFacts | SkipFacts;
+type Facts = HandoffFacts | RoundFacts | ReadyFacts | SkipFacts;
 
 type Refusal = ResultContext & { result: "refused"; reason: string; detail: string };
 type Decision =
   | Refusal
-  | { result: "associate"; review: boolean }
   | { result: "handoff"; closePane: boolean; dispatch: boolean }
   | { result: "round"; number: number; head: string }
   | {
@@ -73,10 +62,6 @@ type Rule<F> = { when: (facts: F) => boolean; refuse: (facts: F) => Refusal };
 const unchanged = "Nothing was changed.";
 
 const recovery = {
-  pr_draft_required: {
-    command: "gh pr ready --undo",
-    why: "Convert the PR to a draft before associating it for internal review.",
-  },
   pr_worktree_unclean: {
     decider: "super-agent",
     question:
@@ -138,38 +123,6 @@ function refused(
 ): Refusal {
   return { result: "refused", reason, detail, ...context, next: context.next ?? recovery[reason] };
 }
-
-// Either handoff leaves only clean pushed work for the next launch.
-const associateRules: Rule<AssociateFacts>[] = [
-  // A ready PR would skip the review, so only a draft starts one.
-  {
-    when: (facts) => facts.internalReview && !facts.draft,
-    refuse: () =>
-      refused(
-        "pr_draft_required",
-        `Internal review is on, so the PR must be a draft. Convert it with gh pr ready --undo, then associate again. ${unchanged}`,
-      ),
-  },
-  // The reviewer reads exactly the PR, so no work may stay outside it.
-  {
-    when: (facts) =>
-      (facts.internalReview || !facts.draft) &&
-      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),
-    refuse: () =>
-      refused(
-        "pr_worktree_unclean",
-        `Commit or remove the changed and untracked files, push, then associate again. ${unchanged}`,
-      ),
-  },
-  {
-    when: (facts) => (facts.internalReview || !facts.draft) && facts.localHead !== facts.prHead,
-    refuse: (facts) =>
-      refused(
-        "pr_worktree_unsynced",
-        `The worktree is at ${facts.localHead ?? "no commit"}, but the PR head is ${facts.prHead}. Push, then associate again. ${unchanged}`,
-      ),
-  },
-];
 
 /** The launch that the handoff ended no longer owns the PR, also while its pane still runs. */
 export function decideOwnership(facts: { implementer: boolean }): Refusal | null {
@@ -378,15 +331,6 @@ const skipRules: Rule<SkipFacts>[] = [
   },
 ];
 
-function associate(facts: AssociateFacts): Decision {
-  return (
-    associateRules.find((rule) => rule.when(facts))?.refuse(facts) ?? {
-      result: "associate",
-      review: facts.internalReview,
-    }
-  );
-}
-
 /**
  * The handoff closes the implementer's pane while its session runs, then starts the reviewer
  * unless a later launch already did. A repeated handoff skips each finished step.
@@ -438,7 +382,6 @@ function skip(facts: SkipFacts): Decision {
 }
 
 export function decideInternalReview(facts: Facts): Decision {
-  if (facts.event === "associate") return associate(facts);
   if (facts.event === "ready") return ready(facts);
   if (facts.event === "skip") return skip(facts);
   return facts.event === "handoff" ? handoff(facts) : round(facts);

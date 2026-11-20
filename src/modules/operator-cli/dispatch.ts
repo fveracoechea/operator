@@ -35,6 +35,7 @@ export function dispatchArgs(args: string[]) {
         "--intent-file",
         "--profile",
         "--tracker-key",
+        "--adopt",
       ].includes(flag) ||
       Object.hasOwn(values, flag) ||
       value === undefined ||
@@ -51,14 +52,12 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
   const assignment = values["--assignment"];
   const kind = values["--kind"];
   const brief = values["--brief"];
-  if (brief !== undefined) {
+  if (kind !== undefined && brief !== undefined) {
     if (
       operation !== "dispatch" ||
       sourceId !== undefined ||
       assignment !== undefined ||
-      values["--after-pid"] !== undefined ||
-      kind === undefined ||
-      brief === undefined
+      values["--after-pid"] !== undefined
     )
       return null;
     return {
@@ -68,6 +67,7 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
       intentFile: values["--intent-file"],
       profile: values["--profile"],
       trackerKey: values["--tracker-key"],
+      adopt: values["--adopt"],
     };
   }
   return dispatchTarget(values, operation);
