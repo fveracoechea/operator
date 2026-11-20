@@ -234,6 +234,32 @@ async function reviewer() {
   };
 }
 
+test.each(["\n", "\r\n", "\r"])(
+  "ready counts %j note lines before writes and saves allowed bytes literally",
+  async (ending) => {
+    const { device, input } = await reviewer();
+    await using _ = device;
+    const line = "Open point with `literal` $HOME.";
+    await Bun.write(input.note, Array.from({ length: 61 }, () => line).join(ending));
+    using client = new Database(device.paths.database);
+    const before = client.serialize();
+    const write = spyOn(Bun, "write");
+    const detach = spyOn(ToolInvocation, "detach").mockReturnValue(process.pid);
+    expect(await ready(input)).toMatchObject({ tag: "Err", error: { reason: "pr_note_invalid" } });
+    expect(write).not.toHaveBeenCalled();
+    expect(device.calls).toEqual([]);
+    expect(detach).not.toHaveBeenCalled();
+    expect(client.serialize()).toEqual(before);
+    write.mockRestore();
+    const note = Array.from({ length: 60 }, () => line).join(ending) + ending;
+    await Bun.write(input.note, note);
+    expect(await ready(input)).toMatchObject({ tag: "Ok", value: { reason: "pr_ready" } });
+    const decoded: unknown = JSON.parse(device.pullRequestRow("parent")?.readiness ?? "null");
+    const saved = z.object({ note: z.string() }).parse(decoded).note;
+    expect(await Bun.file(saved).text()).toBe(note);
+  },
+);
+
 test("ready stages its copied note before publishing and removes an actual partial write", async () => {
   const { device, input, files } = await reviewer();
   await using _ = device;

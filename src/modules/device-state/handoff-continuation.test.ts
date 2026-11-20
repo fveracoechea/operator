@@ -209,6 +209,73 @@ test.each(["custom", "legacy"])(
   },
 );
 
+test("a ready receipt from another PR branch refuses continuation without writes", () => {
+  using client = new Database(":memory:");
+  const db = seed(client, JSON.stringify(WorkerKinds.resolve("review")), "pr-feedback");
+  const at = new Date().toISOString();
+  db.insert(pullRequests)
+    .values({
+      ...target,
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      branch: "task/another-assignment",
+      associatedAt: "now",
+      progress: "{}",
+      waitState: "idle",
+      readiness: JSON.stringify({ head: "pushed", at, note: null, dispositions: [] }),
+    })
+    .run();
+  client.query("UPDATE kind_handoffs SET started_at = ?").run(at);
+  const checked = { ...identity, startedAt: at, nextKind: "pr-feedback" };
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(readContinuation(client, target, context, process.ppid)).toMatchObject(refusal);
+  expect(validateContinuation(db, checked)).toMatchObject(refusal);
+  expect(
+    reservedContinuation(db, checked, target.repository, {
+      ...target,
+      kind: JSON.stringify(WorkerKinds.resolve("pr-feedback")),
+    }),
+  ).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
+
+test.each([
+  ["missing readiness", "UPDATE pull_requests SET readiness = NULL"],
+  ["another repository", "UPDATE pull_requests SET repository = 'other/repo'"],
+  ["a later outgoing launch", "UPDATE launches SET started_at = '2999-01-01'"],
+] as const)("feedback continuation refuses %s without writes", (_name, change) => {
+  using client = new Database(":memory:");
+  const db = seed(client, JSON.stringify(WorkerKinds.resolve("review")), "pr-feedback");
+  db.insert(pullRequests)
+    .values({
+      ...target,
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      branch: "task/build",
+      associatedAt: "now",
+      progress: "{}",
+      waitState: "idle",
+      readiness: JSON.stringify({
+        head: "pushed",
+        at: identity.startedAt,
+        note: null,
+        dispositions: [],
+      }),
+    })
+    .run();
+  const checked = { ...identity, nextKind: "pr-feedback" };
+  expect(inspectContinuation(db, target, context)).toMatchObject({
+    tag: "Ok",
+    value: { identity: checked },
+  });
+  client.exec(change);
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(validateContinuation(db, checked)).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
+
 test("publication PID can observe but cannot authorize effects until this process owns the hold", () => {
   using client = new Database(":memory:");
   const db = seed(client);

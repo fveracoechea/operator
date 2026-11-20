@@ -15,7 +15,7 @@ test("the merge readiness witness is an explicit transition, never an ended or a
   expect(reviewEnded({ readiness: null })).toBe(false);
   expect(
     reviewEnded({
-      readiness: JSON.stringify({ head: "pushed", at: "now", note: null, dispositions: [] }),
+      readiness: { head: "pushed", at: "now", note: null, dispositions: [] },
     }),
   ).toBe(true);
 });
