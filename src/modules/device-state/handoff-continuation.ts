@@ -184,10 +184,9 @@ function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof laun
   const { source, assignment, handoff, context } = facts;
   if (context.socket !== latest.herdrSocket) return false;
   const receipt = readRecoveryReceipt(db, source.repository, source.id, assignment.key);
+  if (receipt.tag !== "Ok") return false;
   const recovered =
-    receipt.tag === "Ok" &&
-    receipt.value?.implementerLaunchId === latest.id &&
-    handoff.nextKind === "review";
+    receipt.value?.implementerLaunchId === latest.id && handoff.nextKind === "review";
   if (context.pane !== latest.paneId && (context.pane !== source.supervisingPane || !recovered))
     return false;
   // An explicitly recovered promotion can retain its original report-kind snapshot.

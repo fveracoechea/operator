@@ -652,6 +652,33 @@ Database.prototype.prepare = function(sql, ...args) {
   expect(db.serialize()).toEqual(before);
 }, 180000);
 
+test("a corrupt recovery receipt refuses an outgoing-worker continuation without effects", async () => {
+  const { source, worker } = await pendingContinuation();
+  using db = fixtureDatabase();
+  continuationFault(db, "pending", source, process.pid);
+  db.query(
+    "INSERT INTO worker_messages (source_id, assignment, key, launch_id, message, sent_at, state) SELECT source_id, assignment, 'internal-review:recovery', id, '{', '2026-11-17T00:00:00.000Z', 'pending' FROM launches WHERE assignment = 'implement'",
+  ).run();
+  const closes = await calls("herdr-calls.jsonl", '"pane","close"');
+  const starts = await calls("herdr-calls.jsonl", '"agent","start"');
+  const parent = publisher();
+  try {
+    const child = continuationChild(source, worker.paneId, parent.pid);
+    db.query("UPDATE kind_handoffs SET owner_pid = ?").run(child.pid);
+    const published = db.serialize();
+    await Bun.write(`${root}/publish-release`, "exit");
+    const result = await processResult(child);
+    expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(4);
+    expect(JSON.parse(result.stdout)).toMatchObject({ reason: "handoff_continuation_refused" });
+    expect(db.serialize()).toEqual(published);
+  } finally {
+    await Bun.write(`${root}/publish-release`, "exit");
+    await processResult(parent);
+  }
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(closes);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(starts);
+}, 30000);
+
 test.each(["pr-feedback", "implementation"])(
   "legacy CLI continuation refuses recorded %s without fallback or effects",
   async (nextKind) => {

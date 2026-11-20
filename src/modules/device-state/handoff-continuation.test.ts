@@ -177,6 +177,26 @@ test("publication PID can observe but cannot authorize effects until this proces
   expect(validateContinuation(db, identity)).toMatchObject({ tag: "Ok" });
 });
 
+test("a corrupt recovery receipt cannot authorize the outgoing worker through its kind snapshot", () => {
+  using client = new Database(":memory:");
+  const db = seed(client);
+  db.insert(workerMessages)
+    .values({
+      sourceId: target.sourceId,
+      assignment: target.assignment,
+      key: "internal-review:recovery",
+      launchId: identity.outgoingLaunchId,
+      message: "{",
+      sentAt: identity.startedAt,
+      state: "pending",
+    })
+    .run();
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(validateContinuation(db, identity)).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
+
 test("a gone publication process cannot hold a fresh continuation lease", async () => {
   const publisher = Bun.spawn([process.execPath, "-e", ""], {
     stdin: "ignore",

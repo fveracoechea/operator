@@ -70,12 +70,18 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
       trackerKey: values["--tracker-key"],
     };
   }
+  return dispatchTarget(values, operation);
+}
+
+function dispatchTarget(values: Record<string, string>, operation: "dispatch" | "abandon") {
   if (
     Object.keys(values).some(
       (flag) => !["--source", "--assignment", "--after-pid", "json"].includes(flag),
     )
   )
     return null;
+  const sourceId = values["--source"];
+  const assignment = values["--assignment"];
   if (sourceId === undefined || assignment === undefined) return null;
   const afterPid = values["--after-pid"];
   if (operation === "abandon")
