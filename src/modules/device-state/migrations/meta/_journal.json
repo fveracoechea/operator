@@ -162,6 +162,20 @@
       "when": 1794881346701,
       "tag": "0022_kind_handoffs",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1794952800000,
+      "tag": "0023_managed_stacks",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1794956400000,
+      "tag": "0024_pr_readiness",
+      "breakpoints": true
     }
   ]
 }

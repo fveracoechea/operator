@@ -280,10 +280,12 @@ export async function prDevice(options: { assignments?: string[] } = {}) {
     number: number,
     branch: string,
     relay: string | null = null,
+    readiness?: Parameters<typeof DeviceState.associatePullRequest>[2]["readiness"],
   ) {
     const url = `https://github.com/${repository}/pull/${number}`;
     expect(
-      DeviceState.associatePullRequest(paths, launchId, { number, url, branch, relay }).tag,
+      DeviceState.associatePullRequest(paths, launchId, { number, url, branch, relay, readiness })
+        .tag,
     ).toBe("Ok");
   }
 
@@ -423,7 +425,7 @@ export function pullRequestBody(facts: PullRequestFacts = {}) {
 
 /** The GraphQL answer that `openPullRequests` reads. */
 export function associationBody(
-  prs: { number: number; base: string; head?: string; owner?: string | null }[],
+  prs: { number: number; base: string; head?: string; oid?: string; owner?: string | null }[],
 ) {
   return {
     data: {
@@ -435,7 +437,7 @@ export function associationBody(
             url: `https://github.com/${repository}/pull/${pr.number}`,
             isDraft: false,
             baseRefName: pr.base,
-            headRefOid: "head-1",
+            headRefOid: pr.oid ?? "head-1",
             headRefName: pr.head ?? "task/other",
             headRepository: pr.owner === null ? null : { nameWithOwner: pr.owner ?? repository },
           })),

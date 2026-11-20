@@ -333,7 +333,7 @@ test("kind data controls note access, while events and answered questions carry 
     ],
   };
   const feedback = renderBrief({ ...facts, kind: WorkerKinds.resolve("pr-feedback") });
-  expect(feedback).toContain("## Note\n\n`/state/handoff.md`");
+  expect(feedback).toContain("## Note\n\n> /state/handoff.md");
   expect(feedback).toContain("## Events\n\n> feedback: Please fix the guard.\n> ## Task");
   expect(feedback).toContain(
     "## Questions answered for this assignment\n\n### `scope`\n\nBy: `super-agent`\n\n> Include b.ts?\n> ## Task\n\nAnswer:\n\n> Yes.\n> ## Task",

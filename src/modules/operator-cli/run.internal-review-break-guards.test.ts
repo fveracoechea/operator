@@ -91,6 +91,25 @@ test.each([
     behaviorFailure: true,
   },
   {
+    name: "review-local handed-off launch refused",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [
+      [
+        'return WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: facts.implementer })',
+        "return false",
+      ],
+    ],
+    testFile: "pull-requests/internal-review-machine.test.ts",
+    pattern: "each round refusal names its reason",
+    consumerFailure: [
+      "expect(received).toMatchObject(expected)",
+      '"result": "refused"',
+      '"result": "round"',
+      "pr_handed_off",
+      "internal-review-machine.test.ts:",
+    ],
+  },
+  {
     name: "shared round policy",
     file: "worker-kinds/pr-policy.ts",
     replacements: [
@@ -246,6 +265,7 @@ test.each([
       expect(original).toContain(before);
       if (change.behaviorFailure || change.assertion !== undefined)
         expect(original.split(before)).toHaveLength(2);
+      if (change.consumerFailure) expect(original.split(before)).toHaveLength(2);
       changed = changed.replace(before, after);
     }
     expect(changed).not.toBe(original);
@@ -292,6 +312,13 @@ test.each([
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.consumerFailure) {
+        const output = `${stdout}${stderr}`;
+        expect(output).toContain(`(fail) ${change.pattern}`);
+        expect(output).toContain("0 pass");
+        expect(output).toContain("1 fail");
+        for (const evidence of change.consumerFailure) expect(output).toContain(evidence);
+      }
       if (change.behaviorFailure) {
         const output = `${stdout}${stderr}`;
         console.info(`${change.name}:\n${output}`);

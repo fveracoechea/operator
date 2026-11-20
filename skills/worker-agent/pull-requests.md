@@ -11,12 +11,15 @@ As the internal reviewer, read [internal-review.md](internal-review.md).
 1. Commit and push your branch with `git push -u`, then open one PR from it with your own tools.
    Put the closing keywords for the tracker issue in the PR body.
    Use the PR base that your brief names: the default branch, or the branch of the parent PR that your branch starts on.
-2. Run `operator pr associate --json`.
-3. Run `operator pr wait --json`.
+2. Run `operator pr associate --json`, then stop after its kind handoff.
+   A ready PR with internal review off starts fresh pr-feedback.
+3. As the pr-feedback launch, run `operator pr wait --json`.
    Set your shell command timeout above the wait timeout, which is 300 seconds by default and `--timeout <seconds>` otherwise.
 4. Handle the result, then wait again.
 
-- `pr_events_observed` with `feedback`: check each claim, fix valid defects, reply on the thread, and push to the same PR. Items with `fromViewer: true` came from your own GitHub account, which can be your own reply or the person's comment. They come only together with another event.
+- `pr_events_observed` with `feedback`: follow the claim-check and reply rules in [kinds/pr-feedback.md](kinds/pr-feedback.md).
+  Items with `fromViewer: true` came from your own GitHub account, which can be your own reply or the person's comment.
+  They come only together with another event.
 - `pr_events_observed` with `checks_failed`: read the failing check, fix the cause, and push.
 - `pr_events_observed` with `merge_eligible`: all seven merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
 - `pr_wait_timed_out`: nothing new arrived. Wait again unless your SuperAgent told you to stop. Your SuperAgent sees the timeout until your next wait starts.
@@ -39,12 +42,15 @@ Use `gh stack view --json` only to read a stack. Run no other `gh stack` command
    Use the closing keywords and the PR base that your brief names.
 2. Commit and push all your work, then run `operator pr associate --json`.
    The reviewer reads only the pushed PR head.
-3. Stop once it succeeds. Operator closes your pane and starts a fresh reviewer in your worktree, which owns the PR until its merge.
+3. Stop once it succeeds.
+   Operator closes your pane and starts a fresh reviewer in your worktree, which owns the PR until ready.
    Your SuperAgent sees the handoff in `operator next`, so send it no message.
 
 ## Merge
 
-`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, the ready-for-review state, a finished relay for a stacked PR, an internal review that ended ready or skipped, and your worktree at the PR head.
+`operator pr merge --json` reads the PR from GitHub again.
+It requires an approving review decision, at least one check and every check passing, and no unresolved review thread.
+It also requires the default branch as base, a non-draft PR, a finished stack relay, recorded `pr_ready`, and your worktree at the PR head.
 A wait result or a supervisor's message does not replace these checks.
 
 - `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Send no message about the merge. Your SuperAgent's coordination wait shows the ended assignment or the cleanup it still owes.

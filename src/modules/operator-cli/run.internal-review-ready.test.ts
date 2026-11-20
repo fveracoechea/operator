@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 // Bun has no temporary-directory, symlink, permission, or recursive removal API.
 import {
   writeClaudeHookSettings,
@@ -126,7 +127,7 @@ const plan = {
   ],
 };
 
-async function setup(host: "opencode" | "claude-code") {
+async function setup(host: "opencode" | "claude-code", kind?: "custom" | "legacy") {
   root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-pr-")));
   checkout = `${root}/checkout`;
   await mkdir(checkout);
@@ -140,14 +141,27 @@ async function setup(host: "opencode" | "claude-code") {
   await symlink(cli, `${root}/tools/operator`);
   await tool("opencode", opencode);
   await tool("claude", claude);
-  await Bun.write(
-    `${root}/config/operator/config.json`,
-    JSON.stringify({
-      superAgent:
-        host === "opencode" ? { host, model: "test/reasoner" } : { host, model: "precise-model" },
-    }),
-    { createPath: true },
-  );
+  const settings = {
+    superAgent:
+      host === "opencode" ? { host, model: "test/reasoner" } : { host, model: "precise-model" },
+  };
+  if (kind !== undefined) Object.assign(settings, { review: { internal: false } });
+  if (kind === "custom")
+    Object.assign(settings, {
+      kinds: {
+        custom: {
+          completion: "pr",
+          resources: "worktree",
+          guide: "worker-agent/SKILL.md",
+          nextKind: null,
+          readsNote: false,
+          workPhases: [{ name: "implement", goal: "Implement." }],
+        },
+      },
+    });
+  await Bun.write(`${root}/config/operator/config.json`, JSON.stringify(settings), {
+    createPath: true,
+  });
   await cp(Bun.fileURLToPath(new URL("../../../skills", import.meta.url)), `${root}/release`, {
     recursive: true,
   });
@@ -164,9 +178,36 @@ async function setup(host: "opencode" | "claude-code") {
   await writeOpenCodePlugin(`${root}/config`);
   expect((await run(["project", "register"])).code).toBe(0);
   expect((await run(["herdr", "install"])).code).toBe(0);
-  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify(
+      kind === undefined || kind === "legacy"
+        ? plan
+        : {
+            ...plan,
+            assignments: plan.assignments.map(({ kind: _kind, ...assignment }) => ({
+              ...assignment,
+              kind: "custom",
+            })),
+          },
+    ),
+  );
   const registered = await run(["source", "register", "--file", `${root}/plan.json`]);
-  return z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
+  expect(registered.code, registered.stderr).toBe(0);
+  const id = z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
+  if (kind === "legacy") {
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    const assignments = plan.assignments.map(({ kind: _kind, ...assignment }) => ({
+      ...assignment,
+      completion: "pr",
+    }));
+    db.query("UPDATE sources SET plan = ? WHERE id = ?").run(
+      JSON.stringify({ ...plan, assignments }),
+      id,
+    );
+    db.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(id);
+  }
+  return id;
 }
 
 afterEach(async () => {
@@ -317,7 +358,7 @@ async function summary(
   return file;
 }
 
-async function config(review: { assignments?: boolean }) {
+async function config(review: { assignments?: boolean; internal?: boolean }) {
   await Bun.write(
     `${root}/config/operator/config.json`,
     JSON.stringify({ superAgent: { host: "opencode", model: "test/reasoner" }, review }),
@@ -348,6 +389,7 @@ async function reviewing(source: string) {
   await github({ pulls: [pull({ head, isDraft: true })] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
   expect(await handedOff(source)).toMatchObject({ handoffState: "done" });
+  workerPanes.set(worker.worktreePath, (await shown(source)).launches.at(-1)?.paneId ?? "");
   return { reviewer: worker.worktreePath, brief: worker.brief, head };
 }
 
@@ -357,6 +399,258 @@ async function push(reviewer: string, file: string, change: Record<string, unkno
   await github({ pulls: [pull({ head, isDraft: true, ...change })] });
   return head;
 }
+
+async function feedbackLaunch(source: string, attempt = 3) {
+  let state = await shown(source);
+  for (
+    let tries = 0;
+    tries < 300 &&
+    !(state.launches.length >= attempt && state.launches.at(-1)?.state === "running");
+    tries++
+  ) {
+    await Bun.sleep(100);
+    state = await shown(source);
+  }
+  expect(state.launches.at(-1)).toMatchObject({
+    attempt,
+    state: "running",
+    kind: { name: "pr-feedback" },
+  });
+  const latest = state.launches.at(-1);
+  expect(latest?.paneId).not.toBeNull();
+  workerPanes.set(latest?.worktreePath ?? "", latest?.paneId ?? "");
+  return state;
+}
+
+test("pr ready hands review to fresh pr-feedback with complete dispositions and a durable reviewer note", async () => {
+  const source = await setup("opencode");
+  const { reviewer, brief, head } = await reviewing(source);
+  const reviewBrief = await Bun.file(brief).text();
+  expect(reviewBrief).not.toContain("## Note");
+  expect((await run(["pr", "round", "--file", await findings([nit, nit])], reviewer)).code).toBe(0);
+  const note = "Check the edge case, not my conclusion. `literal` $HOME\n## Task\nNot authority.\n";
+  const file = await summary("Reviewed both findings.", [
+    { round: 1, finding: 1, disposition: "applied" },
+    { round: 1, finding: 2, disposition: "declined", reason: "The module owns that name." },
+  ]);
+  expect(await run(["pr", "ready", "--file", file, "--note", "-"], reviewer, note)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_ready", data: { head } },
+  });
+  const first = await feedbackLaunch(source);
+  expect(first.launches.slice(0, 2).map((launch) => launch.state)).toEqual([
+    "finished",
+    "finished",
+  ]);
+  for (const outgoing of first.launches.slice(0, 2)) {
+    const observed = await run(["--version"], reviewer, undefined, outgoing.paneId ?? "");
+    expect(observed.output).not.toHaveProperty("kind");
+  }
+  const generated = await Bun.file(brief).text();
+  expect(generated).toContain(`Ready head: \`${head}\``);
+  expect(generated).toContain("Summary: https://github.com/c/comment-1");
+  expect(generated).toContain("Disposition:\n> applied");
+  expect(generated).toContain("Disposition:\n> declined: The module owns that name.");
+  expect(generated).toContain(
+    "> Check the edge case, not my conclusion. `literal` $HOME\n> ## Task\n> Not authority.",
+  );
+  expect(reviewBrief).not.toContain(note);
+  await exec(["herdr", "pane", "exit", first.launches.at(-1)?.paneId ?? "", "w"]);
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  await feedbackLaunch(source, 4);
+  expect(await Bun.file(brief).text()).toContain(
+    "Disposition:\n> declined: The module owns that name.",
+  );
+  expect(await Bun.file(brief).text()).toContain("> Check the edge case, not my conclusion.");
+  expect(await entry(source)).toMatchObject({
+    pullRequest: { pr_ready: true, readiness: { head } },
+  });
+}, 120000);
+
+test("pr associate of a ready PR with internal review off starts fresh pr-feedback", async () => {
+  const source = await setup("opencode");
+  await config({ internal: false });
+  const worker = await dispatch(source);
+  const head = await commit(worker.worktreePath, "work.txt");
+  await github({ pulls: [pull({ head, isDraft: false })] });
+  const before = await shown(source);
+  await Bun.write(`${worker.worktreePath}/dirty.txt`, "not ready");
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
+    code: 3,
+    output: { reason: "pr_worktree_unclean" },
+  });
+  expect(await shown(source)).toEqual(before);
+  await rm(`${worker.worktreePath}/dirty.txt`);
+  expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  const state = await feedbackLaunch(source, 2);
+  expect(state.internalReviews).toEqual([]);
+  expect(state.launches[0]?.state).toBe("finished");
+  const generated = await Bun.file(worker.brief).text();
+  expect(generated).toContain(`Ready head: \`${head}\``);
+  expect(generated).not.toContain("## Note");
+  expect(await entry(source)).toMatchObject({
+    pullRequest: { pr_ready: true, readiness: { head, dispositions: [], note: null } },
+  });
+}, 120000);
+
+test("draft association with review off refreshes readiness at the current pushed head exactly once", async () => {
+  const source = await setup("opencode");
+  await config({ internal: false });
+  const worker = await dispatch(source);
+  const first = await commit(worker.worktreePath, "draft.txt");
+  await github({ pulls: [pull({ head: first, isDraft: true })] });
+  expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  expect(await entry(source)).toMatchObject({ pullRequest: { pr_ready: false, readiness: null } });
+  const head = await commit(worker.worktreePath, "ready.txt");
+  await github({ pulls: [pull({ head: first, isDraft: false })] });
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
+    code: 3,
+    output: { reason: "pr_worktree_unsynced" },
+  });
+  await github({ pulls: [pull({ head, isDraft: false })] });
+  await Bun.write(`${worker.worktreePath}/dirty.txt`, "not ready");
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
+    code: 3,
+    output: { reason: "pr_worktree_unclean" },
+  });
+  await rm(`${worker.worktreePath}/dirty.txt`);
+  await github({ pulls: [pull({ number: 8, head, isDraft: false })] });
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
+    code: 4,
+    output: { reason: "pr_already_associated" },
+  });
+  await github({ pulls: [pull({ head, isDraft: false })] });
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_associated" },
+  });
+  const feedback = await feedbackLaunch(source, 2);
+  expect(feedback.launches[0]?.state).toBe("finished");
+  expect(await entry(source)).toMatchObject({
+    pullRequest: { pr_ready: true, readiness: { head } },
+  });
+  const before = await shown(source);
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_unchanged" },
+  });
+  expect(await shown(source)).toEqual(before);
+}, 120000);
+
+test.each(["custom", "legacy"] as const)(
+  "ready association actually dispatches %s feedback without supervisor recovery",
+  async (kind) => {
+    const source = await setup("opencode", kind);
+    const worker = await dispatch(source);
+    const before = (await shown(source)).launches[0];
+    const head = await commit(worker.worktreePath, "ready.txt");
+    await github({ pulls: [pull({ head, isDraft: false })] });
+    expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({ code: 0 });
+    const state = await feedbackLaunch(source, 2);
+    expect(state.launches[0]).toMatchObject({
+      id: before?.id,
+      state: "finished",
+      kind: before?.kind,
+    });
+    expect(await entry(source)).toMatchObject({
+      pullRequest: { pr_ready: true, readiness: { head } },
+    });
+    expect(await calls("herdr-calls.jsonl", "pane close")).toBeLessThanOrEqual(1);
+  },
+  120000,
+);
+
+test("the merge gate checks pr_ready and the observed draft state without merge effects", async () => {
+  const source = await setup("opencode");
+  await config({ internal: false });
+  const worker = await dispatch(source);
+  const head = await commit(worker.worktreePath, "work.txt");
+  await github({ pulls: [pull({ head, isDraft: true })] });
+  expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await github({
+    pulls: [
+      pull({
+        head,
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  const before = await shown(source);
+  expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
+    code: 3,
+    output: {
+      reason: "pr_merge_blocked",
+      state: { conditions: { reviewEnded: false, notDraft: true } },
+    },
+  });
+  expect(await shown(source)).toEqual(before);
+  expect(await calls("gh-calls.jsonl", "enqueuePullRequest")).toBe(0);
+  expect(await calls("gh-calls.jsonl", "mergePullRequest")).toBe(0);
+}, 120000);
+
+test("failed ready handoff replacement uses the saved note file and repeats no ready effects", async () => {
+  const source = await setup("opencode");
+  const { reviewer, brief, head } = await reviewing(source);
+  expect((await run(["pr", "round", "--file", await findings([])], reviewer)).code).toBe(0);
+  const summaryFile = await summary("No findings.", []);
+  const before = await shown(source);
+  await Bun.write(`${root}/long-note.md`, "line\n".repeat(61));
+  expect(
+    await run(["pr", "ready", "--file", summaryFile, "--note", `${root}/long-note.md`], reviewer),
+  ).toMatchObject({ code: 3, output: { reason: "pr_note_invalid" } });
+  expect(await shown(source)).toEqual(before);
+  expect((await githubState()).readied).toBeUndefined();
+  const note = `${root}/reviewer-note.md`;
+  await Bun.write(note, "Recheck the public boundary.\n");
+  const herdr = z.looseObject({}).parse(await Bun.file(`${root}/herdr-state.json`).json());
+  await Bun.write(
+    `${root}/herdr-state.json`,
+    JSON.stringify({ ...herdr, fail: { "pane close": "controlled failure" } }),
+  );
+  expect(await run(["pr", "ready", "--file", summaryFile, "--note", note], reviewer)).toMatchObject(
+    { code: 0, output: { reason: "pr_ready" } },
+  );
+  let row = await entry(source);
+  for (let tries = 0; tries < 100 && row?.reason !== "handoff_failed"; tries++) {
+    await Bun.sleep(50);
+    row = await entry(source);
+  }
+  expect(row).toMatchObject({
+    action: "replace_worker",
+    reason: "handoff_failed",
+    handoff: { nextKind: "pr-feedback" },
+  });
+  await rm(note);
+  const failed = z.looseObject({}).parse(await Bun.file(`${root}/herdr-state.json`).json());
+  await Bun.write(`${root}/herdr-state.json`, JSON.stringify({ ...failed, fail: {} }));
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  await feedbackLaunch(source);
+  expect(await Bun.file(brief).text()).toContain("## Note\n\n> Recheck the public boundary.");
+  expect((await githubState()).readied).toEqual([7]);
+  expect((await githubState()).commented).toHaveLength(1);
+  await github({
+    pulls: [
+      pull({
+        head,
+        isDraft: true,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  const readyState = await shown(source);
+  expect(await run(["pr", "merge"], reviewer)).toMatchObject({
+    code: 3,
+    output: {
+      reason: "pr_merge_blocked",
+      state: { conditions: { reviewEnded: true, notDraft: false } },
+    },
+  });
+  expect(await shown(source)).toEqual(readyState);
+  expect(await calls("gh-calls.jsonl", "enqueuePullRequest")).toBe(0);
+}, 120000);
 
 test("the reviewer ends the review with one rendered comment, the ready mutation, and its record", async () => {
   const source = await setup("opencode");
@@ -429,7 +723,7 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
       blockers: [
         {
           detail:
-            "The PR needs an internal review that ended ready or skipped. Nothing was merged or changed.",
+            "The PR needs a recorded ready transition (pr_ready). Nothing was merged or changed.",
         },
       ],
     },
@@ -518,8 +812,8 @@ ${overview}
     { origin: "assignment", state: "queued", action: "start_reviewer" },
   ]);
   // The review ended, so the owner takes no more rounds and the gate now permits the merge.
-  const ended = await shown(source);
-  const reviewerPane = ended.launches[1]?.paneId ?? "";
+  const ended = await feedbackLaunch(source);
+  const reviewerPane = ended.launches.at(-1)?.paneId ?? "";
   const publicBefore = await githubState();
   expect(
     await run(["pr", "round", "--file", await findings([])], reviewer, undefined, reviewerPane),
@@ -547,12 +841,12 @@ ${overview}
     ["pr", "wait", "--timeout", "0"],
     reviewer,
     undefined,
-    (await shown(source)).launches[1]?.paneId ?? "",
+    (await shown(source)).launches.at(-1)?.paneId ?? "",
   );
   expect(eligible).toMatchObject({
     output: {
       reason: "pr_events_observed",
-      kind: "review",
+      kind: "pr-feedback",
       phase: "feedback",
       next: { command: "operator pr wait" },
       data: { mergeConditions: { reviewEnded: true } },
@@ -563,7 +857,7 @@ ${overview}
   );
 
   // A replacement after ready is the PR owner, from the recorded end, not from the draft state.
-  await exec(["herdr", "pane", "exit", (await shown(source)).launches[1]?.paneId ?? "", "w"]);
+  await exec(["herdr", "pane", "exit", (await shown(source)).launches.at(-1)?.paneId ?? "", "w"]);
   expect(await entry(source)).toMatchObject({
     action: "replace_worker",
     reason: "worker_interrupted",
@@ -571,6 +865,10 @@ ${overview}
   });
   expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
   const owner = await Bun.file(brief).text();
+  expect(owner).toContain(`### Round 1 at \`${first}\``);
+  expect(owner).toContain(`### Round 2 at \`${second}\``);
+  expect(owner).toContain("Disposition:\n> applied");
+  expect(owner).toContain("Disposition:\n> declined: The name follows the module.");
   expect(owner).toContain(`Review: \`ready\`.\nReady head: \`${third}\`.`);
   expect(owner).toContain("Summary: https://github.com/c/comment-1");
   expect(owner).toContain("Phase: `feedback`");
@@ -757,13 +1055,14 @@ test("a retry after a later push updates the earlier comment to the new head and
   expect(readied).toEqual([7]);
 
   // A retry after the end refuses and changes nothing on GitHub.
+  await feedbackLaunch(source);
   expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
     output: { reason: "internal_review_ended" },
   });
   expect((await githubState()).updated).toHaveLength(1);
 }, 180000);
 
-test("a person-instructed skip ends the review with no comment, and the reviewer keeps the PR", async () => {
+test("an internal review skip runs at pr ready with no rounds or summary comment", async () => {
   const source = await setup("opencode");
   await config({ assignments: true });
   const { reviewer, head, brief } = await reviewing(source);
@@ -793,41 +1092,74 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
     code: 0,
     output: {
       reason: "internal_review_skipped",
-      data: { number: 7, head, internalReview: { state: "skipped" }, assignmentReview: "queued" },
+      next: { command: "operator pr ready" },
+      data: { number: 7, head, internalReview: { state: "skipped" }, assignmentReview: null },
     },
   });
   const skipped = await githubState();
-  expect([skipped.commented, skipped.readied]).toEqual([undefined, [7]]);
+  expect([skipped.commented, skipped.readied]).toEqual([undefined, undefined]);
   expect(await run([...skip, "--person-instructed"])).toMatchObject({
     code: 3,
     output: { reason: "internal_review_ended" },
   });
   expect(await entry(source)).toMatchObject({
-    internalReview: { state: "skipped", readyHead: head, comment: null },
+    internalReview: { state: "skipped", readyHead: null, comment: null },
   });
-  expect(await reviewRequests()).toMatchObject([{ origin: "assignment", state: "queued" }]);
+  expect(await reviewRequests()).toEqual([]);
 
-  // The running reviewer learns of the skip from its next review command and owns the PR.
-  const file = await summary("x", []);
-  const pane = (await shown(source)).launches[1]?.paneId ?? "";
+  // Permission to skip is not readiness and creates no fresh launch until guarded ready.
+  expect(await run(["pr", "round", "--file", await findings([])], reviewer)).toMatchObject({
+    code: 3,
+    output: { reason: "internal_review_ended", next: { command: "operator pr ready" } },
+  });
+  const reviewerPane = (await shown(source)).launches[1]?.paneId ?? "";
   const ended = await shown(source);
   const publicBefore = await githubState();
-  expect(await run(["pr", "ready", "--file", file], reviewer, undefined, pane)).toMatchObject({
+  await Bun.write(`${reviewer}/dirty.txt`, "not pushed");
+  expect(await run(["pr", "ready"], reviewer)).toMatchObject({
     code: 3,
-    output: {
-      reason: "internal_review_ended",
-      phase: "feedback",
-      next: { command: "operator pr wait" },
-    },
+    output: { reason: "pr_worktree_unclean", phase: "ready" },
   });
+  await rm(`${reviewer}/dirty.txt`);
   expect(await shown(source)).toEqual(ended);
   expect(await githubState()).toEqual(publicBefore);
-  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
-    output: { reason: "pr_merge_blocked", phase: "feedback" },
+  expect(await run(["pr", "merge"], reviewer, undefined, reviewerPane)).toMatchObject({
+    output: { reason: "pr_merge_blocked", phase: "ready" },
   });
+  await exec(["herdr", "pane", "exit", reviewerPane, "w"]);
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  const replacementReview = (await shown(source)).launches.at(-1);
+  expect(replacementReview).toMatchObject({ kind: { name: "review" }, state: "running" });
+  workerPanes.set(reviewer, replacementReview?.paneId ?? "");
+  expect(await Bun.file(brief).text()).toContain("Phase: `ready`");
+  expect(await Bun.file(brief).text()).toContain(
+    "Internal review was skipped on the person's instruction.",
+  );
+  expect(await Bun.file(brief).text()).not.toContain("## Note");
+  expect(await run(["pr", "ready"], reviewer)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "pr_ready",
+      data: { comment: null, internalReview: { state: "skipped", rounds: 0 } },
+    },
+  });
+  const feedback = await feedbackLaunch(source, 4);
+  const pane = feedback.launches.at(-1)?.paneId ?? "";
+  expect(feedback.internalReviewRounds).toEqual([]);
+  expect((await githubState()).commented).toBeUndefined();
+  expect((await githubState()).readied).toEqual([7]);
+  expect(await reviewRequests()).toMatchObject([{ origin: "assignment", state: "queued" }]);
+  const once = await shown(source);
+  const readyEffects = await githubState();
+  expect(await run(["pr", "ready"], reviewer)).toMatchObject({
+    code: 3,
+    output: { reason: "internal_review_ended" },
+  });
+  expect(await shown(source)).toEqual(once);
+  expect(await githubState()).toEqual(readyEffects);
   expect(await run(["pr", "wait", "--timeout", "0"], reviewer, undefined, pane)).toMatchObject({
     output: {
-      kind: "review",
+      kind: "pr-feedback",
       phase: "feedback",
       next: { command: "operator pr wait" },
       data: { mergeConditions: { reviewEnded: true } },

@@ -7,6 +7,7 @@ Decided in #228, #231, #232, and #233.
 Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
 Amended 2026-11-04 in #305: the merge also requires that an internal review of the PR ended ready or was skipped (ADR-0020).
 Amended 2026-11-04 in #320: the guarded merge uses GitHub's asynchronous merge endpoint, because the synchronous endpoint refuses a stacked PR.
+Amended 2026-11-17 in #389: a fresh pr-feedback launch takes over at ready, and the merge requires the recorded ready transition.
 
 ## Context
 
@@ -23,7 +24,7 @@ Closing keywords handle GitHub issue completion, while agents use the tracker's 
 Canonical-map amendment remains an agent convention, not a tracker state machine.
 
 Each PR assignment owns one PR and follows the lifecycle ready, running, PR open, and merged, with abandoned as an incomplete end.
-Its owner WorkerAgent carries it through bot and human feedback, checks each claim, replies, and pushes fixes.
+A fresh pr-feedback launch takes over at the ready transition, checks bot and human claims, replies, and pushes fixes.
 The CLI waits for the next applicable action, including new review feedback, failing CI, merge eligibility, and a merged parent that requires rebasing.
 A wait timeout makes an idle owner visible to the SuperAgent for replacement rather than proving completion.
 
@@ -35,7 +36,7 @@ Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation.
 It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.
 ADR-0020 added the draft condition, implemented in #316.
-It also refuses while an internal review of the PR has not ended ready or skipped. Amended in #305, implemented in #328.
+It also requires the assignment's recorded ready transition, because an ended review or an external draft change alone cannot prove that transition.
 It merges through GitHub's asynchronous merge endpoint as a direct merge pinned to the guarded head, because the synchronous endpoint refuses a PR that GitHub keeps in a stack, also after its relay.
 That endpoint also merges a stacked PR's open PRs below it, and the default branch base rules them out.
 It is used for every PR, not only after the synchronous endpoint refuses, because GitHub does not document that refusal's text. The cost is a merge that can wait up to two minutes of status reads, and no merge queue.
@@ -51,7 +52,7 @@ Report assignments have a separate completion contract and support planning and 
 ## Consequences
 
 - Dependent code can start before its parent merges, so the workflow must handle changed parent branches and rebases.
-- Owners retain context through feedback, but a stopped owner still needs replacement from recorded work.
+- The first feedback launch and replacements receive recorded review findings, dispositions, the summary link, and the optional reviewer note.
 - CI becomes the mechanical quality source, so a repository with weak CI receives no replacement local gate from Operator.
 - Agents retain tracker-update responsibility outside the workflow CLI.
 - Automatic cleanup follows verified completion, so failures need durable visibility instead of a second approval protocol.

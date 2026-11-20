@@ -95,6 +95,8 @@ function pullRequestSummary(pr: PullRequest) {
     number: pr.number,
     url: pr.url,
     branch: pr.branch,
+    pr_ready: pr.readiness !== null,
+    readiness: pr.readiness,
     wait: pr.waitStopped ? "stopped" : pr.waitState,
     waitAt: pr.waitAt,
     stack: pr.relay,

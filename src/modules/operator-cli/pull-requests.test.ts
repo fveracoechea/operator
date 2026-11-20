@@ -100,6 +100,21 @@ test.each([
   for (const spy of Object.values(called)) expect(spy).not.toHaveBeenCalled();
 });
 
+test("ready accepts a note file or stdin without allowing two stdin consumers", () => {
+  expect(pullRequestArgs(["pr", "ready", "--note", "-"])).toEqual({
+    operation: "pr_ready",
+    note: "-",
+  });
+  expect(pullRequestArgs(["pr", "ready", "--file", "summary.md", "--note", "note.md"])).toEqual({
+    operation: "pr_ready",
+    file: "summary.md",
+    note: "note.md",
+  });
+  for (const flags of [["--file", "-", "--note", "-"], ["--note"], ["--note", "x", "--note", "y"]])
+    expect(pullRequestArgs(["pr", "ready", ...flags])).toBeNull();
+  expect(pullRequestArgs(["pr", "round", "--note", "x"])).toBeNull();
+});
+
 test("passes each command to the matching pull request operation", async () => {
   const called = spies();
   quiet();

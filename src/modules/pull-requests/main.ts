@@ -116,9 +116,10 @@ function stackOf(
  */
 function reviewGate(owner: Owner, pr: { draft: boolean; head: string }) {
   const internalReview = owner.internalReview === true;
-  const facts = internalReview
-    ? worktreeFacts(owner.worktreePath)
-    : OkAsync({ changed: false, localHead: pr.head });
+  const facts =
+    internalReview || !pr.draft
+      ? worktreeFacts(owner.worktreePath)
+      : OkAsync({ changed: false, localHead: pr.head });
   return facts.flatMap(({ changed, localHead }) => {
     const decision = decideInternalReview({
       event: "associate",
@@ -157,6 +158,23 @@ function reviewGate(owner: Owner, pr: { draft: boolean; head: string }) {
  * an internal review starts, whose ready transition queues it instead. A new internal review
  * starts its handoff, which ends the implementer's session.
  */
+function associationRecord(
+  owner: Owner,
+  pr: { number: number; url: string; head: string; draft: boolean },
+  relay: Relay | null,
+  review: boolean,
+) {
+  const row: Parameters<typeof DeviceState.associatePullRequest>[2] = {
+    number: pr.number,
+    url: pr.url,
+    branch: owner.branch,
+    relay: relay === null ? null : JSON.stringify(relay),
+  };
+  if (!review && !pr.draft)
+    row.readiness = { head: pr.head, at: new Date().toISOString(), note: null, dispositions: [] };
+  return row;
+}
+
 function associate(input: Request) {
   return resolveOwner(input).flatMap((owner) =>
     openPullRequests(owner.repository, owner.branch).flatMap((found) => {
@@ -180,31 +198,27 @@ function associate(input: Request) {
                 DeviceState.associatePullRequest(
                   input.paths,
                   owner.launchId,
-                  {
-                    number: pr.number,
-                    url: pr.url,
-                    branch: owner.branch,
-                    relay: relay === null ? null : JSON.stringify(relay),
-                  },
+                  associationRecord(owner, pr, relay, review),
                   settings.data.config.review?.assignments === true && !review,
                   review,
                 )
                   .toAsync()
                   .flatMap(({ changed, row }) =>
-                    (changed && review ? startHandoff(input.paths, owner) : OkAsync(null)).map(
-                      (started) => ({
-                        reason: changed ? "pr_associated" : "pr_unchanged",
-                        data: {
-                          ...summary(owner, pr),
-                          state: "pr-open",
-                          base: pr.base,
-                          stack: stackSummary(row.relay),
-                          internalReview: review
-                            ? { state: "reviewing", handoff: started ?? "recorded" }
-                            : null,
-                        },
-                      }),
-                    ),
+                    (changed && (review || !pr.draft)
+                      ? startHandoff(input.paths, owner)
+                      : OkAsync(null)
+                    ).map((started) => ({
+                      reason: changed ? "pr_associated" : "pr_unchanged",
+                      data: {
+                        ...summary(owner, pr),
+                        state: "pr-open",
+                        base: pr.base,
+                        stack: stackSummary(row.relay),
+                        internalReview: review
+                          ? { state: "reviewing", handoff: started ?? "recorded" }
+                          : null,
+                      },
+                    })),
                   ),
               ),
           ),
@@ -560,7 +574,7 @@ export const PullRequests = {
     return round(input);
   },
   /** The reviewer's guarded ready step: one summary comment, the ready mutation, the ready record. */
-  ready(input: Request & { file: string }) {
+  ready(input: Request & { file?: string; note?: string }) {
     return ready(input);
   },
   /** Ends a running internal review on the person's instruction, from the controlling checkout. */

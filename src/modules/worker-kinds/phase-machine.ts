@@ -27,6 +27,7 @@ export type PhaseFacts = {
   pr: { associated: boolean; rounds: number; ready: boolean; merged: boolean; parked: boolean };
   internalReview: boolean;
   reviewEnded?: boolean;
+  reviewSkipped?: boolean;
   handedOff?: boolean;
   worktreeClean: boolean;
 };
@@ -87,9 +88,13 @@ const prTail: Rule[] = [
   { when: (facts) => facts.pr.merged, phase: () => complete },
   {
     when: (facts) => refusesPrGuard({ guard: "ownership", handedOff: facts.handedOff === true }),
-    phase: () => ({
+    phase: (facts) => ({
       phase: "handoff",
-      next: { why: "This launch handed the PR to its reviewer. Stop here." },
+      next: {
+        why: facts.pr.ready
+          ? "This launch handed the PR to its next worker. Stop here."
+          : "This launch handed the PR to its reviewer. Stop here.",
+      },
     }),
   },
   {
@@ -105,6 +110,10 @@ const prTail: Rule[] = [
       phase: "feedback",
       next: { command: "operator pr wait", why: "Wait for PR feedback or merge eligibility." },
     }),
+  },
+  {
+    when: (facts) => facts.pr.associated && facts.reviewSkipped === true,
+    phase: () => ready,
   },
   {
     when: (facts) => facts.pr.associated && facts.internalReview,
@@ -162,7 +171,9 @@ function requiredGuards(facts: PhaseFacts, event: PhaseEvent | undefined) {
       : [];
   return [
     ...work,
-    ...exits[event].filter((guard) => guard !== "round_recorded" || facts.internalReview),
+    ...exits[event].filter(
+      (guard) => guard !== "round_recorded" || (facts.internalReview && !facts.reviewSkipped),
+    ),
   ];
 }
 

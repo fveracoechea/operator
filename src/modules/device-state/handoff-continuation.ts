@@ -7,7 +7,8 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import { reviewHandoffTarget } from "./handoff-target.ts";
 import { readRecoveryReceipt } from "./internal-review-recovery.ts";
-import { assignments, kindHandoffs, launches, sources } from "./schema.ts";
+import { prReadinessSchema } from "./pr-readiness.ts";
+import { assignments, kindHandoffs, launches, pullRequests, sources } from "./schema.ts";
 
 export type HandoffContinuation = {
   repository: string;
@@ -180,6 +181,24 @@ function continuationFacts(db: Db, facts: ContinuationFacts) {
   return freshLease(handoff) && continuationOwner(db, facts, latest);
 }
 
+function readyContinuation(db: Db, facts: ContinuationFacts, latest: typeof launches.$inferSelect) {
+  const { source, assignment, handoff } = facts;
+  const pr = db
+    .select()
+    .from(pullRequests)
+    .where(and(eq(pullRequests.sourceId, source.id), eq(pullRequests.assignment, assignment.key)))
+    .get();
+  if (
+    pr?.readiness === null ||
+    pr?.readiness === undefined ||
+    pr.repository !== source.repository ||
+    pr.branch !== latest.branch
+  )
+    return false;
+  const ready = prReadinessSchema.parse(JSON.parse(pr.readiness));
+  return ready.at === handoff.startedAt && Date.parse(latest.startedAt) <= Date.parse(ready.at);
+}
+
 function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof launches.$inferSelect) {
   const { source, assignment, handoff, context } = facts;
   if (context.socket !== latest.herdrSocket) return false;
@@ -189,6 +208,7 @@ function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof laun
     receipt.value?.implementerLaunchId === latest.id && handoff.nextKind === "review";
   if (context.pane !== latest.paneId && (context.pane !== source.supervisingPane || !recovered))
     return false;
+  if (handoff.nextKind === "pr-feedback") return readyContinuation(db, facts, latest);
   // An explicitly recovered promotion can retain its original report-kind snapshot.
   if (recovered) return true;
   if (latest.kind !== null) {

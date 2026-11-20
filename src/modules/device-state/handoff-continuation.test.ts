@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { migrationsFolder } from "./database.ts";
+import { recordPrReady } from "./pr-readiness.ts";
 import {
   inspectContinuation,
   readContinuation,
@@ -16,6 +17,7 @@ import {
   kindHandoffs,
   launches,
   projects,
+  pullRequests,
   sources,
   workerMessages,
 } from "./schema.ts";
@@ -83,7 +85,7 @@ function seed(
       reasoningEffort: "medium",
       release: '{"version":"fixture"}',
       skills: "[]",
-      startedAt: "now",
+      startedAt: "2026-11-17T00:00:00.000Z",
     })
     .run();
   db.insert(kindHandoffs)
@@ -154,6 +156,56 @@ test.each(["pr-feedback", "implementation"])(
       }),
     ).toMatchObject(refusal);
     expect(client.serialize()).toEqual(before);
+  },
+);
+
+test.each(["custom", "legacy"])(
+  "a typed ready receipt authorizes %s feedback without changing its snapshot",
+  (mode) => {
+    using client = new Database(":memory:");
+    const kind =
+      mode === "legacy"
+        ? null
+        : JSON.stringify({
+            ...WorkerKinds.resolve("implementation"),
+            name: "custom",
+            nextKind: null,
+          });
+    const db = seed(client, kind);
+    client.exec("UPDATE kind_handoffs SET handoff_state = 'done'");
+    db.insert(pullRequests)
+      .values({
+        ...target,
+        number: 7,
+        url: "https://github.com/owner/repo/pull/7",
+        branch: "task/build",
+        associatedAt: "now",
+        progress: "{}",
+        waitState: "idle",
+      })
+      .run();
+    const at = new Date().toISOString();
+    expect(
+      recordPrReady(
+        db,
+        { ...target, launchId: "outgoing" },
+        {
+          head: "pushed",
+          at,
+          note: null,
+          dispositions: [],
+        },
+        "pr-feedback",
+      ),
+    ).toMatchObject({ tag: "Ok" });
+    const checked = { ...identity, startedAt: at, nextKind: "pr-feedback" };
+    expect(inspectContinuation(db, target, context)).toMatchObject({
+      tag: "Ok",
+      value: { identity: checked, published: true },
+    });
+    expect(db.select().from(launches).get()?.kind).toBe(kind);
+    client.exec("UPDATE kind_handoffs SET started_at = 'replayed'");
+    expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
   },
 );
 

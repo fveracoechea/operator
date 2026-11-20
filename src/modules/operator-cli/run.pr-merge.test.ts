@@ -17,6 +17,7 @@ import { expectWorkflowRefusal } from "./worker-fixture.ts";
 
 let root = "";
 let checkout = "";
+const workerPanes = new Map<string, string>();
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
@@ -28,7 +29,7 @@ const gitEnv = {
 };
 const branch = "task/12-implement";
 
-function environment() {
+function environment(cwd = checkout) {
   return Environment.child({
     ...gitEnv,
     HOME: `${root}/home`,
@@ -36,12 +37,13 @@ function environment() {
     XDG_STATE_HOME: `${root}/state`,
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     HERDR_SOCKET_PATH: `${root}/herdr.sock`,
+    HERDR_PANE_ID: workerPanes.get(cwd) ?? "synthetic-supervisor-pane",
     PATH: `${root}/tools:${Environment.read().PATH}`,
   });
 }
 
 async function exec(args: string[], cwd = checkout) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(args, { cwd, env: environment(cwd), stdout: "pipe", stderr: "pipe" });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -161,15 +163,18 @@ async function setup(
 }
 
 afterEach(async () => {
+  workerPanes.clear();
   await rm(root, { recursive: true, force: true });
 });
 
 async function dispatch(source: string, assignment = "implement") {
   const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
   expect(launched.code, launched.stderr).toBe(0);
-  return z
+  const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string() }) })
     .parse(launched.output).data;
+  workerPanes.set(worker.worktreePath, worker.paneId);
+  return worker;
 }
 
 async function readJson(file: string) {
@@ -224,7 +229,39 @@ async function openPullRequest(source: string, change: Record<string, unknown> =
     branches: { [branch]: head },
   });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  if (change.isDraft !== true) await feedbackWorker(source, worker);
   return { ...worker, head };
+}
+
+async function feedbackWorker(source: string, worker: { paneId: string; worktreePath: string }) {
+  const schema = z.object({
+    data: z.object({
+      launches: z.array(
+        z.object({
+          state: z.string(),
+          paneId: z.string().nullable(),
+          kind: z.object({ name: z.string() }).nullable(),
+        }),
+      ),
+    }),
+  });
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const latest = schema
+      .parse((await run(["source", "show", "--source", source])).output)
+      .data.launches.at(-1);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      worker.paneId = latest.paneId;
+      workerPanes.set(worker.worktreePath, latest.paneId);
+      break;
+    }
+    expect(Date.now()).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 }
 
 async function readyPullRequest(source: string, change: Record<string, unknown> = eligible) {
@@ -331,7 +368,7 @@ for (const host of ["opencode", "claude-code"] as const)
     expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(1);
     expect(await calls("gh-calls.jsonl", `"merge_method=squash"`)).toBe(1);
     expect(await readJson(`${root}/github.json`)).toMatchObject({ branches: {} });
-    expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(1);
+    expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(2);
     expect(await exists(worker.worktreePath)).toBe(false);
     expect(await git(checkout, "branch", "--list", branch)).toBe("");
     expect(await git(checkout, "worktree", "list", "--porcelain")).not.toContain(
@@ -348,7 +385,7 @@ for (const host of ["opencode", "claude-code"] as const)
         { key: "second", state: "ready" },
       ],
       pullRequests: [{ number: 7, mergedHead: worker.head, mergeCommit: `merge-${worker.head}` }],
-      launches: [{ state: "interrupted" }],
+      launches: [{ state: "finished" }, { state: "interrupted" }],
     });
     // A finished cleanup leaves no action, and the other assignment still progresses.
     expect(await entry(source)).toBeUndefined();
@@ -446,7 +483,7 @@ test("a new merge refuses uncommitted work even when current GitHub checks pass"
     code: 3,
     output: {
       reason: "pr_worktree_unclean",
-      kind: "implementation",
+      kind: "pr-feedback",
       phase: "feedback",
       next: { command: "git status --short" },
       state: { worktree_clean: false },
@@ -457,20 +494,38 @@ test("a new merge refuses uncommitted work even when current GitHub checks pass"
   expect(await Bun.file(`${worker.worktreePath}/pending.txt`).text()).toBe("Keep.\n");
 }, 90000);
 
-test("a recorded wait frontier permits a new head only after fresh merge guards", async () => {
+test("a recorded ready frontier permits a new head only after fresh merge guards", async () => {
   const source = await setup("opencode");
-  const worker = await openPullRequest(source);
+  const worker = await openPullRequest(source, { ...eligible, isDraft: true });
   expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
     code: 3,
     output: {
-      reason: "pr_not_ready",
+      reason: "pr_merge_blocked",
       kind: "implementation",
       phase: "feedback",
       next: { command: "operator pr wait" },
-      state: { pr_ready: false },
+      state: { conditions: { reviewEnded: false, notDraft: false } },
     },
   });
   expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  await github({
+    pulls: [
+      {
+        number: 7,
+        url: "https://github.com/example/one/pull/7",
+        headRefName: branch,
+        headRepository: "example/one",
+        state: "OPEN",
+        head: worker.head,
+        isDraft: false,
+        ...eligible,
+      },
+    ],
+  });
+  expect((await run(["pr", "associate"], worker.worktreePath)).output).toMatchObject({
+    reason: "pr_associated",
+  });
+  await feedbackWorker(source, worker);
   expect((await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).output).toMatchObject({
     data: { events: [{ kind: "feedback" }, { kind: "merge_eligible", head: worker.head }] },
   });
@@ -556,7 +611,8 @@ test("a draft PR is never eligible and never merges", async () => {
       blockers: [
         {
           reason: "pr_merge_blocked",
-          detail: "The PR needs the ready-for-review state. Nothing was merged or changed.",
+          detail:
+            "The PR needs the ready-for-review state, a recorded ready transition (pr_ready). Nothing was merged or changed.",
         },
       ],
     },
@@ -641,7 +697,7 @@ test("an already merged PR starts cleanup without discarding uncommitted work", 
     code: 0,
     output: {
       reason: "pr_merged",
-      kind: "implementation",
+      kind: "pr-feedback",
       phase: "complete",
       data: { mergeCommit: "person-merge" },
     },
@@ -696,7 +752,7 @@ test("failed steps stop the declared order, stay visible, and continue after a r
     reason: "cleanup_failed",
   });
   // The pane and worktree wait for the remote branch, even in a finished source.
-  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(0);
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(1);
   expect(await exists(worker.worktreePath)).toBe(true);
   expect((await shown(source)).state).toBe("finished");
   // An ended source shows only the cleanup that it still owes.
@@ -780,7 +836,7 @@ test("unlanded work and unknown ignored content stay until the person instructs 
     reason: "cleanup_unlanded_work",
   });
   expect(await readJson(`${root}/github.json`)).toMatchObject({ branches: {} });
-  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(1);
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(2);
 
   // Each retry inspects again. Removing the files is not enough while a commit has not landed.
   await rm(`${worker.worktreePath}/notes.txt`);
@@ -922,7 +978,7 @@ test("the person's instruction covers only the blocked step that the person read
   expect(instructed).toMatchObject({ code: 3, output: { reason: "cleanup_unlanded_work" } });
   expect(JSON.stringify(instructed.output)).toContain("notes.txt");
   expect(await readJson(`${root}/github.json`)).toMatchObject({ branches: {} });
-  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(1);
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(2);
   expect(await Bun.file(`${worker.worktreePath}/notes.txt`).text()).toBe("unlanded\n");
   expect(await settled(source)).toMatchObject({ step: "worktree", state: "blocked" });
 }, 90000);

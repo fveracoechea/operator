@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { workerDevice } from "./worker-fixture.ts";
 import { Database } from "bun:sqlite";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { z } from "zod";
 
 let device: Awaited<ReturnType<typeof workerDevice>>;
 afterEach(async () => {
@@ -161,6 +162,7 @@ test("a phase exit command refuses until its guard holds, and names the next com
           headRepository: "example/one",
           state: "OPEN",
           head,
+          isDraft: true,
         },
       ],
     }),
@@ -218,21 +220,22 @@ test("a phase exit command refuses until its guard holds, and names the next com
   });
   await Bun.write(github, JSON.stringify({ pulls: [{ ...pull, isDraft: false }] }));
   expect((await device.run(["pr", "merge"], options)).output).toMatchObject({
-    reason: "pr_not_ready",
-    kind: "implementation",
-    phase: "feedback",
+    reason: "pr_merge_blocked",
     next: { command: "operator pr wait" },
-    state: { pr_ready: false },
+    state: { conditions: { reviewEnded: false } },
   });
   expect(await Bun.file(github).json()).not.toHaveProperty("mergeRequests");
   expect((await device.run(["pr", "wait", "--timeout", "0"], options)).output).toMatchObject({
-    reason: "pr_events_observed",
-    data: { events: [{ kind: "merge_eligible", head }] },
+    reason: "pr_wait_timed_out",
+    data: { events: [], mergeConditions: { reviewEnded: false } },
   });
   // The fixture declares a supported snapshot guard, without adding custom-kind settings.
   const kind = WorkerKinds.resolve("implementation");
   kind.workPhases[0] = { name: "build", goal: "Build.", guard: "pr_ready" };
   using database = new Database(`${device.root}/state/operator/operator.sqlite`);
+  database
+    .query("UPDATE pull_requests SET progress = ?")
+    .run(JSON.stringify({ seen: [], failures: [], eligibleHead: head }));
   database
     .query("UPDATE launches SET kind = ? WHERE pane_id = ?")
     .run(JSON.stringify(kind), worker.paneId);
@@ -254,6 +257,36 @@ test("a phase exit command refuses until its guard holds, and names the next com
     reason: "pr_merge_blocked",
   });
   await Bun.write(github, JSON.stringify({ pulls: [{ ...pull, isDraft: false }] }));
+  expect((await device.run(["pr", "associate"], options)).output).toMatchObject({
+    reason: "pr_associated",
+  });
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const state = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({
+              state: z.string(),
+              paneId: z.string().nullable(),
+              kind: z.object({ name: z.string() }).nullable(),
+            }),
+          ),
+        }),
+      })
+      .parse((await device.run(["source", "show", "--source", source])).output);
+    const latest = state.data.launches.at(-1);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      options.pane = latest.paneId;
+      break;
+    }
+    expect(Date.now()).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
   expect((await device.exec(["git", "commit", "--allow-empty", "-m", "new head"], cwd)).code).toBe(
     0,
   );
@@ -380,6 +413,8 @@ test("a typed PR worktree enforces phase guards without a registered caller pane
           number: 7,
           url: "https://github.com/example/one/pull/7",
           headRefName: "task/build",
+          head: (await device.exec(["git", "rev-parse", "HEAD"], cwd)).stdout.trim(),
+          isDraft: true,
           headRepository: "example/one",
           state: "OPEN",
         },
@@ -454,6 +489,10 @@ test("PR guards and result context follow the canonical worktree owner, not the 
           number: 7,
           url: "https://github.com/example/one/pull/7",
           headRefName: "task/build",
+          head: (
+            await device.exec(["git", "rev-parse", "HEAD"], builder.worktreePath ?? "")
+          ).stdout.trim(),
+          isDraft: true,
           headRepository: "example/one",
           state: "OPEN",
         },

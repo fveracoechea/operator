@@ -4,6 +4,7 @@ import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { reviewHandoffTarget } from "./handoff-target.ts";
+import { recordPrReady, type PrReadiness } from "./pr-readiness.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
@@ -31,7 +32,8 @@ export type PullRequestFailure =
         | "pr_owned_elsewhere"
         | "pr_not_associated"
         | "pr_branch_mismatch"
-        | "internal_review_not_recorded";
+        | "internal_review_not_recorded"
+        | "handoff_running";
       detail: string;
     });
 
@@ -56,10 +58,12 @@ export function worktreeOwners(client: Database) {
           pullRequest: pullRequests.number,
           relay: pullRequests.relay,
           progress: pullRequests.progress,
+          readiness: pullRequests.readiness,
           internalReview: launches.internalReview,
           kind: launches.kind,
           reviewState: internalReviews.state,
           implementerLaunchId: internalReviews.implementerLaunchId,
+          outgoingLaunchId: kindHandoffs.outgoingLaunchId,
         })
         .from(launches)
         .innerJoin(sources, eq(sources.id, launches.sourceId))
@@ -83,6 +87,13 @@ export function worktreeOwners(client: Database) {
           and(
             eq(internalReviews.sourceId, launches.sourceId),
             eq(internalReviews.assignment, launches.assignment),
+          ),
+        )
+        .leftJoin(
+          kindHandoffs,
+          and(
+            eq(kindHandoffs.sourceId, launches.sourceId),
+            eq(kindHandoffs.assignment, launches.assignment),
           ),
         )
         .where(isNotNull(launches.worktreePath))
@@ -194,38 +205,84 @@ function current(db: Db, sourceId: string, assignment: string) {
     .get();
 }
 
+type Association = Pick<PullRequestRow, "number" | "url" | "branch" | "relay"> & {
+  readiness?: PrReadiness;
+};
+
+/** Only this review-off owner can advance its draft association, never an old review or receipt. */
+function repeatAssociation(
+  db: Db,
+  owner: Extract<ReturnType<typeof activeOwner>, { tag: "Ok" }>["value"],
+  existing: PullRequestRow,
+  pr: Association,
+  review: boolean,
+  internalReview: boolean,
+): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> {
+  const { source, assignment, launch } = owner;
+  if (existing.number !== pr.number)
+    return Err({
+      reason: "pr_already_associated",
+      next: {
+        command: "operator pr wait",
+        why: "Continue the assignment's existing PR rather than associating another.",
+      },
+      state: { pullRequest: existing.number },
+      detail: `Assignment ${assignment.key} already owns PR #${existing.number}. Nothing was changed.`,
+    });
+  const reviewed = db
+    .select()
+    .from(internalReviews)
+    .where(
+      and(eq(internalReviews.sourceId, source.id), eq(internalReviews.assignment, assignment.key)),
+    )
+    .get();
+  if (
+    existing.readiness !== null ||
+    pr.readiness === undefined ||
+    internalReview ||
+    launch.internalReview !== false ||
+    existing.branch !== launch.branch ||
+    pr.branch !== existing.branch ||
+    reviewed !== undefined
+  )
+    return Ok({ row: existing, changed: false });
+  return recordPrReady(
+    db,
+    { sourceId: source.id, assignment: assignment.key, launchId: launch.id },
+    pr.readiness,
+    "pr-feedback",
+  ).map(() => {
+    if (review)
+      requestAssignmentReview(db, {
+        repository: source.repository,
+        number: existing.number,
+        url: existing.url,
+        sourceId: source.id,
+        assignment: assignment.key,
+      });
+    return { row: { ...existing, readiness: JSON.stringify(pr.readiness) }, changed: true };
+  });
+}
+
 /**
- * One PR moves its assignment from running to PR open. A repeated association changes nothing.
+ * One PR moves its assignment from running to PR open. Its review-off owner can later record ready.
  * With internal review on, the same write records the review and its pending handoff.
  */
 export function associatePullRequest(
   client: Database,
   launchId: string,
-  pr: Pick<PullRequestRow, "number" | "url" | "branch" | "relay">,
+  pr: Association,
   review = false,
   internalReview = false,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
       activeOwner(db, launchId).flatMap(
-        ({
-          source,
-          assignment,
-          launch,
-        }): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
+        (owner): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
+          const { source, assignment, launch } = owner;
           const existing = current(db, source.id, assignment.key);
           if (existing !== undefined)
-            return existing.number === pr.number
-              ? Ok({ row: existing, changed: false })
-              : Err({
-                  reason: "pr_already_associated",
-                  next: {
-                    command: "operator pr wait",
-                    why: "Continue the assignment's existing PR rather than associating another.",
-                  },
-                  state: { pullRequest: existing.number },
-                  detail: `Assignment ${assignment.key} already owns PR #${existing.number}. Nothing was changed.`,
-                });
+            return repeatAssociation(db, owner, existing, pr, review, internalReview);
           const owned = db
             .select({ assignment: pullRequests.assignment })
             .from(pullRequests)
@@ -258,7 +315,11 @@ export function associatePullRequest(
             sourceId: source.id,
             assignment: assignment.key,
             repository: source.repository,
-            ...pr,
+            number: pr.number,
+            url: pr.url,
+            branch: pr.branch,
+            relay: pr.relay,
+            readiness: null,
             associatedAt: new Date().toISOString(),
             progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
             waitState: "idle",
@@ -288,6 +349,16 @@ export function associatePullRequest(
                   : WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
               ),
             );
+          if (pr.readiness !== undefined && !internalReview) {
+            const recorded = recordPrReady(
+              db,
+              { sourceId: source.id, assignment: assignment.key, launchId },
+              pr.readiness,
+              "pr-feedback",
+            );
+            if (recorded.tag === "Err") return Err(recorded.error);
+            row.readiness = JSON.stringify(pr.readiness);
+          }
           if (review)
             requestAssignmentReview(db, {
               repository: source.repository,

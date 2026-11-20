@@ -105,6 +105,97 @@ const pr = {
   relay: null,
 };
 
+test("ready association durably records readiness and the fresh feedback handoff together", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  const readiness = { head: "h1", at: "now", note: null, dispositions: [] };
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: true },
+  });
+  expect(readSources(db, "owner/one", "s1")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        pullRequests: [{ readiness: JSON.stringify(readiness) }],
+        handoffs: [{ outgoingLaunchId: "l1", nextKind: "pr-feedback", handoffState: "pending" }],
+      },
+    ],
+  });
+  const before = db.serialize();
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: false },
+  });
+  expect(db.serialize()).toEqual(before);
+});
+
+test("the same review-off draft owner records ready once, including after its handoff is done", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  db.exec("UPDATE launches SET internal_review = 0");
+  expect(associatePullRequest(db, "l1", pr)).toMatchObject({ tag: "Ok", value: { changed: true } });
+  const readiness = {
+    head: "new-pushed-head",
+    at: "2026-11-18T01:00:00.000Z",
+    note: null,
+    dispositions: [],
+  };
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: true },
+  });
+  expect(readSources(db, "owner/one", "s1")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        pullRequests: [{ readiness: JSON.stringify(readiness) }],
+        handoffs: [{ outgoingLaunchId: "l1", nextKind: "pr-feedback" }],
+      },
+    ],
+  });
+  db.exec("UPDATE kind_handoffs SET handoff_state = 'done', owner_pid = NULL, lease_at = NULL");
+  const before = db.serialize();
+  expect(associatePullRequest(db, "l1", { ...pr, readiness })).toMatchObject({
+    tag: "Ok",
+    value: { changed: false },
+  });
+  expect(db.serialize()).toEqual(before);
+});
+
+test.each(["legacy", "review", "branch", "foreign handoff", "replaced"])(
+  "repeat association cannot backfill readiness through %s",
+  (mode) => {
+    using db = fixture();
+    start(db, "l1", "change", "p1");
+    if (mode !== "legacy") db.exec("UPDATE launches SET internal_review = 0");
+    expect(associatePullRequest(db, "l1", pr, false, mode === "review").tag).toBe("Ok");
+    if (mode === "branch") db.exec("UPDATE pull_requests SET branch = 'foreign'");
+    if (mode === "foreign handoff") {
+      start(db, "foreign", "other", "p2");
+      insertRow(db, "kind_handoffs", {
+        source_id: "s1",
+        assignment: "change",
+        outgoing_launch_id: "foreign",
+        next_kind: "review",
+        handoff_state: "pending",
+      });
+    }
+    if (mode === "replaced") interrupt(db, "p1");
+    const before = db.serialize();
+    const result = associatePullRequest(db, "l1", {
+      ...pr,
+      readiness: { head: "h", at: "now", note: null, dispositions: [] },
+    });
+    expect(result).toMatchObject(
+      mode === "foreign handoff" || mode === "replaced"
+        ? { tag: "Err" }
+        : { tag: "Ok", value: { changed: false } },
+    );
+    expect(db.serialize()).toEqual(before);
+  },
+);
+
 function assignmentState(db: Database, key: string) {
   return db.query("SELECT state FROM assignments WHERE key = ?").get(key);
 }

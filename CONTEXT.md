@@ -150,7 +150,8 @@ Resources and the start profile can be overridden, but completion cannot.
 It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent may do.
 
 **PR assignment**:
-An assignment whose owner WorkerAgent carries one pull request through review, feedback, CI, and merge.
+An assignment whose implementation, review, and pr-feedback launches carry one pull request through review, feedback, CI, and merge.
+The ready transition ends the reviewer launch and starts a fresh pr-feedback launch in the same worktree.
 A dependent can start when the dependency's PR is open or merged.
 It stacks on the branch of one open parent PR, and it waits while more than one parent PR is open.
 
@@ -251,14 +252,18 @@ It retains the owner's working context rather than requiring a fresh writer for 
 
 **PR merge gate**:
 The conditions that the CLI checks before it merges a PR.
-They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and an internal review that ended ready or was skipped.
+They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and a recorded ready transition.
 _Avoid_: project gate
 
 **Internal review**:
 The unpublished review of a draft PR by a fresh WorkerAgent that takes over the PR assignment from its implementer.
-The reviewer applies the valid findings, moves the PR to ready with one summary comment, and then owns the PR to its merge.
+The reviewer applies the valid findings and moves the PR to ready with one summary comment.
+The CLI retains every finding's disposition, including each declined reason, for the next pr-feedback launch.
+The reviewer may leave a note for that launch, but a reviewer reads no implementer note.
 It is on by default, and an assignment, a plan, or the device setting can turn it off.
-On the person's instruction, the SuperAgent can skip a running internal review, which marks the PR ready without a comment.
+On the person's instruction, the SuperAgent can record a skip of a running internal review.
+The reviewer's guarded ready transition then needs no rounds or summary comment and starts pr-feedback.
+A skip is one-way; a second review uses a review request.
 _Avoid_: self-review, pre-PR review, internal review request
 
 **Handoff**:

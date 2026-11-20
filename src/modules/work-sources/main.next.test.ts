@@ -44,6 +44,39 @@ function next(all?: boolean) {
   return WorkSources.next({ paths, cwd: root, all });
 }
 
+test("next projects a retained ready receipt without reconstructing review or wait evidence", async () => {
+  const receipt = {
+    head: "ready-head",
+    at: "2026-11-18T01:00:00.000Z",
+    note: "/device/ready.md",
+    dispositions: [
+      { round: 1, finding: 2, disposition: "declined", reason: "The guard covers it." },
+    ],
+  };
+  stored([
+    storedSource([{ key: "work", completion: "pr", state: "pr-open" }], {
+      launches: [storedLaunch("work")],
+      pullRequests: [storedPullRequest("work", { readiness: JSON.stringify(receipt) })],
+    }),
+  ]);
+  const result = await next();
+  expect(result).toMatchObject({
+    tag: "Ok",
+    value: {
+      sources: [
+        {
+          waits: [
+            {
+              assignment: "work",
+              pullRequest: { pr_ready: true, readiness: receipt },
+            },
+          ],
+        },
+      ],
+    },
+  });
+});
+
 const merged = {
   mergedHead: "abc",
   mergeCommit: "def",
@@ -179,6 +212,8 @@ function mergedRow(key: string, action: string, reason: string, cleanup: Cleanup
       branch: `task/${key}`,
       wait: "idle",
       waitAt: null,
+      pr_ready: false,
+      readiness: null,
       stack: null,
     },
     cleanup: { updatedAt: "2026-01-04T00:00:00.000Z", ...cleanup },
@@ -205,6 +240,8 @@ test("next describes each open assignment with its recorded facts", async () => 
         branch: "task/stop",
         wait: "stopped",
         waitAt: null,
+        pr_ready: false,
+        readiness: null,
         stack: null,
       },
     },
@@ -326,6 +363,8 @@ test("next describes each open assignment with its recorded facts", async () => 
         branch: "task/pr1",
         wait: "waiting",
         waitAt: "2026-01-02T02:00:00.000Z",
+        pr_ready: false,
+        readiness: null,
         stack: { ...relay, blocker: null },
       },
     },

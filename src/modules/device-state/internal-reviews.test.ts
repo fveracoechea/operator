@@ -6,6 +6,83 @@ import { migrationsFolder } from "./database.ts";
 import { claimHandoff, endInternalReview, recordInternalReviewRound } from "./internal-reviews.ts";
 import { Ok } from "unthrown";
 import { projects, sources, assignments, launches, internalReviews } from "./schema.ts";
+import { insertRow } from "./state-fixture.ts";
+
+test("review completion atomically retains dispositions and queues the recorded feedback successor", () => {
+  using client = new Database(":memory:");
+  migrate(drizzle(client), { migrationsFolder });
+  insertRow(client, "sources", { id: "s", repository: "owner/repo", state: "open" });
+  insertRow(client, "assignments", {
+    source_id: "s",
+    key: "a",
+    completion: "pr",
+    state: "pr-open",
+  });
+  insertRow(client, "launches", {
+    id: "r",
+    source_id: "s",
+    assignment: "a",
+    attempt: 2,
+    state: "running",
+  });
+  insertRow(client, "pull_requests", { source_id: "s", assignment: "a", readiness: null });
+  insertRow(client, "internal_reviews", {
+    source_id: "s",
+    assignment: "a",
+    state: "reviewing",
+    implementer_launch_id: "i",
+    ready_head: null,
+  });
+  const readiness = {
+    head: "h",
+    at: "now",
+    note: "/device/note.md",
+    dispositions: [
+      { round: 1, finding: 1, disposition: "declined" as const, reason: "Not a contract." },
+    ],
+  };
+  expect(
+    endInternalReview(
+      client,
+      { sourceId: "s", assignment: "a", launchId: "r" },
+      {
+        state: "ready",
+        readyHead: "h",
+        commentId: "c",
+        commentUrl: "https://github.com/c",
+        readiness,
+      },
+      false,
+    ),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { changed: true, review: { readyHead: "h", commentUrl: "https://github.com/c" } },
+  });
+  expect(client.query("SELECT readiness FROM pull_requests").get()).toEqual({
+    readiness: JSON.stringify(readiness),
+  });
+  expect(client.query("SELECT outgoing_launch_id, next_kind FROM kind_handoffs").get()).toEqual({
+    outgoing_launch_id: "r",
+    next_kind: "pr-feedback",
+  });
+  client.exec("UPDATE launches SET state = 'finished'");
+  const before = client.serialize();
+  expect(
+    endInternalReview(
+      client,
+      { sourceId: "s", assignment: "a", launchId: "r" },
+      {
+        state: "ready",
+        readyHead: "other",
+        commentId: "c",
+        commentUrl: "https://github.com/c",
+        readiness,
+      },
+      false,
+    ),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_owner_inactive" } });
+  expect(client.serialize()).toEqual(before);
+});
 
 test("skip commit guards expose only checked facts and preserve the database on refusal", () => {
   using client = new Database(":memory:");

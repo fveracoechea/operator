@@ -15,6 +15,7 @@ import {
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { activeOwner, type PullRequestFailure } from "./pull-requests.ts";
+import { recordPrReady, type PrReadiness } from "./pr-readiness.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { validateContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
@@ -358,6 +359,7 @@ export function recordInternalReviewRound<E extends { reason: string; detail: st
 
 export type ReviewEnd = Pick<InternalReviewRow, "readyHead" | "commentId" | "commentUrl"> & {
   state: "ready" | "skipped";
+  readiness?: PrReadiness;
 };
 type EndFailure = ResultContext &
   (
@@ -423,15 +425,35 @@ export function endInternalReview(
           });
         if (review.state === end.state && review.readyHead === end.readyHead)
           return Ok({ changed: false, review });
-        if (review.state !== "reviewing")
+        if (
+          review.state !== "reviewing" &&
+          !(review.state === "skipped" && end.readiness !== undefined)
+        )
           return Err({
             reason: "internal_review_ended",
             detail: `The internal review already ended ${review.state}. Nothing was changed.`,
             next: { why: "The internal review has already ended. No transition remains." },
             state: { review: review.state },
           });
+        if (end.readiness !== undefined && target.launchId !== null) {
+          const recorded = recordPrReady(
+            db,
+            { ...target, launchId: target.launchId },
+            end.readiness,
+            "pr-feedback",
+          );
+          if (recorded.tag === "Err") return Err(recorded.error);
+        }
         const now = new Date().toISOString();
-        const ended = { ...review, ...end, endedAt: now, updatedAt: now };
+        const ended = {
+          ...review,
+          state: end.state,
+          readyHead: end.readyHead,
+          commentId: end.commentId,
+          commentUrl: end.commentUrl,
+          endedAt: now,
+          updatedAt: now,
+        };
         db.update(internalReviews).set(ended).where(key(target.sourceId, target.assignment)).run();
         const pr = db
           .select()
