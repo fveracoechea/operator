@@ -98,6 +98,12 @@ test("a changed completion type refuses dispatch before creating resources or re
     tag: "Err",
     error: {
       reason: "kind_completion_changed",
+      detail: "Kind audit no longer matches the registered completion type. Nothing was launched.",
+      next: {
+        decider: "super-agent",
+        question:
+          "Should the kind's original completion type be restored, or should this work use a new plan?",
+      },
       state: { kind: "audit", registeredCompletion: "report", configuredCompletion: "pr" },
     },
   });

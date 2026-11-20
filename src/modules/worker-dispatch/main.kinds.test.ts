@@ -161,6 +161,17 @@ test("the handoff launch records the review kind rather than the implementation 
     tag: "Err",
     error: { reason: "assignment_not_dispatchable" },
   });
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await WorkerDispatch.checkHandoff(device.request("impl"))).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+  expect(await WorkerDispatch.checkHandoff(device.request("blocked"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable" },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
   expect(await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true })).toMatchObject(
     {
       tag: "Ok",

@@ -14,7 +14,9 @@ import {
 } from "./device-fixture.ts";
 import { PullRequests } from "./main.ts";
 import { WorkSources } from "../work-sources/main.ts";
-import { Err, OkAsync } from "unthrown";
+import { WorkerDispatch } from "../worker-dispatch/main.ts";
+import { Environment } from "../environment/main.ts";
+import { Err, ErrAsync, OkAsync } from "unthrown";
 import { stacked } from "./relay.ts";
 
 afterEach(() => {
@@ -73,6 +75,71 @@ test("the public recovery action refuses missing person authorization before ext
       personInstructed: false,
     }),
   ).toMatchObject({ tag: "Err", error: { reason: "person_instruction_required" } });
+  expect(device.calls).toEqual([]);
+});
+
+test("the dispatch facade forwards ordinary supervisor dispatch and preserves its refusal", async () => {
+  await using device = await prDevice();
+  spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
+  const input = {
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+  };
+  const failure = {
+    reason: "assignment_not_dispatchable",
+    detail: "The assignment cannot start.",
+    next: { command: "operator next", why: "Read its recorded action." },
+  };
+  const launch = spyOn(WorkerDispatch, "dispatch").mockReturnValue(ErrAsync(failure));
+  expect(await PullRequests.dispatch(input)).toMatchObject({ tag: "Err", error: failure });
+  expect(launch.mock.calls).toEqual([[input]]);
+  expect(await PullRequests.dispatchPermission(input)).toMatchObject({
+    tag: "Ok",
+    value: { continuation: null },
+  });
+  expect(launch).toHaveBeenCalledTimes(1);
+  expect(device.calls).toEqual([]);
+});
+
+test("the continuation facade retains target and host context and refuses before dispatch effects", async () => {
+  await using device = await prDevice();
+  spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_PANE_ID: "worker",
+    HERDR_SOCKET_PATH: "/fixture.sock",
+  });
+  const refusal = {
+    reason: "handoff_continuation_refused" as const,
+    detail: "The publication belongs to another owner.",
+    next: { command: "operator next", why: "Recover." },
+    state: { continuationAuthorized: false },
+  };
+  const read = spyOn(DeviceState, "readHandoffContinuation").mockReturnValue(Err(refusal));
+  const launch = spyOn(WorkerDispatch, "dispatch");
+  const input = {
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+    afterPid: 123,
+  };
+  expect(await PullRequests.dispatchPermission(input)).toMatchObject({
+    tag: "Err",
+    error: refusal,
+  });
+  expect(await PullRequests.dispatch(input)).toMatchObject({ tag: "Err", error: refusal });
+  expect(read.mock.calls).toEqual(
+    Array.from({ length: 2 }, () => [
+      device.paths,
+      { repository, sourceId: device.sourceId, assignment: "parent" },
+      { pane: "worker", socket: "/fixture.sock" },
+      123,
+    ]),
+  );
+  expect(launch).not.toHaveBeenCalled();
   expect(device.calls).toEqual([]);
 });
 
