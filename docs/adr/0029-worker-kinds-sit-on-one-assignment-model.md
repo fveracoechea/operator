@@ -9,6 +9,7 @@ Later tickets supply kind transitions and parking.
 Amended 2026-11-17: draft association starts the recorded kind handoff; dispatch recovers failed or stopped handoffs.
 Amended 2026-11-19: each assignment permits at most two report returns, including replacement launches, then requires the person's decision.
 Amended 2026-11-17 in #389: explicit readiness replaces inferred review or wait evidence and starts the feedback handoff.
+Amended 2026-11-18 in #390: parking retains an optional park-only note and durable waking events.
 
 ## Context
 
@@ -71,6 +72,14 @@ Draft association with internal review starts the fresh review launch in the sam
 The fresh reviewer reads no implementer note.
 Ready ends the reviewer and starts fresh pr-feedback through the same recorded handoff and recovery rules.
 Its first launch and replacements receive complete dispositions and the optional reviewer note.
+At a quiet feedback wait, the same outgoing-launch machinery ends the launch without starting its successor.
+Checks running on the worker's pushed head instead keep the wait frontier.
+Parking retains a distinct optional note only when the wait parks.
+A later resume starts the recorded feedback kind and renders the retained events and park note, including on replacement after failure.
+The device records one 15-minute batch-read schedule across coordination waits.
+Observation cursors and waking events commit together; a quiet or repeated observation adds no action.
+The durable contract can land before activation, but does not by itself enable parking or a batch reader.
+Managed-stack activation and the combined #422/#393/#394 action and wait contracts remain a later compatibility obligation; parking uses recorded PR association and parent facts, not invented stack history.
 
 ## Consequences
 

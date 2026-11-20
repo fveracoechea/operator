@@ -14,7 +14,9 @@ As the internal reviewer, read [internal-review.md](internal-review.md).
 2. Run `operator pr associate --json`, then stop after its kind handoff.
    A ready PR with internal review off starts fresh pr-feedback.
 3. As the pr-feedback launch, run `operator pr wait --json`.
-   Set your shell command timeout above the wait timeout, which is 300 seconds by default and `--timeout <seconds>` otherwise.
+   Set your shell command timeout above the default 540 seconds, or above the explicit `--timeout <seconds>`.
+   Pass `--note <path|->` for open points that the next launch needs.
+   The CLI retains this note only when the wait parks, with at most 60 lines.
 4. Handle the result, then wait again.
 
 - `pr_events_observed` with `feedback`: follow the claim-check and reply rules in [kinds/pr-feedback.md](kinds/pr-feedback.md).
@@ -22,11 +24,14 @@ As the internal reviewer, read [internal-review.md](internal-review.md).
   They come only together with another event.
 - `pr_events_observed` with `checks_failed`: read the failing check, fix the cause, and push.
 - `pr_events_observed` with `merge_eligible`: all seven merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
-- `pr_wait_timed_out`: nothing new arrived. Wait again unless your SuperAgent told you to stop. Your SuperAgent sees the timeout until your next wait starts.
+- `pr_parked`: stop. Operator ends your launch and keeps the worktree for a later change.
+- `pr_checks_running`: wait again for checks on your pushed head. The CLI retained no park note.
 - `pr_events_observed` with `parent_relayed`: your parent PR merged. The CLI rebased your branch onto the default branch, pushed it, and changed the PR base. Pull nothing. Your worktree is at the new head. Wait again.
 
 A PR closed without merging needs your SuperAgent's decision.
 A PR merged elsewhere still needs verification through the guarded merge.
+A merge while parked instead receives automatic verification and cleanup through the coordination wait.
+Your replacement brief lists its durable waking events and any note from the parking wait.
 
 ## Stacked PRs
 

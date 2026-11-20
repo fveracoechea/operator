@@ -8,6 +8,7 @@ Implemented: the feedback loop in #249, stacked starts and parent-merge relay in
 Amended 2026-11-04 in #305: the merge also requires that an internal review of the PR ended ready or was skipped (ADR-0020).
 Amended 2026-11-04 in #320: the guarded merge uses GitHub's asynchronous merge endpoint, because the synchronous endpoint refuses a stacked PR.
 Amended 2026-11-17 in #389: a fresh pr-feedback launch takes over at ready, and the merge requires the recorded ready transition.
+Amended 2026-11-18 in #390: quiet feedback waits park the assignment and changes resume a fresh launch.
 
 ## Context
 
@@ -26,7 +27,16 @@ Canonical-map amendment remains an agent convention, not a tracker state machine
 Each PR assignment owns one PR and follows the lifecycle ready, running, PR open, and merged, with abandoned as an incomplete end.
 A fresh pr-feedback launch takes over at the ready transition, checks bot and human claims, replies, and pushes fixes.
 The CLI waits for the next applicable action, including new review feedback, failing CI, merge eligibility, and a merged parent that requires rebasing.
-A wait timeout makes an idle owner visible to the SuperAgent for replacement rather than proving completion.
+A quiet wait parks the assignment and ends its launch, except while checks run on the worker's pushed head.
+Parking keeps the worktree and PR-open state, not a live worker.
+Only a note supplied to the parking wait is retained for the next launch; the reviewer's earlier note is not a park note.
+Coordination waits read all parked PRs in one batch every 15 minutes, using a durable device-wide schedule and observation cursors.
+Quiet and repeated reads wake nothing.
+New feedback, failing CI, newly observed merge eligibility, or a merged parent produces `resume_pr_feedback` and a fresh launch with durable events.
+Merge eligibility remains an observation, not permission to bypass the merge gate.
+An interrupted resume keeps those events for its replacement through the ordinary recorded handoff and launch machinery.
+A verified merge ends the assignment and runs cleanup.
+A close without merge produces `clean_up` with `pr_closed`, whose next command abandons the assignment without deleting unlanded work.
 
 A dependency with an open or merged PR permits dependent code work to start.
 The child PR stacks on the parent's branch, and the CLI coordinates the relay and rebase after the parent merges.
@@ -60,7 +70,7 @@ Report assignments have a separate completion contract and support planning and 
 ## Alternatives considered
 
 - A source-wide integration branch and separate publication stack were rejected because agent-owned PRs already supplied the observed delivery workflow with less machinery.
-- Fresh workers for every correction were rejected because the PR owner already holds the working context and can answer feedback directly.
+- Fresh workers for every correction remain unnecessary within a live launch; parking accepts a cold start in exchange for releasing a quiet worker.
 - Waiting for parent merge before any dependent starts was rejected in favor of PR stacking and explicit rebase handling.
 - Supervisor-written scripts and ledgers were rejected because the CLI must own the repeatable feedback, merge, and cleanup steps.
 - Retaining tracker recovery, write-path scheduling, and local gates was rejected because the sessions did not need them and existing tracker tools, Git conflicts, and CI already covered the retained work.

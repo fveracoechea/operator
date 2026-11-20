@@ -733,12 +733,18 @@ test("PR observations consume and persist each queued change before a no-op read
   });
   expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
     code: 0,
-    output: { reason: "pr_wait_timed_out" },
+    output: { reason: "pr_parked" },
   });
   expect(await readJson(`${root}/github.json`)).toMatchObject({
     queue: [],
     pulls: [{ reviewDecision: "APPROVED" }],
   });
+  const deadline = Date.now() + 30000;
+  while ((await shown(source)).launches.at(-1)?.state !== "finished") {
+    expect(Date.now()).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_parked" });
 }, 90000);
 
 test("failed steps stop the declared order, stay visible, and continue after a restart", async () => {

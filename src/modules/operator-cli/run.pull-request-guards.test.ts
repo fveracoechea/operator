@@ -37,7 +37,7 @@ test.each([
   {
     name: "running owner in the write transaction",
     file: "device-state/pull-requests.ts",
-    replacements: [['owner?.launch.state !== "running" ||', ""]],
+    replacements: [['(owner.launch.state !== "running" && !parkedMerge) ||', ""]],
     testFile: "device-state/pull-requests.test.ts",
     pattern: "a replacement keeps PR open",
   },
@@ -71,10 +71,7 @@ test.each([
     name: "no selector flags",
     file: "operator-cli/pull-requests.ts",
     replacements: [
-      [
-        "      timeoutSeconds = Number(value);\n    } else return null;",
-        "      timeoutSeconds = Number(value);\n    }",
-      ],
+      ['  if (flags.length > 1 || flags.some((flag) => flag !== "--json")) return null;', ""],
     ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "PR commands resolve only the recorded worktree",
@@ -96,7 +93,12 @@ test.each([
   {
     name: "reported feedback",
     file: "pull-requests/wait-machine.ts",
-    replacements: [["!progress.seen.includes(item.id) &&", ""]],
+    replacements: [
+      [
+        "!progress.seen.includes(feedbackKey(item)) &&\n      !progress.seen.includes(item.id) &&",
+        "",
+      ],
+    ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "opencode: the owner associates",
   },
@@ -104,7 +106,10 @@ test.each([
     name: "reported check failures",
     file: "pull-requests/wait-machine.ts",
     replacements: [
-      ['check.state === "failing" && !progress.failures', 'check.state === "failing" && ![]'],
+      [
+        `check.state === "failing" &&\n      !progress.failures.includes(failureKey(observed.head, check)) &&\n      !progress.failures.includes(\`\${observed.head}:\${check.name}\`)`,
+        'check.state === "failing"',
+      ],
     ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "opencode: the owner associates",
@@ -117,11 +122,11 @@ test.each([
     pattern: "opencode: the owner associates",
   },
   {
-    name: "timeout attention",
+    name: "legacy timeout attention",
     file: "work-sources/assignment-machine.ts",
     replacements: [['assignment.state === "pr-open" && pullRequest === "timed_out"', "false"]],
-    testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "opencode: the owner associates",
+    testFile: "work-sources/assignment-machine.test.ts",
+    pattern: "a PR open owner stays in its feedback loop",
   },
   {
     name: "PR open replacement",

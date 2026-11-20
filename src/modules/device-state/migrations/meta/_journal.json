@@ -176,6 +176,13 @@
       "when": 1794956400000,
       "tag": "0024_pr_readiness",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1795042800000,
+      "tag": "0025_pr_parking",
+      "breakpoints": true
     }
   ]
 }

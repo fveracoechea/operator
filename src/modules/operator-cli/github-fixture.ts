@@ -58,7 +58,7 @@ if (race && observation) {
 const save = () => writeFile(stateFile, new TextEncoder().encode(JSON.stringify(state)));
 state.pulls ??= []; state.queue ??= [];
 const field = (name) => { const entry = args.find((arg, index) => ["-f", "-F"].includes(args[index - 1]) && arg.startsWith(name + "=")); return entry?.slice(name.length + 1); };
-const answer = (body) => { console.log("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n" + JSON.stringify(body)); };
+const answer = (body) => { console.log("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n" + JSON.stringify(state.graphqlErrors && args.includes("graphql") ? { ...body, errors: [{ message: "Partial read refused" }] } : body)); };
 if (state.fail) { console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: state.fail })); process.exit(1); }
 const status = (code, text, body) => { console.log("HTTP/2.0 " + code + " " + text + "\\r\\nContent-Type: application/json\\r\\n\\r\\n" + (body === undefined ? "" : JSON.stringify(body))); };
 const method = args[args.indexOf("-X") + 1];
@@ -141,7 +141,7 @@ const query = field("query") ?? "";
 const nodes = (items) => ({ totalCount: items.length, nodes: items });
 const author = (login) => (login === null ? null : { login });
 const reviewsPath = args.find((arg) => arg.startsWith("repos/") && arg.endsWith("/reviews"));
-const check = (item) => item.status ? { __typename: "StatusContext", context: item.name, state: item.status, targetUrl: null, isRequired: item.required ?? false } : { __typename: "CheckRun", name: item.name, status: item.conclusion ? "COMPLETED" : "IN_PROGRESS", conclusion: item.conclusion ?? null, detailsUrl: "https://ci/" + item.name, isRequired: item.required ?? false };
+const check = (item) => item.status ? { __typename: "StatusContext", id: item.id, createdAt: item.createdAt, context: item.name, state: item.status, targetUrl: null, isRequired: item.required ?? false } : { __typename: "CheckRun", id: item.id, startedAt: item.startedAt, completedAt: item.completedAt, name: item.name, status: item.conclusion ? "COMPLETED" : "IN_PROGRESS", conclusion: item.conclusion ?? null, detailsUrl: "https://ci/" + item.name, isRequired: item.required ?? false };
 if (reviewsPath) {
   // The review post reads its payload from standard input, as gh api --input - does.
   const payload = JSON.parse(await Bun.stdin.text());
@@ -209,6 +209,43 @@ if (query.includes("files(first")) {
 }
 // With a real bare remote, an open PR's head is its branch there, as GitHub reports a push.
 const headOf = (pr) => pr.head ?? (state.remote ? Bun.spawnSync(["git", "--git-dir", state.remote, "rev-parse", "refs/heads/" + pr.headRefName]).stdout.toString().trim() : "head-1");
+const page = (items, connection, selection) => {
+  const marker = connection + '(first: 100, after: "';
+  const start = Number(selection.split(marker)[1]?.split('"')[0] ?? 0);
+   const end = Math.min(start + 100, items.length);
+   if (start > 0 && state.repeatTerminal === (query.includes("ParkedThreadPages") ? "threadComments" : connection))
+     return { totalCount: items.length, nodes: items.slice(0, 100), pageInfo: { hasNextPage: false, endCursor: String(start) } };
+  return { totalCount: items.length, nodes: items.slice(start, end), pageInfo: { hasNextPage: end < items.length, endCursor: String(end) } };
+};
+const feedbackComment = (comment) => ({ id: comment.id, body: comment.body ?? "", updatedAt: comment.updatedAt ?? "2000-01-01T00:00:00Z", url: "https://github.com/c/" + comment.id, author: author(comment.author ?? "reviewer") });
+const prFacts = (pr, selection = query) => ({
+    state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), isDraft: pr.isDraft ?? false, reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
+    reviews: page((pr.reviews ?? []).map((review) => ({ ...feedbackComment(review), state: review.state })), "reviews", selection),
+    comments: page((pr.comments ?? []).map(feedbackComment), "comments", selection),
+    reviewThreads: page((pr.threads ?? []).map((thread) => ({ id: thread.id, isResolved: thread.resolved ?? false, path: thread.path ?? "file.ts", comments: page(thread.comments.map(feedbackComment), "threadComments", selection) })), "reviewThreads", selection),
+    commits: nodes([{ commit: { statusCheckRollup: pr.checks === null ? null : { contexts: { totalCount: pr.totalChecks ?? (pr.checks ?? []).length, nodes: (pr.checks ?? []).slice(0, 100).map(check) } } } }]),
+});
+if (query.includes("ParkedThreadPages")) {
+  const data = {};
+  for (const match of query.matchAll(/(t\\d+): node\\(id: "([^"]+)"\\) \\{([\\s\\S]*?)(?=t\\d+: node|$)/g)) {
+    const pr = state.pulls.find(row => row.threads?.some(thread => thread.id === match[2]));
+    const thread = pr?.threads.find(thread => thread.id === match[2]);
+    data[match[1]] = thread === undefined ? null : { pullRequest: { headRefOid: headOf(pr) }, comments: page(thread.comments.map(feedbackComment), "comments", match[3]) };
+  }
+  answer({ data }); process.exit(0);
+}
+if (query.includes("ParkedPRs") || query.includes("ParkedFeedbackPages")) {
+  const data = { viewer: { login: state.viewer ?? "owner" } };
+  for (const match of query.matchAll(/(r\\d+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{([\\s\\S]*?)(?=r\\d+: repository|$)/g)) {
+    const number = Number(/pullRequest\\(number: (\\d+)\\)/.exec(match[4])?.[1]);
+    const pr = state.pulls.find(row => row.number === number);
+    const parentNumber = Number(/parent: pullRequest\\(number: (\\d+)\\)/.exec(match[4])?.[1]);
+    const parent = state.pulls.find(row => row.number === parentNumber);
+    data[match[1]] = { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: pr === undefined ? null : prFacts(pr, match[4]), ...(parent === undefined ? {} : { parent: { state: parent.state, baseRefName: parent.baseRefName ?? "main", headRefOid: headOf(parent) } }) };
+  }
+  answer({ data });
+  process.exit(0);
+}
 if (args.includes("PATCH")) {
   if (state.failPatch) { console.log("HTTP/2.0 422 Unprocessable Entity\\r\\n\\r\\n" + JSON.stringify({ message: state.failPatch })); process.exit(1); }
   const number = Number(args.find((arg) => arg.startsWith("repos/")).split("/").at(-1));
@@ -258,13 +295,7 @@ if (args.includes("PATCH")) {
     if (staleReader) await Bun.write(root + "/merge-race-stale-finished", "");
     else if (existsSync(root + "/merge-race-saved")) await Bun.write(root + "/merge-race-verified", "");
   }
-  answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: {
-    state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), isDraft: pr.isDraft ?? false, reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
-    reviews: nodes((pr.reviews ?? []).map((review) => ({ id: review.id, state: review.state, body: review.body ?? "", url: "https://github.com/r/" + review.id, author: author(review.author ?? "reviewer") }))),
-    comments: nodes((pr.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/c/" + comment.id, author: author(comment.author ?? "reviewer") }))),
-    reviewThreads: nodes((pr.threads ?? []).map((thread) => ({ isResolved: thread.resolved ?? false, path: thread.path ?? "file.ts", comments: nodes(thread.comments.map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/t/" + comment.id, author: author(comment.author ?? "reviewer") }))) }))),
-    commits: nodes([{ commit: { statusCheckRollup: (pr.checks ?? []).length === 0 ? null : { contexts: nodes(pr.checks.map((check) => check.status ? { __typename: "StatusContext", context: check.name, state: check.status, targetUrl: null } : { __typename: "CheckRun", name: check.name, status: check.conclusion ? "COMPLETED" : "IN_PROGRESS", conclusion: check.conclusion ?? null, detailsUrl: "https://ci/" + check.name })) } } }]),
-  } } } });
+  answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: prFacts(pr) } } });
 }
 `;
 }

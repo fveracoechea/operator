@@ -78,7 +78,7 @@ function notDispatchable(assignment: string, state: ResultContext["state"]) {
 }
 
 /** Dispatch starts an assignment that next lists as ready or as needing a replacement. */
-const dispatchActions = ["ready_assignment", "replace_worker"];
+const dispatchActions = ["ready_assignment", "replace_worker", "resume_pr_feedback"];
 
 function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
   return (
@@ -179,6 +179,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               comment: review.commentUrl,
             };
       })
+      .let("events", ({ pullRequest }) => pullRequest?.parking?.events ?? [])
       // An adopted PR is read at each start until its owner associates it. ADR-0024.
       .bind("adoption", ({ source, planned, pullRequest }) =>
         !("adopt" in planned) || planned.adopt === undefined || pullRequest !== null
@@ -416,7 +417,11 @@ function place(input: {
 
 async function reviewerNote(settings: Pick<Settings, "kind" | "pullRequest">) {
   if (settings.kind?.readsNote !== true) return null;
-  const file = settings.pullRequest?.readiness?.note ?? null;
+  const pr = settings.pullRequest;
+  const file =
+    pr?.parking === null || pr?.parking === undefined
+      ? (pr?.readiness?.note ?? null)
+      : pr.parking.note;
   return file === null ? null : Bun.file(file).text();
 }
 
@@ -498,6 +503,7 @@ function writeBrief(
         internalReview: settings.internalReview,
         review: settings.review,
         note: await reviewerNote(settings),
+        events: settings.events,
         promotion:
           promotion === null ? null : { report: promotion.report, number: promotion.reportNumber },
         adoption: settings.adoption,

@@ -4,6 +4,7 @@ import {
   fromSafePromise,
   fromThrowable,
   Ok,
+  OkAsync,
   Err,
   type AsyncResult,
   type ErrOf,
@@ -54,7 +55,7 @@ import { qualify } from "./failures.ts";
 import { missingWorkers } from "./missing-workers.ts";
 // Bun has no synchronous directory metadata API.
 import { lstatSync } from "node:fs";
-import type { ResultContext } from "../../lib/cli-result.ts";
+import type { ResultContext, Refusal } from "../../lib/cli-result.ts";
 import { readTextInput } from "../../lib/read-text-input.ts";
 
 type ResetRefusal =
@@ -97,6 +98,7 @@ function pullRequestSummary(pr: PullRequest) {
     branch: pr.branch,
     pr_ready: pr.readiness !== null,
     readiness: pr.readiness,
+    parking: pr.parking,
     wait: pr.waitStopped ? "stopped" : pr.waitState,
     waitAt: pr.waitAt,
     stack: pr.relay,
@@ -856,7 +858,7 @@ export const WorkSources = {
    * also after a restart. A wait without a source from an agent session covers every source that
    * the session supervises, in every project.
    */
-  wait(input: Input & { sourceId?: string; timeoutSeconds: number; all?: boolean }) {
+  wait(input: WaitInput) {
     return coordinationWait(input);
   },
   /**
@@ -994,6 +996,7 @@ type Source = ReturnType<typeof decodeSource>;
 type CoordinationScope = Parameters<typeof DeviceState.startCoordinationWait>[1];
 // The watch recurses, so it names the closed failures of the reads and the records it repeats.
 type WatchFailure =
+  | Refusal
   | ErrOf<ReturnType<typeof readSources>>
   | import("unthrown").AsyncErrOf<ReturnType<typeof observeSources>>
   | ErrOf<ReturnType<import("unthrown").AsyncOkOf<ReturnType<typeof observeSources>>["reconcile"]>>
@@ -1033,7 +1036,12 @@ function withoutEnded<T extends { sources: { actions: { action: string }[]; wait
 // A wait reads only local device state, so it can read often.
 const coordinationPollMs = 2000;
 
-type WaitInput = Input & { sourceId?: string; timeoutSeconds: number; all?: boolean };
+type WaitInput = Input & {
+  sourceId?: string;
+  timeoutSeconds: number;
+  all?: boolean;
+  observeParked?: () => AsyncResult<undefined, Refusal>;
+};
 
 function coordinationWait(input: WaitInput) {
   const deadline = Date.now() + input.timeoutSeconds * 1000;
@@ -1123,8 +1131,8 @@ function watchActions(
   deadline: number,
 ): AsyncResult<WatchOutcome, WatchFailure> {
   // The stored set is read before the actions, so an acknowledged change is already visible.
-  const read = DeviceState.readCoordinationWait(input.paths, target)
-    .toAsync()
+  const read = (input.observeParked?.() ?? OkAsync(undefined))
+    .flatMap(() => DeviceState.readCoordinationWait(input.paths, target))
     .flatMap((stored) =>
       scopeAnswer(input, target.repository).flatMap((answer) => {
         const set = parseSet(stored);
@@ -1194,15 +1202,34 @@ function handoffFact(review: KindHandoff | undefined) {
 
 function pullRequestFacts(pullRequest: PullRequest | undefined) {
   if (pullRequest === undefined) return {};
-  return {
+  const facts: Pick<
+    Parameters<typeof decideAssignment>[0],
+    "pullRequest" | "relay" | "parked" | "prClosed" | "waking"
+  > = {
     pullRequest: pullRequest.waitStopped ? ("stopped" as const) : pullRequest.waitState,
     relay: pullRequest.relay?.state,
+    parked: pullRequest.parking?.state === "parked",
+    prClosed: pullRequest.parking?.state === "closed",
   };
+  if (pullRequest.parking !== null && pullRequest.parking.events.length > 0)
+    facts.waking = wakingReason(pullRequest.parking.events);
+  return facts;
 }
 
 // An unanswered question, a reply, or a message that needs attention explains an idle worker, so it
 // replaces that attention. A pending message inside its period leaves the idle attention shown.
 const idleReasons = new Set(["worker_idle", "pr_owner_idle"]);
+
+function wakingReason(events: string[]) {
+  const kinds = new Set(
+    events.map((event) => z.object({ kind: z.string() }).parse(JSON.parse(event)).kind),
+  );
+  return kinds.has("feedback") || kinds.has("merge_eligible")
+    ? ("pr_feedback" as const)
+    : kinds.has("checks_failed")
+      ? ("ci_failed" as const)
+      : ("pr_relay_blocked" as const);
+}
 
 /** The SuperAgent answers an open question. A question that it moved to the person waits on the person. */
 function questionAction(question: Question) {

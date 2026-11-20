@@ -154,6 +154,7 @@ An assignment whose implementation, review, and pr-feedback launches carry one p
 The ready transition ends the reviewer launch and starts a fresh pr-feedback launch in the same worktree.
 A dependent can start when the dependency's PR is open or merged.
 It stacks on the branch of one open parent PR, and it waits while more than one parent PR is open.
+A parked PR assignment keeps its worktree and PR-open state without a live launch.
 
 **Report assignment**:
 An assignment that completes through SuperAgent acceptance of a durable report rather than a PR.
@@ -191,11 +192,15 @@ The worker resumes the assignment with those instructions and the prior reports 
 The CLI's applicable actions and waits derived from recorded workflow state and observed facts.
 They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
 Each source also lists its open obligations beside its actions.
+Parked PRs wait until recorded feedback, failing CI, new merge eligibility, or a merged parent produces `resume_pr_feedback`.
+A PR closed without merge produces `clean_up` with `pr_closed`, whose next command abandons the assignment.
 
 **Coordination wait**:
 The SuperAgent's blocking read of next actions, which returns only the actions that its scope has not returned yet, or nothing when its timeout ends.
 A wait without a source from an agent session covers every source that the session supervises, and a change that the session made itself does not end it.
 The SuperAgent runs it in the background, so its host delivers the result as a notification rather than as typed input.
+It reads all parked PRs in one batch every 15 minutes, with one recorded schedule across waits.
+Quiet and repeated observations wake nothing.
 _Avoid_: poll, watcher, worker ping
 
 **Supervising session**:
@@ -248,8 +253,11 @@ An ended PR-open owner's facts accompany the new brief without transferring its 
 _Avoid_: takeover, import
 
 **PR feedback loop**:
-The owner WorkerAgent's repeated response to new reviews, comments, failing CI, or a merged parent PR through the CLI's wait operation.
-It retains the owner's working context rather than requiring a fresh writer for every correction.
+The pr-feedback launches that handle new reviews, comments, failing CI, or a merged parent through the CLI's wait operation.
+A quiet wait parks the assignment and ends its launch, except while checks run on the worker's pushed head.
+A change starts a fresh launch with durable waking events and the optional note from the parking wait.
+That note is distinct from the reviewer's note at ready, and the CLI retains it only when the wait parks.
+A verified merge ends the assignment and runs cleanup.
 
 **PR merge gate**:
 The conditions that the CLI checks before it merges a PR.

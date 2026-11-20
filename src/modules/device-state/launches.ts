@@ -18,6 +18,7 @@ import { superviseSource, type Supervisor } from "./sources.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { reservedContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { adoptionOwner, type AdoptionTarget, type AdoptionFailure } from "./adoptions.ts";
+import { activateParking } from "./pr-parking.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
@@ -32,7 +33,8 @@ export type LaunchFailure =
         | "launch_name_taken"
         | "launch_not_starting"
         | "running_cap_reached"
-        | "handoff_continuation_refused";
+        | "handoff_continuation_refused"
+        | "pr_resume_refused";
       detail: string;
     });
 type LaunchResources = Partial<
@@ -286,19 +288,26 @@ export function reserveLaunch(
           db.insert(launches).values(row).run();
           // Any start after the implementer's ends a pending internal review handoff.
           finishHandoff(db, source.id, launch.assignment);
-          if (!kindHandoff) superviseSource(db, source.id, supervisor);
-          // A replaced PR owner keeps its open PR. A returned report resumes as running.
-          db.update(assignments)
-            .set({ state: "running" })
-            .where(
-              and(
-                eq(assignments.sourceId, source.id),
-                eq(assignments.key, launch.assignment),
-                inArray(assignments.state, ["ready", "reported"]),
-              ),
-            )
-            .run();
-          return Ok(row);
+          const activated = activateParking(
+            db,
+            { repository, sourceId: source.id, assignment: launch.assignment },
+            latest,
+          );
+          return activated.map(() => {
+            if (!kindHandoff) superviseSource(db, source.id, supervisor);
+            // A replaced PR owner keeps its open PR. A returned report resumes as running.
+            db.update(assignments)
+              .set({ state: "running" })
+              .where(
+                and(
+                  eq(assignments.sourceId, source.id),
+                  eq(assignments.key, launch.assignment),
+                  inArray(assignments.state, ["ready", "reported"]),
+                ),
+              )
+              .run();
+            return row;
+          });
         }),
     ),
   );

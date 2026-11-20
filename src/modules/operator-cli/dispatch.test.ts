@@ -194,6 +194,21 @@ test("passes each command to the matching dispatch operation", async () => {
   for (const spy of Object.values(called)) expect(spy).toHaveBeenCalledTimes(1);
 });
 
+test("recovered parking reports no worker launch", async () => {
+  spyOn(PullRequests, "dispatch").mockReturnValue(
+    OkAsync({ sourceId: "s", assignment: "a", parked: true }),
+  );
+  const { log } = quiet();
+  expect(
+    await runDispatch(["dispatch", "--source", "s", "--assignment", "a", "--json"], paths, true),
+  ).toBe(true);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    reason: "pr_parked",
+    data: { sourceId: "s", assignment: "a", parked: true },
+  });
+  expect(process.exitCode).toBe(0);
+});
+
 test("prints a completed operation as compact JSON or as indented text", async () => {
   spies();
   const { log } = quiet();

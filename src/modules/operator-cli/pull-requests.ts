@@ -3,7 +3,7 @@ import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 import { recoveryArgs } from "./internal-review-recovery-args.ts";
 
-const defaultTimeoutSeconds = 300;
+const defaultTimeoutSeconds = 540;
 const ownerCommands = ["associate", "wait", "merge"] as const;
 
 /**
@@ -85,22 +85,35 @@ export function pullRequestArgs(args: string[]) {
 }
 
 function ownerArgs(command: string, flags: string[]) {
-  let json = false;
-  let timeoutSeconds: number | undefined;
+  if (command === "wait") return waitArgs(flags);
+  if (flags.length > 1 || flags.some((flag) => flag !== "--json")) return null;
+  return command === "merge"
+    ? { operation: "pr_merge" as const }
+    : { operation: "pr_associate" as const };
+}
+
+function waitArgs(flags: string[]) {
+  const values: Record<string, string> = {};
   const rest = flags.values();
   for (const flag of rest) {
-    if (flag === "--json" && !json) json = true;
-    else if (flag === "--timeout" && command === "wait" && timeoutSeconds === undefined) {
-      // An absent value reads as "undefined", which the pattern refuses.
-      const value = String(rest.next().value);
-      if (!/^\d{1,5}$/.test(value)) return null;
-      timeoutSeconds = Number(value);
-    } else return null;
+    if (Object.hasOwn(values, flag)) return null;
+    if (flag === "--json") {
+      values[flag] = "yes";
+      continue;
+    }
+    if (!["--timeout", "--note"].includes(flag)) return null;
+    const value = rest.next().value;
+    if (value === undefined || value.startsWith("--")) return null;
+    values[flag] = value;
   }
-  if (command === "merge") return { operation: "pr_merge" as const };
-  return command === "associate"
-    ? { operation: "pr_associate" as const }
-    : { operation: "pr_wait" as const, timeoutSeconds: timeoutSeconds ?? defaultTimeoutSeconds };
+  const timeout = values["--timeout"];
+  if (timeout !== undefined && !/^\d{1,5}$/.test(timeout)) return null;
+  const parsed: { operation: "pr_wait"; timeoutSeconds: number; note?: string } = {
+    operation: "pr_wait",
+    timeoutSeconds: timeout === undefined ? defaultTimeoutSeconds : Number(timeout),
+  };
+  if (values["--note"] !== undefined) parsed.note = values["--note"];
+  return parsed;
 }
 
 export const pullRequestExitCodes = {
@@ -165,7 +178,11 @@ export async function runPullRequests(
               ? PullRequests.merge(input)
               : parsed.operation === "pr_associate"
                 ? PullRequests.associate(input)
-                : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
+                : PullRequests.wait({
+                    ...input,
+                    timeoutSeconds: parsed.timeoutSeconds,
+                    ...readyInput(parsed),
+                  }));
   respond({
     operation: parsed.operation,
     result,

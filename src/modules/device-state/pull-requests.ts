@@ -128,7 +128,11 @@ export function worktreeOwners(client: Database) {
  * Every PR write checks again that this launch is the running latest start of an open PR
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
-export function activeOwner(db: Db, launchId: string, adopting = false) {
+export function activeOwner(
+  db: Db,
+  launchId: string,
+  options: { adopting?: boolean; parkedMergeHead?: string } = {},
+) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
     .from(launches)
@@ -153,8 +157,12 @@ export function activeOwner(db: Db, launchId: string, adopting = false) {
             ),
           )
           .get();
+  const parkedMerge = parkedMergeOwner(db, owner?.launch, options.parkedMergeHead);
   if (
-    (owner?.launch.state !== "running" && !(adopting && owner?.launch.state === "starting")) ||
+    owner === undefined ||
+    (owner.launch.state !== "running" &&
+      !(options.adopting && owner.launch.state === "starting") &&
+      !parkedMerge) ||
     newer !== undefined ||
     owner.source.state !== "open" ||
     owner.assignment.completion !== "pr" ||
@@ -167,6 +175,17 @@ export function activeOwner(db: Db, launchId: string, adopting = false) {
         "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
     });
   return Ok(owner);
+}
+
+/** A finished parked launch may only record the verified merge of its retained pushed head. */
+function parkedMergeOwner(db: Db, launch: typeof launches.$inferSelect | undefined, head?: string) {
+  if (head === undefined || launch?.state !== "finished") return false;
+  const row = current(db, launch.sourceId, launch.assignment);
+  if (row?.parking === null || row === undefined) return false;
+  const parking = z
+    .object({ launchId: z.string(), head: z.string(), state: z.string() })
+    .parse(JSON.parse(row.parking));
+  return parking.launchId === launch.id && parking.head === head && parking.state === "parked";
 }
 
 /**
@@ -295,7 +314,7 @@ export function associatePullRequest(
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId, adopted)
+      activeOwner(db, launchId, { adopting: adopted })
         .flatTap((owner) =>
           adopted
             ? adoptionOwner(db, {
@@ -349,6 +368,7 @@ export function associatePullRequest(
             branch: pr.branch,
             relay: pr.relay,
             readiness: adopted && pr.readiness !== undefined ? JSON.stringify(pr.readiness) : null,
+            parking: null,
             associatedAt: new Date().toISOString(),
             progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
             waitState: "idle",
@@ -379,25 +399,29 @@ export function associatePullRequest(
               ),
               adopted,
             );
-          if (pr.readiness !== undefined && !internalReview && !adopted) {
-            const recorded = recordPrReady(
-              db,
-              { sourceId: source.id, assignment: assignment.key, launchId },
-              pr.readiness,
-              "pr-feedback",
-            );
-            if (recorded.tag === "Err") return Err(recorded.error);
-            row.readiness = JSON.stringify(pr.readiness);
-          }
-          if (review)
-            requestAssignmentReview(db, {
-              repository: source.repository,
-              number: pr.number,
-              url: pr.url,
-              sourceId: source.id,
-              assignment: assignment.key,
-            });
-          return Ok({ row, changed: true });
+          const recorded =
+            pr.readiness !== undefined && !internalReview && !adopted
+              ? recordPrReady(
+                  db,
+                  { sourceId: source.id, assignment: assignment.key, launchId },
+                  pr.readiness,
+                  "pr-feedback",
+                ).map(() => {
+                  row.readiness = JSON.stringify(pr.readiness);
+                  return undefined;
+                })
+              : Ok(undefined);
+          return recorded.map(() => {
+            if (review)
+              requestAssignmentReview(db, {
+                repository: source.repository,
+                number: pr.number,
+                url: pr.url,
+                sourceId: source.id,
+                assignment: assignment.key,
+              });
+            return { row, changed: true };
+          });
         }),
     ),
   );
@@ -531,60 +555,63 @@ export function recordPullRequestMerge(
         recorded.number === merge.number
       )
         return Ok({ changed: false });
-      return activeOwner(db, launchId).flatMap(({ source, assignment }) => {
-        const row = current(db, source.id, assignment.key);
-        if (row === undefined || assignment.state !== "pr-open" || row.number !== merge.number)
-          return Err<PullRequestFailure>({
-            reason: "pr_not_associated",
-            next: {
-              decider: "super-agent",
-              question: "Why does the observed merge not match the assignment's recorded open PR?",
-            },
-            detail: `PR #${merge.number} is not the open PR of assignment ${assignment.key}. Nothing was changed.`,
-          });
-        const now = new Date().toISOString();
-        const key = and(
-          eq(pullRequests.sourceId, source.id),
-          eq(pullRequests.assignment, assignment.key),
-        );
-        db.update(pullRequests)
-          .set({ mergedHead: merge.head, mergeCommit: merge.mergeCommit, mergedAt: now })
-          .where(key)
-          .run();
-        db.update(assignments)
-          .set({ state: "merged" })
-          .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
-          .run();
-        abandonConversations(db, source.id, [assignment.key]);
-        db.insert(cleanups)
-          .values({
-            sourceId: source.id,
-            assignment: assignment.key,
-            launchId,
-            step: "remote_branch",
-            state: "pending",
-            reason: null,
-            detail: null,
-            updatedAt: now,
-            ownerPid: null,
-            leaseAt: null,
-          })
-          .run();
-        const state = sourceState(
-          db
-            .select({
-              key: assignments.key,
-              completion: assignments.completion,
-              state: assignments.state,
+      return activeOwner(db, launchId, { parkedMergeHead: merge.head }).flatMap(
+        ({ source, assignment }) => {
+          const row = current(db, source.id, assignment.key);
+          if (row === undefined || assignment.state !== "pr-open" || row.number !== merge.number)
+            return Err<PullRequestFailure>({
+              reason: "pr_not_associated",
+              next: {
+                decider: "super-agent",
+                question:
+                  "Why does the observed merge not match the assignment's recorded open PR?",
+              },
+              detail: `PR #${merge.number} is not the open PR of assignment ${assignment.key}. Nothing was changed.`,
+            });
+          const now = new Date().toISOString();
+          const key = and(
+            eq(pullRequests.sourceId, source.id),
+            eq(pullRequests.assignment, assignment.key),
+          );
+          db.update(pullRequests)
+            .set({ mergedHead: merge.head, mergeCommit: merge.mergeCommit, mergedAt: now })
+            .where(key)
+            .run();
+          db.update(assignments)
+            .set({ state: "merged" })
+            .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
+            .run();
+          abandonConversations(db, source.id, [assignment.key]);
+          db.insert(cleanups)
+            .values({
+              sourceId: source.id,
+              assignment: assignment.key,
+              launchId,
+              step: "remote_branch",
+              state: "pending",
+              reason: null,
+              detail: null,
+              updatedAt: now,
+              ownerPid: null,
+              leaseAt: null,
             })
-            .from(assignments)
-            .where(eq(assignments.sourceId, source.id))
-            .all(),
-        );
-        if (state !== source.state)
-          db.update(sources).set({ state, endedAt: now }).where(eq(sources.id, source.id)).run();
-        return Ok({ changed: true });
-      });
+            .run();
+          const state = sourceState(
+            db
+              .select({
+                key: assignments.key,
+                completion: assignments.completion,
+                state: assignments.state,
+              })
+              .from(assignments)
+              .where(eq(assignments.sourceId, source.id))
+              .all(),
+          );
+          if (state !== source.state)
+            db.update(sources).set({ state, endedAt: now }).where(eq(sources.id, source.id)).run();
+          return Ok({ changed: true });
+        },
+      );
     }),
   );
 }

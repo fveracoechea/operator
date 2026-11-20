@@ -416,6 +416,33 @@ test("a wait reports an eligible head once and records each result", async () =>
   expect(device.calls.map(requestKind)).toEqual(["pull_request", "pull_request"]);
 });
 
+test.each(["null", "incomplete"] as const)(
+  "a live %s check read preserves prior eligibility and all cursors",
+  async (kind) => {
+    await using device = await prDevice();
+    const { input } = waiting(device);
+    device.answer(() => succeeded(pullRequestBody()));
+    expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
+    const before = device.pullRequestRow("other")?.progress;
+    const body = pullRequestBody({ approved: false });
+    const commit = body.data.repository.pullRequest.commits.nodes[0]?.commit;
+    if (commit === undefined) return expect.unreachable("Missing fixture commit");
+    if (kind === "null") Object.assign(commit, { statusCheckRollup: null });
+    else commit.statusCheckRollup.contexts.totalCount = 101;
+    device.answer(() => succeeded(body));
+    expect(await PullRequests.wait(input)).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_checks_unknown" },
+    });
+    expect(device.pullRequestRow("other")?.progress).toBe(before);
+    device.answer(() => succeeded(pullRequestBody()));
+    expect(await PullRequests.wait(input)).toMatchObject({
+      tag: "Ok",
+      value: { reason: "pr_wait_timed_out", data: { events: [] } },
+    });
+  },
+);
+
 test("a merged or closed PR ends the wait", async () => {
   await using device = await prDevice();
   const { input } = waiting(device);
