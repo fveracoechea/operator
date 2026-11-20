@@ -39,6 +39,7 @@ type Request = {
   sourceId: string;
   assignment: string;
   continuation?: HandoffContinuation;
+  kind?: string;
 };
 type WorkerKind = ReturnType<typeof WorkerKinds.resolve>;
 /** A kind handoff starts its next worker while next shows the handoff as a wait. */
@@ -86,7 +87,25 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         const planned = source.planned.find((row) => row.key === input.assignment);
         if (planned === undefined)
           return notDispatchable(input.assignment, { assignmentPlanned: false });
-        const kind = planned.kind;
+        if (input.kind !== undefined && planned.kind !== null)
+          return Err<Failure>({
+            reason: "assignment_kind_set",
+            detail: "The assignment already has a kind. Nothing changed.",
+            next: { command: "operator next", why: "Use the recorded assignment kind." },
+            state: { kind: planned.kind },
+          });
+        const kind = input.kind ?? planned.kind;
+        if (kind === null)
+          return Err<Failure>({
+            reason: "assignment_kind_required",
+            detail:
+              "This assignment needs an explicit worker kind before its next launch. Nothing changed.",
+            next: {
+              command: `operator dispatch --source ${input.sourceId} --assignment ${input.assignment} --kind <kind>`,
+              why: "Name a kind with the registered completion type.",
+            },
+            state: { kind: null },
+          });
         const rows = next.sources
           .flatMap((row) => [...row.actions, ...row.waits])
           .filter((row) => "assignment" in row && row.assignment === input.assignment);
@@ -128,6 +147,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
             })
           : Ok({
               ...planned,
+              kind,
               intent: planned.intent ?? source.plan.intent ?? null,
               sourceTrackerKey: source.trackerKey,
               maxRunning: source.plan.maxRunning,
@@ -568,6 +588,7 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
     // The dispatching pane and session supervise the source.
     Environment.caller(),
     request.continuation,
+    request.kind,
   );
 }
 
@@ -685,9 +706,11 @@ function launch(request: Request, settings: Settings, resources: Resources) {
 function dispatchSettings(request: Request, facts: Facts) {
   return launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
     (settings) => {
-      const nextKind = facts.source.handoffs.find(
-        (row) => row.assignment === request.assignment,
-      )?.nextKind;
+      const migrationParking = facts.pullRequest?.parking;
+      const nextKind =
+        migrationParking !== undefined && migrationParking !== null && "origin" in migrationParking
+          ? undefined
+          : facts.source.handoffs.find((row) => row.assignment === request.assignment)?.nextKind;
       const kindName = nextKind ?? facts.planned.kind;
       return (
         kindName === null
@@ -698,6 +721,13 @@ function dispatchSettings(request: Request, facts: Facts) {
               host: settings.launch.host,
             })
       ).flatMap((definition) => {
+        if (request.kind !== undefined && definition !== null && !definition.dispatchable)
+          return Err<Failure>({
+            reason: "kind_not_dispatchable",
+            detail: `The ${definition.name} kind starts through a handoff or adoption, not plain dispatch.`,
+            next: { command: "operator next", why: "Use the recorded handoff or adoption path." },
+            state: { kind: definition.name },
+          });
         if (definition !== null && definition.completion !== facts.planned.completion)
           return Err<Failure>({
             reason: "kind_completion_changed",

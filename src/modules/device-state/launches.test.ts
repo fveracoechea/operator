@@ -91,6 +91,33 @@ test("a reservation starts the assignment once and refuses a second dispatch", (
   expect(launchNames(db)).toMatchObject({ value: ["report-app-1-read"] });
 });
 
+test("null-kind compare and fill shares launch reservation and a racing stale fill cannot rewrite it", () => {
+  using db = fixture();
+  expect(
+    reserveLaunch(db, "/one", "owner/one", launch, undefined, undefined, undefined, "research"),
+  ).toMatchObject({ tag: "Ok" });
+  expect(db.query("SELECT kind FROM assignments").get()).toEqual({ kind: "research" });
+  db.exec("UPDATE launches SET state = 'interrupted'");
+  const before = db.serialize();
+  expect(
+    reserveLaunch(
+      db,
+      "/one",
+      "owner/one",
+      { ...launch, id: "racer", name: "racer" },
+      undefined,
+      undefined,
+      undefined,
+      "answer",
+    ),
+  ).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_kind_set", state: { kind: "research" } },
+  });
+  expect(db.serialize()).toEqual(before);
+  expect(db.query("SELECT id FROM launches").all()).toEqual([{ id: "l1" }]);
+});
+
 function supervisor(db: Database) {
   return db
     .query("SELECT supervising_pane AS pane, supervising_session AS session FROM sources")

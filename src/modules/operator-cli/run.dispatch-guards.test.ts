@@ -31,10 +31,19 @@ test.each([
     name: "single reservation",
     file: "device-state/launches.ts",
     replacements: [
-      ["!dispatchable(assignmentState, facts.latestState, facts.abandoned, returned)", "false"],
+      ["dispatchable(assignmentState, facts.latestState, facts.abandoned, returned)", "true"],
     ],
     testFile: "device-state/launches.test.ts",
     pattern: "a reservation starts the assignment once",
+  },
+  {
+    name: "ended source migration exclusion",
+    file: "device-state/migrations/0026_inflight_worker_kinds.sql",
+    replacements: [
+      ["AND EXISTS (SELECT 1 FROM sources s WHERE s.id = a.source_id AND s.state = 'open')", ""],
+    ],
+    testFile: "device-state/migration-policy.kinds.test.ts",
+    pattern: "the migration excludes a",
   },
   {
     name: "running cap reservation",

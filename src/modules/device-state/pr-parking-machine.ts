@@ -1,6 +1,6 @@
 export type ParkingState = "parking" | "parked" | "resuming" | "active" | "closed";
 export type ParkingFacts = {
-  event: "park" | "complete" | "resume" | "activate" | "close";
+  event: "park" | "complete" | "resume" | "reserve" | "activate" | "close";
   state: ParkingState | null;
   ready: boolean;
   feedbackOwner: boolean;
@@ -12,6 +12,9 @@ export type ParkingFacts = {
   leaseOwned: boolean;
   outgoingMatches: boolean;
   hasEvents: boolean;
+  migrationOrigin: boolean;
+  historicalOwnerIdle: boolean;
+  historicalLaunchState: string | null;
 };
 type Decision =
   | { result: "transition"; state: ParkingState }
@@ -51,8 +54,24 @@ const rules: {
     decide: () => ({ result: "transition", state: "parked" }),
   },
   {
+    when: (f) => f.event === "reserve" && (!f.migrationOrigin || f.state === "active"),
+    decide: () => ({ result: "unchanged" }),
+  },
+  {
+    when: (f) =>
+      f.migrationOrigin &&
+      ((f.event === "resume" && f.state === "parked") ||
+        (f.event === "reserve" && f.state === "resuming")) &&
+      f.hasEvents &&
+      f.launchMatches &&
+      f.feedbackOwner &&
+      historicalOwnerIsIdle(f),
+    decide: (f) => ({ result: "transition", state: f.event === "resume" ? "resuming" : "active" }),
+  },
+  {
     when: (f) =>
       f.event === "resume" &&
+      !f.migrationOrigin &&
       f.state === "parked" &&
       f.hasEvents &&
       f.launchMatches &&
@@ -68,6 +87,18 @@ const rules: {
     decide: () => ({ result: "transition", state: "closed" }),
   },
 ];
+
+/** Shared historical-owner policy for migration resume and current merge ownership. */
+export function historicalOwnerIsIdle(
+  facts: Pick<ParkingFacts, "historicalLaunchState" | "historicalOwnerIdle">,
+) {
+  return (
+    facts.historicalOwnerIdle &&
+    (facts.historicalLaunchState === "finished" ||
+      facts.historicalLaunchState === "failed" ||
+      facts.historicalLaunchState === "interrupted")
+  );
+}
 
 /** Ordered parking lifecycle rules over facts gathered inside the owner's transaction. */
 export function decideParking(facts: ParkingFacts): Decision {

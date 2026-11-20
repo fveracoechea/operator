@@ -183,6 +183,13 @@
       "when": 1795042800000,
       "tag": "0025_pr_parking",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1795125600000,
+      "tag": "0026_inflight_worker_kinds",
+      "breakpoints": true
     }
   ]
 }

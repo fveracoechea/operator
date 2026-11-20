@@ -11,10 +11,30 @@ import {
   claimParkedRead,
   finishParkedRead,
   resumeParkedPullRequest,
+  prParkingSchema,
   activateParking,
 } from "./pr-parking.ts";
 
 afterEach(() => mock.restore());
+
+test("parking retains legacy facts and accepts unknown heads only with explicit migration origin", () => {
+  const park = {
+    launchId: "old",
+    head: "known",
+    at: "then",
+    note: "/notes/park.md",
+    state: "parked" as const,
+    events: [],
+  };
+  expect(prParkingSchema.parse(park)).toEqual({ ...park, parentSeen: false });
+  expect(prParkingSchema.safeParse({ ...park, head: null }).success).toBe(false);
+  expect(prParkingSchema.parse({ ...park, head: null, origin: "migration-0026" })).toEqual({
+    ...park,
+    parentSeen: false,
+    head: null,
+    origin: "migration-0026",
+  });
+});
 
 function fixture() {
   const db = new Database(":memory:");
@@ -197,7 +217,7 @@ test("a committed waking event survives resume and stale batch commits cannot er
   if (row === undefined) return;
   const update = {
     ...target,
-    previous: JSON.stringify(row.parking),
+    previous: row.parkingRaw,
     progress: '{"seen":["C1"],"failures":[],"eligibleHead":null}',
     parking: { ...row.parking, events: ['{"kind":"feedback","id":"C1"}'] },
   };
@@ -206,6 +226,10 @@ test("a committed waking event survives resume and stale batch commits cannot er
     value: true,
   });
   expect(resumeParkedPullRequest(db, target)).toMatchObject({ tag: "Ok" });
+  expect(db.query("SELECT handoff_state, outgoing_launch_id FROM kind_handoffs").get()).toEqual({
+    handoff_state: "pending",
+    outgoing_launch_id: "l",
+  });
   expect(
     finishParkedRead(db, claimed.value.at, [{ ...update, parking: row.parking }]),
   ).toMatchObject({ tag: "Ok", value: false });
@@ -235,7 +259,7 @@ test("a raced batch receipt refuses the whole cursor commit without acknowledgin
     finishParkedRead(db, claim?.at ?? "", [
       {
         ...target,
-        previous: JSON.stringify(row.parking),
+        previous: row.parkingRaw,
         progress: "new cursor",
         parking: row.parking,
       },
@@ -248,6 +272,211 @@ test("a raced batch receipt refuses the whole cursor commit without acknowledgin
     progress: '{"seen":[],"failures":[],"eligibleHead":null}',
   });
 });
+
+test.each([false, true])(
+  "a noncanonical parking receipt commits only while its exact raw bytes are unchanged: race %s",
+  (race) => {
+    using db = fixture();
+    const raw =
+      '{\n  "state": "parked", "head": "h", "launchId": "l", "at": "then",\n  "events": [], "note": null\n}';
+    db.query("UPDATE pull_requests SET parking = ?").run(raw);
+    const claim = claimParkedRead(db, Date.now()).getOr(null);
+    const row = claim?.rows[0] ?? expect.unreachable("Missing batch row");
+    expect(row.parkingRaw).toBe(raw);
+    expect(row.parking).toEqual({
+      launchId: "l",
+      head: "h",
+      at: "then",
+      note: null,
+      state: "parked",
+      events: [],
+      parentSeen: false,
+    });
+    const racingRaw = `${raw}\n`;
+    if (race) db.query("UPDATE pull_requests SET parking = ?").run(racingRaw);
+    const before = db.serialize();
+    const progress = '{"seen":["C1"],"failures":[],"eligibleHead":null}';
+    const parking = { ...row.parking, events: ['{"kind":"feedback","id":"C1"}'] };
+    expect(
+      finishParkedRead(db, claim?.at ?? "", [
+        { sourceId: "s", assignment: "a", previous: row.parkingRaw, progress, parking },
+      ]),
+    ).toMatchObject({ tag: "Ok", value: !race });
+    if (race) {
+      expect(db.serialize()).toEqual(before);
+      expect(db.query("SELECT parking, progress FROM pull_requests").get()).toEqual({
+        parking: racingRaw,
+        progress: '{"seen":[],"failures":[],"eligibleHead":null}',
+      });
+      expect(db.query("SELECT last_read_at FROM parked_pr_reads").get()).toEqual({
+        last_read_at: null,
+      });
+    } else {
+      expect(db.query("SELECT parking, progress FROM pull_requests").get()).toEqual({
+        parking: JSON.stringify(parking),
+        progress,
+      });
+      expect(
+        db.query("SELECT last_read_at, owner_pid, lease_at FROM parked_pr_reads").get(),
+      ).toEqual({ last_read_at: claim?.at, owner_pid: null, lease_at: null });
+    }
+  },
+);
+
+test("migration resume preserves historical launch facts and does not create a kind handoff", () => {
+  using db = fixture();
+  db.exec(
+    "UPDATE assignments SET kind = 'pr-feedback'; UPDATE launches SET state = 'interrupted', kind = NULL",
+  );
+  const parking = {
+    origin: "migration-0026",
+    launchId: "l",
+    head: null,
+    at: "then",
+    note: null,
+    state: "parked",
+    events: ['{"kind":"feedback","id":"C1"}'],
+    parentSeen: false,
+  };
+  db.query("UPDATE pull_requests SET parking = ?").run(JSON.stringify(parking));
+  const launches = db.query("SELECT * FROM launches").all();
+  expect(
+    resumeParkedPullRequest(db, { repository: "owner/repo", sourceId: "s", assignment: "a" }),
+  ).toMatchObject({ tag: "Ok" });
+  expect(
+    JSON.parse(
+      db.query<{ parking: string }, []>("SELECT parking FROM pull_requests").get()?.parking ??
+        "null",
+    ),
+  ).toEqual({ ...parking, state: "resuming" });
+  expect(db.query("SELECT * FROM launches").all()).toEqual(launches);
+  expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+});
+
+test.each(["migration", "ordinary"] as const)(
+  "a kind fill refuses before any %s parking-resume write",
+  (origin) => {
+    using db = fixture();
+    db.exec("UPDATE assignments SET kind = 'pr-feedback'; UPDATE launches SET state = 'finished'");
+    const migrated =
+      origin === "migration" ? { origin: "migration-0026", head: null } : { head: "h" };
+    const parking = JSON.stringify({
+      ...migrated,
+      launchId: "l",
+      at: "then",
+      note: null,
+      state: "parked",
+      events: ['{"kind":"feedback"}'],
+    });
+    db.query("UPDATE pull_requests SET parking = ?").run(parking);
+    const before = db.serialize();
+    expect(
+      resumeParkedPullRequest(
+        db,
+        { repository: "owner/repo", sourceId: "s", assignment: "a" },
+        "implementation",
+      ),
+    ).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "assignment_kind_set",
+        detail: "The assignment already has a kind. Nothing changed.",
+        next: { command: "operator next", why: "Use the recorded assignment kind." },
+        state: { kind: "pr-feedback" },
+      },
+    });
+    expect(db.serialize()).toEqual(before);
+    expect(db.query("SELECT parking FROM pull_requests").get()).toEqual({ parking });
+    expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+  },
+);
+
+test.each([
+  [null, true],
+  ["own", true],
+  ["foreign", true],
+  ["foreign", false],
+] as const)(
+  "parking resume rechecks source ownership held by %s with caller supplied %s",
+  (session, callerSupplied) => {
+    using db = fixture();
+    db.exec("UPDATE assignments SET kind = 'pr-feedback'; UPDATE launches SET state = 'finished'");
+    db.query("UPDATE sources SET supervising_session = ?").run(session);
+    db.query("UPDATE pull_requests SET parking = ?").run(
+      JSON.stringify({
+        launchId: "l",
+        head: "h",
+        at: "then",
+        note: null,
+        state: "parked",
+        events: ["feedback"],
+      }),
+    );
+    const before = db.serialize();
+    const result = resumeParkedPullRequest(
+      db,
+      { repository: "owner/repo", sourceId: "s", assignment: "a" },
+      undefined,
+      callerSupplied ? { session: "own", pane: "own:p" } : undefined,
+    );
+    if (session === "foreign") {
+      expect(result).toMatchObject({
+        tag: "Err",
+        error: {
+          reason: "source_supervised_elsewhere",
+          detail: "Another agent session now supervises this source. Nothing changed.",
+          next: {
+            decider: "super-agent",
+            question:
+              "Will the recorded supervisor continue, or should the person authorize a source take-over?",
+          },
+          state: { supervisorSession: "foreign", callerSession: callerSupplied ? "own" : null },
+        },
+      });
+      expect(db.serialize()).toEqual(before);
+    } else {
+      expect(result).toMatchObject({ tag: "Ok" });
+      expect(db.query("SELECT handoff_state FROM kind_handoffs").get()).toEqual({
+        handoff_state: "pending",
+      });
+    }
+  },
+);
+
+test("parking resume leaves a null kind for the atomic launch reservation to fill", () => {
+  using db = fixture();
+  db.exec("UPDATE launches SET state = 'finished'");
+  db.query("UPDATE pull_requests SET parking = ?").run(
+    JSON.stringify({
+      launchId: "l",
+      head: "h",
+      at: "then",
+      note: null,
+      state: "parked",
+      events: ["feedback"],
+    }),
+  );
+  expect(
+    resumeParkedPullRequest(
+      db,
+      { repository: "owner/repo", sourceId: "s", assignment: "a" },
+      "implementation",
+    ),
+  ).toMatchObject({ tag: "Ok" });
+  expect(db.query("SELECT kind FROM assignments").get()).toEqual({ kind: null });
+  expect(db.query("SELECT id FROM launches").all()).toEqual([{ id: "l" }]);
+});
+
+test.each(["parking", "resuming", "active", "closed"])(
+  "a batch excludes a %s receipt without claiming it as parked",
+  (state) => {
+    using db = fixture();
+    db.query("UPDATE pull_requests SET parking = ?").run(
+      JSON.stringify({ launchId: "l", head: "h", at: "then", note: null, state, events: [] }),
+    );
+    expect(claimParkedRead(db, Date.now())).toMatchObject({ tag: "Ok", value: { rows: [] } });
+  },
+);
 
 test.each([
   "UPDATE sources SET state = 'reset'",

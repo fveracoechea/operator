@@ -76,8 +76,8 @@ function expectHelp(output: string) {
   expect(output).toContain("operator message ack --key key [--file path|-] [--json]");
   expect(output).toContain("operator report submit --file path|- [--json]");
   expect(output).toContain("operator pr round --file path|- [--json]");
-  expect(output).toContain("operator pr ready --file path|- [--json]");
-  expect(output).toContain("operator dispatch --source id --assignment key [--json]");
+  expect(output).toContain("operator pr ready [--file path|-] [--note path|-] [--json]");
+  expect(output).toContain("operator dispatch --source id --assignment key [--kind kind] [--json]");
   expect(output).toContain("operator pr associate [--json]");
   expect(output).not.toContain("operator handoff");
   expect(output).toContain(

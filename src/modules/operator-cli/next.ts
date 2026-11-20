@@ -22,6 +22,15 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
   const source = `--source ${argument(sourceId)}`;
   const target =
     "assignment" in row ? `${source} --assignment ${argument(row.assignment)}` : source;
+  if (
+    "kind" in row &&
+    row.kind === null &&
+    ["ready_assignment", "replace_worker"].includes(row.action)
+  )
+    return {
+      command: `operator dispatch ${target} --kind <kind>`,
+      why: "Name a worker kind for this record from before kinds.",
+    };
   if (row.action === "answer_question")
     return { decider: "super-agent", question: row.question.question };
   if (row.action === "read_reply")

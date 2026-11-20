@@ -260,6 +260,7 @@ type CleanupRow = {
 function mergedRow(key: string, action: string, reason: string, cleanup: CleanupRow) {
   return {
     assignment: key,
+    kind: null,
     action,
     reason,
     blockers: [],
@@ -289,6 +290,7 @@ test("next describes each open assignment with its recorded facts", async () => 
   expect<unknown>(source?.actions).toEqual([
     {
       assignment: "stop",
+      kind: null,
       action: "replace_worker",
       reason: "worker_interrupted",
       blockers: [],
@@ -307,6 +309,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "rep",
+      kind: null,
       action: "review_report",
       reason: "report_submitted",
       blockers: [],
@@ -324,6 +327,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "ret",
+      kind: null,
       action: "worker_attention",
       reason: "follow_up_returned",
       blockers: [],
@@ -341,6 +345,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "dep",
+      kind: null,
       action: "ready_assignment",
       reason: "assignment_ready",
       blockers: [],
@@ -357,6 +362,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "fail",
+      kind: null,
       action: "replace_worker",
       reason: "launch_failed",
       blockers: [],
@@ -368,6 +374,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "acf",
+      kind: null,
       action: "clean_up",
       reason: "cleanup_failed",
       blockers: [],
@@ -407,6 +414,7 @@ test("next describes each open assignment with its recorded facts", async () => 
   expect<unknown>(source?.waits).toEqual([
     {
       assignment: "pr1",
+      kind: null,
       action: "wait",
       reason: "assignment_active",
       blockers: [],
@@ -431,6 +439,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "blk",
+      kind: null,
       action: "wait",
       reason: "dependencies_pending",
       blockers: [
@@ -768,6 +777,7 @@ test("a reached running cap holds ready work as a named wait, counting each live
     ready: [],
     capped: ["a", "b"].map((assignment) => ({
       assignment,
+      kind: null,
       action: "wait",
       reason: "running_cap_reached",
       blockers: [],
