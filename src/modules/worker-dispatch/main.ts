@@ -32,9 +32,16 @@ import {
   type Paths,
 } from "./observations.ts";
 
-type Request = { paths: Paths; cwd: string; sourceId: string; assignment: string };
+type HandoffContinuation = Parameters<typeof DeviceState.checkHandoffContinuation>[1];
+type Request = {
+  paths: Paths;
+  cwd: string;
+  sourceId: string;
+  assignment: string;
+  continuation?: HandoffContinuation;
+};
 type WorkerKind = ReturnType<typeof WorkerKinds.resolve>;
-/** The internal review handoff starts the reviewer while next shows the handoff as a wait. */
+/** A kind handoff starts its next worker while next shows the handoff as a wait. */
 type DispatchRequest = Request & { handoff?: boolean };
 type Facts = AsyncOkOf<ReturnType<typeof assignmentFacts>>;
 type Settings = Facts & AsyncOkOf<ReturnType<typeof launchSettings>> & { kind: WorkerKind | null };
@@ -109,7 +116,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         const action = rows.find(
           (row) =>
             actions.includes(row.action) ||
-            (input.handoff === true && row.reason === "internal_review_handoff"),
+            (input.handoff === true && row.reason === "kind_handoff"),
         );
         return action === undefined
           ? notDispatchable(input.assignment, {
@@ -524,6 +531,7 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
     settings.planned.maxRunning,
     // The dispatching pane and session supervise the source.
     Environment.caller(),
+    request.continuation,
   );
 }
 
@@ -638,54 +646,64 @@ function launch(request: Request, settings: Settings, resources: Resources) {
     );
 }
 
-function dispatch(request: DispatchRequest) {
-  return assignmentFacts(request).flatMap((facts) =>
-    launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
-      (settings) =>
-        (facts.planned.kind === null
+function dispatchSettings(request: Request, facts: Facts) {
+  return launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
+    (settings) => {
+      const nextKind = facts.source.handoffs.find(
+        (row) => row.assignment === request.assignment,
+      )?.nextKind;
+      const kindName = nextKind ?? facts.planned.kind;
+      return (
+        kindName === null
           ? OkAsync(null)
           : DeviceSettings.kind({
               paths: request.paths,
-              name: facts.review?.state === "reviewing" ? "review" : facts.planned.kind,
+              name: kindName,
               host: settings.launch.host,
             })
-        ).flatMap((definition) => {
-          if (definition !== null && definition.completion !== facts.planned.completion)
-            return Err<Failure>({
-              reason: "kind_completion_changed",
-              detail: `Kind ${definition.name} no longer matches the registered completion type. Nothing was launched.`,
-              next: {
-                decider: "super-agent",
-                question:
-                  "Should the kind's original completion type be restored, or should this work use a new plan?",
-              },
-              state: {
-                kind: definition.name,
-                registeredCompletion: facts.planned.completion,
-                configuredCompletion: definition.completion,
-              },
-            });
-          const kind =
-            definition === null
-              ? null
-              : {
-                  ...definition,
-                  resources: facts.planned.resources,
-                  profile: settings.launch.profile,
-                  nextKind:
-                    definition.name === "implementation" && !facts.internalReview
-                      ? ("pr-feedback" as const)
-                      : definition.nextKind,
-                  guide: definition.guide,
-                  skillsToRead: definition.skillsToRead.map(
-                    (name) =>
-                      `${request.paths.upstreamSkills[settings.launch.host]}/${name}/SKILL.md`,
-                  ),
-                };
-          return chooseResources(request, facts).flatMap((resources) =>
-            launch(request, { ...facts, ...settings, kind }, resources),
-          );
-        }),
+      ).flatMap((definition) => {
+        if (definition !== null && definition.completion !== facts.planned.completion)
+          return Err<Failure>({
+            reason: "kind_completion_changed",
+            detail: `Kind ${definition.name} no longer matches the registered completion type. Nothing was launched.`,
+            next: {
+              decider: "super-agent",
+              question:
+                "Should the kind's original completion type be restored, or should this work use a new plan?",
+            },
+            state: {
+              kind: definition.name,
+              registeredCompletion: facts.planned.completion,
+              configuredCompletion: definition.completion,
+            },
+          });
+        const kind =
+          definition === null
+            ? null
+            : {
+                ...definition,
+                resources: facts.planned.resources,
+                profile: settings.launch.profile,
+                nextKind:
+                  definition.name === "implementation" && !facts.internalReview
+                    ? ("pr-feedback" as const)
+                    : definition.nextKind,
+                guide: definition.guide,
+                skillsToRead: definition.skillsToRead.map(
+                  (name) =>
+                    `${request.paths.upstreamSkills[settings.launch.host]}/${name}/SKILL.md`,
+                ),
+              };
+        return Ok({ ...facts, ...settings, kind });
+      });
+    },
+  );
+}
+
+function dispatch(request: DispatchRequest) {
+  return assignmentFacts(request).flatMap((facts) =>
+    dispatchSettings(request, facts).flatMap((settings) =>
+      chooseResources(request, facts).flatMap((resources) => launch(request, settings, resources)),
     ),
   );
 }
@@ -716,6 +734,12 @@ function refreshBrief(request: Request) {
 
 /** Launches WorkerAgents through Herdr and handles the stable plugin hooks. */
 export const WorkerDispatch = {
+  /** Reuses launch policy before a kind handoff claims state or closes its outgoing pane. */
+  checkHandoff(input: Request) {
+    return assignmentFacts({ ...input, handoff: true })
+      .flatMap((facts) => dispatchSettings(input, facts))
+      .map(() => undefined);
+  },
   /** Resolves launch-time review policy for dispatch and a promoted worker's new PR launch. */
   resolveInternalReview(values: Parameters<typeof internalReview>[0]) {
     return internalReview(values);

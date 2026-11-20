@@ -1,5 +1,6 @@
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { PullRequests } from "../pull-requests/main.ts";
 import { Err } from "unthrown";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
@@ -28,6 +29,7 @@ export function dispatchArgs(args: string[]) {
       ![
         "--source",
         "--assignment",
+        "--after-pid",
         "--kind",
         "--brief",
         "--intent-file",
@@ -50,7 +52,13 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
   const kind = values["--kind"];
   const brief = values["--brief"];
   if (kind !== undefined && brief !== undefined) {
-    if (operation !== "dispatch" || sourceId !== undefined || assignment !== undefined) return null;
+    if (
+      operation !== "dispatch" ||
+      sourceId !== undefined ||
+      assignment !== undefined ||
+      values["--after-pid"] !== undefined
+    )
+      return null;
     return {
       operation: "one_off_dispatch" as const,
       kind,
@@ -60,10 +68,29 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
       trackerKey: values["--tracker-key"],
     };
   }
-  if (Object.keys(values).some((flag) => !["--source", "--assignment", "json"].includes(flag)))
+  return dispatchTarget(values, operation);
+}
+
+function dispatchTarget(values: Record<string, string>, operation: "dispatch" | "abandon") {
+  if (
+    Object.keys(values).some(
+      (flag) => !["--source", "--assignment", "--after-pid", "json"].includes(flag),
+    )
+  )
     return null;
+  const sourceId = values["--source"];
+  const assignment = values["--assignment"];
   if (sourceId === undefined || assignment === undefined) return null;
-  return { operation, sourceId, assignment };
+  const afterPid = values["--after-pid"];
+  if (operation === "abandon")
+    return afterPid === undefined ? { operation, sourceId, assignment } : null;
+  if (afterPid !== undefined && !/^\d{1,10}$/.test(afterPid)) return null;
+  return {
+    operation: "dispatch" as const,
+    sourceId,
+    assignment,
+    afterPid: afterPid === undefined ? null : Number(afterPid),
+  };
 }
 
 export const dispatchExitCodes = {
@@ -83,6 +110,11 @@ export const dispatchExitCodes = {
   herdr_no_answer: 1,
   herdr_invalid_response: 1,
   host_metadata_failed: 1,
+  handoff_running: 4,
+  handoff_not_found: 4,
+  herdr_session_mismatch: 4,
+  handoff_continuation_refused: 4,
+  handoff_publication_timed_out: 4,
 };
 
 /** A launch failure preserves the source and the dispatch owner's recovery facts. */
@@ -156,11 +188,12 @@ export async function runDispatch(
     return true;
   }
   const result = await (parsed.operation === "dispatch"
-    ? WorkerDispatch.dispatch({
+    ? PullRequests.dispatch({
         paths,
         cwd: process.cwd(),
         sourceId: parsed.sourceId,
         assignment: parsed.assignment,
+        afterPid: parsed.afterPid,
       }).map((data) => ({ reason: "worker_launched", data }))
     : parsed.operation === "abandon"
       ? WorkSources.abandon({

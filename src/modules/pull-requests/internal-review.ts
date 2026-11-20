@@ -12,6 +12,7 @@ import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Failure = Refusal;
+type HandoffContinuation = Parameters<typeof DeviceState.checkHandoffContinuation>[1];
 const handoffRecovery = {
   decider: "super-agent" as const,
   question:
@@ -68,7 +69,7 @@ export function startHandoff(paths: Paths, owner: Owner) {
         tool: process.execPath,
         args: [
           await entryPoint(),
-          "handoff",
+          "dispatch",
           "--source",
           owner.sourceId,
           "--assignment",
@@ -114,7 +115,8 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
         expectedSocket: implementer.herdrSocket,
         actualSocket: Environment.read().HERDR_SOCKET_PATH ?? null,
       },
-      detail: "Run operator handoff in a pane of the Herdr session that started the implementer.",
+      detail:
+        "Run operator dispatch in a pane of the Herdr session that started the outgoing worker.",
     };
   const closed = await Herdr.closePane(implementer.paneId);
   if (closed.tag === "Ok") return null;
@@ -123,7 +125,7 @@ async function closeImplementer(facts: Claimed): Promise<Failure | null> {
     : { reason: "handoff_defect", detail: String(closed.cause), next: handoffRecovery };
 }
 
-type Step = { ok: true; reviewer: object | null } | { ok: false; error: Failure };
+type Launch = Extract<Awaited<ReturnType<typeof WorkerDispatch.dispatch>>, { tag: "Ok" }>["value"];
 type RecoveryAudit = NonNullable<
   Extract<ReturnType<typeof DeviceState.readInternalReviewRecovery>, { tag: "Ok" }>["value"]
 >;
@@ -199,51 +201,68 @@ function failure(
   };
 }
 
-async function runHandoff(
+function runHandoff(
   request: HandoffRequest & { repository: string },
   facts: Claimed,
-): Promise<Step> {
-  await afterExit(request.afterPid);
-  const recovery = await recoveryGate(request, facts);
-  if (recovery !== null) return { ok: false, error: recovery };
-  const decision = decideInternalReview({
-    event: "handoff",
-    implementer: { state: facts.implementer.state, paneId: facts.implementer.paneId },
-    reviewerStarted: facts.latest.id !== facts.implementer.id,
-  });
-  // Stryker disable next-line ConditionalExpression: equivalent: the handoff event always decides a handoff
-  if (decision.result !== "handoff")
-    return {
-      ok: false,
-      // Stryker disable next-line ObjectLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
-      error: {
-        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
-        reason: "handoff_defect",
-        // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
-        detail: "The handoff event decided no handoff.",
-        next: handoffRecovery,
-      },
-    };
-  if (decision.closePane) {
-    const closed = await closeImplementer(facts);
-    if (closed !== null) return { ok: false, error: closed };
-  }
-  if (!decision.dispatch) return { ok: true, reviewer: null };
-  const ended = DeviceState.finishImplementer(request.paths, facts.implementer.id);
-  if (ended.tag !== "Ok") return { ok: false, error: failure(ended) };
-  const started = await WorkerDispatch.dispatch({
-    paths: request.paths,
-    cwd: facts.checkout,
-    sourceId: request.sourceId,
-    assignment: request.assignment,
-    handoff: true,
-  });
-  if (started.tag !== "Ok") return { ok: false, error: failure(started) };
-  const launch = started.value;
-  return {
-    ok: true,
-    reviewer: { name: launch.name, paneId: launch.paneId, worktreePath: launch.worktreePath },
-  };
+): AsyncResult<Launch | null, Failure> {
+  return fromPromise(async () => {
+    await afterExit(request.afterPid);
+    if (request.continuation !== undefined) {
+      const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
+      if (checked.tag !== "Ok") return checked.map(() => null);
+    }
+    const recovery = await recoveryGate(request, facts);
+    if (recovery !== null)
+      return Err(
+        recovery.reason === "internal_review_recovery_incompatible"
+          ? {
+              ...recovery,
+              detail:
+                "The recorded recovery does not authorize this handoff. No implementer pane was closed and no successor was started. Handoff progress was claimed before this refusal.",
+              state: { ...recovery.state, handoffClaimed: true },
+            }
+          : recovery,
+      );
+    // Recovery can await live PR/Git reads; it cannot extend a continuation's authorization.
+    if (request.continuation !== undefined) {
+      const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
+      if (checked.tag !== "Ok") return checked.map(() => null);
+    }
+    const decision = decideInternalReview({
+      event: "handoff",
+      implementer: { state: facts.implementer.state, paneId: facts.implementer.paneId },
+      reviewerStarted: facts.latest.id !== facts.implementer.id,
+    });
+    // Stryker disable next-line ConditionalExpression: equivalent: the handoff event always decides a handoff
+    if (decision.result !== "handoff")
+      return Err(
+        // Stryker disable next-line ObjectLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+        {
+          // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+          reason: "handoff_defect",
+          // Stryker disable next-line StringLiteral: equivalent: runHandoff calls the pure machine with the fixed handoff event. That event always returns handoff for every implementer state/pane/reviewer flag; it never returns a refusal or another event decision. The existing conditional is already marked equivalent. Keep the TypeScript narrowing guard and disposition only its impossible error object/reason/detail children.
+          detail: "The handoff event decided no handoff.",
+          next: handoffRecovery,
+        },
+      );
+    if (decision.closePane) {
+      const closed = await closeImplementer(facts);
+      if (closed !== null) return Err(closed);
+    }
+    if (!decision.dispatch) return Ok(null);
+    return DeviceState.finishImplementer(request.paths, facts.implementer.id, request.continuation)
+      .toAsync()
+      .flatMap(() =>
+        WorkerDispatch.dispatch({
+          paths: request.paths,
+          cwd: facts.checkout,
+          sourceId: request.sourceId,
+          assignment: request.assignment,
+          handoff: true,
+          continuation: request.continuation,
+        }),
+      );
+  }, qualify).flatMap((result) => result);
 }
 
 type HandoffRequest = {
@@ -252,6 +271,7 @@ type HandoffRequest = {
   sourceId: string;
   assignment: string;
   afterPid: number | null;
+  continuation?: HandoffContinuation;
 };
 
 /**
@@ -267,28 +287,28 @@ export function handoff(request: HandoffRequest) {
       request.sourceId,
       request.assignment,
       request.afterPid,
+      request.continuation,
     )
       .toAsync()
-      .flatMap((facts): AsyncResult<{ reason: string; data: object }, Failure> => {
-        const data = { sourceId: request.sourceId, assignment: request.assignment };
-        if (facts.review.handoffState === "done")
-          return OkAsync({ reason: "handoff_unchanged", data: { ...data, reviewer: null } });
+      .flatMap((facts): AsyncResult<Launch | null, Failure> => {
+        if (facts.handoff.handoffState === "done") return OkAsync(null);
         const release = DeviceState.holdHandoff(
           request.paths,
           request.sourceId,
           request.assignment,
+          request.continuation,
         );
         return fromPromise(async () => {
           try {
             const step = await runHandoff({ ...request, repository: project.repository }, facts);
-            if (step.ok)
-              return Ok({ reason: "handoff_finished", data: { ...data, reviewer: step.reviewer } });
+            if (step.tag !== "Err") return step;
             // A failed reviewer start already ended the handoff, and next shows that launch.
             DeviceState.failHandoff(
               request.paths,
               request.sourceId,
               request.assignment,
               `${step.error.reason}: ${step.error.detail}`,
+              request.continuation,
             );
             return Err(step.error);
           } finally {
@@ -297,6 +317,117 @@ export function handoff(request: HandoffRequest) {
         }, qualify).flatMap((result) => result);
       }),
   );
+}
+
+type DispatchInput = Omit<HandoffRequest, "afterPid" | "continuation"> & {
+  afterPid?: number | null;
+};
+type DispatchPermission = { continuation: HandoffContinuation | null };
+
+/** Publication gets one second, read-only, then fails closed. Scheduler progress is not guaranteed. */
+export function dispatchPermission(input: DispatchInput): AsyncResult<DispatchPermission, Failure> {
+  return fromPromise(async () => {
+    const supervised = await WorkSources.checkSupervisor(input);
+    const afterPid = input.afterPid ?? null;
+    const internal = afterPid !== null;
+    if (supervised.tag === "Ok" && !internal) return Ok<DispatchPermission>({ continuation: null });
+    if (supervised.tag === "Defect") return supervised.map(() => ({ continuation: null }));
+    if (
+      supervised.tag === "Err" &&
+      (supervised.error.reason !== "source_supervised_elsewhere" || !internal)
+    )
+      return Err<Failure>({ ...supervised.error, next: supervised.error.next ?? handoffRecovery });
+    if (afterPid === null || afterPid <= 0)
+      return Err<Failure>({
+        reason: "handoff_continuation_refused",
+        detail:
+          "An internal continuation needs a positive publication PID and its own recorded hold.",
+        next: handoffRecovery,
+        state: { continuationAuthorized: false },
+      });
+    const project = await Projects.current(input);
+    if (project.tag === "Defect") return project.map(() => ({ continuation: null }));
+    if (project.tag === "Err")
+      return Err<Failure>({ ...project.error, next: project.error.next ?? handoffRecovery });
+    const target = {
+      repository: project.value.data.repository,
+      sourceId: input.sourceId,
+      assignment: input.assignment,
+    };
+    return await waitForPublication(input, target, afterPid);
+  }, qualify).flatMap((result) => result);
+}
+
+function waitForPublication(
+  input: DispatchInput,
+  target: { repository: string; sourceId: string; assignment: string },
+  publishingPid: number,
+): AsyncResult<DispatchPermission, Failure> {
+  return fromPromise(async () => {
+    const values = Environment.read();
+    const context = {
+      pane: values.HERDR_PANE_ID ?? null,
+      socket: values.HERDR_SOCKET_PATH ?? null,
+    };
+    const deadline = Date.now() + 1000;
+    while (true) {
+      const checked = DeviceState.readHandoffContinuation(
+        input.paths,
+        target,
+        context,
+        publishingPid,
+      );
+      if (checked.tag !== "Ok") return checked.map(({ identity }) => ({ continuation: identity }));
+      if (checked.value.published)
+        return Ok<DispatchPermission>({ continuation: checked.value.identity });
+      if (Date.now() >= deadline)
+        return Err<Failure>({
+          reason: "handoff_publication_timed_out",
+          detail:
+            "The associating process did not publish this continuation's PID within one second. No handoff was claimed.",
+          next: {
+            command: "operator next",
+            why: "The supervisor can recover the stopped handoff.",
+          },
+          state: { continuationAuthorized: false },
+        });
+      await Bun.sleep(10);
+    }
+  }, qualify).flatMap((result) => result);
+}
+
+/** A foreign continuation never falls back to ordinary supervisor dispatch. */
+export function dispatch(input: DispatchInput) {
+  return dispatchPermission(input).flatMap(({ continuation }) => {
+    if (continuation === null) return supervisorDispatch(input);
+    return WorkerDispatch.checkHandoff(input)
+      .flatMap(() => handoff({ ...input, afterPid: input.afterPid ?? null, continuation }))
+      .flatMap((launch) =>
+        launch === null
+          ? ErrAsync<Failure>({
+              reason: "handoff_continuation_refused",
+              detail: "The pending continuation was consumed. No replacement was dispatched.",
+              next: {
+                command: "operator next",
+                why: "Read the assignment's recorded next action.",
+              },
+              state: { continuationAuthorized: false },
+            })
+          : OkAsync(launch),
+      );
+  });
+}
+
+/** Ordinary supervisor recovery keeps its independent dispatch authority. */
+function supervisorDispatch(input: DispatchInput) {
+  return WorkSources.show(input).flatMap((source) => {
+    const recorded = source?.handoffs.find((row) => row.assignment === input.assignment);
+    if (recorded === undefined || recorded.handoffState === "done")
+      return WorkerDispatch.dispatch(input);
+    return WorkerDispatch.checkHandoff(input)
+      .flatMap(() => handoff({ ...input, afterPid: input.afterPid ?? null }))
+      .flatMap((launch) => (launch === null ? WorkerDispatch.dispatch(input) : OkAsync(launch)));
+  });
 }
 
 function readFindings(file: string) {

@@ -217,6 +217,32 @@ export const cleanups = sqliteTable(
   ],
 );
 
+// The latest kind transition inside one assignment, independent of internal review.
+export const kindHandoffs = sqliteTable(
+  "kind_handoffs",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    outgoingLaunchId: text("outgoing_launch_id")
+      .notNull()
+      .references(() => launches.id),
+    nextKind: text("next_kind").notNull(),
+    handoffState: text("handoff_state").notNull(),
+    handoffDetail: text("handoff_detail"),
+    startedAt: text("started_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
 // The internal review of one PR assignment. The implementer's draft association records it.
 export const internalReviews = sqliteTable(
   "internal_reviews",

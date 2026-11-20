@@ -21,10 +21,10 @@ const cases: { row: Row; next: NextStep }[] = [
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_handoff" },
+    row: { ...assignment, reason: "handoff_failed", blockers: [], action: "replace_worker" },
     next: {
-      command: "operator handoff --source source --assignment read",
-      why: "Resume the internal review handoff.",
+      command: "operator dispatch --source source --assignment read",
+      why: "Replace the stopped worker without deleting its work.",
     },
   },
   {

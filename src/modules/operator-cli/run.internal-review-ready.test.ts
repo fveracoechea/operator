@@ -19,6 +19,7 @@ import { fakeGithubScript } from "./github-fixture.ts";
 
 let root = "";
 let checkout = "";
+const workerPanes = new Map<string, string>();
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
@@ -29,7 +30,7 @@ const gitEnv = {
   GIT_COMMITTER_EMAIL: "fixture@example.com",
 };
 
-function environment() {
+function environment(cwd = checkout) {
   return Environment.child({
     ...gitEnv,
     HOME: `${root}/home`,
@@ -38,13 +39,16 @@ function environment() {
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     HERDR_SOCKET_PATH: `${root}/herdr.sock`,
     PATH: `${root}/tools:${Environment.read().PATH}`,
+    OPENCODE_SESSION_ID: "ses_synthetic_supervisor",
+    CLAUDE_CODE_SESSION_ID: undefined,
+    HERDR_PANE_ID: workerPanes.get(cwd) ?? "synthetic-supervisor-pane",
   });
 }
 
 async function exec(args: string[], cwd = checkout, stdin?: string) {
   const child = Bun.spawn(args, {
     cwd,
-    env: environment(),
+    env: environment(cwd),
     stdout: "pipe",
     stderr: "pipe",
     stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
@@ -166,15 +170,18 @@ async function setup(host: "opencode" | "claude-code") {
 }
 
 afterEach(async () => {
+  workerPanes.clear();
   await rm(root, { recursive: true, force: true });
 });
 
 async function dispatch(source: string, assignment = "implement") {
   const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
   expect(launched.code, launched.stderr).toBe(0);
-  return z
+  const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string(), brief: z.string() }) })
     .parse(launched.output).data;
+  workerPanes.set(worker.worktreePath, worker.paneId);
+  return worker;
 }
 
 type Pull = Record<string, unknown> & { number: number };

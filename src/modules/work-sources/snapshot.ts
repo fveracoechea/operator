@@ -142,6 +142,16 @@ const internalReviewSchema = z.object({
 });
 export type InternalReview = z.infer<typeof internalReviewSchema>;
 
+const handoffSchema = z.object({
+  assignment: z.string(),
+  outgoingLaunchId: z.string(),
+  nextKind: WorkerKinds.snapshotSchema().shape.name,
+  handoffState: z.enum(["pending", "failed", "done"]),
+  handoffDetail: z.string().nullable(),
+  handoffRunning: z.boolean(),
+});
+export type KindHandoff = z.infer<typeof handoffSchema>;
+
 export const findingSchema = z.strictObject({
   axis: z.enum(["Spec", "Standards", "Skills"]),
   severity: z.enum(["blocker", "nice-to-have"]),
@@ -410,6 +420,7 @@ export function decodeSource(input: StoredSource) {
     reports: z.array(reportSchema).parse(input.reports),
     cleanups: z.array(cleanupSchema).parse(input.cleanups),
     internalReviews: z.array(internalReviewSchema).parse(input.internalReviews),
+    handoffs: z.array(handoffSchema).parse(input.handoffs),
     internalReviewRounds: z.array(roundSchema).parse(input.internalReviewRounds),
     questions: z.array(questionSchema).parse(input.questions),
     messages: z.array(messageSchema).parse(input.messages),

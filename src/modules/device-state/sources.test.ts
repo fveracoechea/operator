@@ -96,6 +96,94 @@ function endedDatabase() {
 }
 const target = { repository: project.repository, checkout: project.checkout, sourceId: "one" };
 
+test.each([
+  ["pending", true],
+  ["pending", false],
+  ["failed", true],
+  ["done", true],
+] as const)(
+  "source reads project %s handoffs with live owner=%s without borrowing another source",
+  (state, live) => {
+    using db = endedDatabase();
+    expect(
+      registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, [
+        { sourceId: "two", key: "open", completion: "pr", state: "pr-open" },
+      ]).tag,
+    ).toBe("Ok");
+    for (const sourceId of ["one", "two"]) {
+      insertRow(db, "launches", {
+        id: `l-${sourceId}`,
+        source_id: sourceId,
+        assignment: "open",
+        attempt: 1,
+      });
+      insertRow(db, "kind_handoffs", {
+        source_id: sourceId,
+        assignment: "open",
+        outgoing_launch_id: `l-${sourceId}`,
+        next_kind: sourceId === "one" ? "review" : "pr-feedback",
+        handoff_state: state,
+        handoff_detail: `${sourceId} detail`,
+        owner_pid: live ? process.pid : null,
+        lease_at: new Date().toISOString(),
+        started_at: "before",
+        updated_at: "now",
+      });
+      insertRow(db, "internal_reviews", {
+        source_id: sourceId,
+        assignment: "open",
+        implementer_launch_id: `l-${sourceId}`,
+        state: "reviewing",
+        handoff_state: "done",
+        handoff_detail: "obsolete",
+      });
+    }
+    insertRow(db, "launches", { id: "legacy", source_id: "one", assignment: "done", attempt: 1 });
+    insertRow(db, "internal_reviews", {
+      source_id: "one",
+      assignment: "done",
+      implementer_launch_id: "legacy",
+      state: "ready",
+      handoff_state: "done",
+      handoff_detail: "old detail",
+    });
+    const read = readSources(db, project.repository, "one");
+    expect(read).toMatchObject({
+      tag: "Ok",
+      value: [
+        {
+          handoffs: [
+            {
+              sourceId: "one",
+              assignment: "open",
+              outgoingLaunchId: "l-one",
+              nextKind: "review",
+              handoffState: state,
+              handoffDetail: "one detail",
+              handoffRunning: state === "pending" && live,
+            },
+          ],
+          internalReviews: expect.arrayContaining([
+            expect.objectContaining({
+              assignment: "open",
+              handoffState: state,
+              handoffDetail: "one detail",
+              handoffRunning: state === "pending" && live,
+            }),
+            expect.objectContaining({
+              assignment: "done",
+              handoffState: "done",
+              handoffDetail: null,
+              handoffRunning: false,
+            }),
+          ]) as unknown,
+        },
+      ],
+    });
+    expect(read.tag === "Ok" ? read.value[0]?.handoffs.length : -1).toBe(1);
+  },
+);
+
 test("ending selected assignments checks ownership, scopes every write, and preserves source and PR records", () => {
   using db = endedDatabase();
   expect(
@@ -438,6 +526,14 @@ test("prune deletes files and records together, and a refused path keeps both", 
   });
   await Bun.write(`${directory}/assignments/open/brief.md`, "brief", { createPath: true });
   await Bun.write(`${sibling}/keep`, "keep", { createPath: true });
+  insertRow(db, "kind_handoffs", {
+    source_id: "one",
+    assignment: "open",
+    outgoing_launch_id: "l1",
+    next_kind: "review",
+    handoff_state: "failed",
+    handoff_detail: "kept until prune",
+  });
   const unchanged = db.serialize();
   expect(pruneSource(db, paths, target, () => false)).toEqual(Ok(null));
   expect(db.serialize()).toEqual(unchanged);
@@ -476,6 +572,7 @@ test("prune deletes files and records together, and a refused path keeps both", 
     "reports",
     "cleanups",
     "pull_requests",
+    "kind_handoffs",
   ])
     expect(db.query(`SELECT * FROM ${table}`).all()).toEqual([]);
   expect(await Bun.file(`${directory}/assignments/open/brief.md`).exists()).toBe(false);

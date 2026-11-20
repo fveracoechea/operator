@@ -262,3 +262,38 @@ test("a live internal review handoff blocks an upgrade once its records exist", 
     },
   });
 });
+
+test("a kind handoff holds migrations only after its table exists and while its owner is live", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE internal_reviews (owner_pid INTEGER, lease_at TEXT)",
+  );
+  expect(idleForMigration(db, 22)).toMatchObject({ tag: "Ok", value: undefined });
+  db.exec("CREATE TABLE kind_handoffs (owner_pid INTEGER, lease_at TEXT)");
+  const stopped = Bun.spawnSync([process.execPath, "--version"]).pid;
+  for (const [pid, lease, blocked] of [
+    [process.pid, new Date().toISOString(), true],
+    [process.pid, "2000-01-01", false],
+    [stopped, new Date().toISOString(), false],
+    [null, new Date().toISOString(), false],
+  ] as const) {
+    db.exec("DELETE FROM kind_handoffs");
+    db.query("INSERT INTO kind_handoffs VALUES (?, ?)").run(pid, lease);
+    const before = db.serialize();
+    expect(idleForMigration(db, 22)).toMatchObject({ tag: "Ok", value: undefined });
+    expect(idleForMigration(db, 23)).toMatchObject(
+      blocked
+        ? {
+            tag: "Err",
+            error: {
+              reason: "state_migration_blocked",
+              detail: "Migration is waiting for a running kind handoff to finish. No handler ran.",
+              state: { idle: false },
+              next: { decider: "super-agent" },
+            },
+          }
+        : { tag: "Ok", value: undefined },
+    );
+    expect(db.serialize()).toEqual(before);
+  }
+});

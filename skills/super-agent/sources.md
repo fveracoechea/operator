@@ -107,7 +107,7 @@ One agent session supervises a source. The session that last ran the source's wa
 A wait without `--source` claims only open sources that nobody supervises yet, so it never takes another SuperAgent's sources.
 The session counts, not the pane: a new session in the same pane, for example after `/clear` or a restart, supervises nothing.
 
-Another session's `dispatch`, `next --wait --source`, report decision, question answer or escalation, steering message, `cleanup`, or `handoff` for the source refuses with `source_supervised_elsewhere`. Its detail names the supervising session and pane.
+Another session's `dispatch`, `next --wait --source`, report decision, question answer or escalation, steering message, or `cleanup` for the source refuses with `source_supervised_elsewhere`. Its detail names the supervising session and pane.
 Reads such as `next` and `source show` still work.
 Leave the source to its named session. Tell the person, and take it over only when the person tells you to.
 Run `operator source take-over --source <source-id> --person-instructed --json` from your own session. `--person-instructed` attests the person's instruction. It does not grant authority.

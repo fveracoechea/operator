@@ -49,11 +49,24 @@ test.each([
     assertion: "pr_worktree_unclean",
   },
   {
+    name: "review-local clean worktree",
+    file: "pull-requests/internal-review-machine.ts",
+    replacements: [
+      [
+        'facts.internalReview &&\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed })',
+        "false",
+      ],
+    ],
+    testFile: "pull-requests/internal-review-machine.test.ts",
+    pattern: "with internal review on, each unready PR",
+    assertion: "pr_worktree_unclean",
+  },
+  {
     name: "implementer pane closed",
     file: "pull-requests/internal-review-machine.ts",
     replacements: [["closePane: !facts.reviewerStarted && live", "closePane: false && live"]],
     testFile: flow,
-    pattern: "hands a clean draft",
+    pattern: "hands implementation to review",
   },
   {
     name: "handed-off launch refused",
@@ -65,7 +78,7 @@ test.each([
       ],
     ],
     testFile: guards,
-    pattern: "cannot close the implementer",
+    pattern: "a failed handoff shows",
     assertion: "pr_handed_off",
   },
   {
@@ -119,9 +132,9 @@ test.each([
   {
     name: "reviewer start after a stopped handoff",
     file: "device-state/internal-reviews.ts",
-    replacements: [['review.handoffState !== "done" &&', 'review.handoffState === "done" &&']],
+    replacements: [['handoff.handoffState !== "done" &&', 'handoff.handoffState === "done" &&']],
     testFile: flow,
-    pattern: "hands a clean draft",
+    pattern: "hands implementation to review",
   },
   {
     name: "association holds its handoff",
@@ -133,7 +146,7 @@ test.each([
   {
     name: "handoff takes over the association's hold",
     file: "device-state/internal-reviews.ts",
-    replacements: [["review.ownerPid !== afterPid", "true"]],
+    replacements: [["handoff.ownerPid !== afterPid", "true"]],
     testFile: "device-state/pull-requests.test.ts",
     pattern: "takes over its hold",
   },
@@ -239,6 +252,7 @@ test.each([
         expect(original.split(before)).toHaveLength(2);
       changed = changed.replace(before, after);
     }
+    expect(changed).not.toBe(original);
     async function story() {
       const child = Bun.spawn(
         [

@@ -44,6 +44,7 @@ const input = {
   obligations: [],
   cleanups: [],
   internalReviews: [],
+  handoffs: [],
   internalReviewRounds: [],
   promotions: [],
 };
@@ -197,6 +198,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     obligations: [],
     cleanups: [],
     internalReviews: [],
+    handoffs: [],
     internalReviewRounds: [],
     promotions: [],
   };
@@ -357,6 +359,7 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
     obligations: [],
     cleanups: [cleanup],
     internalReviews: [],
+    handoffs: [],
     internalReviewRounds: [],
     promotions: [],
   };
@@ -395,6 +398,7 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
       pullRequests: [{ ...pr, mergedHead: null, mergeCommit: null }],
       cleanups: [],
       internalReviews: [],
+      handoffs: [],
       internalReviewRounds: [],
       promotions: [],
     }).assignments,

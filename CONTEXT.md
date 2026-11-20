@@ -261,9 +261,9 @@ It is on by default, and an assignment, a plan, or the device setting can turn i
 On the person's instruction, the SuperAgent can skip a running internal review, which marks the PR ready without a comment.
 _Avoid_: self-review, pre-PR review, internal review request
 
-**Internal review handoff**:
-The CLI's end of the implementer's session after it associates a draft PR, and the start of the reviewer as the next launch in the same worktree.
-The reviewer is a step of the review, not a worker role: a launch after the handoff of a running review is its reviewer.
+**Handoff**:
+The CLI's transition from one kind to the next inside one assignment, started by the outgoing worker's closing command.
+It links only kinds with the same completion type, and the CLI writes the record facts into the next brief.
 _Avoid_: reviewer role, manual handoff
 
 **Internal review round**:

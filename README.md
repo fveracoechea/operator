@@ -82,7 +82,7 @@ stateDiagram-v2
         [*] --> pending
         pending --> done: reviewer launch reserved
         pending --> failed: handoff step fails
-        failed --> pending: handoff
+        failed --> pending: dispatch
         failed --> done: dispatch of the reviewer
         done --> done: pr round, at most two
     }
@@ -93,9 +93,9 @@ stateDiagram-v2
 ```
 
 - `pending`: the CLI closes the implementer's pane and starts a fresh WorkerAgent in the same worktree.
-  `next` shows a running handoff as a wait, and a handoff whose process stopped as `retry_handoff`.
-- `failed`: `next` shows `retry_handoff`.
-  The SuperAgent runs `operator handoff` from the controlling checkout.
+  `next` shows a running handoff as `wait` with `kind_handoff`.
+- `failed` or stopped: `next` shows `replace_worker` with `handoff_failed`.
+  The SuperAgent dispatches the assignment from the controlling checkout to resume the recorded next kind.
 - `done`: the reviewer checks the draft against the issue, the standards, and the skills that the brief names.
   Each `pr round` records the findings at the worktree head, and leaves the handoff state `done`.
   A second round needs a newer head, and there is no third round.
@@ -105,6 +105,17 @@ stateDiagram-v2
 - `skipped`: on your instruction, the SuperAgent ends a running review with `internal-review skip`, which marks the PR ready with no comment.
 
 The implementer runs no PR command after the handoff.
+
+The detached continuation keeps the outgoing caller's identity. It does not become the source's supervisor.
+The CLI checks its exact pending handoff, PID, fresh lease, outgoing launch, pane, and socket before continuing.
+It checks the same identity again at claim, lease renewal, pane closure, and launch reservation.
+Reservation consumes the handoff with the new launch and makes no supervisor write.
+
+PID publication has a one-second, read-only wait. If publication does not arrive, the continuation refuses without claiming another process's hold.
+This bound does not guarantee scheduler progress; the supervisor recovers a stopped handoff with ordinary dispatch.
+An internal flag alone grants no dispatch authority or fallback, even to a supervisor's internal-continuation request.
+The existing trusted-device PID, lease, and pane records do not authenticate process incarnation or the exact worker session.
+Strict pane matching can refuse safely on a stale-pane host topology. External pane closure is not atomic with SQLite, and lease renewal is not fencing against arbitrary process suspension.
 `pr merge` refuses until the internal review is `ready` or `skipped`.
 
 ## Install
@@ -427,7 +438,6 @@ operator pr round --file <findings.md> --json
 operator pr wait --timeout 300 --json
 operator pr ready --file <summary.md> --json
 operator pr merge --json
-operator handoff --source <source-id> --assignment <key> --json
 operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
 operator cleanup --source <source-id> --assignment <key> --json
 ```
@@ -465,7 +475,7 @@ Disposition bullets read `- 1.1 applied` or `- 1.1 declined: <reason>`.
 The first number selects the round; the second selects its finding, starting at 1.
 Malformed bullets report their line number and the next command. A refusal changes nothing.
 
-The SuperAgent runs `handoff` from the controlling checkout when `next` shows `retry_handoff`.
+The SuperAgent runs `dispatch` from the controlling checkout when `next` shows a failed kind handoff.
 Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.
 A plan's `internalReview` field sets it for all its assignments, and a PR assignment's `internalReview` field sets it for that assignment.
 The most specific value wins.
@@ -503,7 +513,7 @@ Changed provenance, ended sources or reviews, incompatible owners, existing unre
 Launch snapshots and existing review requests remain unchanged.
 No review rounds, approval, or ready metadata are fabricated.
 The ordinary fresh-reviewer handoff and genuine GitHub approval remain required.
-If the handoff stops, use `operator handoff --source <source-id> --assignment <key> --json` after inspecting its recorded failure.
+If the handoff stops, use `operator dispatch --source <source-id> --assignment <key> --json` after inspecting its recorded failure.
 Recovered handoffs recheck the authorization, active review, draft, branch, clean worktree, and exact pushed head before closing the implementer.
 
 ### Reviews

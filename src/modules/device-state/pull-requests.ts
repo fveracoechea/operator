@@ -2,12 +2,15 @@ import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
+import { WorkerKinds } from "../worker-kinds/main.ts";
+import { reviewHandoffTarget } from "./handoff-target.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
   assignments,
   cleanups,
   internalReviews,
+  kindHandoffs,
   launches,
   projects,
   pullRequests,
@@ -147,22 +150,38 @@ export function activeOwner(db: Db, launchId: string) {
 function insertInternalReview(
   db: Db,
   review: { sourceId: string; assignment: string; implementerLaunchId: string },
+  nextKind: string,
 ) {
   const now = new Date().toISOString();
   db.insert(internalReviews)
     .values({
       ...review,
       state: "reviewing",
+      // Historical columns stay for migration history; kind_handoffs owns new transitions.
+      handoffState: "done",
+      handoffDetail: null,
+      startedAt: now,
+      updatedAt: now,
+      ownerPid: null,
+      leaseAt: null,
+      readyHead: null,
+      commentId: null,
+      commentUrl: null,
+      endedAt: null,
+    })
+    .run();
+  db.insert(kindHandoffs)
+    .values({
+      sourceId: review.sourceId,
+      assignment: review.assignment,
+      outgoingLaunchId: review.implementerLaunchId,
+      nextKind,
       handoffState: "pending",
       handoffDetail: null,
       startedAt: now,
       updatedAt: now,
       ownerPid: process.pid,
       leaseAt: now,
-      readyHead: null,
-      commentId: null,
-      commentUrl: null,
-      endedAt: null,
     })
     .run();
 }
@@ -192,6 +211,7 @@ export function associatePullRequest(
         ({
           source,
           assignment,
+          launch,
         }): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
           const existing = current(db, source.id, assignment.key);
           if (existing !== undefined)
@@ -255,11 +275,19 @@ export function associatePullRequest(
             .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
             .run();
           if (internalReview)
-            insertInternalReview(db, {
-              sourceId: source.id,
-              assignment: assignment.key,
-              implementerLaunchId: launchId,
-            });
+            insertInternalReview(
+              db,
+              {
+                sourceId: source.id,
+                assignment: assignment.key,
+                implementerLaunchId: launchId,
+              },
+              reviewHandoffTarget(
+                launch.kind === null
+                  ? null
+                  : WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
+              ),
+            );
           if (review)
             requestAssignmentReview(db, {
               repository: source.repository,
