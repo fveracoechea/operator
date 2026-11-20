@@ -10,6 +10,85 @@ beforeEach(async () => {
   device = await workerDevice();
 }, 60000);
 
+test("a custom PR/pane kind dispatches through both a plan and one-off input", async () => {
+  await Bun.write(`${device.root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", {
+    createPath: true,
+  });
+  const definition = {
+    completion: "pr",
+    resources: "pane",
+    guide: "audit/SKILL.md",
+    workPhases: [{ name: "inspect", goal: "Inspect the queue." }],
+  };
+  const edit = ["--set", `kinds.audit=${JSON.stringify(definition)}`];
+  const planned = await device.run(["config", "plan", ...edit]);
+  expect(planned.code, planned.stderr).toBe(0);
+  const planId = z.object({ data: z.object({ planId: z.string() }) }).parse(planned.output)
+    .data.planId;
+  const applied = await device.run(["config", "apply", ...edit, "--plan", planId]);
+  expect(applied.code, applied.stderr).toBe(0);
+  const sourceId = await device.register({
+    trackerKey: "audit:plan",
+    assignments: [
+      {
+        key: "inspect",
+        trackerKey: "audit:planned",
+        kind: "audit",
+        branch: "task/inspect",
+        instructions: "Inspect the queue.",
+        dependencies: [],
+      },
+    ],
+  });
+  const launched = await device.run(["dispatch", "--source", sourceId, "--assignment", "inspect"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  const oneOff = await device.run(["dispatch", "--kind", "audit", "--brief", "-"], {
+    stdin: "Inspect the queue.",
+  });
+  expect(oneOff.code, oneOff.stderr).toBe(0);
+  const oneOffId = z.object({ data: z.object({ sourceId: z.string() }) }).parse(oneOff.output)
+    .data.sourceId;
+  expect(oneOffId).not.toBe(sourceId);
+  expect(launched.output).toMatchObject({
+    reason: "worker_launched",
+    data: {
+      worktreePath: null,
+      branch: null,
+      kind: { name: "audit", completion: "pr", resources: "pane" },
+    },
+  });
+  expect(oneOff.output).toMatchObject({
+    reason: "worker_launched",
+    data: {
+      assignment: "inspect-the-queue",
+      worktreePath: null,
+      branch: null,
+      kind: { name: "audit", completion: "pr", resources: "pane" },
+    },
+  });
+  expect((await device.run(["source", "show", "--source", sourceId])).output).toMatchObject({
+    data: {
+      plan: { assignments: [{ branch: "task/inspect", completion: "pr", resources: "pane" }] },
+    },
+  });
+  expect((await device.run(["source", "show", "--source", oneOffId])).output).toMatchObject({
+    data: {
+      plan: {
+        assignments: [
+          {
+            key: "inspect-the-queue",
+            kind: "audit",
+            branch: "inspect-the-queue",
+            completion: "pr",
+            resources: "pane",
+            dependencies: [],
+          },
+        ],
+      },
+    },
+  });
+}, 60000);
+
 test.each([
   ["missing", "Read the queue.", "invalid_source_plan", 2],
   ["research", "   ", "invalid_source_plan", 2],
