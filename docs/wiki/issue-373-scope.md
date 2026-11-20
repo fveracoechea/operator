@@ -91,7 +91,7 @@ The wiki recorded the spec/implementation distinction rather than silently recon
 
 On 2026-11-20, `/tmp/opencode/issue373-final-acceptance-ledger-pre-final.md` audited all 23 children against immutable #432 main `bb3e05fafe0ed854c31fa8778893df03a71694ef`.
 It demonstrated 20 landed child deliveries and assigned the remaining #392/#394/#396 packages to existing #435/#436/#428.
-The [later actual chain](issue-373-landing.md#qualified-main-chain-on-2026-11-20) records #435's landing and the qualified #436 parent without claiming its unrelayed merge.
+The [later actual chain](issue-373-landing.md#qualified-main-chain-on-2026-11-20) records #435 and #436 landings with their exact tested trees.
 The ledger remains pre-final evidence, not acceptance of an unseen final tree.
 
 On 2026-11-20, the final #428 assignment combined #396's two owned commits with that exact qualified parent.

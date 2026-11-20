@@ -146,6 +146,8 @@ At this checkpoint, main was actual #435 merge `3d753f03ac067a32e16a3816aa56e13c
 The coordinator supplied qualified #436 head `0ba9e26332b18f4d6cb439dd60fb65d1bb759be2`, tree `2949d4290016585faaebf2d5838769003ee188c4`, with 4,753 passing tests and static quality.
 The coordinator relayed both final composition reviews clean at that exact head and tree.
 Sources were `/tmp/opencode/issue373-pr436-final-standards.md` and `/tmp/opencode/issue373-pr436-final-spec.md`.
-Its actual landing was not yet relayed to this owner.
+The later actual landing was relayed and verified at main merge `e107e16e86deaccb4974fea80937a6939a130fbf`.
+That merge contains the exact qualified head and has the identical tested tree.
+Sources were `/tmp/opencode/issue373-pr436-landing.md` and `/tmp/opencode/issue373-pr436-actual-landing.json`.
 Existing #428 integrated that exact head and only the two owned #396 commits, not their provisional prerequisite history.
 Neither this checkpoint nor older parent passes qualify the final #428 tree or complete #373.

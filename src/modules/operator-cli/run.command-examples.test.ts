@@ -308,8 +308,9 @@ test("bundled skills use result next steps and retain their authority limits", a
   expect(plans).toContain(
     "Assignment's own closed PR: `operator abandon`; it deletes no worktree or branch.",
   );
+  expect(plans).toContain("Follow `clean_up` with `pr_closed` to abandon without a person stop.");
   expect(plans).toContain(
-    "Ask about missing PR worktrees or parents closed/merged outside default.",
+    "Ask about missing PR worktrees or parents closed/merged outside the default branch.",
   );
   expect(plans).toContain(
     "Only the person authorizes `cleanup --person-instructed` for unlanded work.",

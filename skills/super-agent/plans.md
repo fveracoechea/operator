@@ -21,6 +21,7 @@ Resume only on the CLI's changed facts.
 On the person's instruction, merge parked work through `operator pr merge --source <id> --assignment <key>`.
 Approval, checks, threads, base, ready state, relay, and head still gate merge; queueing is not completion.
 Assignment's own closed PR: `operator abandon`; it deletes no worktree or branch.
-Ask about missing PR worktrees or parents closed/merged outside default.
+Follow `clean_up` with `pr_closed` to abandon without a person stop.
+Ask about missing PR worktrees or parents closed/merged outside the default branch.
 Only the person authorizes `cleanup --person-instructed` for unlanded work.
 Ask before closing PRs.
