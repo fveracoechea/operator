@@ -12,6 +12,11 @@ import { okValue, reportDevice, socket, superPane, workerPane } from "./report-f
 let device: Awaited<ReturnType<typeof reportDevice>>;
 beforeEach(async () => {
   device = await reportDevice();
+  await Bun.write(
+    `${device.paths.skillHosts.opencode}/worker-agent/kinds/implementation.md`,
+    "Implement.",
+    { createPath: true },
+  );
 });
 afterEach(async () => {
   mock.restore();
@@ -181,6 +186,7 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
   const taken = shown.launches.find((row) => row.assignment === "build");
   expect(shown.launches.find((row) => row.assignment === "read")).toMatchObject({
     state: "finished",
+    kind: null,
   });
   expect(taken).toMatchObject({
     attempt: 1,
@@ -192,9 +198,11 @@ test("promotion hands a running worker, its pane, and its worktree to a new PR a
     worktreePath: worktree,
     activity: null,
     internalReview: true,
+    kind: { name: "implementation", completion: "pr", nextKind: "review" },
   });
   expect(shown.planned.at(-1)).toMatchObject({
     key: "build",
+    kind: "implementation",
     dependencies: ["read"],
     promotion: { report: "read", reportNumber: 1, handoverLaunchId: taken?.id },
   });
@@ -254,12 +262,31 @@ test.each([
     const shown = await device.show(sourceId);
     expect(shown.launches.find((row) => row.assignment === "build")).toMatchObject({
       internalReview: expected,
+      kind: { name: "implementation", nextKind: expected ? "review" : "pr-feedback" },
     });
     expect(shown.launches.find((row) => row.assignment === "read")).toMatchObject({
       internalReview: null,
     });
   },
 );
+
+test("promotion refuses an uninstalled implementation guide before rename or durable effects", async () => {
+  const { sourceId, launch, worktree } = await submitted();
+  device.inPane(superPane);
+  const called = herdr([launch.name]);
+  await rm(`${device.paths.skillHosts.opencode}/worker-agent/kinds/implementation.md`);
+  const before = await device.show(sourceId);
+  expect(await promote(sourceId)).toMatchObject({
+    tag: "Err",
+    error: { reason: "invalid_settings" },
+  });
+  expect(await device.show(sourceId)).toEqual(before);
+  expect(await git(["branch", "--show-current"], worktree)).toBe("report/read");
+  expect(called.agent).not.toHaveBeenCalled();
+  expect(called.tab).not.toHaveBeenCalled();
+  expect(called.prompt).not.toHaveBeenCalled();
+  expect(await Bun.file(device.assignmentFiles(sourceId, "build").brief).exists()).toBe(false);
+});
 
 test("invalid review settings refuse promotion before any rename or recorded change", async () => {
   const { sourceId, launch, worktree } = await submitted();

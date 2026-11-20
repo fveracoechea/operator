@@ -212,72 +212,129 @@ test("one-off dispatch creates a one-off source with one assignment and an optio
   expect(await device.next(data.assignment)).toMatchObject([{ reason: "assignment_active" }]);
 }, 60000);
 
-test("promotion adds a PR assignment without adding another planned assignment to a one-off source", async () => {
-  const launched = await device.run(["dispatch", "--kind", "prototype", "--brief", "-"], {
-    stdin: "Build a queue sketch.",
-  });
-  expect(launched.code, launched.stderr).toBe(0);
-  const data = z
-    .object({
-      data: z.object({
-        sourceId: z.string(),
-        assignment: z.string(),
-        paneId: z.string(),
-        worktreePath: z.string(),
-      }),
-    })
-    .parse(launched.output).data;
-  const report = await device.writeReport("sketch-report.md", {
-    conclusion: "The sketch is ready.",
-    evidence: ["The queue sketch uses one state."],
-    unresolved: [],
-  });
-  const submitted = await device.run(["report", "submit", "--file", report], {
-    pane: data.paneId,
-    cwd: data.worktreePath,
-  });
-  expect(submitted.code, submitted.stderr).toBe(0);
-  const file = await device.writeJson("promotion.json", {
-    key: "build",
-    trackerKey: "github:example/one#43",
-    instructions: "Implement the queue.",
-    branch: "task/build",
-  });
-  const promoted = await device.run([
-    "report",
-    "accept",
-    "--source",
-    data.sourceId,
-    "--assignment",
-    data.assignment,
-    "--promote",
-    file,
-  ]);
-  expect(promoted.code, promoted.stderr).toBe(0);
-  expect(promoted.output).toMatchObject({
-    reason: "report_promoted",
-    data: {
-      state: "completed",
-      promoted: { assignment: "build", worktreePath: data.worktreePath, state: "running" },
-    },
-  });
-  const shown = await device.run(["source", "show", "--source", data.sourceId]);
-  const source = z
-    .object({
-      data: z.object({
-        plan: z.object({ assignments: z.array(z.object({ key: z.string() })) }),
-        assignments: z.array(
-          z.object({ key: z.string(), completion: z.string(), state: z.string() }),
-        ),
-      }),
-    })
-    .parse(shown.output).data;
-  expect(source.plan.assignments).toEqual([{ key: data.assignment }]);
-  expect(source.assignments).toEqual([
-    { key: data.assignment, completion: "report", state: "completed" },
-    { key: "build", completion: "pr", state: "running" },
-  ]);
-}, 60000);
+test.each([
+  { internalReview: false, missingGuide: false },
+  { internalReview: true, missingGuide: false },
+  { internalReview: false, missingGuide: true },
+])(
+  "promotion adds a PR assignment with review=$internalReview, missing guide=$missingGuide",
+  async ({ internalReview, missingGuide }) => {
+    const launched = await device.run(["dispatch", "--kind", "prototype", "--brief", "-"], {
+      stdin: "Build a queue sketch.",
+    });
+    expect(launched.code, launched.stderr).toBe(0);
+    const data = z
+      .object({
+        data: z.object({
+          sourceId: z.string(),
+          assignment: z.string(),
+          paneId: z.string(),
+          worktreePath: z.string(),
+          kind: z.unknown(),
+        }),
+      })
+      .parse(launched.output).data;
+    const report = await device.writeReport("sketch-report.md", {
+      conclusion: "The sketch is ready.",
+      evidence: ["The queue sketch uses one state."],
+      unresolved: [],
+    });
+    const submitted = await device.run(["report", "submit", "--file", report], {
+      pane: data.paneId,
+      cwd: data.worktreePath,
+    });
+    expect(submitted.code, submitted.stderr).toBe(0);
+    const config = `${device.root}/config/operator/config.json`;
+    const settings = z.looseObject({}).parse(await Bun.file(config).json());
+    await Bun.write(config, JSON.stringify({ ...settings, review: { internal: internalReview } }));
+    if (missingGuide) await rm(`${device.root}/release/worker-agent/kinds/implementation.md`);
+    const before = (await device.run(["source", "show", "--source", data.sourceId])).output;
+    const calls = await device.herdrCalls();
+    const file = await device.writeJson("promotion.json", {
+      key: "build",
+      trackerKey: "github:example/one#43",
+      instructions: "Implement the queue.",
+      branch: "task/build",
+    });
+    const promoted = await device.run([
+      "report",
+      "accept",
+      "--source",
+      data.sourceId,
+      "--assignment",
+      data.assignment,
+      "--promote",
+      file,
+    ]);
+    if (missingGuide) {
+      expect(promoted).toMatchObject({ code: 3, output: { reason: "invalid_settings" } });
+      expect((await device.run(["source", "show", "--source", data.sourceId])).output).toEqual(
+        before,
+      );
+      expect(await device.herdrCalls()).toEqual(calls);
+      const branch = await device.exec(["git", "branch", "--show-current"], data.worktreePath);
+      expect(branch.stdout.trim()).toBe("build-a-queue-sketch");
+      return;
+    }
+    expect(promoted.code, promoted.stderr).toBe(0);
+    expect(promoted.output).toMatchObject({
+      reason: "report_promoted",
+      data: {
+        state: "completed",
+        promoted: { assignment: "build", worktreePath: data.worktreePath, state: "running" },
+      },
+    });
+    const shown = await device.run(["source", "show", "--source", data.sourceId]);
+    const source = z
+      .object({
+        data: z.object({
+          plan: z.object({ assignments: z.array(z.object({ key: z.string() })) }),
+          assignments: z.array(
+            z.object({ key: z.string(), completion: z.string(), state: z.string() }),
+          ),
+        }),
+      })
+      .parse(shown.output).data;
+    expect(source.plan.assignments).toEqual([{ key: data.assignment }]);
+    expect(source.assignments).toEqual([
+      { key: data.assignment, completion: "report", state: "completed" },
+      { key: "build", completion: "pr", state: "running" },
+    ]);
+    const launches = z
+      .object({ data: z.object({ launches: z.array(z.looseObject({ assignment: z.string() })) }) })
+      .parse(shown.output).data.launches;
+    expect(launches).toHaveLength(2);
+    expect(launches.find((launch) => launch.assignment === data.assignment)).toMatchObject({
+      kind: data.kind,
+    });
+    expect(launches.find((launch) => launch.assignment === "build")).toMatchObject({
+      paneId: data.paneId,
+      worktreePath: data.worktreePath,
+      internalReview,
+      kind: {
+        name: "implementation",
+        completion: "pr",
+        nextKind: internalReview ? "review" : "pr-feedback",
+      },
+    });
+    const brief = z
+      .object({ data: z.object({ promoted: z.object({ brief: z.string() }) }) })
+      .parse(promoted.output).data.promoted.brief;
+    expect(await Bun.file(brief).text()).toContain("worker-agent/kinds/implementation.md");
+    const next = await device.run(["message", "ack", "--key", "promoted"], {
+      pane: data.paneId,
+      cwd: data.worktreePath,
+    });
+    expect(next.code, next.stderr).toBe(0);
+    expect(next.output).toMatchObject({
+      kind: "implementation",
+      phase: "build",
+      next: { command: "operator pr associate" },
+    });
+    expect(JSON.stringify(next.output)).not.toContain("operator report submit");
+  },
+  60000,
+);
 
 test("one-off dispatch validates its file and start profile before registering a source", async () => {
   const missing = await device.run([
