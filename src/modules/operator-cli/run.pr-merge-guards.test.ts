@@ -134,7 +134,7 @@ test.each([
     file: "work-sources/main.ts",
     replacements: [
       [
-        'decision.action === "retry_cleanup" || decision.action === "person_decision",',
+        'decision.action === "clean_up" || decision.action === "person_decision",',
         'decision.action === "replace_worker",',
       ],
     ],

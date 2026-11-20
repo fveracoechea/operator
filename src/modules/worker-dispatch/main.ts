@@ -119,7 +119,11 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         const rows = next.sources
           .flatMap((row) => [...row.actions, ...row.waits])
           .filter((row) => "assignment" in row && row.assignment === input.assignment);
-        if (rows.some((row) => row.reason === "kind_not_dispatchable"))
+        if (
+          !WorkerKinds.dispatchable(kind) &&
+          (!("adopt" in planned) || planned.adopt === undefined) &&
+          source.assignments.some((row) => row.key === input.assignment && row.state === "ready")
+        )
           return Err<Failure>({
             reason: "kind_not_dispatchable",
             detail: `The ${kind} kind starts through a handoff or adoption, not plain dispatch.`,

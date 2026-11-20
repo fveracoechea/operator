@@ -56,6 +56,91 @@ test("dispatch --kind fills a null kind and refuses when the kind is set", async
 });
 
 test.each([
+  ["ready", null, "ready_assignment", "assignment_ready"],
+  ["running", "failed", "replace_worker", "launch_failed"],
+  ["running", "interrupted", "replace_worker", "worker_interrupted"],
+] as const)(
+  "a migrated null report kind in %s with launch %s names a usable %s fill command",
+  async (state, launchState, action, reason) => {
+    const device = await workerDevice();
+    root = device.root;
+    const source = await device.register({
+      trackerKey: "fill-actions",
+      assignments: [
+        {
+          key: "read",
+          trackerKey: "read",
+          kind: "prototype",
+          instructions: "Build a small proof.",
+          dependencies: [],
+          branch: "task/read",
+        },
+      ],
+    });
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    const worktree = `${root}/historical`;
+    if (launchState !== null) {
+      expect(
+        (await device.exec(["git", "worktree", "add", "-b", "task/read", worktree], device.main))
+          .code,
+      ).toBe(0);
+      db.query(
+        "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at, ended_at, worktree_path, herdr_socket) VALUES ('historical', ?, 'read', 1, ?, 'historical', 'worktree', 'task/read', 'opencode', 'test/reasoner', 'test/reasoner', 'medium', '{\"version\":\"historical\"}', '[]', 'then', 'later', ?, ?)",
+      ).run(source, launchState, worktree, `${root}/herdr.sock`);
+      db.query(
+        "INSERT INTO worktree_preparations (path, repository, state, detail, started_at, finished_at) VALUES (?, 'example/one', 'prepared', 'Synthetic preparation', 'then', 'later')",
+      ).run(worktree);
+    }
+    db.query("UPDATE assignments SET state = ?, kind = NULL").run(state);
+    db.exec("DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000");
+    const plan = db.query("SELECT plan FROM sources").get();
+    const history = db.query("SELECT * FROM launches").all();
+    expect((await device.run(["--version"])).code).toBe(0);
+    expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+      shippedHistory,
+    );
+    expect(db.query("SELECT state, kind FROM assignments").get()).toEqual({ state, kind: null });
+    const command = `operator dispatch --source ${source} --assignment read --kind <kind>`;
+    expect(
+      (await device.next("read")).map(({ kind, action, reason, command, next }) => ({
+        kind,
+        action,
+        reason,
+        command,
+        next,
+      })),
+    ).toEqual([
+      {
+        kind: null,
+        action,
+        reason,
+        command,
+        next: { command, why: "Name a worker kind for this record from before kinds." },
+      },
+    ]);
+    const before = db.serialize();
+    expect(
+      (await device.run(["dispatch", "--source", source, "--assignment", "read"])).output,
+    ).toMatchObject({ reason: "assignment_kind_required", state: { kind: null } });
+    expect(db.serialize()).toEqual(before);
+    const args = command.replace("operator ", "").replace("<kind>", "prototype").split(" ");
+    const filled = await device.run(args);
+    expect(filled.code, filled.stderr).toBe(0);
+    expect(filled.output).toMatchObject({
+      data: { attempt: launchState === null ? 1 : 2, kind: { name: "prototype" } },
+    });
+    expect(db.query("SELECT state, kind FROM assignments").get()).toEqual({
+      state: "running",
+      kind: "prototype",
+    });
+    expect(db.query("SELECT * FROM launches WHERE id = 'historical'").all()).toEqual(history);
+    expect(db.query("SELECT id FROM launches").all()).toHaveLength(launchState === null ? 1 : 2);
+    expect(db.query("SELECT plan FROM sources").get()).toEqual(plan);
+    expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+  },
+);
+
+test.each([
   ["migration", false],
   ["ordinary", false],
   ["migration", true],

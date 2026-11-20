@@ -477,10 +477,10 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(returned.code, returned.stderr).toBe(0);
   expect(returned.output).toMatchObject({
     reason: "report_returned",
-    data: { report: 1, next: "resume_worker" },
+    data: { report: 1, next: "worker_attention" },
   });
   expect(await device.next("investigate")).toMatchObject([
-    { action: "resume_worker", reason: "follow_up_returned", report: { decision: "returned" } },
+    { action: "worker_attention", reason: "follow_up_returned", report: { decision: "returned" } },
   ]);
   // A live worker resumes. A dispatch cannot start a second worker for it.
   expect(
@@ -749,7 +749,7 @@ test("acceptance keeps a worktree with unlanded work for the person, and failed 
     },
   });
   expect(await device.next("probe")).toMatchObject([
-    { action: "retry_cleanup", reason: "cleanup_failed" },
+    { action: "clean_up", reason: "cleanup_failed" },
   ]);
   expect(await Bun.file(`${clean}/.env.local`).exists()).toBe(true);
   await device.setHerdr({ fail: {} });

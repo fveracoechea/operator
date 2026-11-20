@@ -14,7 +14,7 @@ import {
 
 const ready = { action: "ready_assignment", reason: "dependencies_met", assignment: "b" };
 const report = { action: "review_report", reason: "report_submitted", assignment: "a" };
-const timedOut = { action: "owner_attention", reason: "pr_wait_timed_out", assignment: "c" };
+const idle = { action: "worker_attention", reason: "worker_idle", assignment: "c" };
 function question(key: string) {
   return { action: "answer_question", reason: "question_open", assignment: "a", question: { key } };
 }
@@ -105,7 +105,7 @@ test("a removed key wakes nobody", () => {
 });
 
 test("a settling key is due only once it lasted the grace period, also between two waits", () => {
-  const key = actionKey("s1", timedOut);
+  const key = actionKey("s1", idle);
   const watch = startWatch();
   const stored = new Set<string>();
   const current = new Set([key]);
@@ -115,7 +115,7 @@ test("a settling key is due only once it lasted the grace period, also between t
 });
 
 test("a settling key that cleared within the grace period starts its period again", () => {
-  const key = actionKey("s1", timedOut);
+  const key = actionKey("s1", idle);
   const watch = startWatch();
   const stored = new Set<string>();
   dueKeys({ stored, current: new Set([key]), watch, now: 0 });
@@ -133,3 +133,28 @@ test("a changed answer keeps only the given actions, drops waits, and drops sour
   });
   expect(changedAnswer(full, new Set())).toEqual({ sources: [] });
 });
+
+test.each([
+  ["owner_attention", "pr_owner_idle", "worker_attention", "worker_idle"],
+  ["resume_worker", "follow_up_returned", "worker_attention", "follow_up_returned"],
+  ["retry_cleanup", "cleanup_failed", "clean_up", "cleanup_failed"],
+  ["retry_cleanup", "cleanup_stopped", "clean_up", "cleanup_stopped"],
+  ["retry_cleanup", "cleanup_unfinished", "clean_up", "cleanup_stopped"],
+  ["retry_handoff", "handoff_failed", "replace_worker", "handoff_failed"],
+  ["owner_attention", "pr_wait_stopped", "replace_worker", "worker_interrupted"],
+])(
+  "%s/%s returns once under its renamed action key without migrating stored keys",
+  (oldAction, oldReason, action, reason) => {
+    const stored = new Set([
+      actionKey("s1", { assignment: "a", action: oldAction, reason: oldReason }),
+    ]);
+    const key = actionKey("s1", { assignment: "a", action, reason });
+    const current = new Set([key]);
+    const watch = startWatch();
+    dueKeys({ stored, current, watch, now: 0 });
+    expect(dueKeys({ stored, current, watch, now: settlingGraceMs })).toEqual([key]);
+    expect(
+      dueKeys({ stored: current, current, watch: startWatch(), now: 2 * settlingGraceMs }),
+    ).toEqual([]);
+  },
+);

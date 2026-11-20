@@ -1,4 +1,4 @@
-# PR owners and owner attention
+# PR owners and worker attention
 
 The WorkerAgent that owns a PR assignment keeps it through review feedback and CI.
 Do not dispatch a fresh writer for each correction.
@@ -14,15 +14,15 @@ Use `gh stack view --json` only to read a stack. Run no other `gh stack` command
 Send each request to an owner as a steering message, as [steering.md](steering.md) says.
 When the person signals urgency, steer the owner to push once lint, typecheck, and tests pass, and to run mutation testing after the push.
 
-- `wait` with `pr_feedback_loop`: the owner is in its loop. Do nothing.
-- `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner for its status in a steering message.
-- `owner_attention` with `pr_wait_stopped`: the owner's wait process ended without a result, for example after a shell timeout. Tell the owner to wait again in a steering message.
-- `owner_attention` with `pr_owner_idle`: Herdr reports the owner idle or done and no wait runs. Ask the owner for its status in a steering message.
-- `owner_attention` with `pr_relay_blocked`: the relay stopped at a conflict, uncommitted or unpushed work, or a failed Git or GitHub step, and kept the branch. The `stack.blocker` names the reason. Tell the owner to resolve it and wait again in a steering message. A closed parent, or a parent merged outside the default branch, needs the person.
-- `owner_attention` with `pr_not_open`: the PR was merged or closed outside the CLI. A merged PR completes when the owner runs `operator pr merge --json`, which verifies the merge without another merge request. For a closed PR, the assignment stays `pr-open`, and a new PR for it refuses with `pr_already_associated`. Ask the person what to do.
+- `wait` with `assignment_active`: the live owner works. Do nothing.
+- `wait` with `pr_parked`: no worker runs. Keep the worktree until a recorded PR change.
+- `worker_attention` with `worker_idle`: the live owner is idle or done without a running PR wait. Ask for status through steering.
+- `resume_pr_feedback` with `pr_feedback`, `ci_failed`, or `pr_relay_blocked`: dispatch fresh PR feedback with the recorded waking events.
+- `clean_up` with `pr_closed`: run the row's `operator abandon` command. It preserves unlanded work without a person stop.
 - `replace_worker`: the owner's pane ended or its launch failed. Inspect the recorded worktree first. A new dispatch keeps the PR, its wait progress, and the worktree, and the brief tells the replacement to read the PR before it waits.
 
-Your coordination wait returns `pr_wait_timed_out`, `pr_wait_stopped`, and `pr_owner_idle` only after they last a minute, so an owner that restarts its PR wait wakes nobody.
+Your coordination wait returns `worker_idle` only after it lasts a minute.
+A stopped wait without a live owner gives `replace_worker` with `worker_interrupted`.
 A missing PR worktree needs the person's recovery decision.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
@@ -53,7 +53,7 @@ The reviewer owns the PR until its merge, and its brief makes it the reviewer fr
 Send the reviewer no account of the implementer's work. Its inputs are the issue, the assignment instructions, and the diff.
 
 - `wait` with `kind_handoff`: the handoff runs. Do nothing.
-- `wait` with `internal_review_running`: the reviewer reviews the draft. Do nothing. Once it marks the PR ready and waits on it, `next` shows the PR feedback loop.
+- `wait` with `assignment_active`: the reviewer reviews the draft. Do nothing.
 - `replace_worker` with `handoff_failed`: dispatch the assignment from the controlling checkout in its recorded Herdr session. It resumes the handoff and starts the recorded next kind.
 - `replace_worker` with `launch_failed` after a handoff: the reviewer's start failed. Dispatch it as any replacement. The new launch is the reviewer.
 
@@ -74,7 +74,7 @@ Cleanup removes only what inspection proves landed: the worktree head must be in
 A finished source still shows the cleanup that its merges owe.
 
 - `wait` with `cleanup_running`: a cleanup process runs. Do nothing.
-- `retry_cleanup` with `cleanup_failed` or `cleanup_stopped`: run `operator cleanup --source <id> --assignment <key> --json` from the controlling checkout, in the Herdr session that started the worker. It continues at the recorded step.
+- `clean_up` with `cleanup_failed` or `cleanup_stopped`: run `operator cleanup --source <id> --assignment <key> --json` from the controlling checkout, in the Herdr session that started the worker. It continues at the recorded step.
 - `person_decision` with `cleanup_unlanded_work`: the detail names a remote branch that moved after the merge, or the commits, changed files, or unknown ignored content of the worktree. Ask the person. Only on the person's instruction, add `--person-instructed` to delete that work. It covers only the blocked step. A later step that finds other work blocks again with its own detail.
 - `person_decision` with `cleanup_resource_mismatch`: the recorded path is no longer the recorded worktree. Operator never removes it, even with `--person-instructed`. Ask the person to move it away, then run the cleanup again.
 

@@ -261,10 +261,8 @@ test.each(["review", "pr-feedback"])(
       value: {
         sources: [
           {
-            actions: [
-              { assignment: "work", action: "owner_attention", reason: "kind_not_dispatchable" },
-            ],
-            waits: [],
+            actions: [],
+            waits: [{ assignment: "work", action: "wait", reason: "kind_handoff" }],
           },
         ],
       },
@@ -1504,7 +1502,7 @@ test("a finished source retains its pending merge cleanup without adding retaine
     value: {
       sources: [
         {
-          actions: [{ action: "source_ended" }, { assignment: "merged", action: "retry_cleanup" }],
+          actions: [{ action: "source_ended" }, { assignment: "merged", action: "clean_up" }],
         },
       ],
     },
