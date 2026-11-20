@@ -1,4 +1,4 @@
-import { failure } from "./output.ts";
+import { failure, respond, printWorkerContext } from "./output.ts";
 
 type Release = { version: string; commit: string | null; artifactIdentity: string | null };
 
@@ -80,7 +80,7 @@ const usage = `Usage: operator --help | --version [--json]
 export function runUsage(args: string[], release: Release, json: boolean) {
   if (args.length === 1 && args[0] === "--help") {
     console.log(usage);
-    process.exitCode = 0;
+    if (printWorkerContext()) process.exitCode = 0;
     return true;
   }
   const version =
@@ -88,24 +88,29 @@ export function runUsage(args: string[], release: Release, json: boolean) {
     (args.length === 2 && json && args.includes("--version"));
   if (!version) return false;
   const { version: operatorVersion, commit, artifactIdentity } = release;
-  console.log(
-    json
-      ? JSON.stringify({
-          schemaVersion: 1,
-          operation: "version",
-          outcome: "completed",
+  if (json)
+    respond({
+      operation: "version",
+      result: {
+        tag: "Ok",
+        value: {
           reason: "version_reported",
-          blockers: [],
           data: { operatorVersion, bunVersion: Bun.version, commit, artifactIdentity },
-        })
-      : `operator ${operatorVersion}`,
-  );
-  process.exitCode = 0;
+        },
+      },
+      exitCodes: {},
+      defect: "worker_phase_defect",
+      json,
+    });
+  else {
+    console.log(`operator ${operatorVersion}`);
+    if (printWorkerContext()) process.exitCode = 0;
+  }
   return true;
 }
 
 /** Reports arguments that no command accepts. */
-export function invalidArguments(json: boolean, _args: string[]) {
+export function invalidArguments(json: boolean, _args?: string[]) {
   failure(
     "parse_arguments",
     "invalid_arguments",
