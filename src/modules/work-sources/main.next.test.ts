@@ -494,6 +494,7 @@ test("the report rule validates the assignment states it reads", () => {
     assignment: { key: "a", completion: "report", state: "reported" },
     launch: null,
     latest: { number: 1, decision: null, cleanupState: null },
+    reports: [],
     caller: { socket: null, paneId: null },
   };
   expect(

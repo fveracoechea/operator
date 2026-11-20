@@ -6,6 +6,7 @@ Accepted - 2026-11-13. Decided in #373.
 Amends ADR-0003, ADR-0013, ADR-0017, and ADR-0020.
 The kind and data decision lands in #382; the phase decision lands in #383.
 Later tickets supply kind transitions and parking.
+Amended 2026-11-19: each assignment permits at most two report returns, including replacement launches, then requires the person's decision.
 
 ## Context
 
@@ -37,8 +38,9 @@ Worker results name the launch's kind, phase, and next action.
 
 The report tail submits a report and awaits acceptance.
 A return reopens only report submission, preserves the earlier reports, and requires a fresh submission before acceptance.
-The spec calls both loops bounded but specifies no numeric report-return limit or exhaustion action.
-No numeric report-return limit is inferred from the PR limit.
+An assignment permits at most two report returns across all its launches, so replacing a worker does not restart the loop.
+A third return refuses and preserves the work while asking the person whether to accept the report, abandon the assignment, or start a new assignment.
+The report-return limit is independent of the PR review-round limit.
 The PR tail associates a PR, records at most two review rounds, becomes ready, handles feedback, and ends at merge or park.
 Report acceptance and the PR merge gate remain separate lifecycle decisions.
 Before explicit ready-transition records exist, a kind-declared work-phase readiness guard requires recorded evidence for the same head.
@@ -72,7 +74,7 @@ The fresh reviewer reads no implementer note.
 - Adding a kind does not add an assignment model or a next-action identifier.
 - Null kinds preserve old records without guessing the worker's task from its completion type.
 - Unguarded work has a deterministic command frontier, not observed reasoning progress.
-- A numeric report-return cap remains unspecified and requires a separate decision before enforcement.
+- Exhausting report returns requires the person's decision without automatically abandoning the assignment or deleting its work.
 
 ## Alternatives considered
 

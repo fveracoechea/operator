@@ -28,6 +28,7 @@ function facts(input: {
     ],
     launch: input.launch === undefined ? running : input.launch,
     latest: input.latest ?? null,
+    reports: [],
     caller: input.caller ?? { socket: "/herdr.sock", paneId: "super:p0" },
     promotion: input.promotion,
   };
@@ -355,6 +356,52 @@ test("a return keeps the report state, and only a returned report resumes", () =
     expect(decideReport(facts({ command: "resume", ...input }))).toMatchObject({
       error: { reason: "report_not_returned" },
     });
+});
+
+test("report returns count recorded decisions, not report numbers or the current launch", () => {
+  const input = facts({
+    command: "return",
+    state: "reported",
+    latest: { ...submitted, number: 8 },
+  });
+  for (const reports of [[], [{ decision: "returned" }]])
+    expect<unknown>(decideReport({ ...input, reports })).toEqual({
+      tag: "Ok",
+      value: { report: { update: 8, decision: "returned" } },
+    });
+  for (const launch of [running, { ...running, id: "replacement" }, null]) {
+    const reports = [
+      { decision: "returned" },
+      { decision: null },
+      { decision: "accepted" },
+      { decision: "returned" },
+    ];
+    expect(decideReport({ ...input, launch, reports })).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "report_return_limit_reached",
+        next: {
+          decider: "person",
+          question:
+            "Should this report be accepted, the assignment abandoned, or a new assignment started?",
+        },
+        state: { reportReturns: 2, limit: 2 },
+      },
+    });
+    expect(decideReport({ ...input, command: "accept", launch, reports })).toMatchObject({
+      tag: "Ok",
+      value: { assignmentState: "completed", report: { update: 8, decision: "accepted" } },
+    });
+  }
+  expect(
+    decideReport({
+      ...input,
+      reports: [{ decision: "returned" }, { decision: "returned" }, { decision: "returned" }],
+    }),
+  ).toMatchObject({
+    tag: "Err",
+    error: { reason: "report_return_limit_reached", state: { reportReturns: 3, limit: 2 } },
+  });
 });
 
 test("only an accepted report records a cleanup outcome", () => {
