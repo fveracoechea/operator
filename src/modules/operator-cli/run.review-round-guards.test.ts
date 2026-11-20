@@ -158,9 +158,12 @@ test.each([
   },
   {
     name: "waits do not spin on person rows",
-    file: "review-requests/watch.ts",
+    file: "work-sources/coordination.ts",
     replacements: [
-      ['"action" in row && row.action !== "wait_reviews"', '"action" in row || "attention" in row'],
+      [
+        "const fresh = new Set([...current].filter((key) => !stored.has(key)));",
+        'const fresh = new Set([...current].filter((key) => !stored.has(key) || parseKey(key)[2] === "review_attention"));',
+      ],
     ],
     testFile: rounds,
     pattern: "keeps unlanded reviewer work until the person removes it",
