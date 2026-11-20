@@ -46,6 +46,16 @@ function wait(key = "scope", timeoutSeconds = 0) {
   return WorkerQuestions.wait({ paths: device.paths, key, timeoutSeconds });
 }
 
+test("an answered question resumes worker work rather than instructing another immediate wait", async () => {
+  const { sourceId } = await asked();
+  okValue(await answer(sourceId, "person", "Only a.ts."));
+  for (let i = 0; i < 3; i++) {
+    const result = okValue(await wait("scope", 540));
+    expect(result).toMatchObject({ reason: "question_answered", data: { answer: "Only a.ts." } });
+    expect(result.next?.command).not.toBe("operator question wait --key scope");
+  }
+});
+
 test("a pane reread retargeted to another assignment refuses the missing question with its recovery", async () => {
   const sourceId = await device.source();
   device.launch(sourceId);
@@ -193,7 +203,14 @@ test.each(["withdrawn", "missing"])(
       else db.exec("UPDATE worker_questions SET state = 'withdrawn'");
       return change(paths, target, key, decide);
     });
-    expect(okValue(await wait()).reason).toBe("question_wait_timed_out");
+    const result = await wait();
+    if (state === "missing")
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "question_not_found" } });
+    else
+      expect(okValue(result)).toMatchObject({
+        reason: "question_withdrawn",
+        data: { state: "withdrawn" },
+      });
     using db = new Database(device.paths.database, { readonly: true });
     expect(db.query("SELECT awaiting_person_seen_at FROM worker_questions").all()).toEqual(
       state === "missing" ? [] : [{ awaiting_person_seen_at: null }],
@@ -264,6 +281,7 @@ test("the worker withdraws its question, which then takes no answer", async () =
     okValue(await WorkerQuestions.withdraw({ paths: device.paths, key: "scope" })),
   ).toMatchObject({ reason: "question_withdrawn", data: { state: "withdrawn" } });
   expect(okValue(await wait())).toMatchObject({ reason: "question_withdrawn" });
+  expect(okValue(await wait()).next).toBeUndefined();
   mock.restore();
   expect((await device.actions()).map((row) => row.action)).toEqual(["ready_assignment"]);
   expect(await answer(sourceId, "super-agent")).toMatchObject({

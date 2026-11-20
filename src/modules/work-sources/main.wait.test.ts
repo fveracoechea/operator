@@ -6,7 +6,7 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "./main.ts";
-import { actionKey, addKeys, dropKeys } from "./coordination.ts";
+import { actionKey, addKeys, dropKeys, eventKey } from "./coordination.ts";
 import { storedLaunch, storedReport, storedSource } from "./source-fixture.ts";
 
 const root = "/isolated/wait";
@@ -86,6 +86,74 @@ function finished(calls: ReturnType<typeof device>, over: string | null) {
   const change = calls.finish.mock.calls[0]?.[2];
   return change === undefined ? undefined : change(over);
 }
+
+test("coordination returns scoped review upkeep and acknowledges only its returned event", async () => {
+  const calls = device(null, undefined, []);
+  const event = { url: "https://github.com/example/one/pull/7", kind: "round_started", round: 2 };
+  const reviewUpkeep = mock(() => OkAsync({ events: [event], requests: [] }));
+  expect(
+    await WorkSources.wait({ paths, cwd: root, sourceId: "one", timeoutSeconds: 0, reviewUpkeep }),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { reason: "next_actions_changed", data: { sources: [], events: [event], requests: [] } },
+  });
+  expect(reviewUpkeep).toHaveBeenCalledWith({
+    scopes: [{ repository: "example/one", sourceIds: ["one"], manual: false }],
+    observe: true,
+  });
+  expect(finished(calls, null)).toBe(addKeys([eventKey(event)])(null));
+  expect(calls.released).toHaveBeenCalledTimes(1);
+});
+
+test.each(["Err", "Defect"])(
+  "review upkeep %s acknowledges nothing and releases the wait lease",
+  async (tag) => {
+    const calls = device(null, undefined, []);
+    const failure = {
+      reason: "state_busy" as const,
+      detail: "Synthetic review read failed.",
+      next: { command: "operator next --wait", why: "Retry." },
+    };
+    const cause = new TypeError("Synthetic review upkeep defect");
+    const reviewUpkeep = mock(() =>
+      tag === "Err"
+        ? ErrAsync(failure)
+        : fromPromise(Promise.reject(cause), (error, defect) => defect(error)).map(() => ({
+            events: [],
+            requests: [],
+          })),
+    );
+    const result = await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 0, reviewUpkeep });
+    if (tag === "Err") expect(result).toMatchObject({ tag: "Err", error: failure });
+    else {
+      expect(result.tag).toBe("Defect");
+      if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    }
+    expect(reviewUpkeep).toHaveBeenCalledTimes(1);
+    expect(calls.change).not.toHaveBeenCalled();
+    expect(calls.finish).not.toHaveBeenCalled();
+    expect(calls.released).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("a refused source read runs no consuming review upkeep and acknowledges nothing", async () => {
+  const calls = device(null, undefined);
+  calls.read.mockReturnValue(
+    Err({
+      reason: "state_busy",
+      detail: "Synthetic source read failed.",
+      next: { command: "operator next --wait", why: "Retry." },
+    }),
+  );
+  const reviewUpkeep = mock(() => OkAsync({ events: [], requests: [] }));
+  expect(
+    await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 0, reviewUpkeep }),
+  ).toMatchObject({ tag: "Err", error: { reason: "state_busy" } });
+  expect(reviewUpkeep).not.toHaveBeenCalled();
+  expect(calls.change).not.toHaveBeenCalled();
+  expect(calls.finish).not.toHaveBeenCalled();
+  expect(calls.released).toHaveBeenCalledTimes(1);
+});
 
 test("a scope that never returned a set returns every action at once and records them", async () => {
   const calls = device(null, undefined, [ready]);

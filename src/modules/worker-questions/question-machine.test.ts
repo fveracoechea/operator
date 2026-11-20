@@ -184,13 +184,34 @@ test("the worker's own pane cannot answer or escalate, also on another server's 
 });
 
 test("a wait returns an ended question at once and continues while the question waits", () => {
-  for (const started of ["open", "awaiting_person"] as const) {
-    expect(decideQuestionWait(started, "answered")).toBe("question_answered");
-    expect(decideQuestionWait(started, "withdrawn")).toBe("question_withdrawn");
-    expect(decideQuestionWait(started, "abandoned")).toBe("question_abandoned");
-    expect(decideQuestionWait(started, "open")).toBeNull();
+  for (const awaitingPersonSeen of [false, true]) {
+    expect(decideQuestionWait({ state: "answered", awaitingPersonSeen })).toEqual({
+      reason: "question_answered",
+      receipt: false,
+    });
+    expect(decideQuestionWait({ state: "withdrawn", awaitingPersonSeen })).toEqual({
+      reason: "question_withdrawn",
+      receipt: false,
+    });
+    expect(decideQuestionWait({ state: "abandoned", awaitingPersonSeen })).toEqual({
+      reason: "question_abandoned",
+      receipt: false,
+    });
+    expect(decideQuestionWait({ state: "open", awaitingPersonSeen })).toEqual({
+      reason: null,
+      receipt: false,
+    });
+    expect(decideQuestionWait({ state: null, awaitingPersonSeen })).toEqual({
+      reason: null,
+      receipt: false,
+    });
   }
-  // Only the move to the person is news. A wait that started there keeps waiting.
-  expect(decideQuestionWait("open", "awaiting_person")).toBe("question_awaiting_person");
-  expect(decideQuestionWait("awaiting_person", "awaiting_person")).toBeNull();
+  expect(decideQuestionWait({ state: "awaiting_person", awaitingPersonSeen: false })).toEqual({
+    reason: "question_awaiting_person",
+    receipt: true,
+  });
+  expect(decideQuestionWait({ state: "awaiting_person", awaitingPersonSeen: true })).toEqual({
+    reason: null,
+    receipt: false,
+  });
 });

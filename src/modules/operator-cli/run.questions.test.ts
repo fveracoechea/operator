@@ -127,6 +127,7 @@ test("a worker question stays in next actions until the SuperAgent answers it on
       operation: "question_wait",
       reason: "question_answered",
       data: { answer: "No, only a.ts.", by: "person" },
+      next: { command: "operator report submit --file <file>" },
     },
   });
   expect(
@@ -210,6 +211,13 @@ test("a SuperAgent answer needs its authority, and only the asking pane withdraw
   expect(await device.run(["question", "withdraw", "--key", "name"], pane)).toMatchObject({
     code: 0,
     output: { reason: "question_withdrawn", data: { state: "withdrawn" } },
+  });
+  expect(await device.run(["question", "wait", "--key", "name"], pane)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "question_withdrawn",
+      next: { command: "operator report submit --file <file>" },
+    },
   });
   expect(
     await device.run(["question", "answer", ...selector, "--by", "super-agent", "--file", text]),

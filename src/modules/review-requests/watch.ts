@@ -9,6 +9,7 @@ import {
   apply,
   latestPosted,
   qualify,
+  roundNumber,
   summary,
   type Paths,
   type Row,
@@ -174,7 +175,14 @@ async function advance(
   if (applied.tag !== "Ok" || applied.value.transition.unchanged === true) return [];
   const event: Event =
     decision.kind === "round"
-      ? { url: request.url, kind: "round_started", trigger: decision.trigger }
+      ? {
+          url: request.url,
+          kind: "round_started",
+          requestId: request.id,
+          round: roundNumber(applied.value.snapshot.rounds),
+          head: decision.head,
+          trigger: decision.trigger,
+        }
       : { url: request.url, kind: "head_moved", from: decision.from, to: decision.to };
   if (applied.value.transition.sync !== true) return [event];
   const synced = await syncReviewer(paths, target, applied.value.snapshot);

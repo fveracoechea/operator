@@ -1109,10 +1109,17 @@ function watchActions(
   watch: CoordinationWatch,
   deadline: number,
 ): AsyncResult<WatchOutcome, WatchFailure> {
-  // The stored set is read before the actions, so an acknowledged change is already visible.
+  // Read the source board before review upkeep commits transitions. An unrelated source-read
+  // failure must not consume review events that this combined observation never returns.
   const read = (input.observeParked?.() ?? OkAsync(undefined))
-    .flatMap(() => reviewScopes(input, target.repository))
-    .flatMap((scopes) => {
+    .flatMap(() => DeviceState.readCoordinationWait(input.paths, target))
+    .flatMap((stored) =>
+      scopeAnswer(input, target.repository).map((sources) => ({ stored, sources })),
+    )
+    .flatMap(({ stored, sources }) =>
+      reviewScopes(input, target.repository).map((scopes) => ({ stored, sources, scopes })),
+    )
+    .flatMap(({ stored, sources, scopes }) => {
       const observe = watch.reviewReadAt === null || Date.now() - watch.reviewReadAt >= 30000;
       if (observe) watch.reviewReadAt = Date.now();
       const read =
@@ -1121,35 +1128,33 @@ function watchActions(
       return read.map((reviews) => {
         if (observe) {
           watch.reviewFailures = reviews.events.filter((event) => event.kind === "read_failed");
-          return reviews;
+          return { stored, answer: { ...sources, ...reviews } };
         }
         // An omitted GitHub read cannot clear a failed observation's acknowledgement.
         const visible = new Set(reviews.requests.map((request) => request.url));
         return {
-          ...reviews,
-          events: watch.reviewFailures.filter((event) => visible.has(event.url)),
+          stored,
+          answer: {
+            ...sources,
+            ...reviews,
+            events: watch.reviewFailures.filter((event) => visible.has(event.url)),
+          },
         };
       });
     })
-    .flatMap((reviews) =>
-      DeviceState.readCoordinationWait(input.paths, target).map((stored) => ({ stored, reviews })),
-    )
-    .flatMap(({ stored, reviews }) =>
-      scopeAnswer(input, target.repository).flatMap((sources) => {
-        const answer = { ...sources, ...reviews };
-        const set = parseSet(stored);
-        const current = actionKeys(answer);
-        const dropped =
-          set === null
-            ? Ok(undefined)
-            : DeviceState.changeCoordinationWait(
-                input.paths,
-                target,
-                dropKeys([...set].filter((key) => !current.has(key))),
-              ).discard();
-        return dropped.map(() => ({ stored: set, answer, current }));
-      }),
-    );
+    .flatMap(({ stored, answer }) => {
+      const set = parseSet(stored);
+      const current = actionKeys(answer);
+      const dropped =
+        set === null
+          ? Ok(undefined)
+          : DeviceState.changeCoordinationWait(
+              input.paths,
+              target,
+              dropKeys([...set].filter((key) => !current.has(key))),
+            ).discard();
+      return dropped.map(() => ({ stored: set, answer, current }));
+    });
   return read.flatMap(({ stored, answer, current }) => {
     const now = Date.now();
     // A scope that never returned a set returns at once with every action. It records the end of

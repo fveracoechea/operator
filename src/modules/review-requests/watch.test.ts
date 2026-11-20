@@ -9,6 +9,7 @@ import {
   answered,
   h1,
   h2,
+  h3,
   otherPr,
   prAnswer,
   readRequest,
@@ -518,9 +519,30 @@ test("a round of a stopped reviewer names no reviewer, and is reported once", as
   seedRequest(home.paths, { state: "watching", head: h1, launchState: "interrupted" });
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h2 })));
   expect((await waited()).data).toHaveProperty("events", [
-    { url, kind: "round_started", trigger: "commits" },
+    { url, kind: "round_started", requestId: "r1", round: 1, head: h2, trigger: "commits" },
   ]);
   expect((await waited()).data).toHaveProperty("events", []);
+});
+
+test("round events identify their recorded request, round number and observed head", async () => {
+  seedRequest(home.paths, { state: "watching", head: h1, launchState: "interrupted" });
+  spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h2 })));
+  expect((await waited()).data.events).toEqual([
+    { url, kind: "round_started", requestId: "r1", round: 1, head: h2, trigger: "commits" },
+  ]);
+  expect(
+    DeviceState.changeReviewRequest(home.paths, target, () =>
+      Ok({
+        update: { state: "watching" },
+        round: posted(1, new Date(start).toISOString()),
+      }),
+    ).tag,
+  ).toBe("Ok");
+  spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h3 })));
+  expect((await waited()).data.events).toEqual([
+    { url, kind: "round_started", requestId: "r1", round: 2, head: h3, trigger: "commits" },
+  ]);
+  expect((await waited()).data.events).toEqual([]);
 });
 
 test("a head move goes to the running reviewer, and a failed move is reported", async () => {

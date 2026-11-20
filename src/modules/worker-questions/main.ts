@@ -21,7 +21,6 @@ import {
   decideQuestionWait,
   type AnswerAuthority,
   type QuestionCommand,
-  type QuestionState,
 } from "./question-machine.ts";
 
 type AnswerText = { file: string };
@@ -203,41 +202,52 @@ function read(paths: Paths, target: Target, key: string) {
 }
 
 type WaitOutcome = {
-  reason: NonNullable<ReturnType<typeof decideQuestionWait>> | "question_wait_timed_out";
+  reason: NonNullable<ReturnType<typeof decideQuestionWait>["reason"]> | "question_wait_timed_out";
   data: ReturnType<typeof summary>;
   next?: ReturnType<typeof waitNext>;
 };
 
-async function poll(
-  input: { paths: Paths; target: Target; key: string },
-  started: QuestionState,
-  deadline: number,
-) {
+function waitDecision(question: Facts["question"]) {
+  return decideQuestionWait({
+    state: question === null ? null : stateSchema.parse(question.state),
+    awaitingPersonSeen: question !== null && question.awaitingPersonSeenAt !== null,
+  });
+}
+
+async function poll(input: { paths: Paths; target: Target; key: string }, deadline: number) {
   for (;;) {
     const current = read(input.paths, input.target, input.key);
     if (current.tag !== "Ok") return stop(current);
-    const { facts, row, state } = current.value;
-    let reason = decideQuestionWait(started, state);
-    if (state === "awaiting_person") {
-      const notified = DeviceState.changeQuestion(input.paths, input.target, input.key, (current) =>
-        Ok(
-          current.question?.state === "awaiting_person" &&
-            current.question.awaitingPersonSeenAt === null
-            ? { update: { awaitingPersonSeenAt: now() } }
-            : {},
-        ),
+    let { facts, row } = current.value;
+    let decision = waitDecision(row);
+    if (decision.receipt) {
+      const seenAt = now();
+      const notified = DeviceState.changeQuestion(
+        input.paths,
+        input.target,
+        input.key,
+        (current) => {
+          decision = waitDecision(current.question);
+          return Ok(decision.receipt ? { update: { awaitingPersonSeenAt: seenAt } } : {});
+        },
       );
       if (notified.tag !== "Ok") return stop(notified);
-      reason = notified.value.change.update === undefined ? null : "question_awaiting_person";
+      facts = notified.value.facts;
+      if (facts.question === null) continue;
+      row = facts.question;
     }
+    const { reason } = decision;
     if (reason === "question_answered") {
       // Reading the answer acknowledges the steering message that delivered it.
       const read = acknowledge(input.paths, input.target, answerKey(input.key), null);
       if (read.tag === "Defect" || (read.tag === "Err" && read.error.reason !== "message_not_open"))
         return stop(read);
     }
-    if (reason !== null)
-      return Ok<WaitOutcome>({ reason, data: summary(facts, row), next: waitNext(row.key) });
+    if (reason !== null) {
+      const outcome: WaitOutcome = { reason, data: summary(facts, row) };
+      if (reason === "question_awaiting_person") outcome.next = waitNext(row.key);
+      return Ok(outcome);
+    }
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
     if (Date.now() >= deadline)
       return Ok<WaitOutcome>({
@@ -259,7 +269,6 @@ function wait(input: { paths: Paths; key: string; timeoutSeconds: number }) {
       if (first.tag !== "Ok") return stop(first);
       return poll(
         { paths: input.paths, target: target.value, key: input.key },
-        first.value.state,
         Date.now() + input.timeoutSeconds * 1000,
       );
     },
