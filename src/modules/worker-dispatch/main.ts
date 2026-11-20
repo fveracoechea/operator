@@ -121,6 +121,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
           .filter((row) => "assignment" in row && row.assignment === input.assignment);
         if (
           !WorkerKinds.dispatchable(kind) &&
+          (!("adopt" in planned) || planned.adopt === undefined) &&
           source.assignments.some((row) => row.key === input.assignment && row.state === "ready")
         )
           return Err<Failure>({
