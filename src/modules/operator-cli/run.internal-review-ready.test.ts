@@ -57,8 +57,18 @@ async function exec(args: string[], cwd = checkout, stdin?: string) {
   return { code, stdout, stderr };
 }
 
-async function run(args: string[], cwd = checkout, stdin?: string) {
-  const result = await exec([process.execPath, cli, ...args, "--json"], cwd, stdin);
+async function run(args: string[], cwd = checkout, stdin?: string, pane?: string) {
+  const result = await exec(
+    [
+      ...(pane === undefined ? [] : ["env", `HERDR_PANE_ID=${pane}`]),
+      process.execPath,
+      cli,
+      ...args,
+      "--json",
+    ],
+    cwd,
+    stdin,
+  );
   const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
   expectWorkflowRefusal(args, output, result.stderr);
   return { code: result.code, output, stderr: result.stderr };
@@ -168,7 +178,12 @@ async function dispatch(source: string, assignment = "implement") {
 }
 
 type Pull = Record<string, unknown> & { number: number };
-async function github(change: { pulls?: Pull[]; commentLost?: boolean; readyLost?: boolean }) {
+async function github(change: {
+  pulls?: Pull[];
+  commentLost?: boolean;
+  readyLost?: boolean;
+  mergeRefuse?: boolean;
+}) {
   const file = Bun.file(`${root}/github.json`);
   const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
   await Bun.write(file, JSON.stringify({ ...current, ...change }));
@@ -218,6 +233,7 @@ const statusSchema = z.object({
     internalReviews: z.array(
       z.looseObject({ handoffState: z.string(), handoffRunning: z.boolean() }),
     ),
+    internalReviewRounds: z.array(z.looseObject({ number: z.number() })),
   }),
 });
 
@@ -417,7 +433,13 @@ test("the reviewer ends the review with one rendered comment, the ready mutation
   await Bun.write(`${reviewer}/notes.txt`, "unlanded\n");
   expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
     code: 3,
-    output: { reason: "pr_worktree_unclean" },
+    output: {
+      reason: "pr_worktree_unclean",
+      kind: "review",
+      phase: "ready",
+      next: { command: "git status --short" },
+      state: { worktree_clean: false },
+    },
   });
   await rm(`${reviewer}/notes.txt`);
   await commit(reviewer, "unpushed.txt");
@@ -489,17 +511,45 @@ ${overview}
     { origin: "assignment", state: "queued", action: "start_reviewer" },
   ]);
   // The review ended, so the owner takes no more rounds and the gate now permits the merge.
-  expect(await run(["pr", "round", "--file", await findings([])], reviewer)).toMatchObject({
+  const ended = await shown(source);
+  const reviewerPane = ended.launches[1]?.paneId ?? "";
+  const publicBefore = await githubState();
+  expect(
+    await run(["pr", "round", "--file", await findings([])], reviewer, undefined, reviewerPane),
+  ).toMatchObject({
     code: 3,
-    output: { reason: "internal_review_ended" },
+    output: {
+      reason: "internal_review_ended",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    },
   });
-  expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
+  expect(
+    await run(["pr", "ready", "--file", file], reviewer, undefined, reviewerPane),
+  ).toMatchObject({
     code: 3,
-    output: { reason: "internal_review_ended" },
+    output: {
+      reason: "internal_review_ended",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    },
   });
-  const eligible = await run(["pr", "wait", "--timeout", "0"], reviewer);
+  expect(await shown(source)).toEqual(ended);
+  expect(await githubState()).toEqual(publicBefore);
+  const eligible = await run(
+    ["pr", "wait", "--timeout", "0"],
+    reviewer,
+    undefined,
+    (await shown(source)).launches[1]?.paneId ?? "",
+  );
   expect(eligible).toMatchObject({
-    output: { reason: "pr_events_observed", data: { mergeConditions: { reviewEnded: true } } },
+    output: {
+      reason: "pr_events_observed",
+      kind: "review",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+      data: { mergeConditions: { reviewEnded: true } },
+    },
   });
   expect(JSON.stringify(eligible.output)).toContain(
     JSON.stringify({ kind: "merge_eligible", head: third }),
@@ -516,6 +566,33 @@ ${overview}
   const owner = await Bun.file(brief).text();
   expect(owner).toContain(`The internal review of PR #7 ended ready at \`${third}\`.`);
   expect(owner).not.toContain("You are the internal reviewer");
+  const pane = (await shown(source)).launches.at(-1)?.paneId ?? "";
+  const afterReady = await commit(reviewer, "after-ready.txt");
+  expect(await run(["--version"], reviewer, undefined, pane)).toMatchObject({
+    output: { phase: "feedback", next: { command: "operator pr wait" } },
+  });
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: {
+      reason: "pr_head_mismatch",
+      phase: "feedback",
+      next: { decider: "super-agent" },
+      state: { localHead: afterReady, prHead: third },
+    },
+  });
+  await github({
+    mergeRefuse: true,
+    pulls: [
+      pull({
+        head: afterReady,
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: { reason: "pr_merge_refused", phase: "feedback" },
+  });
 }, 180000);
 
 test("review input refuses malformed markdown and JSON before recording or publishing", async () => {
@@ -723,11 +800,64 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
 
   // The running reviewer learns of the skip from its next review command and owns the PR.
   const file = await summary("x", []);
-  expect(await run(["pr", "ready", "--file", file], reviewer)).toMatchObject({
+  const pane = (await shown(source)).launches[1]?.paneId ?? "";
+  const ended = await shown(source);
+  const publicBefore = await githubState();
+  expect(await run(["pr", "ready", "--file", file], reviewer, undefined, pane)).toMatchObject({
     code: 3,
-    output: { reason: "internal_review_ended" },
+    output: {
+      reason: "internal_review_ended",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+    },
   });
-  expect(await run(["pr", "wait", "--timeout", "0"], reviewer)).toMatchObject({
-    output: { data: { mergeConditions: { reviewEnded: true } } },
+  expect(await shown(source)).toEqual(ended);
+  expect(await githubState()).toEqual(publicBefore);
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: { reason: "pr_merge_blocked", phase: "feedback" },
+  });
+  expect(await run(["pr", "wait", "--timeout", "0"], reviewer, undefined, pane)).toMatchObject({
+    output: {
+      kind: "review",
+      phase: "feedback",
+      next: { command: "operator pr wait" },
+      data: { mergeConditions: { reviewEnded: true } },
+    },
+  });
+  await github({
+    pulls: [
+      pull({
+        head,
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  const afterSkip = await commit(reviewer, "after-skip.txt");
+  expect(await run(["--version"], reviewer, undefined, pane)).toMatchObject({
+    output: { phase: "feedback", next: { command: "operator pr wait" } },
+  });
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: {
+      reason: "pr_head_mismatch",
+      phase: "feedback",
+      next: { decider: "super-agent" },
+      state: { localHead: afterSkip, prHead: head },
+    },
+  });
+  await github({
+    mergeRefuse: true,
+    pulls: [
+      pull({
+        head: afterSkip,
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: { reason: "pr_merge_refused", phase: "feedback" },
   });
 }, 180000);

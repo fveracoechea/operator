@@ -4,7 +4,8 @@
 
 Accepted - 2026-11-13. Decided in #373.
 Amends ADR-0003, ADR-0013, ADR-0017, and ADR-0020.
-The kind and data decision lands first in #382; later tickets supply the phase machine and kind transitions.
+The kind and data decision lands in #382; the phase decision lands in #383.
+Later tickets supply kind transitions and parking.
 Amended 2026-11-19: each assignment permits at most two report returns, including replacement launches, then requires the person's decision.
 
 ## Context
@@ -30,12 +31,41 @@ A record from before kinds has a null kind until a later launch names one.
 One worker-phase machine runs every kind.
 The code owns the report and PR tails, their bounded loops, and the closed guard catalog.
 A kind declares only the work phases before its tail.
-A handoff changes kinds inside one assignment and links only kinds with the same completion type.
-The fresh reviewer reads no implementer note.
+Each work phase names its goal and may name a catalog exit guard.
+The closed catalog contains `report_submitted`, `pr_associated`, `round_recorded`, `pr_ready`, `worktree_clean`, and `pr_merged`.
+The closing command refuses while its required facts are false and names the next action.
+Worker results name the launch's kind, phase, and next action.
 
+The report tail submits a report and awaits acceptance.
+A return reopens only report submission, preserves the earlier reports, and requires a fresh submission before acceptance.
 An assignment permits at most two report returns across all its launches, so replacing a worker does not restart the loop.
 A third return refuses and preserves the work while asking the person whether to accept the report, abandon the assignment, or start a new assignment.
 The report-return limit is independent of the PR review-round limit.
+The PR tail associates a PR, records at most two review rounds, becomes ready, handles feedback, and ends at merge or park.
+Report acceptance and the PR merge gate remain separate lifecycle decisions.
+Before explicit ready-transition records exist, a kind-declared work-phase readiness guard requires recorded evidence for the same head.
+It uses a ready or skipped review, or an eligible-head observation that passed the non-draft and merge checks.
+Association without internal review does not itself prove readiness.
+Missing or stale evidence remains unknown and sends the owner to its PR wait.
+An ended review stays in feedback after a newer head, without reopening review rounds or the ready step.
+The canonical merge lifecycle gathers the current GitHub and local facts once.
+Observing an associated PR does not require a historical eligibility receipt or a clean worktree.
+An already merged PR takes verification and cleanup, without requesting a new merge.
+A new merge requires both a recorded ready frontier and the fresh merge gate.
+An ended ready or skipped review proves that frontier.
+Without a review record, an earlier eligible wait observation proves it, even after a newer head.
+An earlier observation cannot override an active review.
+The phase machine also checks current worktree cleanliness.
+Cleanup independently retains unlanded work until the person authorizes its removal.
+
+For unguarded work, the phase in a result names the command frontier: the last declared work phase before the tail.
+It does not claim that earlier reasoning is complete.
+The ordered work phases and their goals remain part of the kind snapshot and guide-directed work.
+For example, a prototype result can name `react` while its worker still builds.
+No host activity, arbitrary question answer, or report submission proves a reaction occurred.
+This convention preserves free work without a manual phase-advance command or another progress record.
+A handoff changes kinds inside one assignment and links only kinds with the same completion type.
+The fresh reviewer reads no implementer note.
 
 ## Consequences
 
@@ -43,6 +73,7 @@ The report-return limit is independent of the PR review-round limit.
 - Kind guides delegate work methods to upstream skills without duplicating their procedures.
 - Adding a kind does not add an assignment model or a next-action identifier.
 - Null kinds preserve old records without guessing the worker's task from its completion type.
+- Unguarded work has a deterministic command frontier, not observed reasoning progress.
 - Exhausting report returns requires the person's decision without automatically abandoning the assignment or deleting its work.
 
 ## Alternatives considered
@@ -52,5 +83,6 @@ The report-return limit is independent of the PR review-round limit.
 - A machine per kind would duplicate guards and effects.
 - Built-ins in code and custom kinds in another format would create two validation contracts.
 - Kind definitions in skill frontmatter would couple workflow data to host-specific skill parsing.
+- A read-only step command or manual advancement record would add a second protocol for free work.
 
 Related: ADR-0003, lifecycle machines; ADR-0013, one assignment model and two completion types; ADR-0014, launch snapshots; ADR-0017, worker kinds are not roles; ADR-0020, fresh review.

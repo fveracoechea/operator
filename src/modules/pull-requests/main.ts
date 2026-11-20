@@ -523,6 +523,15 @@ function wait(input: Request & { timeoutSeconds: number }) {
  * the cleanup that follows a verified merge, which the SuperAgent can repeat after a failure.
  */
 export const PullRequests = {
+  /** The canonical validated PR command target, shared with worker-phase guards. */
+  workerTarget(input: Request) {
+    return resolveOwner(input).map(({ repository, sourceId, assignment, launchId }) => ({
+      repository,
+      sourceId,
+      assignment,
+      launchId,
+    }));
+  },
   recoverReview(input: Parameters<typeof recoverReview>[0]) {
     return recoverReview(input);
   },

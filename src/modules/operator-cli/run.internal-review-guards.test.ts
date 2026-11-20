@@ -212,6 +212,7 @@ const statusSchema = z.object({
     internalReviews: z.array(
       z.looseObject({ handoffState: z.string(), handoffRunning: z.boolean() }),
     ),
+    pullRequests: z.array(z.looseObject({})),
   }),
 });
 
@@ -282,7 +283,13 @@ test("associate refuses a ready PR and an unclean or unpushed worktree, and chan
   await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 3,
-    output: { reason: "pr_worktree_unclean" },
+    output: {
+      reason: "pr_worktree_unclean",
+      kind: "implementation",
+      phase: "build",
+      next: { command: "git status --short" },
+      state: { worktree_clean: false },
+    },
   });
   await rm(`${worker.worktreePath}/notes.txt`);
   await github({ pulls: [pull({ head: "older", isDraft: true })] });
@@ -331,10 +338,11 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
       code: 4,
       output: {
         reason: "pr_handed_off",
+        phase: "handoff",
+        next: { why: "This launch handed the PR to its reviewer. Stop here." },
         blockers: [
           {
-            detail:
-              "This launch handed the PR to its internal reviewer, so it runs no more PR commands. Stop here. Nothing was changed.",
+            detail: "This launch no longer owns the PR.",
           },
         ],
       },
@@ -369,6 +377,18 @@ test("with internal review off, associate records a ready PR and the owner keeps
   expect((await shown(source)).launches[0]).toMatchObject({ internalReview: false });
   await Bun.write(`${worker.worktreePath}/notes.txt`, "unlanded\n");
   await github({ pulls: [pull()] });
+  expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
+    code: 3,
+    output: {
+      reason: "pr_worktree_unclean",
+      kind: "implementation",
+      phase: "build",
+      next: { command: "git status --short" },
+      state: { worktree_clean: false },
+    },
+  });
+  expect((await shown(source)).pullRequests).toEqual([]);
+  await rm(`${worker.worktreePath}/notes.txt`);
   expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
     code: 0,
     output: { reason: "pr_associated", data: { internalReview: null } },

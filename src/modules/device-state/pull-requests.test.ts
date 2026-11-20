@@ -74,8 +74,14 @@ function launchRow(id: string, assignment: string) {
   };
 }
 
-function start(db: Database, id: string, assignment: string, paneId: string) {
-  const reserved = reserveLaunch(db, "/one", "owner/one", launchRow(id, assignment));
+function start(
+  db: Database,
+  id: string,
+  assignment: string,
+  paneId: string,
+  kind: string | null = null,
+) {
+  const reserved = reserveLaunch(db, "/one", "owner/one", { ...launchRow(id, assignment), kind });
   expect(reserved.tag).toBe("Ok");
   expect(
     updateLaunch(db, id, { paneId, worktreePath: `/worktrees/${assignment}`, state: "running" })
@@ -106,8 +112,9 @@ function assignmentState(db: Database, key: string) {
 test("worktree owners list the latest start of each assignment with its owning records", () => {
   using db = fixture();
   start(db, "l1", "change", "p1");
+  expect(worktreeOwners(db)).toMatchObject({ tag: "Ok", value: [{ kind: null }] });
   interrupt(db, "p1");
-  start(db, "l2", "change", "p2");
+  start(db, "l2", "change", "p2", '{"name":"implementation"}');
   expect(worktreeOwners(db)).toMatchObject({
     tag: "Ok",
     value: [
@@ -123,6 +130,7 @@ test("worktree owners list the latest start of each assignment with its owning r
         assignment: "change",
         completion: "pr",
         assignmentState: "running",
+        kind: '{"name":"implementation"}',
       },
     ],
   });

@@ -119,7 +119,7 @@ function ownerArgs(command: string, flags: string[]) {
     : { operation: "pr_wait" as const, timeoutSeconds: timeoutSeconds ?? defaultTimeoutSeconds };
 }
 
-const pullRequestExitCodes = {
+export const pullRequestExitCodes = {
   pr_worktree_unrecorded: 4,
   pr_owner_inactive: 4,
   pr_repository_mismatch: 4,
