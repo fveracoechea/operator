@@ -122,6 +122,7 @@ export const storedPlanSchema = z
 /** New plans name a kind. Completion is resolved, never supplied as an override. */
 export function configuredPlanSchema(
   definitions: z.infer<ReturnType<typeof WorkerKinds.customSchema>> = {},
+  oneOff = false,
 ) {
   return z
     .strictObject({
@@ -145,12 +146,14 @@ export function configuredPlanSchema(
         ...plan,
         assignments: plan.assignments.map((assignment) => {
           const kind = WorkerKinds.resolve(assignment.kind, definitions);
-          return {
+          const resolved = {
             ...assignment,
             completion: kind.completion,
             resources: assignment.resources ?? kind.resources,
             profile: assignment.profile ?? kind.profile ?? undefined,
           };
+          if (oneOff && kind.resources === "worktree") resolved.branch = assignment.key;
+          return resolved;
         }),
       });
       if (!parsed.success) {
@@ -183,6 +186,33 @@ function questionKey(question: string) {
   return words.slice(0, 60).replace(/-$/, "") || "question";
 }
 
+/** A one-off is a normal immutable plan with exactly one planned assignment. */
+export function oneOffPlan(input: {
+  kind: string;
+  instructions: string;
+  intent?: string;
+  profile?: string;
+  trackerKey?: string;
+  key?: string;
+}) {
+  const trackerKey = input.trackerKey ?? `${input.kind}:${crypto.randomUUID().slice(0, 8)}`;
+  const assignment = input.key ?? questionKey(input.instructions);
+  return {
+    trackerKey,
+    assignments: [
+      {
+        key: assignment,
+        trackerKey,
+        kind: input.kind,
+        instructions: input.instructions,
+        intent: input.intent,
+        profile: input.profile,
+        dependencies: [],
+      },
+    ],
+  };
+}
+
 /**
  * The plan of one research question: one read-only report assignment in its own source. Each
  * question gets a new tracker key, so asking the same question again never meets an open
@@ -195,16 +225,12 @@ export function questionPlan(question: string, profile: string | undefined) {
     .split("\n")
     .map((line) => `> ${line}`.trimEnd())
     .join("\n");
-  return {
+  return oneOffPlan({
+    key: questionKey(question),
     trackerKey,
-    assignments: [
-      {
-        key: questionKey(question),
-        trackerKey,
-        kind: "answer",
-        dependencies: [],
-        profile,
-        instructions: `Answer this question from your supervising SuperAgent.
+    kind: "answer",
+    profile,
+    instructions: `Answer this question from your supervising SuperAgent.
 
 ${quoted}
 
@@ -213,7 +239,5 @@ Answer with a short conclusion that answers the question directly.
 Give the evidence for it: file paths with line numbers, commands with their relevant output, and links.
 List the paths of any detailed supporting files in \`files\`, and the points you could not settle in \`unresolved\`.
 Ask your supervising SuperAgent when the question is unclear. Decide nothing outside the question.`,
-      },
-    ],
-  };
+  });
 }

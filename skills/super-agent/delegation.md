@@ -23,7 +23,9 @@ WorkerAgents have the same MCP access as you.
 Delegate every other question with `operator ask`, also when a quick look seems enough:
 
 ```sh
-operator ask --question "<question>" --json
+operator ask --file - --json <<'QUESTION'
+<question>
+QUESTION
 ```
 
 `ask` registers the question as a new source with one read-only report assignment and dispatches its worker in the same command, so it needs no plan file.

@@ -2,7 +2,7 @@
 
 /**
  * Run the Operator CLI under Bun from an installed release or a source checkout.
- * Every command checks device compatibility before its handler, including help and version.
+ * Valid commands check device compatibility before their handler, including help and version.
  * @module
  */
 
