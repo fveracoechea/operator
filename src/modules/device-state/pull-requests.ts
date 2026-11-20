@@ -376,25 +376,29 @@ export function associatePullRequest(
                   : WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
               ),
             );
-          if (pr.readiness !== undefined && !internalReview) {
-            const recorded = recordPrReady(
-              db,
-              { sourceId: source.id, assignment: assignment.key, launchId },
-              pr.readiness,
-              "pr-feedback",
-            );
-            if (recorded.tag === "Err") return Err(recorded.error);
-            row.readiness = JSON.stringify(pr.readiness);
-          }
-          if (review)
-            requestAssignmentReview(db, {
-              repository: source.repository,
-              number: pr.number,
-              url: pr.url,
-              sourceId: source.id,
-              assignment: assignment.key,
-            });
-          return Ok({ row, changed: true });
+          const recorded =
+            pr.readiness !== undefined && !internalReview
+              ? recordPrReady(
+                  db,
+                  { sourceId: source.id, assignment: assignment.key, launchId },
+                  pr.readiness,
+                  "pr-feedback",
+                ).map(() => {
+                  row.readiness = JSON.stringify(pr.readiness);
+                  return undefined;
+                })
+              : Ok(undefined);
+          return recorded.map(() => {
+            if (review)
+              requestAssignmentReview(db, {
+                repository: source.repository,
+                number: pr.number,
+                url: pr.url,
+                sourceId: source.id,
+                assignment: assignment.key,
+              });
+            return { row, changed: true };
+          });
         },
       ),
     ),
