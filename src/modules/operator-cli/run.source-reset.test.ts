@@ -87,7 +87,15 @@ async function shown(source: string, cwd = device.main) {
         state: z.string(),
         endedAt: z.string().nullable(),
         assignments: z.array(z.object({ key: z.string(), state: z.string() })),
-        launches: z.array(z.looseObject({})),
+        launches: z.array(
+          z.looseObject({
+            assignment: z.string(),
+            state: z.string(),
+            paneId: z.string().nullable(),
+            worktreePath: z.string().nullable(),
+            kind: z.object({ name: z.string() }).nullable(),
+          }),
+        ),
         cleanups: z.array(z.looseObject({ state: z.string(), running: z.boolean() })),
       }),
     })
@@ -173,18 +181,36 @@ async function openPullRequest(source: string, key: string, number: number) {
     `task/${key}`,
     head,
   );
-  const associated = await device.run(["pr", "associate"], { cwd: worktree });
+  const associated = await device.run(["pr", "associate"], { cwd: worktree, pane: worker.paneId });
   expect(associated.code, associated.stderr).toBe(0);
-  return { ...worker, worktree, head };
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const state = await shown(source);
+    const latest = state.launches.findLast((launch) => launch.assignment === key);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      expect(latest.worktreePath).toBe(worktree);
+      expect(latest.paneId).not.toBe(worker.paneId);
+      return { ...worker, paneId: latest.paneId, worktree, head };
+    }
+    expect(Date.now(), JSON.stringify(state)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 }
 
 async function mergedPullRequest(source: string, key: string, number: number) {
   const worker = await openPullRequest(source, key, number);
-  const ready = await device.run(["pr", "wait", "--timeout", "0"], { cwd: worker.worktree });
+  const ready = await device.run(["pr", "wait", "--timeout", "0"], {
+    cwd: worker.worktree,
+    pane: worker.paneId,
+  });
   expect(ready.output).toMatchObject({
     data: { events: [{ kind: "feedback" }, { kind: "merge_eligible", head: worker.head }] },
   });
-  const merged = await device.run(["pr", "merge"], { cwd: worker.worktree });
+  const merged = await device.run(["pr", "merge"], { cwd: worker.worktree, pane: worker.paneId });
   expect(merged.code, merged.stderr).toBe(0);
   // The merge starts cleanup in its own process. Wait until that process stops.
   const deadline = Date.now() + 30000;

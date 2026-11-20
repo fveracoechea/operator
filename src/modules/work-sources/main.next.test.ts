@@ -76,6 +76,64 @@ test("next projects a retained ready receipt without reconstructing review or wa
     },
   });
 });
+test.each([
+  ["pending", true, "wait", "kind_handoff", "pending"],
+  ["pending", false, "replace_worker", "handoff_failed", "stopped"],
+  ["failed", false, "replace_worker", "handoff_failed", "failed"],
+  ["done", false, "wait", "assignment_active", "done"],
+] as const)(
+  "next projects the selected %s handoff with running=%s",
+  async (state, running, action, reason, described) => {
+    function handoff(assignment: string) {
+      return {
+        sourceId: "one",
+        assignment,
+        outgoingLaunchId: `l-${assignment}`,
+        nextKind: "review",
+        handoffState: state,
+        handoffDetail: "handoff detail",
+        handoffRunning: running,
+        startedAt: "before",
+        updatedAt: "now",
+        ownerPid: null,
+        leaseAt: null,
+      };
+    }
+    stored([
+      storedSource(
+        [
+          { key: "other", completion: "pr", state: "pr-open" },
+          { key: "build", completion: "pr", state: "pr-open" },
+        ],
+        {
+          launches: [storedLaunch("other"), storedLaunch("build")],
+          pullRequests: [storedPullRequest("other"), storedPullRequest("build")],
+          handoffs: [
+            { ...handoff("other"), nextKind: "pr-feedback", handoffState: "done" },
+            handoff("build"),
+          ],
+        },
+      ),
+    ]);
+    const result = await next(true);
+    expect(result.tag).toBe("Ok");
+    const source = result.tag === "Ok" ? result.value.sources[0] : undefined;
+    const row = [...(source?.actions ?? []), ...(source?.waits ?? [])].find(
+      (row) => "assignment" in row && row.assignment === "build",
+    );
+    expect(row).toMatchObject({
+      assignment: "build",
+      action,
+      reason,
+      handoff: {
+        outgoingLaunchId: "l-build",
+        nextKind: "review",
+        state: described,
+        detail: "handoff detail",
+      },
+    });
+  },
+);
 
 const merged = {
   mergedHead: "abc",

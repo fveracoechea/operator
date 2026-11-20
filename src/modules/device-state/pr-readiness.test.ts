@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { migrationsFolder } from "./database.ts";
 import { insertRow } from "./state-fixture.ts";
-import { prReadinessSchema, recordPrReady } from "./pr-readiness.ts";
+import { prReadinessSchema, storedPrReadinessSchema, recordPrReady } from "./pr-readiness.ts";
 
 test("readiness records complete dispositions and replaces only the completed outgoing handoff", () => {
   using client = new Database(":memory:");
@@ -86,4 +86,31 @@ test("persisted dispositions keep tolerant decoding, trimmed reasons and positiv
   expect(
     schema.safeParse({ round: 1, finding: 1, disposition: "declined", reason: " " }).success,
   ).toBe(false);
+});
+
+test("stored readiness decodes absent and historical receipts with the same disposition rules", () => {
+  expect(storedPrReadinessSchema.parse(null)).toBeNull();
+  expect(storedPrReadinessSchema.parse(undefined)).toBeNull();
+  expect(
+    storedPrReadinessSchema.parse(
+      JSON.stringify({
+        head: "legacy-ready-head",
+        at: "now",
+        note: "/device/reviewer.md",
+        dispositions: [
+          { round: 2, finding: 3, disposition: "declined", reason: "  Covered.  ", extra: true },
+        ],
+        extra: "old metadata",
+      }),
+    ),
+  ).toEqual({
+    head: "legacy-ready-head",
+    at: "now",
+    note: "/device/reviewer.md",
+    dispositions: [{ round: 2, finding: 3, disposition: "declined", reason: "Covered." }],
+  });
+});
+
+test.each(["{", "{}", "", "null"])("stored readiness refuses corrupt text %j", (text) => {
+  expect(() => storedPrReadinessSchema.parse(text)).toThrow();
 });

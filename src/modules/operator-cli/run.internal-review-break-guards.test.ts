@@ -59,6 +59,7 @@ test.each([
     ],
     testFile: "pull-requests/internal-review-machine.test.ts",
     pattern: "with internal review on, each unready PR",
+    assertion: "pr_worktree_unclean",
   },
   {
     name: "implementer pane closed",
