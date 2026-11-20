@@ -5,7 +5,8 @@ import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { markReady, postComment, readyFacts, updateComment } from "./github.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
-import { startHandoff, worktreeFacts } from "./internal-review.ts";
+import { startHandoff } from "./internal-review.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { readSummary, type Disposition } from "./internal-review-summary.ts";
 import { isImplementer, qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
@@ -244,7 +245,7 @@ export function ready(input: { paths: Paths; cwd: string; file?: string; note?: 
                   ? readySummary(undefined, false)
                   : OkAsync(parsedSummary)
             ).flatMap((summary) =>
-              worktreeFacts(owner.worktreePath).flatMap(({ changed, localHead }) =>
+              PrEntry.worktreeFacts(owner.worktreePath).flatMap(({ changed, localHead }) =>
                 readyFacts(owner.repository, number, marker).flatMap((pr) => {
                   const body = renderSummary({
                     marker,

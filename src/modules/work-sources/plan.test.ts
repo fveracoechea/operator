@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { planSchema, questionPlan } from "./plan.ts";
+import { configuredPlanSchema, oneOffPlan, planSchema, questionPlan } from "./plan.ts";
 
 const report = {
   key: "read",
@@ -9,6 +9,62 @@ const report = {
   resources: "pane",
   dependencies: [],
 };
+
+test.each(["41", "https://github.com/example/one/pull/41", "feature/persons-work"])(
+  "one-off adoption preserves selector %s through validation",
+  (adopt) => {
+    const plan = oneOffPlan({
+      kind: "implementation",
+      instructions: "Continue this work.",
+      key: "continue",
+      trackerKey: "adoption",
+      adopt,
+    });
+    expect(plan.assignments[0]).toMatchObject({ adopt });
+    expect(configuredPlanSchema({}, true).parse(plan).assignments[0]).toMatchObject({
+      adopt,
+      kind: "implementation",
+      completion: "pr",
+      resources: "worktree",
+      branch: "continue",
+      dependencies: [],
+    });
+    expect(
+      planSchema.safeParse({
+        ...plan,
+        assignments: [{ ...plan.assignments[0], branch: "continue" }],
+      }).success,
+    ).toBe(false);
+  },
+);
+
+test.each([0, -1, 1.5, ""])(
+  "one-off selector %j refuses instead of silently dropping adoption",
+  (adopt) => {
+    expect(
+      configuredPlanSchema({}, true).safeParse({
+        trackerKey: "adoption",
+        assignments: [{ ...report, kind: "implementation", resources: "worktree", adopt }],
+      }).success,
+    ).toBe(false);
+  },
+);
+
+test("one-off adoption accepts a positive numeric selector but rejects report completion", () => {
+  const schema = configuredPlanSchema({}, true);
+  expect(
+    schema.parse({
+      trackerKey: "adoption",
+      assignments: [{ ...report, kind: "implementation", resources: "worktree", adopt: 41 }],
+    }).assignments[0],
+  ).toMatchObject({ adopt: 41 });
+  expect(
+    schema.safeParse({ trackerKey: "adoption", assignments: [{ ...report, adopt: "41" }] }).success,
+  ).toBe(false);
+  expect(
+    oneOffPlan({ kind: "implementation", instructions: "New work." }).assignments[0],
+  ).not.toHaveProperty("adopt");
+});
 
 test("adoption requires worktree resources rather than silently launching a pane assignment on a branch", () => {
   expect(

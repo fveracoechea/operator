@@ -1,6 +1,7 @@
 import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import {
   observeParent,
@@ -22,7 +23,6 @@ import {
 import { decideWait, mergeConditions, progressSchema } from "./wait-machine.ts";
 import { merge } from "./merge.ts";
 import { cleanup } from "./cleanup.ts";
-import { decideInternalReview } from "./internal-review-machine.ts";
 import {
   dispatch,
   dispatchPermission,
@@ -30,7 +30,6 @@ import {
   reviewEnded,
   round,
   startHandoff,
-  worktreeFacts,
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
 import { recoverReview } from "./internal-review-recovery.ts";
@@ -111,48 +110,6 @@ function stackOf(
 }
 
 /**
- * With internal review on, only a draft whose head the worktree holds, with nothing uncommitted,
- * starts a review. Off, any open PR is recorded as before. ADR-0020.
- */
-function reviewGate(owner: Owner, pr: { draft: boolean; head: string }) {
-  const internalReview = owner.internalReview === true;
-  const facts =
-    internalReview || !pr.draft
-      ? worktreeFacts(owner.worktreePath)
-      : OkAsync({ changed: false, localHead: pr.head });
-  return facts.flatMap(({ changed, localHead }) => {
-    const decision = decideInternalReview({
-      event: "associate",
-      internalReview,
-      draft: pr.draft,
-      changed,
-      localHead,
-      prHead: pr.head,
-    });
-    return decision.result === "associate"
-      ? OkAsync(decision.review)
-      : ErrAsync<Failure>(
-          decision.result === "refused"
-            ? decision
-            : // Stryker disable next-line ObjectLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-              {
-                // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                reason: "pr_defect",
-                // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                detail: "The associate event decided no association.",
-                // Stryker disable next-line ObjectLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                next: {
-                  // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                  decider: "super-agent",
-                  // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                  question: "How should the unexpected association decision be investigated?",
-                },
-              },
-        );
-  });
-}
-
-/**
  * The owner opens the PR with its own tools and closing keywords. The CLI only records it.
  * When device settings enable assignment reviews, the same write queues a review request, unless
  * an internal review starts, whose ready transition queues it instead. A new internal review
@@ -162,7 +119,7 @@ function associationRecord(
   owner: Owner,
   pr: { number: number; url: string; head: string; draft: boolean },
   relay: Relay | null,
-  review: boolean,
+  readiness: Parameters<typeof DeviceState.associatePullRequest>[2]["readiness"] | null,
 ) {
   const row: Parameters<typeof DeviceState.associatePullRequest>[2] = {
     number: pr.number,
@@ -170,8 +127,7 @@ function associationRecord(
     branch: owner.branch,
     relay: relay === null ? null : JSON.stringify(relay),
   };
-  if (!review && !pr.draft)
-    row.readiness = { head: pr.head, at: new Date().toISOString(), note: null, dispositions: [] };
+  if (readiness !== null) row.readiness = readiness;
   return row;
 }
 
@@ -189,7 +145,12 @@ function associate(input: Request) {
           },
           state: { branch: owner.branch, repository: owner.repository, matches: found.length },
         });
-      return reviewGate(owner, pr).flatMap((review) =>
+      return PrEntry.prepare({
+        worktree: owner.worktreePath,
+        internalReview: owner.internalReview === true,
+        draft: pr.draft,
+        head: pr.head,
+      }).flatMap(({ review, readiness }) =>
         DeviceSettings.show(input.paths).flatMap((settings) =>
           parents(input, owner).flatMap((candidates) =>
             stackOf(pr, candidates)
@@ -198,7 +159,7 @@ function associate(input: Request) {
                 DeviceState.associatePullRequest(
                   input.paths,
                   owner.launchId,
-                  associationRecord(owner, pr, relay, review),
+                  associationRecord(owner, pr, relay, readiness),
                   settings.data.config.review?.assignments === true && !review,
                   review,
                 )

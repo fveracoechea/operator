@@ -1,5 +1,6 @@
 import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -39,18 +40,6 @@ async function git(cwd: string, args: string[]) {
   });
   // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code, so the exit code check alone returns null
   return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
-}
-
-/** The worktree's changes, untracked files included, and its head commit. */
-export function worktreeFacts(worktree: string) {
-  return fromPromise(async () => {
-    const status = await git(worktree, ["status", "--porcelain", "--untracked-files=normal"]);
-    return {
-      // An unreadable status cannot prove the worktree clean.
-      changed: status !== "",
-      localHead: await git(worktree, ["rev-parse", "--verify", "HEAD"]),
-    };
-  }, qualify);
 }
 
 /** The legacy merge-condition name now witnesses only an explicit ready transition. */
@@ -177,17 +166,13 @@ async function recoveryGate(request: HandoffRequest & { repository: string }, fa
   const found = await recoveryPullRequest(audit);
   if (found.tag !== "Ok") return failure(found);
   const pr = found.value;
-  const tree = await worktreeFacts(audit.worktreePath);
-  if (tree.tag !== "Ok") return failure(tree);
-  const decision = decideInternalReview({
-    event: "associate",
+  const entry = await PrEntry.prepare({
+    worktree: audit.worktreePath,
     internalReview: true,
     draft: pr.draft,
-    changed: tree.value.changed,
-    localHead: tree.value.localHead,
-    prHead: audit.head,
+    head: audit.head,
   });
-  return decision.result === "refused" ? decision : null;
+  return entry.tag === "Ok" ? null : failure(entry);
 }
 
 function failure(
@@ -444,7 +429,7 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
       WorkSources.parseFindings(content)
         .toAsync()
         .flatMap((findings) =>
-          worktreeFacts(owner.worktreePath).flatMap(({ localHead }) =>
+          PrEntry.worktreeFacts(owner.worktreePath).flatMap(({ localHead }) =>
             DeviceState.recordInternalReviewRound(input.paths, owner.launchId, (facts) => {
               const decision = decideInternalReview({
                 event: "round",

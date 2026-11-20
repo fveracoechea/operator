@@ -17,6 +17,8 @@ import {
 } from "./pull-requests.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { changeReviewRequest } from "./review-requests.ts";
+import { Ok } from "unthrown";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -105,6 +107,56 @@ const pr = {
   branch: "task/change",
   relay: null,
 };
+
+test.each(["assignment", "review"])(
+  "adoption rechecks a %s owner acquired after reservation without writes",
+  (owner) => {
+    using db = fixture();
+    expect(reserveLaunch(db, "/one", "owner/one", launchRow("incoming", "change")).tag).toBe("Ok");
+    if (owner === "assignment")
+      expect(
+        reserveLaunch(db, "/one", "owner/one", {
+          ...launchRow("racer", "other"),
+          branch: pr.branch,
+        }).tag,
+      ).toBe("Ok");
+    else
+      expect(
+        changeReviewRequest(db, { repository: "owner/one", number: 7 }, () =>
+          Ok({
+            insert: {
+              id: "racing-review",
+              repository: "owner/one",
+              number: 7,
+              url: pr.url,
+              origin: "manual",
+              state: "queued",
+            },
+          }),
+        ).tag,
+      ).toBe("Ok");
+    const before = db.serialize();
+    expect(
+      associatePullRequest(
+        db,
+        "incoming",
+        { ...pr, readiness: { head: "pushed", at: "now", note: null, dispositions: [] } },
+        true,
+        false,
+        true,
+      ),
+    ).toMatchObject({
+      tag: "Err",
+      error: { reason: owner === "assignment" ? "adopt_assignment_owned" : "adopt_review_owned" },
+    });
+    expect(db.serialize()).toEqual(before);
+    expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+      pullRequests: [],
+      internalReviews: [],
+      handoffs: [],
+    });
+  },
+);
 
 test("ready adoption associates a starting owner with readiness and no outgoing handoff", () => {
   using db = fixture();

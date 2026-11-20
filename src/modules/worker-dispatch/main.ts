@@ -11,6 +11,7 @@ import {
 } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
@@ -419,31 +420,14 @@ async function reviewerNote(settings: Pick<Settings, "kind" | "pullRequest">) {
   return file === null ? null : Bun.file(file).text();
 }
 
-/** Ready PRs and directly adopted reviewers enter their selected kind without a handoff. */
-function adoptionRecord(settings: Pick<Settings, "adoption" | "kind" | "stack">) {
-  const pr = settings.adoption;
-  if (pr === null) return null;
-  if (pr.number === null || (pr.draft && settings.kind?.name !== "review")) return null;
-  const row: Parameters<typeof DeviceState.adoptPullRequest>[2] & { mergedAt: null } = {
-    number: pr.number,
-    url: pr.url,
-    branch: pr.branch,
-    mergedAt: null,
-    relay:
-      settings.stack === null
-        ? null
-        : JSON.stringify({ parent: settings.stack, state: "stacked", blocker: null }),
-  };
-  if (!pr.draft)
-    row.readiness = { head: pr.head, at: new Date().toISOString(), note: null, dispositions: [] };
-  return row;
-}
-
 function writeBrief(
   request: Request,
   settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
   placement: { workingDirectory: string },
   branch: string | null,
+  directEntry:
+    | (Parameters<typeof DeviceState.adoptPullRequest>[2] & { mergedAt: null })
+    | null = null,
 ) {
   const files = OperatorHome.assignmentFiles(request.paths, {
     repository: settings.project.repository,
@@ -451,7 +435,7 @@ function writeBrief(
     assignment: settings.planned.key,
   });
   const promotion = settings.planned.promotion;
-  const phasePr = settings.pullRequest ?? adoptionRecord(settings);
+  const phasePr = settings.pullRequest ?? directEntry;
   return fromPromise(
     async () => {
       const questions: NonNullable<Parameters<typeof renderBrief>[0]["questions"]> = [];
@@ -578,18 +562,42 @@ function launchEffects(input: {
           ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
           : preparedAgain(request.paths, placement.worktreePath);
       })
-      .flatTap(() => {
-        const adopted = adoptionRecord(settings);
-        return adopted === null
-          ? OkAsync(undefined)
-          : DeviceSettings.show(request.paths).flatMap(({ data }) =>
-              DeviceState.adoptPullRequest(request.paths, input.id, adopted, {
-                internalReview: settings.kind?.name === "review",
-                assignmentReview: data.config.review?.assignments === true,
-              }),
-            );
+      .bind("adopted", ({ placement }) => {
+        const pr = settings.adoption;
+        if (
+          pr?.number === undefined ||
+          pr.number === null ||
+          (pr.draft && settings.kind?.name !== "review")
+        )
+          return OkAsync(null);
+        return PrEntry.prepare({
+          worktree: placement.workingDirectory,
+          internalReview: settings.kind?.name === "review",
+          draft: pr.draft,
+          head: pr.head,
+        }).flatMap(({ review, readiness }) => {
+          const adopted: Parameters<typeof DeviceState.adoptPullRequest>[2] & { mergedAt: null } = {
+            number: pr.number,
+            url: pr.url,
+            branch: pr.branch,
+            mergedAt: null,
+            relay:
+              settings.stack === null
+                ? null
+                : JSON.stringify({ parent: settings.stack, state: "stacked", blocker: null }),
+          };
+          if (readiness !== null) adopted.readiness = readiness;
+          return DeviceSettings.show(request.paths).flatMap(({ data }) =>
+            DeviceState.adoptPullRequest(request.paths, input.id, adopted, {
+              internalReview: review,
+              assignmentReview: data.config.review?.assignments === true,
+            }).map(() => adopted),
+          );
+        });
       })
-      .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
+      .bind("brief", ({ placement, adopted }) =>
+        writeBrief(request, settings, placement, branch, adopted),
+      )
       .flatTap(({ placement }) =>
         AgentHosts.start({
           name,
@@ -749,24 +757,17 @@ function launch(request: Request, settings: Settings, resources: Resources) {
             kind: settings.kind,
             ...started.value,
           });
-        return recordFailure(
-          request.paths,
-          reserved.id,
-          started.tag === "Err"
-            ? started.error
-            : {
-                reason: "launch_defect",
-                detail: `Dispatch stopped: ${String(started.cause)}`,
-                // Stryker disable next-line ObjectLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
-                next: {
-                  // Stryker disable next-line StringLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
-                  decider: "super-agent",
-                  question:
-                    // Stryker disable next-line StringLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
-                    "How should the unexpected dispatch failure be investigated before another launch?",
-                },
-              },
-        );
+        if (started.tag === "Defect") {
+          const recorded = DeviceState.updateLaunch(request.paths, reserved.id, {
+            state: "failed",
+            failureReason: "launch_defect",
+            failureDetail: `Dispatch stopped: ${String(started.cause)}`,
+          });
+          // A bookkeeping failure must not replace the original defect or its nested cause.
+          if (recorded.tag !== "Ok") return started;
+          return started;
+        }
+        return recordFailure(request.paths, reserved.id, started.error);
       }).flatMap((result) => result),
     );
 }

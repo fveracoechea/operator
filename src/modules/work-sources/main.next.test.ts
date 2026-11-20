@@ -80,6 +80,141 @@ test("adoption history copies only ended owners of the same still-open PR", asyn
   expect(read).toHaveBeenCalledWith(paths, "example/one", undefined);
 });
 
+test("adoption history projects recorded rounds with applied, declined, and absent dispositions by round and finding", async () => {
+  const findings = [
+    { severity: "blocker", axis: "Spec", location: "src/api.ts:1", claim: "Keep the API." },
+    { severity: "nice-to-have", axis: "Standards", location: "src/api.ts:2", claim: "Rename it." },
+    {
+      severity: "nice-to-have",
+      axis: "Skills",
+      location: "src/api.ts:3",
+      claim: "Read the guide.",
+    },
+  ];
+  const row = storedSource(
+    [
+      { key: "work", completion: "pr", state: "abandoned", intent: "Keep compatibility." },
+      { key: "other", completion: "pr", state: "abandoned" },
+    ],
+    {
+      launches: [storedLaunch("work", { id: "old", state: "finished", endedAt: "before" })],
+      pullRequests: [
+        storedPullRequest("work", {
+          readiness: JSON.stringify({
+            head: "ready-head",
+            at: "before",
+            note: "/old/note.md",
+            dispositions: [
+              { round: 1, finding: 1, disposition: "applied" },
+              {
+                round: 1,
+                finding: 2,
+                disposition: "declined",
+                reason: "The person kept the name.",
+              },
+              { round: 2, finding: 1, disposition: "declined", reason: "Already covered." },
+            ],
+          }),
+        }),
+      ],
+      internalReviews: [
+        {
+          sourceId: "one",
+          assignment: "work",
+          state: "ready",
+          implementerLaunchId: "old",
+          handoffState: "done",
+          handoffDetail: null,
+          handoffRunning: false,
+          startedAt: "before",
+          updatedAt: "before",
+          ownerPid: null,
+          leaseAt: null,
+          readyHead: "ready-head",
+          commentId: "summary",
+          commentUrl: "https://github.com/c/summary",
+          endedAt: "before",
+        },
+      ],
+      internalReviewRounds: [
+        {
+          sourceId: "one",
+          assignment: "work",
+          number: 1,
+          launchId: "reviewer",
+          head: "round-one",
+          findings: JSON.stringify(findings),
+          recordedAt: "before",
+        },
+        {
+          sourceId: "one",
+          assignment: "work",
+          number: 2,
+          launchId: "reviewer",
+          head: "round-two",
+          findings: JSON.stringify([findings[0]]),
+          recordedAt: "before",
+        },
+      ],
+    },
+  );
+  stored([row]);
+  expect(await WorkSources.adoptionHistory({ paths, cwd: root, number: 7 })).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        sourceId: "one",
+        assignment: "work",
+        intent: "Keep compatibility.",
+        issue: "APP-work",
+        summary: "https://github.com/c/summary",
+        rounds: [
+          {
+            number: 1,
+            head: "round-one",
+            findings: [
+              {
+                severity: "blocker",
+                axis: "Spec",
+                location: "src/api.ts:1",
+                claim: "Keep the API.",
+                disposition: "applied",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Standards",
+                location: "src/api.ts:2",
+                claim: "Rename it.",
+                disposition: "declined: The person kept the name.",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Skills",
+                location: "src/api.ts:3",
+                claim: "Read the guide.",
+                disposition: null,
+              },
+            ],
+          },
+          {
+            number: 2,
+            head: "round-two",
+            findings: [
+              {
+                severity: "blocker",
+                axis: "Spec",
+                location: "src/api.ts:1",
+                claim: "Keep the API.",
+                disposition: "declined: Already covered.",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+});
+
 test("next projects a retained ready receipt without reconstructing review or wait evidence", async () => {
   const receipt = {
     head: "ready-head",

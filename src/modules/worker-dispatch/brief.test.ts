@@ -24,6 +24,21 @@ const input = {
   adoption: null,
 };
 
+test("branch-only adoption renders its branch without PR handoff facts or an Adopted PR section", () => {
+  const text = renderBrief({
+    ...input,
+    branch: "feature/persons-work",
+    head: "local-head",
+    adoption: { number: null, url: null, draft: null, branch: "feature/persons-work", head: null },
+  });
+  expect(text).toContain("Branch: `feature/persons-work`");
+  expect(text).not.toContain("## Handoff");
+  expect(text).not.toContain("## Adopted PR");
+  expect(text).not.toContain("PR #");
+  expect(text).not.toContain("Ready head:");
+  expect(text).not.toContain("Read reviews, comments, unresolved threads, and checks");
+});
+
 test("ended PR owners render quoted intent, issue, rounds, dispositions and summary without replacing current intent", () => {
   const text = renderBrief({
     ...input,

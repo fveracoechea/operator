@@ -38,6 +38,99 @@ afterEach(async () => {
   await rm(device.root, { recursive: true, force: true });
 }, 60000);
 
+test.each(["dirty", "unpushed"])(
+  "ready replacement refuses its first receipt over %s work",
+  async (mode) => {
+    const github = {
+      viewer: "person",
+      pulls: [
+        {
+          number: 41,
+          url: "https://github.com/example/one/pull/41",
+          headRepository: "example/one",
+          state: "OPEN",
+          isDraft: true,
+          author: "person",
+          headRefName: branch,
+          head,
+        },
+      ],
+    };
+    await Bun.write(`${device.root}/github.json`, JSON.stringify(github));
+    const started = await device.run(
+      ["dispatch", "--kind", "implementation", "--brief", "-", "--adopt", "41"],
+      { stdin: "Continue the person's PR." },
+    );
+    expect(started.code, started.stderr).toBe(0);
+    const launch = z
+      .object({
+        data: z.object({
+          sourceId: z.string(),
+          assignment: z.string(),
+          paneId: z.string(),
+          worktreePath: z.string(),
+        }),
+      })
+      .parse(started.output).data;
+    if (mode === "dirty")
+      await Bun.write(`${launch.worktreePath}/local-work.txt`, "Preserve this uncommitted work.\n");
+    else
+      expect(
+        (
+          await device.exec(
+            ["git", "commit", "-q", "--allow-empty", "-m", "unlanded local work"],
+            launch.worktreePath,
+          )
+        ).code,
+      ).toBe(0);
+    const localHead = await device.exec(["git", "rev-parse", "HEAD"], launch.worktreePath);
+    const localStatus = await device.exec(["git", "status", "--porcelain"], launch.worktreePath);
+    github.pulls = github.pulls.map((pr) => ({ ...pr, isDraft: false }));
+    await Bun.write(`${device.root}/github.json`, JSON.stringify(github));
+    const parentGuard = await device.run(["pr", "associate"], {
+      cwd: launch.worktreePath,
+      pane: launch.paneId,
+    });
+    const reason = mode === "dirty" ? "pr_worktree_unclean" : "pr_worktree_unsynced";
+    expect(parentGuard.output).toMatchObject({ reason });
+    expect((await device.event("pane.exited", { pane_id: launch.paneId })).code).toBe(0);
+    const calls = await device.herdrCalls();
+    const replacement = await device.run([
+      "dispatch",
+      "--source",
+      launch.sourceId,
+      "--assignment",
+      launch.assignment,
+    ]);
+    expect(replacement.code).not.toBe(0);
+    expect(replacement.output).toMatchObject({
+      reason: "launch_failed",
+      state: { launch: "failed" },
+    });
+    const shown = await device.run(["source", "show", "--source", launch.sourceId]);
+    expect(shown.output).toMatchObject({
+      data: {
+        pullRequests: [],
+        launches: [{ state: "interrupted" }, { state: "failed", failureReason: reason }],
+      },
+    });
+    expect((await device.herdrCalls()).filter((call) => call === "agent start")).toEqual(
+      calls.filter((call) => call === "agent start"),
+    );
+    expect((await device.exec(["git", "rev-parse", "HEAD"], launch.worktreePath)).stdout).toBe(
+      localHead.stdout,
+    );
+    expect((await device.exec(["git", "status", "--porcelain"], launch.worktreePath)).stdout).toBe(
+      localStatus.stdout,
+    );
+    if (mode === "dirty")
+      expect(await Bun.file(`${launch.worktreePath}/local-work.txt`).text()).toBe(
+        "Preserve this uncommitted work.\n",
+      );
+  },
+  60000,
+);
+
 test("one-off adoption of a branch uses the person's branch without new-work naming", async () => {
   const result = await device.run(
     ["dispatch", "--kind", "implementation", "--brief", "-", "--adopt", branch],

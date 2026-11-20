@@ -58,12 +58,13 @@ function refused(
 }
 
 function answer(
-  pr: { state?: string; draft?: boolean; ref?: string; repo?: string | null },
-  listing?: "empty" | "branch",
+  pr: { state?: string; draft?: boolean; ref?: string; repo?: string | null; author?: string },
+  listing?: "empty" | "branch" | "ambiguous",
+  viewer: { login?: string } | "uncertain" = { login: "person" },
 ) {
   const pull = {
     number: 41,
-    user: { login: "person" },
+    user: { login: pr.author ?? "person" },
     base: { ref: "main", repo: { default_branch: "main" } },
     html_url: "https://github.com/example/one/pull/41",
     state: pr.state ?? "open",
@@ -74,21 +75,85 @@ function answer(
       repo: pr.repo === null ? null : { full_name: pr.repo ?? "example/one" },
     },
   };
-  spyOn(GithubApi, "call").mockImplementation(async ({ args }) => ({
-    status: "succeeded",
-    value: {
-      httpStatus: 200,
-      body:
-        args[0] === "user"
-          ? { login: "person" }
-          : listing === "empty"
-            ? []
-            : listing === "branch"
-              ? [pull]
-              : pull,
-    },
-  }));
+  spyOn(GithubApi, "call").mockImplementation(async ({ args }) =>
+    args[0] === "user" && viewer === "uncertain"
+      ? { status: "uncertain", detail: "authentication unavailable" }
+      : {
+          status: "succeeded",
+          value: {
+            httpStatus: 200,
+            body:
+              args[0] === "user"
+                ? viewer
+                : listing === "empty"
+                  ? []
+                  : listing === "ambiguous"
+                    ? [pull, { ...pull, number: 42 }]
+                    : listing === "branch"
+                      ? [pull]
+                      : pull,
+          },
+        },
+  );
 }
+
+test.each([
+  "https://github.com/other/repository/pull/41",
+  "https://example.com/example/one/pull/41",
+])("adoption refuses repository mismatch %s without a GitHub read", async (number) => {
+  answer({});
+  const github = spyOn(GithubApi, "call");
+  refused(
+    await readAdoption({ repository: "example/one", number }),
+    "adopt_repository_mismatch",
+    "this registered repository",
+    { repositoryMatches: false },
+    "super-agent",
+  );
+  expect(github).not.toHaveBeenCalled();
+});
+
+test("ambiguous branch PRs refuse before viewer lookup", async () => {
+  answer({}, "ambiguous");
+  const github = spyOn(GithubApi, "call");
+  refused(
+    await readAdoption({ repository: "example/one", number: branch }),
+    "adopt_pr_ambiguous",
+    "More than one open PR",
+    { pullRequests: 2 },
+    "super-agent",
+  );
+  expect(github).toHaveBeenCalledTimes(1);
+});
+
+test.each(["unexpected", "uncertain"])(
+  "an unreadable %s viewer grants no adoption",
+  async (mode) => {
+    answer({}, undefined, mode === "uncertain" ? "uncertain" : {});
+    const github = spyOn(GithubApi, "call");
+    refused(
+      await readAdoption({ repository: "example/one", number: 41 }),
+      "adopt_pr_unreadable",
+      "authenticated person",
+      { viewerReadable: false },
+      "super-agent",
+    );
+    expect(github).toHaveBeenCalledTimes(2);
+  },
+);
+
+test("another author's PR refuses with a review-request next step", async () => {
+  answer({ author: "other" });
+  const result = await readAdoption({ repository: "example/one", number: 41 });
+  expect(result).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "adopt_pr_author_mismatch",
+      state: { authorMatches: false },
+      next: { command: "operator review add https://github.com/example/one/pull/41" },
+    },
+  });
+});
 
 test("an open PR from the planned branch of this repository is adopted with its draft state", async () => {
   answer({ draft: true, repo: "Example/One" });

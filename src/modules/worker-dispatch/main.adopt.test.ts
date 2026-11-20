@@ -1,5 +1,6 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, spyOn, test } from "bun:test";
-import { OkAsync } from "unthrown";
+import { Err, fromPromise, OkAsync } from "unthrown";
+import { DeviceState } from "../device-state/main.ts";
 import { GithubApi } from "../github-api/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -15,12 +16,61 @@ afterAll(removeDevices);
 
 const branch = "feature/existing";
 
+test.each(["ok", "err", "defect"])(
+  "an adoption writer defect survives %s bookkeeping without starting a worker",
+  async (bookkeeping) => {
+    await using device = await adoptionDevice();
+    const cause = new Error("adoption writer defect", { cause: { sentinel: "keep me" } });
+    const defect = await fromPromise(Promise.reject(cause), (error, unexpected) =>
+      unexpected(error),
+    );
+    const writer = spyOn(DeviceState, "adoptPullRequest").mockReturnValue(defect);
+    const cleanupDefect = await fromPromise(
+      Promise.reject(new Error("bookkeeping defect")),
+      (error, unexpected) => unexpected(error),
+    );
+    const update = DeviceState.updateLaunch;
+    const bookkeepingError = Err({
+      reason: "launch_not_starting" as const,
+      detail: "Cannot record failure.",
+      next: {
+        decider: "person" as const,
+        question: "How should this synthetic state failure be recovered?",
+      },
+    });
+    spyOn(DeviceState, "updateLaunch").mockImplementation((...args) =>
+      args[2].state === "failed" && bookkeeping !== "ok"
+        ? bookkeeping === "err"
+          ? bookkeepingError
+          : cleanupDefect
+        : update(...args),
+    );
+    const result = await WorkerDispatch.dispatch(device.request);
+    expect(writer).toHaveBeenCalledTimes(1);
+    expect(device.herdr.startAgent).not.toHaveBeenCalled();
+    expect(await device.launches()).toMatchObject([
+      bookkeeping === "ok"
+        ? { state: "failed", failureReason: "launch_defect" }
+        : { state: "starting", failureReason: null },
+    ]);
+    expect(result.tag).toBe("Defect");
+    if (result.tag === "Defect") expect(result.cause).toBe(cause);
+  },
+);
+
 /**
  * A device with a second source whose one PR assignment adopts PR #41. The PR's branch holds
  * one pushed commit on the fixture's reachable remote, and no local branch exists yet.
  */
 async function adoptionDevice(
-  pr: { draft?: boolean; state?: string; ref?: string; repo?: string | null } = {},
+  pr: {
+    draft?: boolean;
+    state?: string;
+    ref?: string;
+    repo?: string | null;
+    base?: string;
+    kind?: string;
+  } = {},
 ) {
   const device = await dispatchDevice();
   const { checkout } = device;
@@ -43,7 +93,7 @@ async function adoptionDevice(
           : {
               number: 41,
               user: { login: "person" },
-              base: { ref: "main", repo: { default_branch: "main" } },
+              base: { ref: pr.base ?? "main", repo: { default_branch: "main" } },
               html_url: "https://github.com/example/one/pull/41",
               state: pr.state ?? "open",
               draft: pr.draft ?? false,
@@ -64,7 +114,7 @@ async function adoptionDevice(
           key: "adopted",
           trackerKey: "github:example/one#41",
           instructions: "Carry PR #41 through its review.",
-          kind: "implementation",
+          kind: pr.kind ?? "implementation",
           resources: "worktree",
           branch,
           adopt: 41,
@@ -130,6 +180,75 @@ test("an adopted ready PR starts on its own branch at the PR head, with no inter
   expect(brief).toContain("Internal review: `off`");
 });
 
+test("a direct adopted draft reviewer records review ownership without readiness or a handoff", async () => {
+  await using device = await adoptionDevice({ draft: true, kind: "review" });
+  expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({
+    tag: "Ok",
+    value: { kind: { name: "review" }, branch },
+  });
+  const shown = await WorkSources.show(device.request);
+  expect(shown).toMatchObject({
+    tag: "Ok",
+    value: {
+      launches: [{ state: "running", kind: { name: "review" }, internalReview: true }],
+      pullRequests: [{ number: 41, branch, readiness: null }],
+      internalReviews: [{ state: "reviewing" }],
+      handoffs: [],
+    },
+  });
+  expect(device.herdr.startAgent).toHaveBeenCalledTimes(1);
+  expect(await device.brief()).toContain("Worker kind: `review`");
+});
+
+test.each([
+  { draft: true, kind: "review" },
+  { draft: false, kind: "pr-feedback" },
+])("direct %o entry refuses a wrong base before launch effects", async (entry) => {
+  await using device = await adoptionDevice({ ...entry, base: "unplanned-base" });
+  const associate = spyOn(DeviceState, "adoptPullRequest");
+  expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "adopt_pr_base_mismatch",
+      state: { base: "unplanned-base", expected: "main" },
+    },
+  });
+  expect(await device.launches()).toEqual([]);
+  expect(git(device.checkout, "branch", "--list", branch)).toBe("");
+  expect(device.herdr.createWorktree).not.toHaveBeenCalled();
+  expect(device.herdr.startAgent).not.toHaveBeenCalled();
+  expect(associate).not.toHaveBeenCalled();
+});
+
+test.each(["dirty", "unpushed"])(
+  "a ready replacement with valid readiness retains %s work without another transition",
+  async (mode) => {
+    await using device = await adoptionDevice();
+    expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({ tag: "Ok" });
+    const [first] = await device.launches();
+    const worktree = first?.worktreePath ?? "";
+    const before = (await WorkSources.show(device.request)).getOr(undefined)?.pullRequests[0]
+      ?.readiness;
+    if (mode === "dirty") await Bun.write(`${worktree}/ongoing.txt`, "keep me\n");
+    else git(worktree, "commit", "-q", "--allow-empty", "-m", "ongoing local work");
+    const head = git(worktree, "rev-parse", "HEAD");
+    const status = git(worktree, "status", "--porcelain");
+    device.exited("p2");
+    device.reopening();
+    const writer = spyOn(DeviceState, "adoptPullRequest");
+    expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({
+      tag: "Ok",
+      value: { worktreePath: worktree },
+    });
+    expect(writer).not.toHaveBeenCalled();
+    expect(
+      (await WorkSources.show(device.request)).getOr(undefined)?.pullRequests[0]?.readiness,
+    ).toEqual(before);
+    expect(git(worktree, "rev-parse", "HEAD")).toBe(head);
+    expect(git(worktree, "status", "--porcelain")).toBe(status);
+  },
+);
+
 test("an adopted draft keeps internal review, so its owner associates the draft for a reviewer", async () => {
   await using device = await adoptionDevice({ draft: true });
   expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({ tag: "Ok" });
@@ -139,6 +258,38 @@ test("an adopted draft keeps internal review, so its owner associates the draft 
   expect(brief).toContain("Internal review: `on`");
   expect(brief).not.toContain("Open one draft PR");
 });
+
+test.each(["dirty", "unpushed"])(
+  "first ready adoption on a reused worktree refuses %s work before persistence or worker start",
+  async (mode) => {
+    const pr = { draft: true };
+    await using device = await adoptionDevice(pr);
+    expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({ tag: "Ok" });
+    const [first] = await device.launches();
+    const worktree = first?.worktreePath ?? "";
+    if (mode === "dirty") await Bun.write(`${worktree}/local.txt`, "preserve\n");
+    else git(worktree, "commit", "-q", "--allow-empty", "-m", "local-only work");
+    const head = git(worktree, "rev-parse", "HEAD");
+    const status = git(worktree, "status", "--porcelain");
+    pr.draft = false;
+    device.exited("p2");
+    device.reopening();
+    const writer = spyOn(DeviceState, "adoptPullRequest");
+    device.herdr.startAgent.mockClear();
+    const reason = mode === "dirty" ? "pr_worktree_unclean" : "pr_worktree_unsynced";
+    const result = await WorkerDispatch.dispatch(device.request);
+    expect(result).toMatchObject({ tag: "Err", error: { reason: "launch_failed" } });
+    expect(await device.launches()).toMatchObject([
+      { state: "interrupted" },
+      { state: "failed", failureReason: reason },
+    ]);
+    expect((await WorkSources.show(device.request)).getOr(undefined)?.pullRequests).toEqual([]);
+    expect(writer).not.toHaveBeenCalled();
+    expect(device.herdr.startAgent).not.toHaveBeenCalled();
+    expect(git(worktree, "rev-parse", "HEAD")).toBe(head);
+    expect(git(worktree, "status", "--porcelain")).toBe(status);
+  },
+);
 
 test("a replacement before the association reopens the worktree and reads the PR again", async () => {
   await using device = await adoptionDevice({ draft: true });

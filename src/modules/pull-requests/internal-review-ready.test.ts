@@ -8,6 +8,7 @@ import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { git, prDevice, repository, succeeded } from "./device-fixture.ts";
 import { ready, skip } from "./internal-review-ready.ts";
 
@@ -168,25 +169,32 @@ test("skip preserves the decision's checked state and person authority without r
   expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
 });
 
-async function reviewer() {
+async function reviewer(entry?: "review" | "implementation") {
   const device = await prDevice();
-  const implementer = device.start("parent");
+  const implementer = device.start("parent", {
+    kind: entry === undefined ? null : JSON.stringify(WorkerKinds.resolve(entry)),
+  });
+  const pr = {
+    number: 7,
+    url: `https://github.com/${repository}/pull/7`,
+    branch: "task/parent",
+    relay: null,
+  };
   expect(
-    DeviceState.associatePullRequest(
-      device.paths,
-      implementer.launchId,
-      {
-        number: 7,
-        url: `https://github.com/${repository}/pull/7`,
-        branch: "task/parent",
-        relay: null,
-      },
-      false,
-      true,
+    (entry === "review"
+      ? DeviceState.adoptPullRequest(device.paths, implementer.launchId, pr, {
+          internalReview: true,
+          assignmentReview: false,
+        })
+      : DeviceState.associatePullRequest(device.paths, implementer.launchId, pr, false, true)
     ).tag,
   ).toBe("Ok");
-  expect(DeviceState.finishImplementer(device.paths, implementer.launchId).tag).toBe("Ok");
-  const worker = device.start("parent", { worktree: implementer.worktree, add: false });
+  if (entry === undefined)
+    expect(DeviceState.finishImplementer(device.paths, implementer.launchId).tag).toBe("Ok");
+  const worker =
+    entry === undefined
+      ? device.start("parent", { worktree: implementer.worktree, add: false })
+      : implementer;
   const head = git(worker.worktree, "rev-parse", "HEAD");
   expect(
     DeviceState.recordInternalReviewRound(device.paths, worker.launchId, () =>
@@ -233,6 +241,43 @@ async function reviewer() {
     input: { paths: device.paths, cwd: worker.worktree, file, note },
   };
 }
+
+test.each(["review", "implementation"] as const)(
+  "ready adapter permits direct %s entry without unfencing the outgoing implementer",
+  async (entry) => {
+    const { device, input, worker, head } = await reviewer(entry);
+    await using _ = device;
+    const before = await Bun.file(device.paths.database).arrayBuffer();
+    const detach = spyOn(ToolInvocation, "detach");
+    const result = await ready(input);
+    if (entry === "review") {
+      expect(result).toMatchObject({ tag: "Ok", value: { reason: "pr_ready" } });
+      expect(device.pullRequestRow("parent")?.readiness).toBeDefined();
+      const recorded = DeviceState.readSources(device.paths, repository, device.sourceId);
+      expect(recorded).toMatchObject({
+        tag: "Ok",
+        value: [
+          {
+            handoffs: [{ outgoingLaunchId: worker.launchId, nextKind: "pr-feedback" }],
+            internalReviews: [{ state: "ready", readyHead: head }],
+          },
+        ],
+      });
+      expect(recorded.getOr([])[0]?.pullRequests[0]?.readiness).toContain(head);
+      expect(device.calls.some((args) => args.includes("POST"))).toBe(true);
+      expect(detach).toHaveBeenCalledTimes(1);
+    } else {
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "pr_handed_off" } });
+      expect(
+        device.calls.some(
+          (args) => args.includes("POST") || args.some((arg) => arg.includes("MarkReady")),
+        ),
+      ).toBe(false);
+      expect(detach).not.toHaveBeenCalled();
+      expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+    }
+  },
+);
 
 test.each(["\n", "\r\n", "\r"])(
   "ready counts %j note lines before writes and saves allowed bytes literally",
