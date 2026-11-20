@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
-import { Err, Ok, OkAsync } from "unthrown";
+import { fromThrowable, Err, ErrAsync, Ok, OkAsync } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
@@ -12,6 +12,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { OperatorCli } from "./main.ts";
+import { run as runOwner } from "./run.ts";
 import { workerDevice } from "./worker-fixture.ts";
 
 type Source = Extract<ReturnType<typeof DeviceState.readSources>, { tag: "Ok" }>["value"][number];
@@ -163,7 +164,11 @@ beforeEach(() => {
   spyOn(DeviceState, "readReport").mockImplementation(() => Ok(current));
   spyOn(DeviceState, "readSources").mockImplementation(() => Ok([source]));
   spyOn(ToolInvocation, "run").mockImplementation(async (input) => {
-    if (input.tool === "git" && input.args.join("\0") === "status\0--porcelain") return status;
+    if (
+      input.tool === "git" &&
+      input.args.join("\0") === "status\0--porcelain\0--untracked-files=normal"
+    )
+      return status;
     if (input.tool === "git" && input.args.join("\0") === "rev-parse\0--verify\0HEAD") return head;
     return {
       status: "completed",
@@ -187,8 +192,8 @@ beforeEach(() => {
   spyOn(console, "error").mockImplementation(() => {});
 });
 
-async function run(args = ["--version"]) {
-  await OperatorCli.main([...args, "--json"]);
+async function run(args = ["--version"], entry = runOwner) {
+  await entry([...args, "--json"]);
   return z
     .looseObject({
       kind: z.string().optional(),
@@ -246,6 +251,158 @@ test.each(["missing-launch", "legacy-kind"] as const)(
   },
 );
 
+test.each([
+  { stage: "pane", entry: runOwner },
+  { stage: "target", entry: runOwner },
+  { stage: "canonical", entry: runOwner },
+  { stage: "recorded", entry: runOwner },
+  { stage: "pane", entry: OperatorCli.main },
+  { stage: "target", entry: OperatorCli.main },
+  { stage: "canonical", entry: OperatorCli.main },
+  { stage: "recorded", entry: OperatorCli.main },
+])(
+  "a transient phase read failure at $stage refuses before a later owner read can succeed",
+  async ({ stage, entry }) => {
+    const wait = spyOn(PullRequests, "wait").mockReturnValue(
+      OkAsync({ reason: "pr_wait_timed_out", data: {} }) as never,
+    );
+    const submit = spyOn(ReportAssignments, "submit").mockReturnValue(
+      OkAsync({ reason: "report_submitted", data: {} }) as never,
+    );
+    if (stage === "target")
+      spyOn(PullRequests, "workerTarget").mockReturnValueOnce(
+        ErrAsync({
+          reason: "state_busy",
+          detail: "Transient fixture lock.",
+          next: { why: "Retry after the lock clears." },
+        }),
+      );
+    else if (stage === "pane")
+      spyOn(DeviceState, "readReport").mockReturnValueOnce(
+        Err({
+          reason: "state_busy",
+          detail: "Transient fixture lock.",
+          next: { why: "Retry after the lock clears." },
+        }),
+      );
+    else {
+      const read = spyOn(DeviceState, "readSources");
+      if (stage === "recorded") read.mockReturnValueOnce(Ok([source]));
+      read.mockReturnValueOnce(
+        Err({
+          reason: "state_busy",
+          detail: "Transient fixture lock.",
+          next: { why: "Retry after the lock clears." },
+        }),
+      );
+    }
+    expect(
+      await run(
+        stage === "pane"
+          ? ["report", "submit", "--file", "fixture.md"]
+          : ["pr", "wait", "--timeout", "0"],
+        entry,
+      ),
+    ).toMatchObject({ reason: "state_busy" });
+    expect(process.exitCode).toBe(1);
+    expect(wait).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  },
+);
+
+test.each([runOwner, OperatorCli.main])(
+  "a phase read defect retains its original cause instead of running the owner %p",
+  async (entry) => {
+    const cause = new Error("original phase read defect");
+    const defect = fromThrowable(
+      () => {
+        // oxlint-disable-next-line unthrown/no-throw -- Inject the original defect at a module boundary.
+        throw cause;
+      },
+      (original, fail) => fail(original),
+    )();
+    spyOn(DeviceState, "readSources").mockReturnValueOnce(defect);
+    const wait = spyOn(PullRequests, "wait").mockReturnValue(
+      OkAsync({ reason: "pr_wait_timed_out", data: {} }) as never,
+    );
+    expect(await run(["pr", "wait", "--timeout", "0"], entry)).toMatchObject({
+      reason: "pr_defect",
+    });
+    expect(String(log.mock.lastCall?.[0])).toContain("Error: original phase read defect");
+    expect(process.exitCode).toBe(1);
+    expect(wait).not.toHaveBeenCalled();
+  },
+);
+
+test("a failed output phase refresh does not fall back to its initial snapshot", async () => {
+  spyOn(DeviceState, "readSources")
+    .mockReturnValueOnce(Ok([source]))
+    .mockReturnValueOnce(
+      Err({
+        reason: "state_busy",
+        detail: "Output refresh lock.",
+        next: { why: "Retry after the lock clears." },
+      }),
+    );
+  expect(await run()).toMatchObject({ reason: "state_busy" });
+  expect(log).toHaveBeenCalledTimes(1);
+  expect(String(log.mock.lastCall?.[0])).not.toContain("version_reported");
+  expect(process.exitCode).toBe(1);
+});
+
+test.each([
+  { tag: "Err", json: true },
+  { tag: "Defect", json: true },
+  { tag: "Err", json: false },
+  { tag: "Defect", json: false },
+] as const)(
+  "actual CLI refusal consumes one output snapshot before a possible second $tag (json=$json)",
+  async ({ tag, json }) => {
+    const error = spyOn(console, "error");
+    const defect = fromThrowable(
+      () => {
+        // oxlint-disable-next-line unthrown/no-throw -- Inject the original defect at a module boundary.
+        throw new Error("original second output defect");
+      },
+      (cause, fail) => fail(cause),
+    )();
+    const read = spyOn(DeviceState, "readSources")
+      .mockReturnValueOnce(Ok([source]))
+      .mockReturnValueOnce(Ok([source]))
+      .mockReturnValue(
+        tag === "Err"
+          ? Err({ reason: "state_busy", detail: "Second output lock.", next: { why: "Retry." } })
+          : defect,
+      );
+    const submit = spyOn(ReportAssignments, "submit").mockReturnValue(
+      ErrAsync({
+        reason: "report_pending",
+        detail: "Already submitted.",
+        next: { command: "operator report resume", why: "Resume." },
+      }) as never,
+    );
+    if (json)
+      expect(
+        await run(["report", "submit", "--file", "fixture.json"], OperatorCli.main),
+      ).toMatchObject({
+        operation: "report_submit",
+        reason: "report_pending",
+        kind: "research",
+        phase: "acceptance",
+        next: { command: "operator report resume" },
+      });
+    else await OperatorCli.main(["report", "submit", "--file", "fixture.json"]);
+    expect(error.mock.calls).toEqual([
+      ["operator: report_pending: Already submitted. [kind=research phase=acceptance]"],
+      ["next: operator report resume"],
+    ]);
+    expect(log).toHaveBeenCalledTimes(json ? 1 : 0);
+    expect(process.exitCode).toBe(3);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2);
+  },
+);
+
 test.each(["socket", "pane"] as const)(
   "an absent worker %s leaves ordinary reads untyped",
   async (missing) => {
@@ -264,14 +421,18 @@ test.each(["socket", "pane"] as const)(
 );
 
 test.each(["read-error", "empty-source", "missing-launch"] as const)(
-  "canonical metadata %s leaves ownership handling with the PR operation",
+  "unavailable canonical metadata %s refuses before the PR operation",
   async (failure) => {
     const wait = spyOn(PullRequests, "wait").mockReturnValue(
       OkAsync({ reason: "pr_wait_timed_out", data: {} }) as never,
     );
     if (failure === "read-error")
       spyOn(DeviceState, "readSources").mockReturnValue(
-        Err({ reason: "state_busy", detail: "Busy." }) as never,
+        Err({
+          reason: "state_busy",
+          detail: "Busy.",
+          next: { why: "Retry after the lock clears." },
+        }),
       );
     if (failure === "empty-source") spyOn(DeviceState, "readSources").mockReturnValue(Ok([]));
     if (failure === "missing-launch") {
@@ -285,20 +446,28 @@ test.each(["read-error", "empty-source", "missing-launch"] as const)(
         }),
       );
     }
-    expect(await run(["pr", "wait", "--timeout", "0"])).not.toHaveProperty("kind");
-    expect(wait).toHaveBeenCalledTimes(1);
+    expect(await run(["pr", "wait", "--timeout", "0"])).toMatchObject({
+      reason: failure === "read-error" ? "state_busy" : "state_corrupt",
+    });
+    expect(wait).not.toHaveBeenCalled();
   },
 );
 
 test.each(["read-error", "empty-source"] as const)(
-  "an unavailable phase snapshot (%s) does not break ordinary version output",
+  "an unavailable phase snapshot (%s) refuses ordinary version output",
   async (failure) => {
     if (failure === "read-error")
       spyOn(DeviceState, "readSources").mockReturnValue(
-        Err({ reason: "state_busy", detail: "Busy." }) as never,
+        Err({
+          reason: "state_busy",
+          detail: "Busy.",
+          next: { why: "Retry after the lock clears." },
+        }),
       );
     else spyOn(DeviceState, "readSources").mockReturnValue(Ok([]));
-    expect(await run()).not.toHaveProperty("kind");
+    expect(await run()).toMatchObject({
+      reason: failure === "read-error" ? "state_busy" : "state_corrupt",
+    });
   },
 );
 
@@ -588,8 +757,26 @@ function readinessGuard() {
   required(current.launch).kind = JSON.stringify(kind);
 }
 
+test("a historical eligible head is unknown without current non-draft evidence", async () => {
+  prActor();
+  readinessGuard();
+  required(source.pullRequests.find((row) => row.assignment === "pr")).progress = JSON.stringify({
+    seen: [],
+    failures: [],
+    eligibleHead: "head",
+  });
+  const associate = spyOn(PullRequests, "associate").mockReturnValue(
+    OkAsync({ reason: "pr_unchanged", data: {} }) as never,
+  );
+  expect(await run(["pr", "associate"])).toMatchObject({
+    reason: "pr_not_ready",
+    state: { pr_ready: false },
+  });
+  expect(associate).not.toHaveBeenCalled();
+});
+
 test.each([
-  { name: "current wait", review: null, receipt: "head", readyHead: null, allowed: true },
+  { name: "historical wait", review: null, receipt: "head", readyHead: null, allowed: false },
   { name: "stale wait", review: null, receipt: "older", readyHead: null, allowed: false },
   { name: "no witness", review: null, receipt: null, readyHead: null, allowed: false },
   { name: "current ready", review: "ready", receipt: null, readyHead: "head", allowed: true },
@@ -640,7 +827,10 @@ test.each([
 ] satisfies Invocation[])(
   "a declared readiness exit checks the observed HEAD %j",
   async (observation) => {
-    prActor();
+    reviews();
+    const review = required(source.internalReviews.find((row) => row.assignment === "pr"));
+    review.state = "ready";
+    review.readyHead = "head";
     readinessGuard();
     required(source.pullRequests.find((row) => row.assignment === "pr")).progress = JSON.stringify({
       seen: [],

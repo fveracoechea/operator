@@ -167,7 +167,7 @@ async function mergePhase(owner: Owner): Promise<Failure | null> {
       : owner.reviewState === "ready" || owner.reviewState === "skipped";
   const status = await ToolInvocation.run({
     tool: "git",
-    args: ["status", "--porcelain"],
+    args: ["status", "--porcelain", "--untracked-files=normal"],
     cwd: owner.worktreePath,
     timeoutMs: 10000,
   });
