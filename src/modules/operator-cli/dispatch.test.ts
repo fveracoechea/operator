@@ -66,12 +66,24 @@ test("parses dispatch and Herdr commands", () => {
     sourceId: "s",
     assignment: "a",
   });
-  expect(dispatchArgs(["dispatch", "--source", "s", "--assignment", "a", "--json"])).toEqual({
+  expect(dispatchArgs(["dispatch", "--source", "s", "--assignment", "a", "--json"])).toStrictEqual({
     operation: "dispatch",
     sourceId: "s",
     assignment: "a",
     afterPid: null,
   });
+  expect(
+    dispatchArgs(["dispatch", "--source", "s", "--assignment", "a", "--kind", "research"]),
+  ).toEqual({
+    operation: "dispatch",
+    sourceId: "s",
+    assignment: "a",
+    afterPid: null,
+    kind: "research",
+  });
+  expect(
+    dispatchArgs(["abandon", "--source", "s", "--assignment", "a", "--kind", "research"]),
+  ).toBeNull();
   expect(dispatchArgs(["dispatch", "--json", "--assignment", "a", "--source", "s"])).toEqual({
     operation: "dispatch",
     sourceId: "s",
@@ -80,6 +92,26 @@ test("parses dispatch and Herdr commands", () => {
   });
   expect(dispatchArgs(["herdr", "install"])).toEqual({ operation: "herdr_install" });
   expect(dispatchArgs(["herdr", "event", "--json"])).toEqual({ operation: "herdr_event" });
+});
+
+test("one-off dispatch and registered kind filling keep distinct selectors", () => {
+  expect(dispatchArgs(["dispatch", "--kind", "answer", "--brief", "task.md"])).toStrictEqual({
+    operation: "one_off_dispatch",
+    kind: "answer",
+    brief: "task.md",
+    intentFile: undefined,
+    profile: undefined,
+    trackerKey: undefined,
+  });
+  for (const args of [
+    ["dispatch", "--brief", "task.md"],
+    ["dispatch", "--kind", "answer"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--profile", "careful"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--intent-file", "intent.md"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--tracker-key", "APP-1"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--kind", "answer", "--brief", "task.md"],
+  ])
+    expect(dispatchArgs(args)).toBeNull();
 });
 
 test("only registered dispatch accepts a numeric continuation publication PID", async () => {
@@ -181,6 +213,7 @@ test("passes each command to the matching dispatch operation", async () => {
     sourceId: "s",
     assignment: "a",
     afterPid: null,
+    kind: undefined,
   });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "dispatch",

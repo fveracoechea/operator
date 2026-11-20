@@ -7,6 +7,7 @@ import { reviewHandoffTarget } from "./handoff-target.ts";
 import { recordPrReady, storedPrReadinessSchema, type PrReadiness } from "./pr-readiness.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
+import { historicalLaunchIdle } from "./migration-receipts.ts";
 import {
   assignments,
   cleanups,
@@ -179,12 +180,27 @@ export function activeOwner(
 
 /** A finished parked launch may only record the verified merge of its retained pushed head. */
 function parkedMergeOwner(db: Db, launch: typeof launches.$inferSelect | undefined, head?: string) {
-  if (head === undefined || launch?.state !== "finished") return false;
+  if (head === undefined || launch === undefined) return false;
   const row = current(db, launch.sourceId, launch.assignment);
   if (row?.parking === null || row === undefined) return false;
   const parking = z
-    .object({ launchId: z.string(), head: z.string(), state: z.string() })
+    .object({
+      launchId: z.string().nullable(),
+      head: z.string().nullable(),
+      state: z.string(),
+      origin: z.literal("migration-0026").optional(),
+    })
     .parse(JSON.parse(row.parking));
+  if (parking.origin === "migration-0026" && !historicalLaunchIdle(db, launch)) return false;
+  if (
+    launch.state !== "finished" &&
+    !(
+      parking.origin === "migration-0026" &&
+      ["interrupted", "failed"].includes(launch.state) &&
+      historicalLaunchIdle(db, launch)
+    )
+  )
+    return false;
   return parking.launchId === launch.id && parking.head === head && parking.state === "parked";
 }
 

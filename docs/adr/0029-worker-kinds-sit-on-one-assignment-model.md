@@ -10,6 +10,7 @@ Amended 2026-11-17: draft association starts the recorded kind handoff; dispatch
 Amended 2026-11-19: each assignment permits at most two report returns, including replacement launches, then requires the person's decision.
 Amended 2026-11-17 in #389: explicit readiness replaces inferred review or wait evidence and starts the feedback handoff.
 Amended 2026-11-18 in #390: parking retains an optional park-only note and durable waking events.
+Amended 2026-11-18 in #391: the release maps in-flight PR records and retains explicit migration provenance for unknown historical facts.
 
 ## Context
 
@@ -29,7 +30,15 @@ Review of another author's PR remains a review request.
 Built-in and person-defined kinds use one data format.
 Person-defined kinds live beside start profiles in device settings and require validation before use.
 Every launch records a resolved kind snapshot, so settings changes cannot change a running worker.
-A record from before kinds has a null kind until a later launch names one.
+The release maps in-flight PR assignments from recorded facts only, without a GitHub read.
+Reports, unassociated adopted PRs, ended assignments, and cleanup-only records keep a null kind.
+Registered plans and historical launch snapshots do not change.
+A remaining null kind is filled by its next dispatch, atomically with launch reservation.
+An existing kind cannot be replaced through that path.
+Migration-origin readiness and parking retain unknown heads as unknown, without inventing historical checks or comments.
+A migration receipt alone authorizes neither a merge nor concurrent ownership.
+A later release ends the fill path with a blocker for open assignments that still have a null kind.
+That later blocker is not part of this release.
 
 One worker-phase machine runs every kind.
 The code owns the report and PR tails, their bounded loops, and the closed guard catalog.
@@ -86,7 +95,7 @@ Managed-stack activation and the combined #422/#393/#394 action and wait contrac
 - A new kind of work needs a kind definition before its first dispatch.
 - Kind guides delegate work methods to upstream skills without duplicating their procedures.
 - Adding a kind does not add an assignment model or a next-action identifier.
-- Null kinds preserve old records without guessing the worker's task from its completion type.
+- Remaining null kinds require an explicit selection instead of a general fallback.
 - Unguarded work has a deterministic command frontier, not observed reasoning progress.
 - Exhausting report returns requires the person's decision without automatically abandoning the assignment or deleting its work.
 

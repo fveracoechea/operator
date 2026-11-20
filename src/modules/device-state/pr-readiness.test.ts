@@ -6,6 +6,22 @@ import { migrationsFolder } from "./database.ts";
 import { insertRow } from "./state-fixture.ts";
 import { prReadinessSchema, storedPrReadinessSchema, recordPrReady } from "./pr-readiness.ts";
 
+test.each([null, "known"])(
+  "stored readiness retains migration provenance with historical head %s",
+  (head) => {
+    const ready = { head: "known", at: "then", note: "/notes/ready.md", dispositions: [] };
+    expect(prReadinessSchema.parse(ready)).toEqual(ready);
+    expect(prReadinessSchema.safeParse({ ...ready, head: null }).success).toBe(false);
+    expect(
+      storedPrReadinessSchema.parse(JSON.stringify({ ...ready, head, origin: "migration-0026" })),
+    ).toEqual({
+      ...ready,
+      head,
+      origin: "migration-0026",
+    });
+  },
+);
+
 test("readiness records complete dispositions and replaces only the completed outgoing handoff", () => {
   using client = new Database(":memory:");
   migrate(drizzle(client), { migrationsFolder });
@@ -113,4 +129,24 @@ test("stored readiness decodes absent and historical receipts with the same disp
 
 test.each(["{", "{}", "", "null"])("stored readiness refuses corrupt text %j", (text) => {
   expect(() => storedPrReadinessSchema.parse(text)).toThrow();
+});
+
+test("stored migration readiness refuses an unproven unknown head and malformed dispositions", () => {
+  const receipt = {
+    origin: "migration-0026",
+    head: null,
+    at: "then",
+    note: null,
+    dispositions: [],
+  };
+  const { origin: _origin, ...unproven } = receipt;
+  expect(() => storedPrReadinessSchema.parse(JSON.stringify(unproven))).toThrow();
+  expect(() =>
+    storedPrReadinessSchema.parse(
+      JSON.stringify({
+        ...receipt,
+        dispositions: [{ round: 1, finding: 1, disposition: "declined", reason: " " }],
+      }),
+    ),
+  ).toThrow();
 });

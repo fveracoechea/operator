@@ -6,6 +6,7 @@ import {
   assignments,
   launches,
   projects,
+  pullRequests,
   reports,
   reviewRequests,
   sources,
@@ -18,7 +19,8 @@ import { superviseSource, type Supervisor } from "./sources.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { reservedContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { adoptionOwner, type AdoptionTarget, type AdoptionFailure } from "./adoptions.ts";
-import { activateParking } from "./pr-parking.ts";
+import { migrationResume } from "./migration-receipts.ts";
+import { activateParking, prParkingSchema } from "./pr-parking.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
@@ -28,13 +30,14 @@ export type LaunchFailure =
   | (ResultContext & {
       reason:
         | "controller_mismatch"
+        | "assignment_kind_set"
         | "source_not_found"
         | "assignment_not_dispatchable"
         | "launch_name_taken"
+        | "pr_resume_refused"
         | "launch_not_starting"
         | "running_cap_reached"
-        | "handoff_continuation_refused"
-        | "pr_resume_refused";
+        | "handoff_continuation_refused";
       detail: string;
     });
 type LaunchResources = Partial<
@@ -127,6 +130,19 @@ function runningCount(db: Db, sourceId: string, now: number) {
 }
 
 /** Why the assignment cannot start now, or null when it can. */
+function migrationStart(db: Db, sourceId: string, key: string, latest: LaunchRow | undefined) {
+  const pr = db
+    .select()
+    .from(pullRequests)
+    .where(and(eq(pullRequests.sourceId, sourceId), eq(pullRequests.assignment, key)))
+    .get();
+  if (pr?.parking === null || pr === undefined) return null;
+  const receipt = prParkingSchema.parse(JSON.parse(pr.parking));
+  return "origin" in receipt && ["parked", "resuming", "closed", "parking"].includes(receipt.state)
+    ? migrationResume(db, latest, receipt)
+    : null;
+}
+
 function startRefusal(
   db: Db,
   facts: {
@@ -142,11 +158,15 @@ function startRefusal(
 ): LaunchFailure | null {
   const { source, key, assignmentState, maxRunning } = facts;
   const returned = latestReturned(db, source.id, key);
+  const migrated = migrationStart(db, source.id, key, facts.latest);
   // A reviewer start after the implementer's handoff ended it is not an ordinary dispatch.
   const handoff = assignmentState === "pr-open" && handoffDispatchable(db, facts.latest, facts.now);
   if (
     source.state !== "open" ||
-    (!handoff && !dispatchable(assignmentState, facts.latestState, facts.abandoned, returned))
+    !(
+      migrated ??
+      (handoff || dispatchable(assignmentState, facts.latestState, facts.abandoned, returned))
+    )
   )
     return {
       reason: "assignment_not_dispatchable",
@@ -178,6 +198,33 @@ function startRefusal(
   return null;
 }
 
+/** The null compare and the reservation share the same immediate transaction. */
+function fillAssignmentKind(
+  db: Db,
+  assignment: typeof assignments.$inferSelect | undefined,
+  kind?: string,
+): Result<undefined, LaunchFailure> {
+  if (kind === undefined) return Ok(undefined);
+  if (assignment === undefined || assignment.kind !== null)
+    return Err({
+      reason: "assignment_kind_set",
+      detail: "The assignment already has a kind. Nothing changed.",
+      next: { command: "operator next", why: "Use the recorded assignment kind." },
+      state: { kind: assignment?.kind ?? null },
+    });
+  db.update(assignments)
+    .set({ kind })
+    .where(
+      and(
+        eq(assignments.sourceId, assignment.sourceId),
+        eq(assignments.key, assignment.key),
+        isNull(assignments.kind),
+      ),
+    )
+    .run();
+  return Ok(undefined);
+}
+
 /**
  * Reserve the assignment before any external effect, so a second dispatch cannot start it. The
  * plan's running cap is checked in the same transaction, so two dispatches cannot both pass it.
@@ -190,6 +237,7 @@ export function reserveLaunch(
   maxRunning?: number,
   supervisor: Supervisor = { pane: null, session: null },
   continuation?: HandoffContinuation,
+  fillKind?: string,
   adoption?: Pick<AdoptionTarget, "number">,
 ) {
   return transaction(client, true, () =>
@@ -250,64 +298,67 @@ export function reserveLaunch(
             )
             .orderBy(desc(launches.attempt))
             .get();
-          const now = Date.now();
-          const kindHandoff = handoffDispatchable(db, latest, now);
-          const abandoned = latest?.state === "starting" && ownerGone(latest, now);
-          const refused = startRefusal(db, {
-            source,
-            key: launch.assignment,
-            assignmentState: assignment?.state,
-            latest,
-            latestState: latest?.state,
-            abandoned,
-            maxRunning,
-            now,
-          });
-          if (refused !== null) return Err(refused);
-          if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
-            return Err({
-              reason: "launch_name_taken",
-              next: {
-                command: "operator next",
-                why: "Read the assignment's current launch action before retrying.",
-              },
-              state: { launchNameExists: true },
-              detail: `The launch name ${launch.name} is already recorded. Nothing was launched.`,
-            });
-          // The latest launch has the highest attempt number.
-          const attempt = (latest?.attempt ?? 0) + 1;
-          if (abandoned) endAbandoned(db, latest.id, now);
-          const row = {
-            internalReview: null,
-            kind: null,
-            ...launch,
-            attempt,
-            ownerPid: process.pid,
-            leaseAt: new Date(now).toISOString(),
-          };
-          db.insert(launches).values(row).run();
-          // Any start after the implementer's ends a pending internal review handoff.
-          finishHandoff(db, source.id, launch.assignment);
-          const activated = activateParking(
-            db,
-            { repository, sourceId: source.id, assignment: launch.assignment },
-            latest,
+          return fillAssignmentKind(db, assignment, fillKind).flatMap(
+            (): Result<LaunchRow, LaunchFailure> => {
+              const now = Date.now();
+              const kindHandoff = handoffDispatchable(db, latest, now);
+              const abandoned = latest?.state === "starting" && ownerGone(latest, now);
+              const refused = startRefusal(db, {
+                source,
+                key: launch.assignment,
+                assignmentState: assignment?.state,
+                latest,
+                latestState: latest?.state,
+                abandoned,
+                maxRunning,
+                now,
+              });
+              if (refused !== null) return Err(refused);
+              if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
+                return Err({
+                  reason: "launch_name_taken",
+                  next: {
+                    command: "operator next",
+                    why: "Read the assignment's current launch action before retrying.",
+                  },
+                  state: { launchNameExists: true },
+                  detail: `The launch name ${launch.name} is already recorded. Nothing was launched.`,
+                });
+              // The latest launch has the highest attempt number.
+              const attempt = (latest?.attempt ?? 0) + 1;
+              if (abandoned) endAbandoned(db, latest.id, now);
+              const row = {
+                internalReview: null,
+                kind: null,
+                ...launch,
+                attempt,
+                ownerPid: process.pid,
+                leaseAt: new Date(now).toISOString(),
+              };
+              db.insert(launches).values(row).run();
+              // Any start after the implementer's ends a pending internal review handoff.
+              finishHandoff(db, source.id, launch.assignment);
+              const activated = activateParking(
+                db,
+                { repository, sourceId: source.id, assignment: launch.assignment },
+                latest,
+              );
+              if (activated.tag !== "Ok") return activated.map(() => row);
+              if (!kindHandoff) superviseSource(db, source.id, supervisor);
+              // A replaced PR owner keeps its open PR. A returned report resumes as running.
+              db.update(assignments)
+                .set({ state: "running" })
+                .where(
+                  and(
+                    eq(assignments.sourceId, source.id),
+                    eq(assignments.key, launch.assignment),
+                    inArray(assignments.state, ["ready", "reported"]),
+                  ),
+                )
+                .run();
+              return Ok(row);
+            },
           );
-          return activated.map(() => {
-            if (!kindHandoff) superviseSource(db, source.id, supervisor);
-            // A replaced PR owner keeps its open PR. A returned report resumes as running.
-            db.update(assignments)
-              .set({ state: "running" })
-              .where(
-                and(
-                  eq(assignments.sourceId, source.id),
-                  eq(assignments.key, launch.assignment),
-                  inArray(assignments.state, ["ready", "reported"]),
-                ),
-              )
-              .run();
-            return row;
-          });
         }),
     ),
   );

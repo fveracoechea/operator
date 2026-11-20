@@ -105,6 +105,32 @@ test("ended PR owners render quoted intent, issue, rounds, dispositions and summ
   expect(text).not.toContain("Summary: null");
   expect(text).not.toContain("Disposition:\n> null");
 });
+test.each([null, "historical-ready"])(
+  "briefs retain historical head %s without inventing readiness from the observed head",
+  (head) => {
+    const pullRequest = {
+      number: 7,
+      url: "https://github.com/example/one/pull/7",
+      readiness: { head },
+    };
+    const withoutReview = renderBrief({ ...input, head: "observed", pullRequest });
+    expect(withoutReview).toContain("Head: `observed`.");
+    expect(withoutReview).toContain(
+      head === null ? "Ready head: unknown (release migration)." : `Ready head: \`${head}\`.`,
+    );
+    const reviewed = renderBrief({
+      ...input,
+      head: "observed",
+      pullRequest,
+      review: { state: "ready", readyHead: head, rounds: [] },
+    });
+    expect(reviewed).toContain("Review: `ready`.");
+    expect(reviewed).toContain("Head: `observed`.");
+    if (head === null) expect(reviewed).not.toContain("Ready head:");
+    else expect(reviewed).toContain(`Ready head: \`${head}\`.`);
+    expect(reviewed).not.toContain("Ready head: `observed`");
+  },
+);
 
 test("a worktree brief preserves every header fact without empty history or protocol", () => {
   expect(

@@ -18,14 +18,21 @@ export const prReadinessSchema = z.object({
     ]),
   ),
 });
-export type PrReadiness = z.infer<typeof prReadinessSchema>;
+const persistedReadiness = z.union([
+  prReadinessSchema.extend({
+    origin: z.literal("migration-0026"),
+    head: z.string().min(1).nullable(),
+  }),
+  prReadinessSchema,
+]);
+export type PrReadiness = z.infer<typeof persistedReadiness>;
 
 /** The storage decoder shared by coordination snapshots and PR owner reads. */
 export const storedPrReadinessSchema = z
   .string()
   .nullable()
   .default(null)
-  .transform((text) => (text === null ? null : prReadinessSchema.parse(JSON.parse(text))));
+  .transform((text) => (text === null ? null : persistedReadiness.parse(JSON.parse(text))));
 
 /** Readiness and its fresh next launch are one write, under the caller's active-owner check. */
 export function recordPrReady(
