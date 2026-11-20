@@ -192,7 +192,7 @@ async function setup(host: "opencode" | "claude-code", custom = false) {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(upstream, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${upstream}/code-review`);
-  await writeGuideSkills(upstream);
+  await writeGuideSkills(upstream, skills);
   if (custom) {
     await Bun.write(`${skills}/custom-build/SKILL.md`, "# Build\nImplement the change.\n", {
       createPath: true,

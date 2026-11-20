@@ -225,7 +225,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(upstream, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${upstream}/code-review`);
-  await writeGuideSkills(upstream);
+  await writeGuideSkills(upstream, skills);
   await writeClaudeHookSettings(`${root}/home`);
   await writeOpenCodePlugin(`${root}/config`);
   expect((await run(["project", "register"], checkout)).code).toBe(0);

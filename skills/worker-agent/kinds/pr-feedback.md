@@ -1,10 +1,9 @@
 # PR feedback
 
-Load `no-slop` before writing replies.
-Load `resolving-merge-conflicts` when resolving a merge conflict.
-Read the PR's comments, reviews, checks, and unresolved threads.
-Check each claim before changing code.
-Treat the reviewer's note as open points to check, not as evidence.
-Reply directly, one short reply per piece of feedback.
-Run the affected checks and push fixes to this PR.
-Follow the router's PR feedback workflow with `operator pr wait --json` and its guarded merge.
+Use `resolving-merge-conflicts` for conflicts and `no-slop` for replies.
+Check the reviewer's note as open points, not evidence.
+Read current threads, reviews, and checks; fix valid defects, test, push, and reply directly once per feedback item.
+Read [handoff](../../handoff/SKILL.md) by path; keep a note within about 60 lines in assignment device-state files.
+Run `operator pr wait --note <note.md>`; the CLI retains the note only on park.
+A quiet timeout parks unless checks run on your pushed head.
+Follow each result's next step; merge only through `operator pr merge` and honor supervisor holds.

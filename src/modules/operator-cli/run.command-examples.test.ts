@@ -7,6 +7,7 @@ import path from "node:path";
 import { registerTestDevice } from "../../../tools/device-fixture.ts";
 import { UpstreamSkills } from "../upstream-skills/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
+import { OwnedSkills } from "../owned-skills/main.ts";
 import { writeGuideSkills } from "./command-fixture.ts";
 
 const repository = new URL("../../../", import.meta.url).pathname;
@@ -155,26 +156,105 @@ test("documented command examples name only implemented commands", async () => {
   ).toEqual([]);
 });
 
-test("every skill named by a bundled kind guide resolves in the host fixture", async () => {
-  const paths = OperatorHome.resolve(
-    Environment.parse({ HOME: `${root}/guides`, NODE_ENV: "test" }),
+test.each([
+  ["dispatch", "--adopt"],
+  ["pr ready", "--note"],
+  ["pr wait", "--note"],
+  ["pr merge", "--source"],
+  ["pr merge", "--assignment"],
+])("help supports the role guide's %s %s example", (command, flag) => {
+  expect(
+    usage
+      .split("\n")
+      .some((line) => line.trim().startsWith(`operator ${command} `) && line.includes(`${flag} `)),
+  ).toBe(true);
+});
+
+test.each(["opencode", "claude-code"] as const)(
+  "every skill named by a bundled kind guide resolves in the %s fixture",
+  async (host) => {
+    const paths = OperatorHome.resolve(
+      Environment.parse({ HOME: `${root}/guides-${host}`, NODE_ENV: "test" }),
+    );
+    await writeGuideSkills(paths.upstreamSkills[host], paths.skillHosts[host]);
+    await Bun.write(`${paths.upstreamSkills[host]}/code-review/SKILL.md`, "# Fixture review\n", {
+      createPath: true,
+    });
+    await Bun.write(`${paths.skillHosts[host]}/no-slop/SKILL.md`, "# Fixture no-slop\n", {
+      createPath: true,
+    });
+    await Bun.write(
+      `${paths.skillHosts[host]}/show-me/SKILL.md`,
+      "# Fixture visual explanation\n",
+      { createPath: true },
+    );
+    expect(await UpstreamSkills.checkGuides(paths, host)).toMatchObject({
+      tag: "Ok",
+      value: { blockers: [], warnings: [] },
+    });
+    await rm(`${paths.upstreamSkills[host]}/tdd/SKILL.md`);
+    expect(await UpstreamSkills.checkGuides(paths, host)).toMatchObject({
+      tag: "Ok",
+      value: {
+        blockers: [{ guide: "worker-agent/kinds/implementation.md", skill: "tdd" }],
+        warnings: [],
+      },
+    });
+    await writeGuideSkills(paths.upstreamSkills[host], paths.skillHosts[host]);
+    await rm(`${paths.skillHosts[host]}/handoff/SKILL.md`);
+    const missingNote = await UpstreamSkills.checkGuides(paths, host);
+    expect(missingNote.tag).toBe("Ok");
+    if (missingNote.tag === "Ok") {
+      expect(missingNote.value.blockers.map(({ guide, skill }) => ({ guide, skill }))).toEqual(
+        ["research", "prototype", "review", "pr-feedback"].map((kind) => ({
+          guide: `worker-agent/kinds/${kind}.md`,
+          skill: "handoff",
+        })),
+      );
+    }
+    await writeGuideSkills(paths.upstreamSkills[host], paths.skillHosts[host]);
+    await rm(`${paths.skillHosts[host]}/show-me/SKILL.md`);
+    expect(await UpstreamSkills.checkGuides(paths, host)).toMatchObject({
+      tag: "Ok",
+      value: {
+        blockers: [],
+        warnings: [{ guide: "worker-agent/kinds/answer.md", skill: "show-me" }],
+      },
+    });
+  },
+);
+
+test("bundled skills stay within their word ceilings", async () => {
+  const supervisorFiles = (
+    await Array.fromAsync(new Bun.Glob("skills/super-agent/**/*.md").scan({ cwd: repository }))
+  ).toSorted();
+  expect(supervisorFiles).toEqual(
+    ["SKILL.md", "plans.md", "setup.md"].map((file) => `skills/super-agent/${file}`),
   );
-  await writeGuideSkills(paths.upstreamSkills.opencode);
-  await Bun.write(`${paths.upstreamSkills.opencode}/code-review/SKILL.md`, "# Fixture review\n", {
-    createPath: true,
-  });
-  await Bun.write(`${paths.skillHosts.opencode}/no-slop/SKILL.md`, "# Fixture no-slop\n", {
-    createPath: true,
-  });
-  await Bun.write(
-    `${paths.skillHosts.opencode}/show-me/SKILL.md`,
-    "# Fixture visual explanation\n",
-    { createPath: true },
+  let supervisorWords = 0;
+  for (const file of supervisorFiles)
+    supervisorWords +=
+      (await Bun.file(path.join(repository, file)).text()).match(/\S+/g)?.length ?? 0;
+  expect(supervisorWords).toBeLessThanOrEqual(700);
+
+  const workerFiles = (
+    await Array.fromAsync(new Bun.Glob("skills/worker-agent/**/*.md").scan({ cwd: repository }))
+  ).toSorted();
+  expect(workerFiles).toEqual(
+    [
+      "SKILL.md",
+      "kinds/answer.md",
+      "kinds/implementation.md",
+      "kinds/pr-feedback.md",
+      "kinds/prototype.md",
+      "kinds/research.md",
+      "kinds/review.md",
+    ].map((file) => `skills/worker-agent/${file}`),
   );
-  expect(await UpstreamSkills.checkGuides(paths, "opencode")).toMatchObject({
-    tag: "Ok",
-    value: { blockers: [], warnings: [] },
-  });
+  for (const file of workerFiles) {
+    const words = (await Bun.file(path.join(repository, file)).text()).match(/\S+/g)?.length ?? 0;
+    expect(words, file).toBeLessThanOrEqual(file.endsWith("/SKILL.md") ? 250 : 100);
+  }
 });
 
 test("next actions, refusals, and briefs name only implemented commands", async () => {
@@ -182,39 +262,70 @@ test("next actions, refusals, and briefs name only implemented commands", async 
 });
 
 test("bundled skills use result next steps and retain their authority limits", async () => {
-  const worker = await Bun.file(
-    path.join(repository, "skills/worker-agent/pull-requests.md"),
-  ).text();
+  const worker = await Bun.file(path.join(repository, "skills/worker-agent/SKILL.md")).text();
   expect(worker).toContain("Follow each result's `next`");
-  expect(worker).toContain("Run no other `gh stack` command");
-  expect(worker).toContain("Stop once it succeeds");
-  expect(worker).not.toContain("Run the command again once");
+  expect(worker).toContain("use only `gh stack view --json`");
+  expect(worker).toContain(
+    "When a skill says to ask the user, ask your SuperAgent with `operator question ask` and wait.",
+  );
+  expect(worker).toContain("Native subagents stay within your assignment and responsibility");
+  expect(worker).toContain("Only answers labeled person are human answers");
+  const implementation = await Bun.file(
+    path.join(repository, "skills/worker-agent/kinds/implementation.md"),
+  ).text();
+  expect(implementation).toContain("stop once it succeeds");
+  expect(implementation).toContain("Send no implementer note to review.");
+  const guides = await OwnedSkills.guides();
+  expect(guides).toHaveLength(6);
+  for (const { guide, text } of guides) {
+    expect(text, guide).not.toContain(".json>");
+    expect(text, guide).not.toContain("router's");
+  }
+  const review = guides.find(({ guide }) => guide.endsWith("/review.md"))?.text ?? "";
+  expect(review).toContain("without an implementer note");
+  expect(review).toContain("`operator pr ready --file <ready.md> --note <note.md>`");
+  const feedback = guides.find(({ guide }) => guide.endsWith("/pr-feedback.md"))?.text ?? "";
+  expect(feedback).toContain("reviewer's note as open points, not evidence");
+  expect(feedback).toContain("`operator pr wait --note <note.md>`");
+  expect(feedback).toContain("unless checks run on your pushed head");
+  expect(feedback).toContain("honor supervisor holds");
   expect(
     await Bun.file(path.join(repository, "skills/slack-pr-review-workflow/SKILL.md")).exists(),
   ).toBe(false);
-  const reviews = await Bun.file(path.join(repository, "skills/super-agent/reviews.md")).text();
-  expect(reviews).toContain(
-    "`review skip <pr-url>` ends one PR's request on the person's instruction.",
+  const supervisor = await Bun.file(path.join(repository, "skills/super-agent/SKILL.md")).text();
+  expect(supervisor).toContain("`operator review skip <pr-url>` needs the person's instruction.");
+  expect(supervisor).toContain("Operator schedules no Slack reads.");
+  expect(supervisor).toContain("3 read-only calls per question");
+  expect(supervisor).toContain("counting reads, searches, and status calls together");
+  expect(supervisor).toContain("never a native subagent");
+  expect(supervisor).toContain(
+    "`operator next --wait --timeout 3600` in the host's background mode",
   );
-  expect(reviews).toContain("Operator schedules no Slack reads.");
-  expect(reviews).not.toContain("slack-drop");
-  expect(reviews).not.toContain("## Refusals");
-  const prs = await Bun.file(path.join(repository, "skills/super-agent/pull-requests.md")).text();
-  expect(prs).toContain("`clean_up` with `pr_closed`: run the row's `operator abandon` command.");
-  const delegation = await Bun.file(
-    path.join(repository, "skills/super-agent/delegation.md"),
-  ).text();
-  expect(delegation).not.toContain("- A closed PR,");
-  expect(delegation).toContain(
-    "For the assignment's own closed PR, follow `clean_up` with `pr_closed` to `operator abandon` without a person stop.",
+  expect(supervisor).toContain("Only the person authorizes deletion of unlanded work");
+  expect(supervisor).not.toContain("slack-drop");
+  expect(supervisor).not.toContain("## Refusals");
+  const plans = await Bun.file(path.join(repository, "skills/super-agent/plans.md")).text();
+  expect(plans).toContain("Own closed PR: `operator abandon`; it deletes no worktree or branch.");
+  expect(plans).toContain(
+    "Ask about missing PR worktrees or parents closed/merged outside default.",
   );
-  expect(delegation).toContain("Abandon deletes no worktree or branch.");
-  expect(delegation).toContain(
-    "- A missing PR worktree, and a parent PR that closed or merged outside the default branch.",
+  expect(plans).toContain(
+    "Only the person authorizes `cleanup --person-instructed` for unlanded work.",
   );
-  expect(delegation).toContain(
-    "`person_decision` with `cleanup_unlanded_work`, and its deletion with `cleanup --person-instructed`. Only the person can delete work that did not land.",
+  expect(plans).toContain("resource mismatches");
+  expect(plans).toContain("Write only the Task as spec plus authority");
+  expect(plans).toContain("another author's PR uses review requests, never adoption");
+  expect(plans).toContain(
+    "On the person's instruction, merge parked work through `operator pr merge --source <id> --assignment <key>`",
   );
+  expect(plans).toContain(
+    "retains the worktree, and leaves dependencies unchanged until verified merge",
+  );
+  for (const text of [worker, supervisor, plans, ...guides.map(({ text }) => text)]) {
+    expect(text).not.toContain("operator review wait");
+    expect(text).not.toContain("operator handoff");
+    expect(text).not.toContain("## Refusals");
+  }
   const draft = await Bun.file(path.join(repository, "skills/pr-review/draft.md")).text();
   expect(draft).toContain("An approval waits until every required check has finished.");
   expect(draft).not.toContain("review_ci_pending");

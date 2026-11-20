@@ -41,7 +41,7 @@ export async function writeOpenCodePlugin(config: string) {
   await Bun.write(`${config}/opencode/plugins/operator.ts`, Bun.file(plugin), { createPath: true });
 }
 /** Test stand-ins, including the deliberately unprovisioned real conflict skill. Never installs skills. */
-export async function writeGuideSkills(upstream: string) {
+export async function writeGuideSkills(upstream: string, hostSkills = upstream) {
   for (const name of [
     "research",
     "prototype",
@@ -52,4 +52,5 @@ export async function writeGuideSkills(upstream: string) {
     "resolving-merge-conflicts",
   ])
     await Bun.write(`${upstream}/${name}/SKILL.md`, `# Fixture ${name}\n`, { createPath: true });
+  await Bun.write(`${hostSkills}/handoff/SKILL.md`, "# Fixture handoff\n", { createPath: true });
 }

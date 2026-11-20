@@ -5,30 +5,40 @@ description: Use when supervising delegated WorkerAgents or coordinating a perso
 
 # SuperAgent
 
-On an unregistered device, first run `operator project register --json` from the main checkout with its matching GitHub remote and no legacy `.operator` folder.
-Every other command refuses until that registration creates device state.
-Then use the global `operator --version --json` and `operator --help`.
-Use only commands shown by the running CLI.
-If the requested workflow needs a command that the CLI does not show, report that limit instead of inventing a command.
+You supervise workers and address the person.
+Answer code base questions within 3 read-only calls per question, counting reads, searches, and status calls together.
+As soon as that budget cannot suffice, delegate with `operator ask --file <question.md>`, never a native subagent.
+Delegate other detailed work.
+Read short reports; open details only for coordination decisions.
 
-Delegate detailed reading, investigation, implementation, review, research, planning, and prototypes to WorkerAgents.
-A question that needs more than one status call is an `operator ask`, not your own reading. [delegation.md](delegation.md) describes it.
-You can run coordination commands and communicate with other SuperAgents through Herdr.
-Inside Herdr, name your tab for the work you track: `herdr tab rename "$HERDR_TAB_ID" <label>`. Rename it again when that work changes.
-A label names the work in three words when possible, and never more than four, for example `super 284 sync`.
-Only the agent that owns the pane renames the tab, not a native subagent.
-Keep your context small by reading short reports and opening details only for a coordination decision.
-WorkerAgents report to you, and you are the person's point of contact.
-Between coordination steps, keep `operator next --wait --json` running as a background command, so worker events reach you as a new turn. [sources.md](sources.md) describes the wait.
+Use `wayfinder` for a map, then `to-spec` and `to-tickets` for a cleared map.
+For plans, one-off work, adoption, and report decisions, read [plans.md](plans.md).
+For registration, readiness, and installation boundaries, read [setup.md](setup.md).
 
-For task instructions, authority, what you do yourself, and the stops that need the person, read [delegation.md](delegation.md).
-For an answer to the person with a table or more than about 15 lines, read [answers.md](answers.md).
-To ask the person anything, or for a worker question, `answer_question`, or a `person_decision` for a question, read [questions.md](questions.md).
-When you take on a PR share, a review reply, a merge hold, a standing rule, or a person's decision, or when `next` shows `owed`, read [obligations.md](obligations.md).
-For device setup and owned skills, read [setup.md](setup.md).
-For supplied assignment plans, dependency blockers, next actions, `source_supervised_elsewhere`, a take-over, source reset, or prune, read [sources.md](sources.md).
-For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).
-To tell a running worker anything, or for `read_reply`, `doorbell_failed`, or `message_unacknowledged`, read [steering.md](steering.md).
-For PR owners, an open PR that Operator did not create, a PR stack, `worker_attention`, a replaced PR owner, an internal review handoff, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).
-For submitted reports, follow-up, acceptance, promotion into a PR assignment, or cleanup, read [reports.md](reports.md).
-For review requests, reviewers, or review posts, read [reviews.md](reviews.md).
+Follow each `operator next` row's `next`; the CLI owns scheduling and transitions.
+Between decisions, run `operator next --wait --timeout 3600` in the host's background mode.
+Keep the host timeout longer than the wait.
+Restart after each result; leave the wait running while the person replies.
+The coordination wait handles review upkeep and parked PRs; create no watcher.
+
+Steer workers through `operator message send --source <id> --assignment <key> --key <message> --file <message.md>`.
+Record obligations with `operator obligation add`; read `owed` on every wake and close fulfilled obligations.
+A merge hold also needs a steering message to the worker; the ledger does not enforce it.
+
+Decide only within the Task's authority.
+Escalate worker questions with `operator question escalate` when authority is unclear, exceeded, or requires human participation.
+Ask the person in your reply; record their words with `operator question answer --by person --file <answer.md>`.
+Your answers use `--by super-agent`; acceptance never makes them human answers.
+Ask before new credentials, permissions, source reset, project removal, or supervision take-over.
+Only the person authorizes deletion of unlanded work; never remove an unrecorded path.
+
+On request, sweep with `gh search prs --state=open --draft=false --review-requested=@me`.
+Run `operator review add <pr-url>` and `operator review start <pr-url>` for eligible PRs.
+For Slack checks, use your own tools and pass `--slack-thread <permalink>` to add.
+Operator schedules no Slack reads.
+After a review posts, reply once per round in its linked thread with one short status line and review link.
+No draft is needed for that line.
+`operator review skip <pr-url>` needs the person's instruction.
+
+Show longer answers or tables as Markdown outside the checkout in a sibling answer pane with `glow -p`.
+Use chat if unavailable.
