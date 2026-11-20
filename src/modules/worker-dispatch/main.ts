@@ -746,23 +746,22 @@ function launch(request: Request, settings: Settings, resources: Resources) {
           resources,
           id: reserved.id,
           startedAt,
-        });
+        }).map((effects) => ({
+          sourceId: request.sourceId,
+          assignment: request.assignment,
+          attempt: reserved.attempt,
+          name: resources.names.name,
+          host: settings.launch.host,
+          model: settings.launch.model,
+          reasoningEffort: settings.launch.reasoningEffort,
+          profile: settings.launch.profile,
+          release: settings.release,
+          skills: settings.skills,
+          kind: settings.kind,
+          ...effects,
+        }));
         release();
-        if (started.tag === "Ok")
-          return Ok({
-            sourceId: request.sourceId,
-            assignment: request.assignment,
-            attempt: reserved.attempt,
-            name: resources.names.name,
-            host: settings.launch.host,
-            model: settings.launch.model,
-            reasoningEffort: settings.launch.reasoningEffort,
-            profile: settings.launch.profile,
-            release: settings.release,
-            skills: settings.skills,
-            kind: settings.kind,
-            ...started.value,
-          });
+        if (started.tag === "Ok") return started;
         if (started.tag === "Defect") {
           const recorded = DeviceState.updateLaunch(request.paths, reserved.id, {
             state: "failed",
