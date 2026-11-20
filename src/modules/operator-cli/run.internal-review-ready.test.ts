@@ -127,7 +127,17 @@ const plan = {
   ],
 };
 
-async function setup(host: "opencode" | "claude-code", kind?: "custom" | "legacy") {
+type FixturePlan = Omit<typeof plan, "assignments"> & {
+  assignments: (Omit<(typeof plan.assignments)[number], "dependencies"> & {
+    dependencies: string[];
+  })[];
+};
+
+async function setup(
+  host: "opencode" | "claude-code",
+  suppliedPlan: FixturePlan = plan,
+  kind?: "custom" | "legacy",
+) {
   root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-pr-")));
   checkout = `${root}/checkout`;
   await mkdir(checkout);
@@ -182,10 +192,10 @@ async function setup(host: "opencode" | "claude-code", kind?: "custom" | "legacy
     `${root}/plan.json`,
     JSON.stringify(
       kind === undefined || kind === "legacy"
-        ? plan
+        ? suppliedPlan
         : {
-            ...plan,
-            assignments: plan.assignments.map(({ kind: _kind, ...assignment }) => ({
+            ...suppliedPlan,
+            assignments: suppliedPlan.assignments.map(({ kind: _kind, ...assignment }) => ({
               ...assignment,
               kind: "custom",
             })),
@@ -197,12 +207,12 @@ async function setup(host: "opencode" | "claude-code", kind?: "custom" | "legacy
   const id = z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
   if (kind === "legacy") {
     using db = new Database(`${root}/state/operator/operator.sqlite`);
-    const assignments = plan.assignments.map(({ kind: _kind, ...assignment }) => ({
+    const assignments = suppliedPlan.assignments.map(({ kind: _kind, ...assignment }) => ({
       ...assignment,
       completion: "pr",
     }));
     db.query("UPDATE sources SET plan = ? WHERE id = ?").run(
-      JSON.stringify({ ...plan, assignments }),
+      JSON.stringify({ ...suppliedPlan, assignments }),
       id,
     );
     db.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(id);
@@ -231,6 +241,8 @@ async function github(change: {
   commentLost?: boolean;
   readyLost?: boolean;
   mergeRefuse?: boolean;
+  graphqlErrors?: boolean;
+  repeatTerminal?: "comments" | "threadComments" | null;
 }) {
   const file = Bun.file(`${root}/github.json`);
   const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
@@ -268,6 +280,7 @@ async function entry(source: string, assignment = "implement") {
 
 const statusSchema = z.object({
   data: z.object({
+    assignments: z.array(z.object({ key: z.string(), state: z.string() })),
     launches: z.array(
       z.looseObject({
         id: z.string(),
@@ -282,6 +295,7 @@ const statusSchema = z.object({
       z.looseObject({ handoffState: z.string(), handoffRunning: z.boolean() }),
     ),
     internalReviewRounds: z.array(z.looseObject({ number: z.number() })),
+    pullRequests: z.array(z.looseObject({ parking: z.unknown().optional() })),
   }),
 });
 
@@ -422,6 +436,744 @@ async function feedbackLaunch(source: string, attempt = 3) {
   return state;
 }
 
+async function feedbackFixture() {
+  const source = await setup("opencode");
+  await config({ internal: false });
+  const worker = await dispatch(source);
+  const head = await commit(worker.worktreePath, "work.txt");
+  await github({
+    pulls: [pull({ head, isDraft: false, checks: [{ name: "ci", conclusion: "SUCCESS" }] })],
+  });
+  expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackLaunch(source, 2);
+  return { source, worker, head };
+}
+
+test("a pr wait with no event parks the assignment and ends the launch while retaining only its park note", async () => {
+  const { source, worker, head } = await feedbackFixture();
+  const waited = await run(
+    ["pr", "wait", "--timeout", "0", "--note", "-"],
+    worker.worktreePath,
+    "Check the unanswered question. `literal` $HOME\n",
+  );
+  expect(waited).toMatchObject({ code: 0, output: { reason: "pr_parked" } });
+  let state = await shown(source);
+  for (let tries = 0; tries < 100 && state.launches.at(-1)?.state !== "finished"; tries++) {
+    await Bun.sleep(50);
+    state = await shown(source);
+  }
+  expect(state.launches).toHaveLength(2);
+  expect(state.launches.at(-1)).toMatchObject({
+    state: "finished",
+    worktreePath: worker.worktreePath,
+  });
+  const parking = z
+    .object({
+      state: z.literal("parked"),
+      head: z.string(),
+      note: z.string(),
+      events: z.array(z.string()),
+    })
+    .parse(state.pullRequests[0]?.parking);
+  expect(parking.head).toBe(head);
+  expect(parking.events).toEqual([]);
+  expect(await Bun.file(parking.note).text()).toBe(
+    "Check the unanswered question. `literal` $HOME\n",
+  );
+  expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_parked" });
+  expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+    code: 4,
+    output: { reason: "assignment_not_dispatchable" },
+  });
+  expect((await shown(source)).launches).toEqual(state.launches);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(2);
+  expect(await calls("gh-calls.jsonl", "mutation")).toBe(0);
+}, 120000);
+
+test("checks running on the pushed head continue the wait and retain no supplied park note", async () => {
+  const { source, worker, head } = await feedbackFixture();
+  await github({ pulls: [pull({ head, checks: [{ name: "ci" }] })] });
+  const before = await shown(source);
+  expect(
+    await run(
+      ["pr", "wait", "--timeout", "0", "--note", "-"],
+      worker.worktreePath,
+      "Do not retain this note.\n",
+    ),
+  ).toMatchObject({
+    code: 0,
+    output: { reason: "pr_checks_running", next: { command: "operator pr wait" } },
+  });
+  expect((await shown(source)).launches).toEqual(before.launches);
+  expect((await shown(source)).pullRequests[0]?.parking).toBeNull();
+  expect(await Array.fromAsync(new Bun.Glob("**/park-*.md").scan(`${root}/state`))).toEqual([]);
+  expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(1);
+}, 120000);
+
+test("an event-returning wait retains no park note and checks on a different head do not hold the worker", async () => {
+  const { source, worker, head } = await feedbackFixture();
+  const before = await shown(source);
+  expect(
+    await run(
+      ["pr", "wait", "--timeout", "0", "--note", "-"],
+      worker.worktreePath,
+      Array.from({ length: 61 }, () => "Too long.").join("\n"),
+    ),
+  ).toMatchObject({ output: { reason: "pr_note_invalid" } });
+  expect(await shown(source)).toEqual(before);
+  await github({
+    pulls: [pull({ head, comments: [{ id: "C1", body: "Check this claim.", author: "person" }] })],
+  });
+  expect(
+    await run(
+      ["pr", "wait", "--timeout", "0", "--note", "-"],
+      worker.worktreePath,
+      "Not a retained note.\n",
+    ),
+  ).toMatchObject({ code: 0, output: { reason: "pr_events_observed" } });
+  expect((await shown(source)).pullRequests[0]?.parking).toBeNull();
+  expect(await Array.fromAsync(new Bun.Glob("**/park-*.md").scan(`${root}/state`))).toEqual([]);
+  await github({ pulls: [pull({ head: "another-pushed-head", checks: [{ name: "ci" }] })] });
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_parked" },
+  });
+  await latestWorker(source, worker.worktreePath, "finished");
+}, 120000);
+
+async function parkedFixture() {
+  const fixture = await feedbackFixture();
+  expect((await run(["pr", "wait", "--timeout", "0"], fixture.worker.worktreePath)).code).toBe(0);
+  let state = await shown(fixture.source);
+  for (let tries = 0; tries < 100 && state.launches.at(-1)?.state !== "finished"; tries++) {
+    await Bun.sleep(50);
+    state = await shown(fixture.source);
+  }
+  expect(state.launches.at(-1)?.state).toBe("finished");
+  return fixture;
+}
+
+/** Time is an external boundary; each command still runs the real public CLI and SQLite. */
+async function coordination(source: string, now: number, expectedCode = 0) {
+  await Bun.write(`${root}/clock.ts`, `Date.now = () => ${now};\n`);
+  const result = await exec([
+    process.execPath,
+    "--preload",
+    `${root}/clock.ts`,
+    cli,
+    "next",
+    "--source",
+    source,
+    "--wait",
+    "--timeout",
+    "0",
+    "--json",
+  ]);
+  expect(result.code, result.stderr).toBe(expectedCode);
+  return workflowOutputSchema.parse(JSON.parse(result.stdout));
+}
+
+test("new guarded merge eligibility wakes a parked PR without bypassing approval or merging", async () => {
+  const { source, head } = await parkedFixture();
+  const now = Date.now();
+  await coordination(source, now);
+  await github({
+    pulls: [
+      pull({ head, reviewDecision: "APPROVED", checks: [{ name: "ci", conclusion: "SUCCESS" }] }),
+    ],
+  });
+  expect(await coordination(source, now + 900000)).toMatchObject({
+    reason: "next_actions_changed",
+    data: { sources: [{ actions: [{ action: "resume_pr_feedback", reason: "pr_feedback" }] }] },
+  });
+  expect(await coordination(source, now + 1800000)).toMatchObject({
+    reason: "next_wait_timed_out",
+    data: { sources: [] },
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+}, 120000);
+
+test("more than a hundred checks with a pending tail cannot park the pushed worker", async () => {
+  const { source, worker, head } = await feedbackFixture();
+  await github({
+    pulls: [
+      pull({
+        head,
+        checks: [
+          ...Array.from({ length: 100 }, (_, index) => ({
+            name: `ci-${index}`,
+            conclusion: "SUCCESS",
+          })),
+          { name: "pending-tail" },
+        ],
+      }),
+    ],
+  });
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    output: { reason: "pr_checks_unknown", next: { command: "operator pr wait" } },
+  });
+  expect((await shown(source)).pullRequests[0]?.parking).toBeNull();
+  expect((await shown(source)).launches.at(-1)?.state).toBe("running");
+}, 120000);
+
+test("parked feedback includes new and edited older-page comments without repeated quiet wakes", async () => {
+  const { source, head } = await parkedFixture();
+  const comments = Array.from({ length: 101 }, (_, index) => ({
+    id: `C${index}`,
+    body: `claim ${index}`,
+    author: "person",
+  }));
+  const now = Date.now();
+  await github({ pulls: [pull({ head, comments })] });
+  expect(await coordination(source, now)).toMatchObject({ reason: "next_actions_changed" });
+  const first = z
+    .object({ events: z.array(z.string()) })
+    .parse((await shown(source)).pullRequests[0]?.parking);
+  expect(first.events.join("\n")).toContain("claim 100");
+  expect(await coordination(source, now + 900000)).toMatchObject({ reason: "next_wait_timed_out" });
+  comments[100] = { id: "C100", body: "edited older claim", author: "person" };
+  await github({ pulls: [pull({ head, comments })] });
+  await coordination(source, now + 1800000);
+  const edited = z
+    .object({ events: z.array(z.string()) })
+    .parse((await shown(source)).pullRequests[0]?.parking);
+  expect(edited.events).toHaveLength(first.events.length + 1);
+  expect(edited.events.at(-1)).toContain("edited older claim");
+  expect(await coordination(source, now + 2700000)).toMatchObject({
+    reason: "next_wait_timed_out",
+  });
+}, 120000);
+
+test("a parked GraphQL error preserves the receipt and schedule until a complete retry", async () => {
+  const { source, head } = await parkedFixture();
+  const now = Date.now();
+  await coordination(source, now);
+  using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+  const receipt = db.query("SELECT progress, parking FROM pull_requests").all();
+  const schedule = db.query("SELECT * FROM parked_pr_reads").all();
+  await github({
+    graphqlErrors: true,
+    pulls: [pull({ head, comments: [{ id: "unread", body: "Check this claim." }] })],
+  });
+  expect(await coordination(source, now + 900000, 3)).toMatchObject({
+    reason: "github_invalid_response",
+  });
+  expect(db.query("SELECT progress, parking FROM pull_requests").all()).toEqual(receipt);
+  expect(db.query("SELECT * FROM parked_pr_reads").all()).toEqual(schedule);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(2);
+  await github({ graphqlErrors: false });
+  await coordination(source, now + 900001);
+  expect(await entry(source)).toMatchObject({
+    action: "resume_pr_feedback",
+    reason: "pr_feedback",
+  });
+  const parking = (await shown(source)).pullRequests[0]?.parking;
+  await coordination(source, now + 1800001);
+  expect((await shown(source)).pullRequests[0]?.parking).toEqual(parking);
+}, 120000);
+
+test.each(["null", "incomplete"] as const)(
+  "a live %s check observation refuses before feedback or eligibility acknowledgment",
+  async (kind) => {
+    const { source, worker, head } = await feedbackFixture();
+    using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+    const before = db.query("SELECT progress FROM pull_requests").all();
+    await github({
+      pulls: [
+        pull({
+          head,
+          reviewDecision: "APPROVED",
+          comments: [{ id: "unread", body: "Do not acknowledge yet" }],
+          checks: kind === "null" ? null : [{ name: "ci", conclusion: "SUCCESS" }],
+          totalChecks: kind === "incomplete" ? 2 : undefined,
+        }),
+      ],
+    });
+    expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+      output: { reason: "pr_checks_unknown" },
+    });
+    expect(db.query("SELECT progress FROM pull_requests").all()).toEqual(before);
+    expect((await shown(source)).pullRequests[0]?.parking).toBeNull();
+  },
+  120000,
+);
+
+test.each(["null", "incomplete"] as const)(
+  "a parked %s check read preserves eligibility cursors and batch time through apparent restoration",
+  async (kind) => {
+    const { source, head } = await parkedFixture();
+    const now = Date.now();
+    const complete = pull({
+      head,
+      reviewDecision: "APPROVED",
+      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+    });
+    await github({ pulls: [complete] });
+    await coordination(source, now);
+    const before = (await shown(source)).pullRequests[0];
+    const db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+    try {
+      const receipt = db.query("SELECT progress, parking FROM pull_requests").all();
+      const schedule = db.query("SELECT * FROM parked_pr_reads").all();
+      await github({
+        pulls: [
+          {
+            ...complete,
+            reviewDecision: null,
+            checks: kind === "null" ? null : complete.checks,
+            totalChecks: kind === "incomplete" ? 2 : undefined,
+          },
+        ],
+      });
+      expect(await coordination(source, now + 900000, 3)).toMatchObject({
+        reason: "github_invalid_response",
+      });
+      expect((await shown(source)).pullRequests[0]).toEqual(before);
+      expect(db.query("SELECT progress, parking FROM pull_requests").all()).toEqual(receipt);
+      expect(db.query("SELECT * FROM parked_pr_reads").all()).toEqual(schedule);
+      await github({ pulls: [complete] });
+      await coordination(source, now + 900001);
+      expect((await shown(source)).pullRequests[0]).toEqual(before);
+      expect(db.query("SELECT progress, parking FROM pull_requests").all()).toEqual(receipt);
+    } finally {
+      db.close();
+    }
+  },
+  120000,
+);
+test.each(["comments", "threadComments"] as const)(
+  "a repeated terminal %s page preserves the parked receipt and returns each feedback item only once after recovery",
+  async (connection) => {
+    const { source, head } = await parkedFixture();
+    const now = Date.now();
+    await coordination(source, now);
+    const comments = Array.from({ length: 101 }, (_, index) => ({
+      id: `C${index}`,
+      body: `claim ${index}`,
+      author: "person",
+    }));
+    const pr = pull({
+      head,
+      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      ...(connection === "comments" ? { comments } : { threads: [{ id: "T", comments }] }),
+    });
+    using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+    const receipt = db.query("SELECT progress, parking FROM pull_requests").all();
+    const schedule = db.query("SELECT * FROM parked_pr_reads").all();
+    await github({ pulls: [pr], repeatTerminal: connection });
+    expect(await coordination(source, now + 900000, 3)).toMatchObject({
+      reason: "github_invalid_response",
+    });
+    expect(db.query("SELECT progress, parking FROM pull_requests").all()).toEqual(receipt);
+    expect(db.query("SELECT * FROM parked_pr_reads").all()).toEqual(schedule);
+    await github({ pulls: [pr], repeatTerminal: null });
+    await coordination(source, now + 900001);
+    const savedParking = (await shown(source)).pullRequests[0]?.parking;
+    const parking = z.object({ events: z.array(z.string()) }).parse(savedParking);
+    const feedback = parking.events
+      .map((event) =>
+        z
+          .object({ kind: z.string(), items: z.array(z.object({ id: z.string() })).optional() })
+          .parse(JSON.parse(event)),
+      )
+      .flatMap((event) => event.items ?? []);
+    expect(feedback.map((item) => item.id)).toEqual(comments.map((comment) => comment.id));
+    await coordination(source, now + 1800001);
+    expect((await shown(source)).pullRequests[0]?.parking).toEqual(savedParking);
+  },
+  120000,
+);
+
+test("a new same-head failed CI run is retained once after a previous failed generation", async () => {
+  const { source, head } = await parkedFixture();
+  const now = Date.now();
+  await github({
+    pulls: [pull({ head, checks: [{ id: "run1", name: "ci", conclusion: "FAILURE" }] })],
+  });
+  await coordination(source, now);
+  expect(
+    z.object({ events: z.array(z.string()) }).parse((await shown(source)).pullRequests[0]?.parking)
+      .events,
+  ).toHaveLength(1);
+  await github({
+    pulls: [pull({ head, checks: [{ id: "run2", name: "ci", conclusion: "FAILURE" }] })],
+  });
+  await coordination(source, now + 900000);
+  expect(
+    z.object({ events: z.array(z.string()) }).parse((await shown(source)).pullRequests[0]?.parking)
+      .events,
+  ).toHaveLength(2);
+  await coordination(source, now + 1800000);
+  expect(
+    z.object({ events: z.array(z.string()) }).parse((await shown(source)).pullRequests[0]?.parking)
+      .events,
+  ).toHaveLength(2);
+}, 120000);
+
+test("a parked batch schedule survives successive coordination waits and quiet reads wake nothing", async () => {
+  const { source } = await parkedFixture();
+  const now = Date.now();
+  await coordination(source, now);
+  expect(await calls("gh-calls.jsonl", "ParkedPRs")).toBe(1);
+  expect(await coordination(source, now + 899999)).toMatchObject({
+    reason: "next_wait_timed_out",
+    data: { sources: [] },
+  });
+  expect(await calls("gh-calls.jsonl", "ParkedPRs")).toBe(1);
+  expect(await coordination(source, now + 900000)).toMatchObject({
+    reason: "next_wait_timed_out",
+    data: { sources: [] },
+  });
+  expect(await calls("gh-calls.jsonl", "ParkedPRs")).toBe(2);
+  expect((await shown(source)).launches).toHaveLength(2);
+}, 120000);
+
+test.each(["feedback", "checks_failed"] as const)(
+  "a parked %s event reaches a fresh actual feedback brief and its interrupted replacement",
+  async (kind) => {
+    const { source, worker, head } = await parkedFixture();
+    const now = Date.now();
+    await coordination(source, now);
+    await github({
+      pulls: [
+        pull({
+          head,
+          ...(kind === "feedback"
+            ? {
+                comments: [
+                  { id: "new-feedback", author: "person", body: "Please check the retry path." },
+                ],
+              }
+            : { checks: [{ name: "ci", conclusion: "FAILURE" }] }),
+        }),
+      ],
+    });
+    const observed = await coordination(source, now + 900000);
+    expect(observed).toMatchObject({
+      reason: "next_actions_changed",
+      data: {
+        sources: [
+          {
+            actions: [
+              {
+                action: "resume_pr_feedback",
+                reason: kind === "feedback" ? "pr_feedback" : "ci_failed",
+                next: { command: `operator dispatch --source ${source} --assignment implement` },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(await coordination(source, now + 1800000)).toMatchObject({
+      reason: "next_wait_timed_out",
+      data: { sources: [] },
+    });
+    const before = z
+      .object({ events: z.array(z.string()) })
+      .parse((await shown(source)).pullRequests[0]?.parking).events;
+    expect(before).toHaveLength(1);
+    expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+      code: 0,
+    });
+    const first = await feedbackLaunch(source, 3);
+    const brief = await Bun.file(worker.brief).text();
+    expect(brief).toContain("## Events");
+    expect(brief).toContain(
+      kind === "feedback" ? "Please check the retry path." : '"kind":"checks_failed"',
+    );
+    expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+      code: 4,
+      output: { reason: "assignment_not_dispatchable" },
+    });
+    await exec(["herdr", "pane", "exit", first.launches.at(-1)?.paneId ?? "", "w"]);
+    expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+    await feedbackLaunch(source, 4);
+    expect(await Bun.file(worker.brief).text()).toContain(before[0] ?? "missing-event");
+    expect(
+      z
+        .object({ events: z.array(z.string()) })
+        .parse((await shown(source)).pullRequests[0]?.parking).events,
+    ).toEqual(before);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+    expect(await calls("gh-calls.jsonl", '"DELETE"')).toBe(0);
+  },
+  120000,
+);
+
+test("a failed parked resume keeps its events for the replacement without duplicate launches", async () => {
+  const { source, worker, head } = await parkedFixture();
+  await github({
+    pulls: [
+      pull({ head, comments: [{ id: "C1", body: "Keep this feedback.", author: "person" }] }),
+    ],
+  });
+  await coordination(source, Date.now());
+  const herdr = z
+    .looseObject({ fail: z.record(z.string(), z.string()).optional() })
+    .parse(await Bun.file(`${root}/herdr-state.json`).json());
+  await Bun.write(
+    `${root}/herdr-state.json`,
+    JSON.stringify({ ...herdr, fail: { "agent start": "synthetic failure" } }),
+  );
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).not.toBe(
+    0,
+  );
+  expect(await entry(source)).toMatchObject({ action: "replace_worker", reason: "launch_failed" });
+  const failed = await shown(source);
+  expect(failed.launches.at(-1)?.state).toBe("failed");
+  const events = z
+    .object({ events: z.array(z.string()) })
+    .parse(failed.pullRequests[0]?.parking).events;
+  expect(events).toHaveLength(1);
+  const external = z.looseObject({}).parse(await Bun.file(`${root}/herdr-state.json`).json());
+  await Bun.write(`${root}/herdr-state.json`, JSON.stringify({ ...external, fail: {} }));
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  await feedbackLaunch(source, 4);
+  expect(await Bun.file(worker.brief).text()).toContain("Keep this feedback.");
+  expect(
+    z.object({ events: z.array(z.string()) }).parse((await shown(source)).pullRequests[0]?.parking)
+      .events,
+  ).toEqual(events);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(4);
+}, 120000);
+
+test("an interrupted resume before reservation preserves its recorded events and next kind for recovery", async () => {
+  const { source, worker, head } = await parkedFixture();
+  await github({
+    pulls: [
+      pull({ head, comments: [{ id: "C1", body: "Recover this event.", author: "person" }] }),
+    ],
+  });
+  await coordination(source, Date.now());
+  await tool(
+    "opencode",
+    `#!${process.execPath}\nawait Bun.write(${JSON.stringify(`${root}/resume-entered`)}, "entered");\nawait Bun.sleep(500);\n${opencode.split("\n").slice(1).join("\n")}`,
+  );
+  const child = Bun.spawn(
+    [process.execPath, cli, "dispatch", "--source", source, "--assignment", "implement", "--json"],
+    { cwd: checkout, env: environment(), stdout: "pipe", stderr: "pipe" },
+  );
+  for (let tries = 0; tries < 200 && !(await Bun.file(`${root}/resume-entered`).exists()); tries++)
+    await Bun.sleep(10);
+  expect(await Bun.file(`${root}/resume-entered`).exists()).toBe(true);
+  child.kill("SIGKILL");
+  await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  await Bun.sleep(600);
+  await tool("opencode", opencode);
+  expect((await shown(source)).launches).toHaveLength(2);
+  expect(await entry(source)).toMatchObject({ action: "replace_worker", reason: "handoff_failed" });
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  await feedbackLaunch(source, 3);
+  expect(await Bun.file(worker.brief).text()).toContain("Recover this event.");
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(3);
+}, 120000);
+
+test("parking without a new note never reuses the reviewer's earlier ready note", async () => {
+  const source = await setup("opencode");
+  const { reviewer, brief, head } = await reviewing(source);
+  expect((await run(["pr", "round", "--file", await findings([])], reviewer)).code).toBe(0);
+  expect(
+    (
+      await run(
+        ["pr", "ready", "--file", await summary("Reviewed.", []), "--note", "-"],
+        reviewer,
+        "Reviewer-only note.\n",
+      )
+    ).code,
+  ).toBe(0);
+  await feedbackLaunch(source);
+  expect(await Bun.file(brief).text()).toContain("Reviewer-only note.");
+  const checked = githubSchema.parse(await Bun.file(`${root}/github.json`).json());
+  await github({
+    pulls: checked.pulls.map((pr) => ({
+      ...pr,
+      number: 7,
+      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+    })),
+  });
+  expect((await run(["pr", "wait", "--timeout", "0"], reviewer)).code).toBe(0);
+  await latestWorker(source, reviewer, "finished", 3);
+  const current = githubSchema.parse(await Bun.file(`${root}/github.json`).json());
+  await github({
+    pulls: current.pulls.map((pr) => ({
+      ...pr,
+      number: 7,
+      head,
+      comments: [{ id: "person", body: "A fresh claim.", author: "person" }],
+    })),
+  });
+  await coordination(source, Date.now());
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  await feedbackLaunch(source, 4);
+  expect(await Bun.file(brief).text()).toContain("A fresh claim.");
+  expect(await Bun.file(brief).text()).not.toContain("Reviewer-only note.");
+  expect(await Bun.file(brief).text()).not.toContain("## Note");
+}, 120000);
+
+test("a parked PR closed without merge names abandon and abandonment preserves unlanded work", async () => {
+  const { source, worker, head } = await parkedFixture();
+  await Bun.write(`${worker.worktreePath}/unlanded.txt`, "keep this work\n");
+  await github({ pulls: [pull({ head, state: "CLOSED" })] });
+  expect(await coordination(source, Date.now())).toMatchObject({
+    data: {
+      sources: [
+        {
+          actions: expect.arrayContaining([
+            expect.objectContaining({
+              assignment: "implement",
+              action: "clean_up",
+              reason: "pr_closed",
+              next: {
+                command: `operator abandon --source ${source} --assignment implement`,
+                why: "The PR closed without merge; retain its unlanded work.",
+              },
+              command: `operator abandon --source ${source} --assignment implement`,
+            }),
+          ]) as unknown,
+        },
+      ],
+    },
+  });
+  expect((await run(["abandon", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  expect(await entry(source)).toMatchObject({
+    action: "person_decision",
+    reason: "cleanup_unlanded_work",
+  });
+  expect(await Bun.file(`${worker.worktreePath}/unlanded.txt`).text()).toBe("keep this work\n");
+  expect(await git(checkout, "rev-parse", "refs/heads/task/12-implement")).toBe(head);
+  expect(await calls("gh-calls.jsonl", '"DELETE"')).toBe(0);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+}, 120000);
+
+test.each(["missing commit", "foreign head"] as const)(
+  "a parked merge with %s retains the assignment and all resources",
+  async (kind) => {
+    const { source, worker, head } = await parkedFixture();
+    await github({
+      pulls: [
+        pull({
+          head: kind === "foreign head" ? "unverified-head" : head,
+          state: "MERGED",
+          mergeCommit: kind === "missing commit" ? null : head,
+        }),
+      ],
+    });
+    await coordination(source, Date.now());
+    expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_parked" });
+    expect((await shown(source)).assignments.find((row) => row.key === "implement")?.state).toBe(
+      "pr-open",
+    );
+    expect(await Bun.file(`${worker.worktreePath}/README.md`).exists()).toBe(true);
+    expect(await git(checkout, "rev-parse", "refs/heads/task/12-implement")).toBe(head);
+    expect(await calls("gh-calls.jsonl", '"DELETE"')).toBe(0);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+    expect(await calls("herdr-calls.jsonl", '"pane","close"')).toBe(2);
+    expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(2);
+  },
+  120000,
+);
+
+test("a verified person merge of a parked PR ends the assignment and runs ordered cleanup without a new merge request", async () => {
+  const { source, worker, head } = await parkedFixture();
+  await github({ pulls: [pull({ head, state: "MERGED", mergeCommit: head })] });
+  await coordination(source, Date.now());
+  const shown = await run(["source", "show", "--source", source]);
+  expect(shown).toMatchObject({
+    code: 0,
+    output: {
+      data: {
+        assignments: expect.arrayContaining([
+          expect.objectContaining({ key: "implement", state: "merged" }),
+        ]) as unknown,
+        cleanups: [expect.objectContaining({ assignment: "implement", state: "done" })],
+      },
+    },
+  });
+  expect(await Bun.file(`${worker.worktreePath}/README.md`).exists()).toBe(false);
+  expect(
+    (await exec(["git", "show-ref", "--verify", "refs/heads/task/12-implement"])).code,
+  ).not.toBe(0);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  expect(await calls("herdr-calls.jsonl", '"agent","start"')).toBe(2);
+}, 120000);
+
+async function latestWorker(source: string, worktree: string, state: string, attempt = 2) {
+  let shownState = await shown(source);
+  for (let tries = 0; tries < 150; tries++) {
+    const launch = shownState.launches.findLast((row) => row.worktreePath === worktree);
+    if (launch?.state === state && launch.attempt === attempt) {
+      workerPanes.set(worktree, launch.paneId ?? "");
+      return launch;
+    }
+    await Bun.sleep(50);
+    shownState = await shown(source);
+  }
+  expect.unreachable(`No ${state} launch ${attempt} for ${worktree}`);
+}
+
+test("one actual batch reads every parked PR and a merged recorded parent wakes fresh feedback without branch effects", async () => {
+  const source = await setup("opencode", {
+    ...plan,
+    assignments: plan.assignments.map((row) => ({
+      ...row,
+      dependencies: row.key === "second" ? ["implement"] : [],
+    })),
+  });
+  await config({ internal: false });
+  await git(checkout, "init", "--bare", `${root}/remote.git`);
+  await git(checkout, "remote", "add", "fixture", `${root}/remote.git`);
+  const parent = await dispatch(source);
+  const parentHead = await commit(parent.worktreePath, "parent.txt");
+  await git(parent.worktreePath, "push", "-u", "fixture", "task/12-implement");
+  const parentPr = pull({ head: parentHead, checks: [{ name: "ci", conclusion: "SUCCESS" }] });
+  await github({ pulls: [parentPr] });
+  expect((await run(["pr", "associate"], parent.worktreePath)).code).toBe(0);
+  await latestWorker(source, parent.worktreePath, "running");
+  expect((await run(["pr", "wait", "--timeout", "0"], parent.worktreePath)).code).toBe(0);
+  await latestWorker(source, parent.worktreePath, "finished");
+  const child = await dispatch(source, "second");
+  const childHead = await commit(child.worktreePath, "child.txt");
+  const childPr = pull({
+    number: 8,
+    url: "https://github.com/example/one/pull/8",
+    headRefName: "task/13-second",
+    head: childHead,
+    baseRefName: "task/12-implement",
+    checks: [{ name: "ci", conclusion: "SUCCESS" }],
+  });
+  await github({ pulls: [parentPr, childPr] });
+  expect((await run(["pr", "associate"], child.worktreePath)).code).toBe(0);
+  await latestWorker(source, child.worktreePath, "running");
+  expect((await run(["pr", "wait", "--timeout", "0"], child.worktreePath)).code).toBe(0);
+  await latestWorker(source, child.worktreePath, "finished");
+  const now = Date.now();
+  await coordination(source, now);
+  expect(await calls("gh-calls.jsonl", "ParkedPRs")).toBe(1);
+  const reads = (await Bun.file(`${root}/gh-calls.jsonl`).text())
+    .split("\n")
+    .find((line) => line.includes("ParkedPRs"));
+  expect(reads).toContain("pullRequest(number: 7)");
+  expect(reads).toContain("pullRequest(number: 8)");
+  await github({ pulls: [{ ...parentPr, state: "MERGED", mergeCommit: parentHead }, childPr] });
+  await coordination(source, now + 900000);
+  expect(await entry(source, "second")).toMatchObject({
+    action: "resume_pr_feedback",
+    reason: "pr_relay_blocked",
+  });
+  expect((await run(["dispatch", "--source", source, "--assignment", "second"])).code).toBe(0);
+  await latestWorker(source, child.worktreePath, "running", 3);
+  expect(await Bun.file(child.brief).text()).toContain('"kind":"parent_merged"');
+  expect(await calls("gh-calls.jsonl", '"PATCH"')).toBe(0);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  expect(await git(child.worktreePath, "rev-parse", "HEAD")).toBe(childHead);
+}, 120000);
+
 test("pr ready hands review to fresh pr-feedback with complete dispositions and a durable reviewer note", async () => {
   const source = await setup("opencode");
   const { reviewer, brief, head } = await reviewing(source);
@@ -540,7 +1292,7 @@ test("draft association with review off refreshes readiness at the current pushe
 test.each(["custom", "legacy"] as const)(
   "ready association actually dispatches %s feedback without supervisor recovery",
   async (kind) => {
-    const source = await setup("opencode", kind);
+    const source = await setup("opencode", plan, kind);
     const worker = await dispatch(source);
     const before = (await shown(source)).launches[0];
     const head = await commit(worker.worktreePath, "ready.txt");
@@ -1157,12 +1909,15 @@ test("an internal review skip runs at pr ready with no rounds or summary comment
   });
   expect(await shown(source)).toEqual(once);
   expect(await githubState()).toEqual(readyEffects);
+  await github({ pulls: [pull({ head, isDraft: false, checks: [{ name: "ci" }] })] });
   expect(await run(["pr", "wait", "--timeout", "0"], reviewer, undefined, pane)).toMatchObject({
+    code: 0,
     output: {
+      reason: "pr_checks_running",
       kind: "pr-feedback",
       phase: "feedback",
       next: { command: "operator pr wait" },
-      data: { mergeConditions: { reviewEnded: true } },
+      data: { mergeConditions: { reviewEnded: true, checksPassing: false } },
     },
   });
   await github({

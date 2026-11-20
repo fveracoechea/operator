@@ -139,7 +139,10 @@ function recorded(paths: OperatorPaths, selected: Worker, clean: boolean): Resul
         rounds: source.internalReviewRounds.filter((row) => row.assignment === key).length,
         ready: reviewEnded,
         merged: pr !== undefined && pr.mergedAt !== null,
-        parked: false,
+        parked:
+          DeviceState.prParkingSchema()
+            .nullable()
+            .parse(JSON.parse(pr?.parking ?? "null"))?.state === "parked",
       },
       internalReview: selected.launch.internalReview === true,
       reviewEnded,

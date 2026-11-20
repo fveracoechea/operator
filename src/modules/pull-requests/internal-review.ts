@@ -246,6 +246,17 @@ function runHandoff(
       request.continuation,
     );
     if (ended.tag !== "Ok") return Err(failure(ended));
+    const parked = DeviceState.completeParking(
+      request.paths,
+      {
+        repository: request.repository,
+        sourceId: request.sourceId,
+        assignment: request.assignment,
+      },
+      request.continuation,
+    );
+    if (parked.tag !== "Ok") return parked.map(() => null);
+    if (parked.value) return Ok(null);
     const started = await WorkerDispatch.dispatch({
       paths: request.paths,
       cwd: facts.checkout,
@@ -317,6 +328,7 @@ type DispatchInput = Omit<HandoffRequest, "afterPid" | "continuation"> & {
   afterPid?: number | null;
 };
 type DispatchPermission = { continuation: HandoffContinuation | null };
+type DispatchOutcome = Launch | { sourceId: string; assignment: string; parked: boolean };
 
 /** Publication gets one second, read-only, then fails closed. Scheduler progress is not guaranteed. */
 export function dispatchPermission(input: DispatchInput): AsyncResult<DispatchPermission, Failure> {
@@ -391,36 +403,58 @@ function waitForPublication(
 }
 
 /** A foreign continuation never falls back to ordinary supervisor dispatch. */
-export function dispatch(input: DispatchInput) {
+export function dispatch(input: DispatchInput): AsyncResult<DispatchOutcome, Failure> {
   return dispatchPermission(input).flatMap(({ continuation }) => {
     if (continuation === null) return supervisorDispatch(input);
     return WorkerDispatch.checkHandoff(input)
       .flatMap(() => handoff({ ...input, afterPid: input.afterPid ?? null, continuation }))
-      .flatMap((launch) =>
-        launch === null
-          ? ErrAsync<Failure>({
-              reason: "handoff_continuation_refused",
-              detail: "The pending continuation was consumed. No replacement was dispatched.",
-              next: {
-                command: "operator next",
-                why: "Read the assignment's recorded next action.",
-              },
-              state: { continuationAuthorized: false },
-            })
-          : OkAsync(launch),
+      .flatMap((launch): AsyncResult<DispatchOutcome, Failure> =>
+        launch === null ? parkingResult(input) : OkAsync(launch),
       );
   });
 }
 
-/** Ordinary supervisor recovery keeps its independent dispatch authority. */
-function supervisorDispatch(input: DispatchInput) {
+function parkingResult(input: DispatchInput): AsyncResult<DispatchOutcome, Failure> {
   return WorkSources.show(input).flatMap((source) => {
+    const parking = source?.pullRequests.find(
+      (row) => row.assignment === input.assignment,
+    )?.parking;
+    return parking?.state === "parked"
+      ? OkAsync({ sourceId: input.sourceId, assignment: input.assignment, parked: true })
+      : ErrAsync<Failure>({
+          reason: "handoff_continuation_refused",
+          detail: "The pending continuation was consumed. No replacement was dispatched.",
+          next: {
+            command: "operator next",
+            why: "Read the assignment's recorded next action.",
+          },
+          state: { continuationAuthorized: false },
+        });
+  });
+}
+
+/** Ordinary supervisor recovery keeps its independent dispatch authority. */
+function supervisorDispatch(input: DispatchInput): AsyncResult<DispatchOutcome, Failure> {
+  return WorkSources.show(input).flatMap((source) => {
+    const parking = source?.pullRequests.find(
+      (row) => row.assignment === input.assignment,
+    )?.parking;
+    if (source !== undefined && parking?.state === "parked" && parking.events.length > 0)
+      return DeviceState.resumeParkedPullRequest(input.paths, {
+        repository: source.repository,
+        sourceId: input.sourceId,
+        assignment: input.assignment,
+      })
+        .toAsync()
+        .flatMap(() => supervisorDispatch(input));
     const recorded = source?.handoffs.find((row) => row.assignment === input.assignment);
     if (recorded === undefined || recorded.handoffState === "done")
       return WorkerDispatch.dispatch(input);
     return WorkerDispatch.checkHandoff(input)
       .flatMap(() => handoff({ ...input, afterPid: input.afterPid ?? null }))
-      .flatMap((launch) => (launch === null ? WorkerDispatch.dispatch(input) : OkAsync(launch)));
+      .flatMap((launch): AsyncResult<DispatchOutcome, Failure> =>
+        launch === null ? parkingResult(input) : OkAsync(launch),
+      );
   });
 }
 

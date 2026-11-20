@@ -1,8 +1,9 @@
 import { and, eq } from "drizzle-orm";
-import { Err, Ok, type Result } from "unthrown";
+import type { Result } from "unthrown";
 import { z } from "zod";
 import type { Db } from "./database.ts";
-import { kindHandoffs, pullRequests } from "./schema.ts";
+import { pullRequests } from "./schema.ts";
+import { recordKindHandoff } from "./kind-handoff-record.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 const place = { round: z.number().int().positive(), finding: z.number().int().positive() };
@@ -26,45 +27,16 @@ export function recordPrReady(
   readiness: PrReadiness,
   nextKind: string,
 ): Result<undefined, Refusal & { reason: "handoff_running" }> {
-  const key = and(
-    eq(kindHandoffs.sourceId, target.sourceId),
-    eq(kindHandoffs.assignment, target.assignment),
-  );
-  const previous = db.select().from(kindHandoffs).where(key).get();
-  if (previous !== undefined && previous.handoffState !== "done")
-    return Err({
-      reason: "handoff_running" as const,
-      detail: "Finish the recorded outgoing handoff before starting another. Nothing was changed.",
-      next: { command: "operator next", why: "Read the pending handoff's recovery action." },
-    });
-  const now = readiness.at;
-  const row = {
-    sourceId: target.sourceId,
-    assignment: target.assignment,
-    outgoingLaunchId: target.launchId,
-    nextKind,
-    handoffState: "pending",
-    handoffDetail: null,
-    startedAt: now,
-    updatedAt: now,
-    ownerPid: process.pid,
-    leaseAt: now,
-  };
-  db.update(pullRequests)
-    .set({ readiness: JSON.stringify(readiness) })
-    .where(
-      and(
-        eq(pullRequests.sourceId, target.sourceId),
-        eq(pullRequests.assignment, target.assignment),
-      ),
-    )
-    .run();
-  db.insert(kindHandoffs)
-    .values(row)
-    .onConflictDoUpdate({
-      target: [kindHandoffs.sourceId, kindHandoffs.assignment],
-      set: row,
-    })
-    .run();
-  return Ok(undefined);
+  return recordKindHandoff(db, target, nextKind, readiness.at).map(() => {
+    db.update(pullRequests)
+      .set({ readiness: JSON.stringify(readiness) })
+      .where(
+        and(
+          eq(pullRequests.sourceId, target.sourceId),
+          eq(pullRequests.assignment, target.assignment),
+        ),
+      )
+      .run();
+    return undefined;
+  });
 }

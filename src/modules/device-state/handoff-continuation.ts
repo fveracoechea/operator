@@ -1,5 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { Err, Ok } from "unthrown";
+import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import type { Refusal } from "../../lib/cli-result.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
@@ -208,15 +209,45 @@ function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof laun
     receipt.value?.implementerLaunchId === latest.id && handoff.nextKind === "review";
   if (context.pane !== latest.paneId && (context.pane !== source.supervisingPane || !recovered))
     return false;
-  if (handoff.nextKind === "pr-feedback") return readyContinuation(db, facts, latest);
+  if (handoff.nextKind === "pr-feedback") return feedbackContinuation(db, facts, latest);
   // An explicitly recovered promotion can retain its original report-kind snapshot.
   if (recovered) return true;
+  return kindContinuation(db, facts, latest);
+}
+
+function feedbackContinuation(
+  db: Db,
+  facts: ContinuationFacts,
+  latest: typeof launches.$inferSelect,
+) {
+  if (
+    latest.kind !== null &&
+    WorkerKinds.snapshotSchema().parse(JSON.parse(latest.kind)).name === "pr-feedback"
+  )
+    return kindContinuation(db, facts, latest);
+  return readyContinuation(db, facts, latest);
+}
+
+function kindContinuation(db: Db, facts: ContinuationFacts, latest: typeof launches.$inferSelect) {
+  const { source, assignment, handoff } = facts;
   if (latest.kind !== null) {
     const outgoing = WorkerKinds.snapshotSchema().parse(JSON.parse(latest.kind));
-    return (
-      outgoing.completion === assignment.completion &&
-      reviewHandoffTarget(outgoing) === handoff.nextKind
-    );
+    if (outgoing.completion !== assignment.completion) return false;
+    if (outgoing.name === "pr-feedback" && handoff.nextKind === "pr-feedback") {
+      const row = db
+        .select()
+        .from(pullRequests)
+        .where(
+          and(eq(pullRequests.sourceId, source.id), eq(pullRequests.assignment, assignment.key)),
+        )
+        .get();
+      const parking =
+        row?.parking === null || row?.parking === undefined
+          ? null
+          : z.object({ launchId: z.string(), state: z.string() }).parse(JSON.parse(row.parking));
+      return parking?.launchId === latest.id && ["parking", "resuming"].includes(parking.state);
+    }
+    return reviewHandoffTarget(outgoing) === handoff.nextKind;
   }
   return reviewHandoffTarget(null) === handoff.nextKind;
 }

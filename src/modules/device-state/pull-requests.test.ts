@@ -130,6 +130,49 @@ test("ready association durably records readiness and the fresh feedback handoff
   expect(db.serialize()).toEqual(before);
 });
 
+test("only the exact finished parked owner can record its pinned merge and cleanup once", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+  db.query("UPDATE launches SET state = 'finished'").run();
+  db.query("UPDATE pull_requests SET parking = ?").run(
+    JSON.stringify({ launchId: "l1", head: "parked-head", state: "parked" }),
+  );
+  const before = db.serialize();
+  expect(
+    recordPullRequestMerge(
+      db,
+      "l1",
+      { number: 7, head: "different-head", mergeCommit: "merge" },
+      () => "open",
+    ),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_owner_inactive" } });
+  expect(db.serialize()).toEqual(before);
+  expect(
+    recordPullRequestMerge(
+      db,
+      "l1",
+      { number: 7, head: "parked-head", mergeCommit: "merge" },
+      () => "open",
+    ),
+  ).toMatchObject({ tag: "Ok", value: { changed: true } });
+  expect(db.query("SELECT state FROM assignments WHERE key = 'change'").get()).toEqual({
+    state: "merged",
+  });
+  expect(db.query("SELECT launch_id, step FROM cleanups").all()).toEqual([
+    { launch_id: "l1", step: "remote_branch" },
+  ]);
+  expect(
+    recordPullRequestMerge(
+      db,
+      "l1",
+      { number: 7, head: "parked-head", mergeCommit: "merge" },
+      () => "open",
+    ),
+  ).toMatchObject({ tag: "Ok", value: { changed: false } });
+  expect(db.query("SELECT * FROM cleanups").all()).toHaveLength(1);
+});
+
 test("the same review-off draft owner records ready once, including after its handoff is done", () => {
   using db = fixture();
   start(db, "l1", "change", "p1");

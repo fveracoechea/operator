@@ -54,6 +54,14 @@ import {
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
 import { prReadinessSchema } from "./pr-readiness.ts";
+import {
+  prParkingSchema,
+  parkPullRequest,
+  completeParking,
+  resumeParkedPullRequest,
+  claimParkedRead,
+  finishParkedRead,
+} from "./pr-parking.ts";
 import { recoverInternalReview, readInternalReviewRecovery } from "./internal-review-recovery.ts";
 import { readContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
@@ -148,6 +156,28 @@ function hold(renew: () => void) {
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
+  prParkingSchema() {
+    return prParkingSchema;
+  },
+  parkPullRequest(paths: Paths, launchId: string, input: Parameters<typeof parkPullRequest>[2]) {
+    return writing(paths, (client) => parkPullRequest(client, launchId, input));
+  },
+  completeParking(
+    paths: Paths,
+    target: Parameters<typeof completeParking>[1],
+    continuation?: HandoffContinuation,
+  ) {
+    return writing(paths, (client) => completeParking(client, target, continuation));
+  },
+  resumeParkedPullRequest(paths: Paths, target: Parameters<typeof resumeParkedPullRequest>[1]) {
+    return writing(paths, (client) => resumeParkedPullRequest(client, target));
+  },
+  claimParkedRead(paths: Paths) {
+    return writing(paths, (client) => claimParkedRead(client, Date.now()));
+  },
+  finishParkedRead(paths: Paths, at: string, updates: Parameters<typeof finishParkedRead>[2]) {
+    return writing(paths, (client) => finishParkedRead(client, at, updates));
+  },
   prReadinessSchema() {
     return prReadinessSchema;
   },

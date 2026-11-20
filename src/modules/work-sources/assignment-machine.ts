@@ -32,6 +32,9 @@ type Facts = {
   handoff?: "running" | "stopped" | "failed";
   /** A recorded internal review that has not ended. */
   reviewing?: boolean;
+  parked?: boolean;
+  prClosed?: boolean;
+  waking?: "pr_feedback" | "ci_failed" | "pr_relay_blocked";
   /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
   capReached?: boolean;
   /** Kind eligibility for a plain start, not a replacement or kind handoff. */
@@ -48,6 +51,8 @@ type Decision = {
   action:
     | "ready_assignment"
     | "replace_worker"
+    | "resume_pr_feedback"
+    | "clean_up"
     | "owner_attention"
     | "worker_attention"
     | "review_report"
@@ -58,6 +63,10 @@ type Decision = {
     | "ended";
   reason:
     | "assignment_ready"
+    | "pr_parked"
+    | "pr_feedback"
+    | "ci_failed"
+    | "pr_closed"
     | "kind_not_dispatchable"
     | "pr_feedback_loop"
     | "pr_wait_timed_out"
@@ -227,6 +236,23 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: (facts) => active(facts) && facts.launch === "failed",
     decide: () => ({ action: "replace_worker", reason: "launch_failed", blockers: [] }),
+  },
+  {
+    when: ({ assignment, prClosed }) => assignment.state === "pr-open" && prClosed === true,
+    decide: () => ({ action: "clean_up", reason: "pr_closed", blockers: [] }),
+  },
+  {
+    when: ({ assignment, parked, waking }) =>
+      assignment.state === "pr-open" && parked === true && waking !== undefined,
+    decide: ({ waking }) => ({
+      action: "resume_pr_feedback",
+      reason: waking ?? "pr_feedback",
+      blockers: [],
+    }),
+  },
+  {
+    when: ({ assignment, parked }) => assignment.state === "pr-open" && parked === true,
+    decide: () => ({ action: "wait", reason: "pr_parked", blockers: [] }),
   },
   {
     when: (facts) => active(facts) && facts.launch === "interrupted",

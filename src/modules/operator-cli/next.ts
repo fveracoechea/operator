@@ -42,6 +42,14 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
       command: `operator dispatch ${target}`,
       why: "Replace the stopped worker without deleting its work.",
     },
+    resume_pr_feedback: {
+      command: `operator dispatch ${target}`,
+      why: "Start fresh PR feedback with the recorded waking events.",
+    },
+    clean_up: {
+      command: `operator abandon ${target}`,
+      why: "The PR closed without merge; retain its unlanded work.",
+    },
     retry_cleanup: {
       command:
         "report" in row && row.report !== undefined

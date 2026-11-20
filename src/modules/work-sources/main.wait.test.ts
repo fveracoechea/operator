@@ -1,5 +1,6 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { Err, Ok, OkAsync } from "unthrown";
+import { Err, ErrAsync, Ok, OkAsync, fromPromise } from "unthrown";
+import { PullRequests } from "../pull-requests/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -112,6 +113,45 @@ test("a scope that never returned a set returns every action at once and records
   expect(calls.released).toHaveBeenCalledTimes(1);
   expect(calls.read).toHaveBeenCalledWith(paths, "example/one", undefined);
   expect(calls.supervision).not.toHaveBeenCalled();
+});
+
+test("parked batch failures stop the coordination read without acknowledging actions and release its lease", async () => {
+  const calls = device(null, undefined, [ready]);
+  const failure = {
+    reason: "github_failed",
+    detail: "Synthetic read failed.",
+    next: { command: "operator next --wait", why: "Retry observation." },
+  };
+  spyOn(PullRequests, "observeParked").mockReturnValue(ErrAsync(failure));
+  expect(
+    await WorkSources.wait({
+      paths,
+      cwd: root,
+      timeoutSeconds: 0,
+      observeParked: () => PullRequests.observeParked({ paths }),
+    }),
+  ).toMatchObject({ tag: "Err", error: failure });
+  expect(calls.read).not.toHaveBeenCalled();
+  expect(calls.finish).not.toHaveBeenCalled();
+  expect(calls.released).toHaveBeenCalledTimes(1);
+});
+
+test("a parked batch defect retains its original cause rather than returning a quiet timeout", async () => {
+  const calls = device(null, undefined, [ready]);
+  const cause = new TypeError("Synthetic batch defect");
+  spyOn(PullRequests, "observeParked").mockReturnValue(
+    fromPromise(Promise.reject(cause), (error, defect) => defect(error)).map(() => undefined),
+  );
+  const result = await WorkSources.wait({
+    paths,
+    cwd: root,
+    timeoutSeconds: 0,
+    observeParked: () => PullRequests.observeParked({ paths }),
+  });
+  expect(result.tag).toBe("Defect");
+  if (result.tag === "Defect") expect(result.cause).toBe(cause);
+  expect(calls.finish).not.toHaveBeenCalled();
+  expect(calls.released).toHaveBeenCalledTimes(1);
 });
 
 test("a scope's first wait records a source's end without returning it", async () => {

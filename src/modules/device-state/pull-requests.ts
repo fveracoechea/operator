@@ -113,7 +113,7 @@ export function worktreeOwners(client: Database) {
  * Every PR write checks again that this launch is the running latest start of an open PR
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
-export function activeOwner(db: Db, launchId: string) {
+export function activeOwner(db: Db, launchId: string, parkedMergeHead?: string) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
     .from(launches)
@@ -138,8 +138,10 @@ export function activeOwner(db: Db, launchId: string) {
             ),
           )
           .get();
+  const parkedMerge = parkedMergeOwner(db, owner?.launch, parkedMergeHead);
   if (
-    owner?.launch.state !== "running" ||
+    owner === undefined ||
+    (owner.launch.state !== "running" && !parkedMerge) ||
     newer !== undefined ||
     owner.source.state !== "open" ||
     owner.assignment.completion !== "pr" ||
@@ -152,6 +154,17 @@ export function activeOwner(db: Db, launchId: string) {
         "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
     });
   return Ok(owner);
+}
+
+/** A finished parked launch may only record the verified merge of its retained pushed head. */
+function parkedMergeOwner(db: Db, launch: typeof launches.$inferSelect | undefined, head?: string) {
+  if (head === undefined || launch?.state !== "finished") return false;
+  const row = current(db, launch.sourceId, launch.assignment);
+  if (row?.parking === null || row === undefined) return false;
+  const parking = z
+    .object({ launchId: z.string(), head: z.string(), state: z.string() })
+    .parse(JSON.parse(row.parking));
+  return parking.launchId === launch.id && parking.head === head && parking.state === "parked";
 }
 
 /**
@@ -320,6 +333,7 @@ export function associatePullRequest(
             branch: pr.branch,
             relay: pr.relay,
             readiness: null,
+            parking: null,
             associatedAt: new Date().toISOString(),
             progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
             waitState: "idle",
@@ -502,7 +516,7 @@ export function recordPullRequestMerge(
         recorded.number === merge.number
       )
         return Ok({ changed: false });
-      return activeOwner(db, launchId).flatMap(({ source, assignment }) => {
+      return activeOwner(db, launchId, merge.head).flatMap(({ source, assignment }) => {
         const row = current(db, source.id, assignment.key);
         if (row === undefined || assignment.state !== "pr-open" || row.number !== merge.number)
           return Err<PullRequestFailure>({
