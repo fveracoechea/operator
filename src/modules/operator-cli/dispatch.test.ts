@@ -102,6 +102,7 @@ test("one-off dispatch and registered kind filling keep distinct selectors", () 
     intentFile: undefined,
     profile: undefined,
     trackerKey: undefined,
+    adopt: undefined,
   });
   for (const args of [
     ["dispatch", "--brief", "task.md"],
