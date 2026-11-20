@@ -20,6 +20,7 @@ SuperAgent names the supervisor and the person's point of contact.
 WorkerAgent names an agent that receives delegated work and reports to its supervising SuperAgent.
 Task descriptions are not separate roles or a closed list.
 Worker kinds name an open set of work phases and completion contracts, not additional roles.
+The built-in kinds are research, answer, prototype, implementation, review, and pr-feedback; the person can define more.
 Herdr agent and agent session keep their runtime-process and conversation meanings.
 
 Use Operator state for stored workflow records and ready assignments for work that may start.
@@ -32,7 +33,7 @@ A SuperAgent may answer a code base question within 3 read-only calls, counting 
 As soon as that budget cannot suffice, it delegates with `operator ask`, never a native subagent.
 It delegates other detailed reading, investigation, implementation, review, research, triage, planning, and prototypes.
 It can run coordination commands and communicate with other SuperAgents through Herdr without taking over worker tasks.
-A PR merges only through the owner's guarded merge operation.
+A PR merges through the owner's guarded operation, or the same gate for a parked assignment's supervisor on the person's instruction.
 Unlanded work remains until the person authorizes its deletion.
 Only a SuperAgent addresses the person.
 The SuperAgent keeps context low, reads short reports, and opens details only for a coordination decision.

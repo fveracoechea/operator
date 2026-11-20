@@ -86,3 +86,21 @@ These commit-pinned documents, rather than this wiki, supplied the architecture 
 
 On 2026-11-20, this documentation task changed neither these ADRs nor `CONTEXT.md`.
 The wiki recorded the spec/implementation distinction rather than silently reconciling their remaining differences.
+
+## Final role-package checkpoint on 2026-11-20
+
+On 2026-11-20, `/tmp/opencode/issue373-final-acceptance-ledger-pre-final.md` audited all 23 children against immutable #432 main `bb3e05fafe0ed854c31fa8778893df03a71694ef`.
+It demonstrated 20 landed child deliveries and assigned the remaining #392/#394/#396 packages to existing #435/#436/#428.
+The [later actual chain](issue-373-landing.md#qualified-main-chain-on-2026-11-20) records #435's landing and the qualified #436 parent without claiming its unrelayed merge.
+The ledger remains pre-final evidence, not acceptance of an unseen final tree.
+
+On 2026-11-20, the final #428 assignment combined #396's two owned commits with that exact qualified parent.
+It reconciled the residual assignment-kind, next-row, supervision, and implemented-versus-staged domain clauses.
+This supersedes the earlier docs-only scope statement above, not the preserved behavior of the other amended ADRs.
+Its required checks cover package ceilings, real command help, six briefs, both synthetic hosts, and complete/missing artifact inspection.
+The final independent reviewers and the chief's combined verifier still require immutable head/tree and qualification evidence.
+Only the chief retains the parent-completion claim.
+
+Active #422/#423, #414/#415, release #398, runtime activation, installation, publication, and tags remain outside acceptance.
+Inherited inactive storage and lease protections remain preserved.
+No final delivery, issue closure, or runtime activation follows merely from updating this wiki.

@@ -305,7 +305,9 @@ test("bundled skills use result next steps and retain their authority limits", a
   expect(supervisor).not.toContain("slack-drop");
   expect(supervisor).not.toContain("## Refusals");
   const plans = await Bun.file(path.join(repository, "skills/super-agent/plans.md")).text();
-  expect(plans).toContain("Own closed PR: `operator abandon`; it deletes no worktree or branch.");
+  expect(plans).toContain(
+    "Assignment's own closed PR: `operator abandon`; it deletes no worktree or branch.",
+  );
   expect(plans).toContain(
     "Ask about missing PR worktrees or parents closed/merged outside default.",
   );

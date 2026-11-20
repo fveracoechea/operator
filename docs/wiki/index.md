@@ -7,7 +7,7 @@ The [constraints page](issue-373-user-constraints.md) records the source and aut
 
 - [Worker-kind spec history](issue-373-scope.md): Dated scope, amendment reversals, and architecture sources for #373.
 - [Landing history](issue-373-landing.md): Commit-pinned delivery snapshots, the released batch hold, and landing safeguards with the local-qualification exception.
-- [Recovery findings](issue-373-recovery.md): The 2026-11-20 recovery history, qualified #429 merge, corrected draft #420, and published downstream drafts with unresolved qualification gates.
+- [Recovery findings](issue-373-recovery.md): Dated red evidence and its superseding qualified landings, with unfinished mutation diagnostics retained.
 
 ## User constraints and coordination lessons
 
@@ -32,6 +32,10 @@ The [chief-of-staff acceptance ownership](issue-373-user-constraints.md#combined
 - [Main remained at the qualified #429 merge](issue-373-landing.md#later-landing-checkpoint-on-2026-11-20); the [23-child acceptance scope](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) still required combined proof.
 
 ## Reading and updates
+
+The [verified landing chain](issue-373-landing.md#qualified-main-chain-on-2026-11-20) supersedes the older draft and main pointers above.
+The [final package checkpoint](issue-373-scope.md#final-role-package-checkpoint-on-2026-11-20) names the remaining #396 and combined-acceptance limits.
+The [current qualification decision](issue-373-user-constraints.md#final-package-authority-on-2026-11-20) makes mutation diagnostics non-gating without calling unfinished results clean.
 
 On 2026-11-20, this wiki adopted the historical-record rules in the [chief-of-staff skill at `fveracoechea/operator@3f40479`](https://github.com/fveracoechea/operator/blob/3f40479dd188a53ef43d945bc04afa5cdd88eb30/.agents/skills/chief-of-staff/SKILL.md).
 Every factual entry needs an observation or decision date; a code claim also needs its repository and commit.

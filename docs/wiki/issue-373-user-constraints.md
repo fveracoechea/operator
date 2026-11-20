@@ -87,6 +87,27 @@ Historical automatic Operator execution remained unverified, not established abs
 Neither the audit nor this clarification proved that automatic host callbacks left device state untouched.
 The real legacy/device-state exclusions still governed the agents' own work.
 
+## Final package authority on 2026-11-20
+
+On 2026-11-20, the supervising delegation assigned final #396 integration and wiki/domain reconciliation to existing [PR #428](https://github.com/fveracoechea/operator/pull/428).
+The person wanted existing PRs landed, not new drafts.
+This superseded this owner's earlier docs-only and draft-only boundary.
+The assignment required a fresh isolated worktree, ordinary history-preserving integration, an ordinary fast-forward push, and frozen full local quality.
+It preserved the existing PR body unless a user-visible draft preceded any replacement.
+
+Conditional landing required actual #436 merge/tree verification, passing final #428 full quality, and relayed clean independent Standards and Spec/Design reviews.
+Fresh live refs, threads, change requests, and prospective tested-tree equality remained required.
+Once those gates passed, the owner could mark ready and merge immediately with the exact head, without another coordinator wait.
+CI, a separate GitHub approval, and mutation diagnostics were not additional gates.
+Actual correctness or acceptance defects remained blockers.
+This was task-specific authority, not a change to Operator's product merge gate.
+
+The delegation retained all original and dependency-used worktrees, external evidence, automatic guards, and legacy/device-state exclusions.
+It authorized no comments, review posts, manual issue closure, force pushes, new PRs, runtime operations, release, or publication.
+Only this owner's clean unused task worktree could be removed after verified merge.
+The chief retained final combined acceptance and parent completion.
+The source was the dated supervising delegation, not an invented public approval or transcript.
+
 ## Known chief-of-staff pointer limitation
 
 On 2026-11-20, at `fveracoechea/operator@3f40479`, the [chief-of-staff skill](https://github.com/fveracoechea/operator/blob/3f40479dd188a53ef43d945bc04afa5cdd88eb30/.agents/skills/chief-of-staff/SKILL.md) named four sibling procedure paths.

@@ -81,3 +81,11 @@ It left the repository watchdog unchanged and validated synthetic fixtures only,
 Endpoint snapshots could not prove no intermediate edits occurred; unsigned local receipts and transient paths were not permanent archival evidence.
 The [later #420 blockers](issue-373-recovery.md#blocked-420-whole-candidate-qualification) remained blockers.
 The [automatic-guard decision](issue-373-user-constraints.md#automatic-guards-left-unchanged-on-2026-11-20) retained host guards without authorizing manual Operator commands or configuration changes.
+
+## Later application evidence on 2026-11-20
+
+On 2026-11-20, the [qualified landing chain](issue-373-landing.md#qualified-main-chain-on-2026-11-20) superseded the earlier pending #420 qualification observation.
+Those application receipts used the shared runner on their exact candidates, unlike the runner's own tiny synthetic validation.
+They did not repair the native routing mistake or authorize deferred global-skill changes.
+The [final authority decision](issue-373-user-constraints.md#final-package-authority-on-2026-11-20) retained full quality and independent review while keeping unfinished mutation diagnostics non-gating.
+Final #428 and combined #373 acceptance remained distinct from those earlier application passes.

@@ -3,6 +3,9 @@
 Recorded on 2026-11-20.
 Related pages: [scope](issue-373-scope.md), [user constraints](issue-373-user-constraints.md), [index](index.md).
 
+The [qualified main chain](#qualified-main-chain-on-2026-11-20) supersedes this page's earlier draft, pending-fixture, and latest-main observations.
+Those observations remain dated history, not current landing gates.
+
 ## Delivery snapshots
 
 On 2026-11-20, the starting checkout was `fveracoechea/operator@d0fba12ebdffd4e94d7e2b28ede0f831d31dd476`.
@@ -116,3 +119,33 @@ On 2026-11-20, the delegation named `/tmp/opencode/issue373-baseline-main-d0fba1
 The documentation agent found a checkout there, but did not verify a report supporting static-check or 128-test success.
 This wiki therefore made no baseline-pass claim.
 That local path was not a permanent evidence URL and did not prove later integration or live-runtime behavior.
+
+## Qualified main chain on 2026-11-20
+
+On 2026-11-20, the final integration owner checked the completed landing reports and Git objects for the following actual main chain.
+Each report records clean independent final reviews, full local quality, and actual merge/tested-tree equality.
+The table's counts are separate overlapping full-suite observations, not additive coverage.
+
+| PR   | Qualified head                             | Actual main merge                          | Tested and merged tree                     | Passing tests |
+| ---- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------ | ------------- |
+| #429 | `44d5bd3fc039e0315ac23b5a9fc285efefeb51aa` | `0d19ea45d022183135c4121fa48ea6a29096b196` | `bf61791c64238c18c5253fc177168ec92e144b33` | 3,992         |
+| #420 | `f2d86fba109866a84f419d6e98ace455e2cf7e4a` | `e49424507d6af74f59f2ccbbf9e5fa3e3f53e2ed` | `056317b883db404cf62d3f0d8a9f63c22c7dfeb5` | 4,199         |
+| #430 | `6a67aa58429594c9c2965d42d9078a8368ffcdfe` | `74763a274dbd4a420c16515e9c0ccbc08dabb0eb` | `982fc0fdb7403e8925a8e287cd9b4f44b9869661` | 4,304         |
+| #431 | `e922ec31440b5bc008cd5b2026c8d6134383a68d` | `7bc084ca13f6c0eebeef72a28e6b0f324dd7a111` | `6439f4954f95fb5480f0ea41eafe759a67920638` | 4,446         |
+| #434 | `e419d6852ac5f94381173d337b4f6a2c68227858` | `03d79cc987dc97f8082cc0058515ae3b40f0f2e9` | `9de4891516e04981f355bf007b58b9c00ece4443` | 4,539         |
+| #433 | `5aad382afcd9f8b9f15eaa1c9e6ed964489372dc` | `db0991ec9cae12e7f6ff2decd52f2eb4bf7ee250` | `30e59160ea6cb841afb71f895eea0a94b145b3fe` | 4,654         |
+| #432 | `a41670fa2b7e48745b4fbc16f46a67bffd2c5285` | `bb3e05fafe0ed854c31fa8778893df03a71694ef` | `34875470e1bcdc10131dfab3cb9ab1cd72f6fae6` | 4,676         |
+| #435 | `a8237d47d4910fc139704df9269728881d8b8746` | `3d753f03ac067a32e16a3816aa56e13c00f4b8a2` | `124bf80b42fbf9c3aef5005ac6faa274d0bd3187` | 4,724         |
+
+For #434, published head `5a48c66ff9ad45f47a2400d3be1ea204829825e2` has the identical tested tree.
+Sources are `/tmp/opencode/issue373-pr429-quality.md` and `/tmp/opencode/issue373-pr<PR>-landing.md` for the other rows.
+The [pre-final ledger](issue-373-scope.md#final-role-package-checkpoint-on-2026-11-20) connects the receipts and review scopes without inventing original reviews for earlier inherited children.
+These unsigned local files are transient evidence, not permanent public archives.
+
+At this checkpoint, main was actual #435 merge `3d753f03ac067a32e16a3816aa56e13c00f4b8a2`.
+The coordinator supplied qualified #436 head `0ba9e26332b18f4d6cb439dd60fb65d1bb759be2`, tree `2949d4290016585faaebf2d5838769003ee188c4`, with 4,753 passing tests and static quality.
+The coordinator relayed both final composition reviews clean at that exact head and tree.
+Sources were `/tmp/opencode/issue373-pr436-final-standards.md` and `/tmp/opencode/issue373-pr436-final-spec.md`.
+Its actual landing was not yet relayed to this owner.
+Existing #428 integrated that exact head and only the two owned #396 commits, not their provisional prerequisite history.
+Neither this checkpoint nor older parent passes qualify the final #428 tree or complete #373.

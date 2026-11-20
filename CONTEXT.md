@@ -193,6 +193,7 @@ The worker resumes the assignment with those instructions and the prior reports 
 
 **Next actions**:
 The CLI's applicable actions and waits derived from recorded workflow state and observed facts.
+Each row carries `next`, naming its command, decision, or reason nothing remains.
 They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
 Each source also lists its open obligations beside its actions.
 Parked PRs wait until recorded feedback, failing CI, new merge eligibility, or a merged parent produces `resume_pr_feedback`.

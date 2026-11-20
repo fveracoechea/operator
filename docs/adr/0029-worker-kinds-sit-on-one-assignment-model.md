@@ -4,8 +4,8 @@
 
 Accepted - 2026-11-13. Decided in #373.
 Amends ADR-0003, ADR-0013, ADR-0017, and ADR-0020.
-The kind and data decision lands in #382; the phase decision lands in #383.
-Later tickets supply kind transitions and parking.
+The kind and data decision was implemented in #382; the phase decision was implemented in #383.
+Kind transitions, parking, canonical actions, and event waits are implemented through #388 to #394.
 Amended 2026-11-17: draft association starts the recorded kind handoff; dispatch recovers failed or stopped handoffs.
 Amended 2026-11-19: each assignment permits at most two report returns, including replacement launches, then requires the person's decision.
 Amended 2026-11-17 in #389: explicit readiness replaces inferred review or wait evidence and starts the feedback handoff.
@@ -87,8 +87,10 @@ Parking retains a distinct optional note only when the wait parks.
 A later resume starts the recorded feedback kind and renders the retained events and park note, including on replacement after failure.
 The device records one 15-minute batch-read schedule across coordination waits.
 Observation cursors and waking events commit together; a quiet or repeated observation adds no action.
-The durable contract can land before activation, but does not by itself enable parking or a batch reader.
-Managed-stack activation and the combined #422/#393/#394 action and wait contracts remain a later compatibility obligation; parking uses recorded PR association and parent facts, not invented stack history.
+Parking, batch observation, canonical actions, and coordination review upkeep operate together.
+Parking uses recorded PR association and parent facts, not invented stack history.
+Active managed stacks remain separate work, not a prerequisite for these contracts.
+Merging these decisions does not activate an installed runtime.
 
 ## Consequences
 

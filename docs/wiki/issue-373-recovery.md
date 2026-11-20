@@ -3,6 +3,9 @@
 Recorded on 2026-11-20.
 Related pages: [landing history](issue-373-landing.md), [scope](issue-373-scope.md), [user constraints](issue-373-user-constraints.md), [native delegation retro](issue-373-native-delegation-retro.md), [index](index.md).
 
+The [qualified recovery checkpoint](#qualified-recovery-checkpoint-on-2026-11-20) supersedes the old draft, fixture-blocker, and mutation-gate claims below.
+The recorded red results remain evidence at their original heads.
+
 ## Landed #419 and draft #429 correction
 
 The later [qualified #429 merge](#qualified-429-merge) supersedes this section's draft and pending-qualification status.
@@ -234,3 +237,24 @@ Its synthetic validation did not qualify any application candidate or retroactiv
 On 2026-11-20, the source reports cited here were local evidence pointers, not permanent public URLs or copied source records.
 The ingest verified GitHub merge metadata and published PR heads; it did not independently rerun implementation tests or qualification campaigns.
 This documentation-only update granted no ready, merge, close, review-post, deletion, real-state, runtime, or release authority.
+
+## Qualified recovery checkpoint on 2026-11-20
+
+On 2026-11-20, the [actual main chain](issue-373-landing.md#qualified-main-chain-on-2026-11-20) superseded the drafts and stale-parent observations above.
+The final landing reports retain the independent review dispositions, observed failures, narrow corrections, and exact tested-tree proofs.
+The eight inherited fixture failures no longer remained open blockers.
+Later final qualification also corrected historical-schema teardown, explicit null-kind expectations, dispatch help, direct-adoption composition, and stale deliberate-break probes.
+The corrections preserved meaningful assertions and production safety checks; inherited provenance was never a waiver.
+
+On 2026-11-20, the person's final qualification policy retained independent reviews and full local quality, but made mutation diagnostics non-gating.
+The earlier mutation-blocker language above described a superseded process checkpoint.
+#420's 27 diagnostic survivors and one incomplete timeout remain unfinished diagnostics, not a clean mutation result.
+Later full-quality passes do not change those diagnostic outcomes.
+No new mutation campaign is required for this final integration.
+
+On 2026-11-20, #396's inventory correction `aa290bdc931f9627741c66989ed59e554f05f6f8` superseded its original sixth content failure.
+Its prior scoped artifact and mutation evidence is recorded in `/tmp/opencode/issue373-issue396-inventory-fix.md`.
+The remaining five help-option failures were actual failing assertions on the old provisional parent, not five defects on the final parent.
+Existing #428 retains those assertions against the integrated command implementations.
+Final focused and full-quality receipts remain obligations of its immutable final candidate, not results implied by this historical update.
+Synthetic both-host resolution proves path selection and missing-skill behavior, not installed-host invocation.
