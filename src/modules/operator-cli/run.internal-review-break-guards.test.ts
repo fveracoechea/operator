@@ -42,17 +42,8 @@ test.each([
   },
   {
     name: "clean worktree",
-    phaseBypass: [
-      'worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),',
-      "worktree_clean: true,",
-    ],
-    file: "pull-requests/internal-review-machine.ts",
-    replacements: [
-      [
-        'facts.internalReview &&\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed })',
-        "facts.internalReview && false",
-      ],
-    ],
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [["return facts.changed;", "return false;"]],
     testFile: guards,
     pattern: "associate refuses a ready PR",
     assertion: "pr_worktree_unclean",
@@ -66,15 +57,11 @@ test.each([
   },
   {
     name: "handed-off launch refused",
-    phaseBypass: [
-      'event !== undefined &&\n    refusesPrGuard({ guard: "ownership", handedOff: facts.handedOff === true })',
-      'false &&\n    refusesPrGuard({ guard: "ownership", handedOff: facts.handedOff === true })',
-    ],
-    file: "pull-requests/internal-review-machine.ts",
+    file: "worker-kinds/pr-policy.ts",
     replacements: [
       [
-        'return WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: facts.implementer })',
-        "return false",
+        'if (facts.guard === "ownership") return facts.handedOff;',
+        'if (facts.guard === "ownership") return false;',
       ],
     ],
     testFile: guards,
@@ -109,12 +96,11 @@ test.each([
   },
   {
     name: "two rounds",
-    phaseBypass: ['event === "round" &&', 'event === "round" && false &&'],
-    file: "pull-requests/internal-review-machine.ts",
+    file: "worker-kinds/pr-policy.ts",
     replacements: [
       [
-        'WorkerKinds.refusesPrGuard({ guard: "round", rounds: facts.review.rounds.length })',
-        'WorkerKinds.refusesPrGuard({ guard: "round", rounds: facts.review.rounds.length - 1 })',
+        'if (facts.guard === "round") return facts.rounds >= 2;',
+        'if (facts.guard === "round") return facts.rounds >= 3;',
       ],
     ],
     testFile: flow,
@@ -167,17 +153,8 @@ test.each([
   },
   {
     name: "a ready step refuses an unclean worktree",
-    phaseBypass: [
-      'worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),',
-      "worktree_clean: true,",
-    ],
-    file: "pull-requests/internal-review-machine.ts",
-    replacements: [
-      [
-        'when: (facts) =>\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),',
-        "when: () => false,",
-      ],
-    ],
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [["return facts.changed;", "return false;"]],
     testFile: ready,
     pattern: "rendered comment",
     assertion: "pr_worktree_unclean",
@@ -255,12 +232,10 @@ test.each([
   async (change) => {
     const file = `${root}/src/modules/${change.file}`;
     const original = await Bun.file(file).text();
-    const phaseFile = `${root}/src/modules/worker-kinds/phase-machine.ts`;
-    const phaseOriginal = change.phaseBypass ? await Bun.file(phaseFile).text() : undefined;
     let changed = original;
     for (const [before, after] of change.replacements) {
       expect(original).toContain(before);
-      if (change.behaviorFailure || change.phaseBypass)
+      if (change.behaviorFailure || change.assertion !== undefined)
         expect(original.split(before)).toHaveLength(2);
       changed = changed.replace(before, after);
     }
@@ -289,10 +264,7 @@ test.each([
       return { code, stdout, stderr };
     }
     try {
-      if (change.phaseBypass && phaseOriginal !== undefined) {
-        const [before, after] = change.phaseBypass;
-        expect(phaseOriginal.split(before)).toHaveLength(2);
-        await Bun.write(phaseFile, phaseOriginal.replace(before, after));
+      if (change.assertion !== undefined) {
         const intact = await story();
         const output = `${intact.stdout}${intact.stderr}`;
         console.info(`${change.name} with intact consumer:\n${output}`);
@@ -334,10 +306,7 @@ test.each([
         expect(output).not.toContain("Unhandled error");
       }
     } finally {
-      await Promise.all([
-        Bun.write(file, original),
-        ...(phaseOriginal === undefined ? [] : [Bun.write(phaseFile, phaseOriginal)]),
-      ]);
+      await Bun.write(file, original);
     }
   },
   180000,
