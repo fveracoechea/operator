@@ -29,7 +29,7 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
       command: `operator message close ${target} --key ${argument(row.message.key)}`,
       why: "Read the recorded reply and act on it before closing the message.",
     };
-  if (row.action === "clean_up" && row.reason === "pr_closed")
+  if (row.reason === "pr_closed")
     return {
       command: `operator abandon ${target}`,
       why: "The PR closed without merge; retain its unlanded work.",
