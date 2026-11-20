@@ -244,10 +244,8 @@ export function renewHandoff(
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) => {
-      if (continuation !== undefined) {
-        const checked = validateContinuation(db, continuation);
-        if (checked.tag !== "Ok") return checked;
-      }
+      const checked = validateContinuation(db, continuation);
+      if (checked.tag !== "Ok") return checked;
       db.update(kindHandoffs)
         .set({ leaseAt: new Date().toISOString() })
         .where(and(handoffKey(sourceId, assignment), eq(kindHandoffs.ownerPid, process.pid)))
@@ -268,10 +266,8 @@ export function finishImplementer(
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) => {
-      if (continuation !== undefined) {
-        const checked = validateContinuation(db, continuation);
-        if (checked.tag !== "Ok") return checked;
-      }
+      const checked = validateContinuation(db, continuation);
+      if (checked.tag !== "Ok") return checked;
       db.update(launches)
         .set({
           state: "finished",
