@@ -109,6 +109,21 @@ test.each(cases)("next decision for $row.action preserves its row", ({ row, next
 });
 
 test.each([
+  ["ready_assignment", "assignment_ready"],
+  ["replace_worker", "launch_failed"],
+  ["replace_worker", "worker_interrupted"],
+  ["replace_worker", "handoff_failed"],
+] as const)("a null-kind %s/%s row names the same fill command in next", (action, reason) => {
+  const row = { assignment: "read", kind: null, action, reason, blockers: [] };
+  const command = "operator dispatch --source source --assignment read --kind <kind>";
+  expect(withNext("source", row)).toStrictEqual({
+    ...row,
+    command,
+    next: { command, why: "Name a worker kind for this record from before kinds." },
+  });
+});
+
+test.each([
   { action: "answer_question", reason: "question_open", decider: "super-agent" },
   { action: "person_decision", reason: "question_awaiting_person", decider: "person" },
 ] as const)("$action names the question's decider", ({ action, reason, decider }) => {

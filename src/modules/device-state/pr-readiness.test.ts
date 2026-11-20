@@ -4,18 +4,23 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { migrationsFolder } from "./database.ts";
 import { insertRow } from "./state-fixture.ts";
-import { prReadinessSchema, recordPrReady } from "./pr-readiness.ts";
+import { prReadinessSchema, storedPrReadinessSchema, recordPrReady } from "./pr-readiness.ts";
 
-test("readiness retains legacy facts and accepts unknown heads only with explicit migration origin", () => {
-  const ready = { head: "known", at: "then", note: "/notes/ready.md", dispositions: [] };
-  expect(prReadinessSchema.parse(ready)).toEqual(ready);
-  expect(prReadinessSchema.safeParse({ ...ready, head: null }).success).toBe(false);
-  expect(prReadinessSchema.parse({ ...ready, head: null, origin: "migration-0026" })).toEqual({
-    ...ready,
-    head: null,
-    origin: "migration-0026",
-  });
-});
+test.each([null, "known"])(
+  "stored readiness retains migration provenance with historical head %s",
+  (head) => {
+    const ready = { head: "known", at: "then", note: "/notes/ready.md", dispositions: [] };
+    expect(prReadinessSchema.parse(ready)).toEqual(ready);
+    expect(prReadinessSchema.safeParse({ ...ready, head: null }).success).toBe(false);
+    expect(
+      storedPrReadinessSchema.parse(JSON.stringify({ ...ready, head, origin: "migration-0026" })),
+    ).toEqual({
+      ...ready,
+      head,
+      origin: "migration-0026",
+    });
+  },
+);
 
 test("readiness records complete dispositions and replaces only the completed outgoing handoff", () => {
   using client = new Database(":memory:");
@@ -77,7 +82,7 @@ test("readiness records complete dispositions and replaces only the completed ou
 });
 
 test("persisted dispositions keep tolerant decoding, trimmed reasons and positive identifiers", () => {
-  const schema = prReadinessSchema.options[1].shape.dispositions.element;
+  const schema = prReadinessSchema.shape.dispositions.element;
   expect(
     schema.parse({
       round: 2,
@@ -97,4 +102,51 @@ test("persisted dispositions keep tolerant decoding, trimmed reasons and positiv
   expect(
     schema.safeParse({ round: 1, finding: 1, disposition: "declined", reason: " " }).success,
   ).toBe(false);
+});
+
+test("stored readiness decodes absent and historical receipts with the same disposition rules", () => {
+  expect(storedPrReadinessSchema.parse(null)).toBeNull();
+  expect(storedPrReadinessSchema.parse(undefined)).toBeNull();
+  expect(
+    storedPrReadinessSchema.parse(
+      JSON.stringify({
+        head: "legacy-ready-head",
+        at: "now",
+        note: "/device/reviewer.md",
+        dispositions: [
+          { round: 2, finding: 3, disposition: "declined", reason: "  Covered.  ", extra: true },
+        ],
+        extra: "old metadata",
+      }),
+    ),
+  ).toEqual({
+    head: "legacy-ready-head",
+    at: "now",
+    note: "/device/reviewer.md",
+    dispositions: [{ round: 2, finding: 3, disposition: "declined", reason: "Covered." }],
+  });
+});
+
+test.each(["{", "{}", "", "null"])("stored readiness refuses corrupt text %j", (text) => {
+  expect(() => storedPrReadinessSchema.parse(text)).toThrow();
+});
+
+test("stored migration readiness refuses an unproven unknown head and malformed dispositions", () => {
+  const receipt = {
+    origin: "migration-0026",
+    head: null,
+    at: "then",
+    note: null,
+    dispositions: [],
+  };
+  const { origin: _origin, ...unproven } = receipt;
+  expect(() => storedPrReadinessSchema.parse(JSON.stringify(unproven))).toThrow();
+  expect(() =>
+    storedPrReadinessSchema.parse(
+      JSON.stringify({
+        ...receipt,
+        dispositions: [{ round: 1, finding: 1, disposition: "declined", reason: " " }],
+      }),
+    ),
+  ).toThrow();
 });

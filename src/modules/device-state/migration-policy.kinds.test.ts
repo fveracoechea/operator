@@ -5,7 +5,7 @@ import {
   migrateKinds,
 } from "./kind-migration-fixture.ts";
 import { idleForMigration } from "./migration-policy.ts";
-import { prReadinessSchema } from "./pr-readiness.ts";
+import { storedPrReadinessSchema } from "./pr-readiness.ts";
 import { prParkingSchema } from "./pr-parking.ts";
 
 test("the migration maps in-flight records to kinds from recorded facts only", () => {
@@ -57,7 +57,7 @@ test("the migration maps in-flight records to kinds from recorded facts only", (
       "SELECT readiness, parking FROM pull_requests WHERE assignment = 'none'",
     )
     .get();
-  expect(prReadinessSchema.parse(JSON.parse(receipts?.readiness ?? "null"))).toEqual({
+  expect(storedPrReadinessSchema.parse(receipts?.readiness ?? null)).toEqual({
     origin: "migration-0026",
     head: null,
     at: "then",

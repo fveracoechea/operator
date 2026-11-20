@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { Err, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
@@ -19,7 +20,7 @@ const row: Parameters<typeof parkedObservation>[0] = {
   branch: "task/a",
   associatedAt: "then",
   progress: '{"seen":[],"failures":[],"eligibleHead":null}',
-  readiness: "explicit-ready",
+  readiness: { head: "h", at: "then", note: null, dispositions: [] },
   waitState: "idle",
   waitAt: null,
   waitOwnerPid: null,
@@ -29,7 +30,7 @@ const row: Parameters<typeof parkedObservation>[0] = {
   mergedAt: null,
   relay: null,
   parkingRaw:
-    '{"launchId":"l","head":"h","at":"then","note":null,"state":"parked","events":[],"parentSeen":false}',
+    '{\n  "state": "parked", "head": "h", "launchId": "l", "at": "then",\n  "events": [], "note": null\n}',
   parking: {
     launchId: "l",
     head: "h",
@@ -67,6 +68,32 @@ test("an unclaimed device batch performs no GitHub or persistence work", async (
   expect(github).not.toHaveBeenCalled();
   expect(finish).not.toHaveBeenCalled();
 });
+
+test.each(["{", "{}", ""])(
+  "corrupt readiness %j refuses a parked batch before GitHub, wakeup, or cleanup",
+  async (readiness) => {
+    await using device = await prDevice();
+    const worker = device.start("parent");
+    device.associate(worker.launchId, 7, "task/parent");
+    using client = new Database(device.paths.database);
+    client
+      .query("UPDATE pull_requests SET readiness = ?, parking = ?")
+      .run(readiness, JSON.stringify({ ...row.parking, launchId: worker.launchId }));
+    client.exec("UPDATE launches SET state = 'finished'");
+    const before = client.serialize();
+    const github = spyOn(GithubApi, "call");
+    const merge = spyOn(DeviceState, "recordPullRequestMerge");
+    const cleanup = spyOn(DeviceState, "claimCleanup");
+    expect(await observeParked({ paths: device.paths })).toMatchObject({
+      tag: "Err",
+      error: { reason: "state_corrupt" },
+    });
+    expect(github).not.toHaveBeenCalled();
+    expect(merge).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(client.serialize()).toEqual(before);
+  },
+);
 
 test.each(["Err", "Defect", "stale"] as const)(
   "a %s batch persistence outcome never records a merge and releases its claim",
@@ -106,6 +133,56 @@ test("a complete empty batch acknowledges once and releases its lease", async ()
   expect(await observeParked({ paths })).toMatchObject({ tag: "Ok" });
   expect(finish.mock.calls.map((call) => call[2])).toEqual([[], null]);
   expect(github).not.toHaveBeenCalled();
+});
+
+test("a parked observation forwards the exact persisted JSON bytes as its comparison witness", async () => {
+  const update = parkedObservation(row, { observed, parent: null });
+  expect(update.previous).toBe(row.parkingRaw);
+  expect(update.parking).toEqual({
+    launchId: "l",
+    head: "h",
+    at: "then",
+    note: null,
+    state: "parked",
+    events: [],
+    parentSeen: false,
+  });
+  spyOn(DeviceState, "claimParkedRead").mockReturnValue(Ok({ at: "claim", rows: [row] }));
+  const body = pullRequestBody({ head: "h" });
+  spyOn(GithubApi, "call").mockResolvedValue(
+    succeeded({ data: { viewer: body.data.viewer, r0: body.data.repository } }),
+  );
+  const finish = spyOn(DeviceState, "finishParkedRead").mockReturnValue(Ok(true));
+  expect(await observeParked({ paths })).toMatchObject({ tag: "Ok" });
+  expect(finish).toHaveBeenNthCalledWith(1, paths, "claim", [
+    expect.objectContaining({ sourceId: "s", assignment: "a", previous: row.parkingRaw }),
+  ]);
+  expect(finish).toHaveBeenLastCalledWith(paths, "claim", null);
+});
+
+test("a migration observation learns the current head without replacing the raw comparison witness", () => {
+  const migrated = {
+    ...row,
+    parkingRaw:
+      '{ "origin": "migration-0026", "head": null, "state": "parked", "launchId": "l", "at": "then", "note": null, "events": [] }',
+    parking: { ...row.parking, origin: "migration-0026" as const, head: null },
+  };
+  const update = parkedObservation(migrated, {
+    observed: { ...observed, head: "fresh" },
+    parent: null,
+  });
+  expect(update.previous).toBe(migrated.parkingRaw);
+  expect(update.parking).toEqual({
+    launchId: "l",
+    head: "fresh",
+    at: "then",
+    note: null,
+    state: "parked",
+    events: [],
+    parentSeen: false,
+    origin: "migration-0026",
+  });
+  expect(migrated.parking.head).toBeNull();
 });
 
 test.each([true, false])(
@@ -202,7 +279,10 @@ test("a successful quiet park retains only its supplied note and starts the reco
 
 test("a quiet park without a supplied note never copies the reviewer note", async () => {
   await using device = await prDevice();
-  const owner = { ...startOwner(device), readiness: JSON.stringify({ note: "/reviewer/note.md" }) };
+  const owner = {
+    ...startOwner(device),
+    readiness: { head: "h1", at: "now", note: "/reviewer/note.md", dispositions: [] },
+  };
   const park = spyOn(DeviceState, "parkPullRequest").mockReturnValue(Ok(row.parking));
   spyOn(ToolInvocation, "detach").mockReturnValue(123);
   spyOn(DeviceState, "startHandoff").mockReturnValue(Ok(undefined));

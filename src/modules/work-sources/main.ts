@@ -542,6 +542,7 @@ export const WorkSources = {
       intentFile?: string;
       profile?: string;
       trackerKey?: string;
+      adopt?: string;
     },
   ) {
     return registerPlan(
@@ -588,6 +589,57 @@ export const WorkSources = {
         }
       );
     });
+  },
+  /** Copy ended owners' facts, never their authority or readiness, into an adopted PR's brief. */
+  adoptionHistory(input: Input & { number: number }) {
+    return read(input).map((sources) =>
+      sources.flatMap((source) =>
+        source.pullRequests.flatMap((pr) => {
+          if (pr.number !== input.number) return [];
+          const ended =
+            source.state !== "open" ||
+            source.assignments.some(
+              (row) => row.key === pr.assignment && ["abandoned", "merged"].includes(row.state),
+            );
+          if (!ended || pr.mergedAt !== null) return [];
+          const planned = source.planned.find((row) => row.key === pr.assignment);
+          const review = source.internalReviews.find((row) => row.assignment === pr.assignment);
+          const dispositions = new Map(
+            (pr.readiness?.dispositions ?? []).map((item) => [
+              `${item.round}.${item.finding}`,
+              item,
+            ]),
+          );
+          return [
+            {
+              sourceId: source.id,
+              assignment: pr.assignment,
+              intent: planned?.intent ?? source.plan.intent ?? null,
+              issue: planned?.trackerKey ?? source.trackerKey,
+              summary: review?.commentUrl ?? null,
+              rounds: source.internalReviewRounds
+                .filter((row) => row.assignment === pr.assignment)
+                .map((round) => ({
+                  number: round.number,
+                  head: round.head,
+                  findings: round.findings.map((finding, index) => {
+                    const disposition = dispositions.get(`${round.number}.${index + 1}`);
+                    return {
+                      ...finding,
+                      disposition:
+                        disposition === undefined
+                          ? null
+                          : disposition.disposition === "applied"
+                            ? "applied"
+                            : `declined: ${disposition.reason}`,
+                    };
+                  }),
+                })),
+            },
+          ];
+        }),
+      ),
+    );
   },
   /**
    * The accepted reports of an assignment's direct dependencies. A consumer brief copies this
@@ -1392,7 +1444,9 @@ function decideAssignmentRow(
   const decision = decideAssignment({
     assignment: current,
     dependencies,
-    dispatchable: WorkerKinds.dispatchable(assignment.kind),
+    dispatchable:
+      WorkerKinds.dispatchable(assignment.kind) ||
+      ("adopt" in assignment && assignment.adopt !== undefined),
     // A start whose dispatching process stopped can be replaced.
     launch: launch?.abandoned === true ? "abandoned" : launch?.state,
     ...pullRequestFacts(pullRequest),

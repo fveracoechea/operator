@@ -23,7 +23,6 @@ async function pendingDatabase(blocked: boolean) {
   const shipped = readMigrationFiles({
     migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
   });
-  expect(shipped).toHaveLength(28);
   for (const migration of shipped.slice(0, 3)) {
     for (const sql of migration.sql) db.exec(sql);
     db.query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)").run(
@@ -31,6 +30,10 @@ async function pendingDatabase(blocked: boolean) {
       migration.folderMillis,
     );
   }
+  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+    shipped.slice(0, 3).map(({ hash, folderMillis }) => ({ hash, created_at: folderMillis })),
+  );
+  expect(shipped.length).toBeGreaterThan(3);
   db.query("INSERT INTO projects VALUES (?, ?, ?)").run(
     "example/one",
     device.main,
@@ -96,7 +99,15 @@ test.each([false, true])(
     if (blocked) expect(await recorded(file)).toEqual(before);
     else {
       using db = new Database(file, { readonly: true });
-      expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+      expect(
+        db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all(),
+      ).toEqual(
+        readMigrationFiles({
+          migrationsFolder: Bun.fileURLToPath(
+            new URL("../device-state/migrations/", import.meta.url),
+          ),
+        }).map(({ hash, folderMillis }) => ({ hash, created_at: folderMillis })),
+      );
       expect(await Bun.file(file).bytes()).not.toEqual(beforeBytes);
       expect(
         Object.keys((await recorded(file)).files).filter((name) => name.endsWith("/verified.json")),

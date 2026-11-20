@@ -68,7 +68,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   const checkout = `${root}/checkout`;
   const remote = `${root}/remote.git`;
 
-  function environment() {
+  function environment(pane?: string) {
     return Environment.child({
       ...gitEnv,
       HOME: `${root}/home`,
@@ -76,12 +76,13 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
       XDG_STATE_HOME: `${root}/state`,
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       HERDR_SOCKET_PATH: `${root}/herdr.sock`,
+      HERDR_PANE_ID: pane,
       PATH: `${root}/tools:${Environment.read().PATH}`,
     });
   }
 
-  async function exec(args: string[], cwd: string) {
-    const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+  async function exec(args: string[], cwd: string, pane?: string) {
+    const child = Bun.spawn(args, { cwd, env: environment(pane), stdout: "pipe", stderr: "pipe" });
     const [code, stdout, stderr] = await Promise.all([
       child.exited,
       new Response(child.stdout).text(),
@@ -91,8 +92,8 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   }
 
   /** Review commands run from the device root, which is no checkout. */
-  async function run(args: string[], cwd = root) {
-    const result = await exec([...command.argv, ...args, "--json"], cwd);
+  async function run(args: string[], cwd = root, pane?: string) {
+    const result = await exec([...command.argv, ...args, "--json"], cwd, pane);
     const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
     expectRefusalOutput(output, result.stderr);
     return {

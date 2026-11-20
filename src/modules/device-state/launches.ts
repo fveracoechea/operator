@@ -18,6 +18,7 @@ import { finishHandoff, handoffDispatchable } from "./internal-reviews.ts";
 import { superviseSource, type Supervisor } from "./sources.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { reservedContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
+import { adoptionOwner, type AdoptionTarget, type AdoptionFailure } from "./adoptions.ts";
 import { migrationResume } from "./migration-receipts.ts";
 import { activateParking, prParkingSchema } from "./pr-parking.ts";
 
@@ -25,6 +26,7 @@ export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
 export type LaunchFailure =
   | StateFailure
+  | AdoptionFailure
   | (ResultContext & {
       reason:
         | "controller_mismatch"
@@ -236,11 +238,23 @@ export function reserveLaunch(
   supervisor: Supervisor = { pane: null, session: null },
   continuation?: HandoffContinuation,
   fillKind?: string,
+  adoption?: Pick<AdoptionTarget, "number">,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      reservedContinuation(db, continuation, repository, launch).flatMap(
-        (): Result<LaunchRow, LaunchFailure> => {
+      reservedContinuation(db, continuation, repository, launch)
+        .flatMap(() =>
+          adoption === undefined
+            ? Ok(undefined)
+            : adoptionOwner(db, {
+                repository,
+                sourceId: launch.sourceId,
+                assignment: launch.assignment,
+                branch: launch.branch ?? "",
+                number: adoption.number,
+              }),
+        )
+        .flatMap((): Result<LaunchRow, LaunchFailure> => {
           const controller = db
             .select()
             .from(projects)
@@ -345,8 +359,7 @@ export function reserveLaunch(
               return Ok(row);
             },
           );
-        },
-      ),
+        }),
     ),
   );
 }

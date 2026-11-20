@@ -248,9 +248,10 @@ The report keeps its completion type, and the PR assignment is a new record.
 _Avoid_: conversion, report upgrade
 
 **Adoption**:
-A PR assignment's start on an open PR that Operator did not create, named by its number in the plan.
-Dispatch puts the PR's own branch in a new worktree, and the owner reads the PR and its threads, associates it, and runs the PR feedback loop.
-A ready PR gets no internal review, and a draft keeps the resolved setting.
+A PR assignment's start on the person's own open PR or remote branch, from a plan or one-off dispatch.
+A branch without a PR enters implementation, a draft enters implementation or review, and a ready PR enters implementation or pr-feedback.
+A ready PR gets no internal review, and a live assignment or review request keeps its ownership.
+An ended PR-open owner's facts accompany the new brief without transferring its authority.
 _Avoid_: takeover, import
 
 **PR feedback loop**:

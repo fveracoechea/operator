@@ -1,10 +1,12 @@
 import { and, eq, desc } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import { Err, Ok, type Result } from "unthrown";
+import { Err, Ok, fromThrowable, type Result } from "unthrown";
 import { z } from "zod";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { activeOwner } from "./pull-requests.ts";
+import { storedPrReadinessSchema, type PrReadiness } from "./pr-readiness.ts";
+import { stateFailure, type StateFailure } from "./failures.ts";
 import { recordKindHandoff } from "./kind-handoff-record.ts";
 import { validateContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { ownerGone } from "./leases.ts";
@@ -19,6 +21,7 @@ import {
   sources,
 } from "./schema.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
+import type { Supervisor } from "./sources.ts";
 
 const parkingReceipt = z.object({
   launchId: z.string(),
@@ -39,6 +42,21 @@ export const prParkingSchema = z.union([
 ]);
 export type PrParking = z.infer<typeof prParkingSchema>;
 type Target = { repository: string; sourceId: string; assignment: string };
+
+function qualifyReadiness<T>(cause: Error, defect: (cause: Error) => T) {
+  return cause instanceof SyntaxError || cause instanceof z.ZodError
+    ? stateFailure("state_corrupt", "The recorded PR readiness is invalid. Nothing was changed.", {
+        readinessValid: false,
+      })
+    : defect(cause);
+}
+
+function readReadiness(text: string | null): Result<PrReadiness | null, StateFailure> {
+  return fromThrowable(
+    () => storedPrReadinessSchema.parse(text),
+    (cause, defect) => (cause instanceof Error ? qualifyReadiness(cause, defect) : defect(cause)),
+  )();
+}
 function key(target: { sourceId: string; assignment: string }) {
   return and(
     eq(pullRequests.sourceId, target.sourceId),
@@ -87,43 +105,45 @@ export function parkPullRequest(
           .where(key({ sourceId: owner.source.id, assignment: owner.assignment.key }))
           .get();
         if (row === undefined) return Err(refused());
-        const previous =
-          row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
-        const decision = decideParking({
-          ...facts(previous?.state ?? null),
-          ready: row.readiness !== null,
-          feedbackOwner:
-            owner.launch.kind !== null &&
-            WorkerKinds.snapshotSchema().parse(JSON.parse(owner.launch.kind)).name ===
-              "pr-feedback",
-        });
-        if (decision.result !== "transition") return Err(refused());
-        return recordKindHandoff(
-          db,
-          { sourceId: owner.source.id, assignment: owner.assignment.key, launchId },
-          "pr-feedback",
-        ).map(() => {
-          const parking: PrParking = {
-            launchId,
-            ...input,
-            at: new Date().toISOString(),
-            state: decision.state,
-            events: [],
-            parentSeen:
-              row.parking === null
-                ? false
-                : prParkingSchema.parse(JSON.parse(row.parking)).parentSeen,
-          };
-          db.update(pullRequests)
-            .set({
-              parking: JSON.stringify(parking),
-              waitState: "idle",
-              waitOwnerPid: null,
-              waitLeaseAt: null,
-            })
-            .where(key(row))
-            .run();
-          return parking;
+        return readReadiness(row.readiness).flatMap((readiness): Result<PrParking, Refusal> => {
+          const previous =
+            row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
+          const decision = decideParking({
+            ...facts(previous?.state ?? null),
+            ready: readiness !== null,
+            feedbackOwner:
+              owner.launch.kind !== null &&
+              WorkerKinds.snapshotSchema().parse(JSON.parse(owner.launch.kind)).name ===
+                "pr-feedback",
+          });
+          if (decision.result !== "transition") return Err(refused());
+          return recordKindHandoff(
+            db,
+            { sourceId: owner.source.id, assignment: owner.assignment.key, launchId },
+            "pr-feedback",
+          ).map(() => {
+            const parking: PrParking = {
+              launchId,
+              ...input,
+              at: new Date().toISOString(),
+              state: decision.state,
+              events: [],
+              parentSeen:
+                row.parking === null
+                  ? false
+                  : prParkingSchema.parse(JSON.parse(row.parking)).parentSeen,
+            };
+            db.update(pullRequests)
+              .set({
+                parking: JSON.stringify(parking),
+                waitState: "idle",
+                waitOwnerPid: null,
+                waitLeaseAt: null,
+              })
+              .where(key(row))
+              .run();
+            return parking;
+          });
         });
       }),
     ),
@@ -141,24 +161,29 @@ export function completeParking(
       validateContinuation(db, continuation, target).flatMap(() => {
         const row = db.select().from(pullRequests).where(key(target)).get();
         if (row?.parking === null || row === undefined) return Ok(false);
-        const parking = prParkingSchema.parse(JSON.parse(row.parking));
-        const decision = decideParking(parkingCompletionFacts(db, target, parking, row.repository));
-        if (decision.result === "unchanged") return Ok(false);
-        if (decision.result === "refused") return Err(refused());
-        db.update(pullRequests)
-          .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
-          .where(key(target))
-          .run();
-        db.update(kindHandoffs)
-          .set({ handoffState: "done", ownerPid: null, leaseAt: null })
-          .where(
-            and(
-              eq(kindHandoffs.sourceId, target.sourceId),
-              eq(kindHandoffs.assignment, target.assignment),
-            ),
-          )
-          .run();
-        return Ok(true);
+        const text = row.parking;
+        return readReadiness(row.readiness).flatMap(() => {
+          const parking = prParkingSchema.parse(JSON.parse(text));
+          const decision = decideParking(
+            parkingCompletionFacts(db, target, parking, row.repository),
+          );
+          if (decision.result === "unchanged") return Ok(false);
+          if (decision.result === "refused") return Err(refused());
+          db.update(pullRequests)
+            .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
+            .where(key(target))
+            .run();
+          db.update(kindHandoffs)
+            .set({ handoffState: "done", ownerPid: null, leaseAt: null })
+            .where(
+              and(
+                eq(kindHandoffs.sourceId, target.sourceId),
+                eq(kindHandoffs.assignment, target.assignment),
+              ),
+            )
+            .run();
+          return Ok(true);
+        });
       }),
     ),
   );
@@ -205,7 +230,39 @@ function parkingCompletionFacts(
   };
 }
 
-export function resumeParkedPullRequest(client: Database, target: Target) {
+function resumeAuthorityRefusal(
+  kind: string | null,
+  supervisorSession: string | null,
+  fillKind: string | undefined,
+  callerSession: string | null,
+): Refusal | null {
+  if (fillKind !== undefined && kind !== null)
+    return {
+      reason: "assignment_kind_set",
+      detail: "The assignment already has a kind. Nothing changed.",
+      next: { command: "operator next", why: "Use the recorded assignment kind." },
+      state: { kind },
+    };
+  if (supervisorSession !== null && supervisorSession !== callerSession)
+    return {
+      reason: "source_supervised_elsewhere",
+      detail: "Another agent session now supervises this source. Nothing changed.",
+      next: {
+        decider: "super-agent",
+        question:
+          "Will the recorded supervisor continue, or should the person authorize a source take-over?",
+      },
+      state: { supervisorSession, callerSession },
+    };
+  return null;
+}
+
+export function resumeParkedPullRequest(
+  client: Database,
+  target: Target,
+  fillKind?: string,
+  supervisor: Supervisor = { pane: null, session: null },
+) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<undefined, Refusal> => {
       const row = db
@@ -228,40 +285,50 @@ export function resumeParkedPullRequest(client: Database, target: Target) {
         source?.state !== "open"
       )
         return Err(refused());
-      const parking = prParkingSchema.parse(JSON.parse(row.parking));
-      const latest = db
-        .select()
-        .from(launches)
-        .where(
-          and(eq(launches.sourceId, target.sourceId), eq(launches.assignment, target.assignment)),
-        )
-        .orderBy(desc(launches.attempt))
-        .get();
-      const decision = decideParking({
-        ...facts(parking.state),
-        ...migrationParkingFacts(db, latest, parking),
-        event: "resume",
-        hasEvents: parking.events.length > 0,
-        launchMatches: latest?.id === parking.launchId,
-        launchFinished: latest?.state === "finished",
-      });
-      if (decision.result !== "transition") return Err(refused());
-      if ("origin" in parking) {
-        db.update(pullRequests)
-          .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
-          .where(key(target))
-          .run();
-        return Ok(undefined);
-      }
-      return recordKindHandoff(db, { ...target, launchId: parking.launchId }, "pr-feedback").map(
-        () => {
+      const authority = resumeAuthorityRefusal(
+        assignment.kind,
+        source.supervisingSession,
+        fillKind,
+        supervisor.session,
+      );
+      if (authority !== null) return Err(authority);
+      const text = row.parking;
+      return readReadiness(row.readiness).flatMap((): Result<undefined, Refusal> => {
+        const parking = prParkingSchema.parse(JSON.parse(text));
+        const latest = db
+          .select()
+          .from(launches)
+          .where(
+            and(eq(launches.sourceId, target.sourceId), eq(launches.assignment, target.assignment)),
+          )
+          .orderBy(desc(launches.attempt))
+          .get();
+        const decision = decideParking({
+          ...facts(parking.state),
+          ...migrationParkingFacts(db, latest, parking),
+          event: "resume",
+          hasEvents: parking.events.length > 0,
+          launchMatches: latest?.id === parking.launchId,
+          launchFinished: latest?.state === "finished",
+        });
+        if (decision.result !== "transition") return Err(refused());
+        if ("origin" in parking) {
           db.update(pullRequests)
             .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
             .where(key(target))
             .run();
-          return undefined;
-        },
-      );
+          return Ok(undefined);
+        }
+        return recordKindHandoff(db, { ...target, launchId: parking.launchId }, "pr-feedback").map(
+          () => {
+            db.update(pullRequests)
+              .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
+              .where(key(target))
+              .run();
+            return undefined;
+          },
+        );
+      });
     }),
   );
 }
@@ -271,37 +338,39 @@ export function activateParking(
   db: Db,
   target: Target,
   outgoing: { id: string } | undefined,
-): Result<undefined, ReturnType<typeof refused>> {
+): Result<undefined, ReturnType<typeof refused> | StateFailure> {
   const row = db.select().from(pullRequests).where(key(target)).get();
-  const parking =
-    row?.parking === null || row === undefined
-      ? null
-      : prParkingSchema.parse(JSON.parse(row.parking));
-  const decision = decideParking({
-    ...facts(parking?.state ?? null),
-    event: "activate",
-    repositoryMatches: row === undefined || row.repository === target.repository,
-    launchMatches: parking?.launchId === outgoing?.id,
+  return readReadiness(row?.readiness ?? null).flatMap(() => {
+    const parking =
+      row?.parking === null || row === undefined
+        ? null
+        : prParkingSchema.parse(JSON.parse(row.parking));
+    const decision = decideParking({
+      ...facts(parking?.state ?? null),
+      event: "activate",
+      repositoryMatches: row === undefined || row.repository === target.repository,
+      launchMatches: parking?.launchId === outgoing?.id,
+    });
+    if (decision.result === "refused") return Err(refused());
+    if (decision.result === "transition" && parking !== null)
+      db.update(pullRequests)
+        .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
+        .where(key(target))
+        .run();
+    return Ok(undefined);
   });
-  if (decision.result === "refused") return Err(refused());
-  if (decision.result === "transition" && parking !== null)
-    db.update(pullRequests)
-      .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
-      .where(key(target))
-      .run();
-  return Ok(undefined);
 }
 
 export function claimParkedRead(client: Database, now: number) {
   return transaction(client, true, () =>
-    checkHistory(client).map((db) => {
+    checkHistory(client).flatMap((db) => {
       const row = db.select().from(parkedPrReads).where(eq(parkedPrReads.id, 1)).get();
       if (
         row !== undefined &&
         (!ownerGone(row, now) ||
           (row.lastReadAt !== null && now - Date.parse(row.lastReadAt) < 900000))
       )
-        return null;
+        return Ok(null);
       const at = new Date(now).toISOString();
       const claim = {
         id: 1,
@@ -331,7 +400,17 @@ export function claimParkedRead(client: Database, now: number) {
           const parking = prParkingSchema.parse(JSON.parse(pr.parking));
           return parking.state === "parked" ? [{ ...pr, parkingRaw: pr.parking, parking }] : [];
         });
-      return { at, rows };
+      return fromThrowable(
+        () => ({
+          at,
+          rows: rows.map((row) => ({
+            ...row,
+            readiness: storedPrReadinessSchema.parse(row.readiness),
+          })),
+        }),
+        (cause, defect) =>
+          cause instanceof Error ? qualifyReadiness(cause, defect) : defect(cause),
+      )();
     }),
   );
 }
