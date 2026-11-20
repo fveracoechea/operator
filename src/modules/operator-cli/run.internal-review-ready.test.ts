@@ -226,8 +226,15 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function dispatch(source: string, assignment = "implement") {
-  const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
+async function dispatch(source: string, assignment = "implement", kind?: "implementation") {
+  const launched = await run([
+    "dispatch",
+    "--source",
+    source,
+    "--assignment",
+    assignment,
+    ...(kind === undefined ? [] : ["--kind", kind]),
+  ]);
   expect(launched.code, launched.stderr).toBe(0);
   const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string(), brief: z.string() }) })
@@ -1477,10 +1484,24 @@ test("draft association with review off refreshes readiness at the current pushe
 }, 120000);
 
 test.each(["custom", "legacy"] as const)(
-  "ready association actually dispatches %s feedback without supervisor recovery",
+  "ready association dispatches %s feedback after required kind selection without supervisor recovery",
   async (kind) => {
     const source = await setup("opencode", plan, kind);
-    const worker = await dispatch(source);
+    const registered = await shown(source);
+    if (kind === "legacy") {
+      expect(
+        await run(["dispatch", "--source", source, "--assignment", "implement"]),
+      ).toMatchObject({
+        code: 4,
+        output: { reason: "assignment_kind_required", state: { kind: null } },
+      });
+      expect(await shown(source)).toEqual(registered);
+    }
+    const worker = await dispatch(
+      source,
+      "implement",
+      kind === "legacy" ? "implementation" : undefined,
+    );
     const before = (await shown(source)).launches[0];
     const head = await commit(worker.worktreePath, "ready.txt");
     await github({ pulls: [pull({ head, isDraft: false })] });

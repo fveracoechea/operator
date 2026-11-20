@@ -82,6 +82,8 @@ test("reads, worker commands, unscoped waits, and the person's instructions are 
     ["next", "--source", "s1"],
     ["pr", "merge"],
     ["pr", "wait"],
+    ["pr", "wait", "--source", "s1"],
+    ["pr", "associate", "--source", "s1"],
     ["next", "--wait"],
     ["source", "show", "--source", "s1"],
     ["source", "reset", "--source", "s1", "--person-instructed"],
