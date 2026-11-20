@@ -7,7 +7,7 @@ type Row = {
   question?: { key: string };
   message?: { key: string };
 };
-type ReviewRow = { url: string; action?: string; attention?: string; reason?: string };
+type ReviewRow = { url?: string; action?: string; attention?: string; reason?: string };
 type ReviewEvent = { url: string; kind: string } & Record<string, unknown>;
 type Answer = {
   sources: { id: string; actions: Row[] }[];
@@ -168,7 +168,7 @@ export function changedAnswer<
   };
   if (answer.requests !== undefined) {
     result.events = answer.events?.filter((event) => keys.has(eventKey(event))) ?? [];
-    const named = new Set(result.events.map((event) => event.url));
+    const named = new Set<string | undefined>(result.events.map((event) => event.url));
     result.requests = answer.requests.filter(
       (row) => keys.has(reviewKey(row)) || named.has(row.url),
     );
