@@ -9,7 +9,7 @@ The CLI never reviews from your checkout instead.
 ```sh
 operator review add <pr-url> [--slack-thread permalink] --json
 operator review start <pr-url> [--profile name] --json
-operator review wait [--timeout seconds] [--all] --json
+operator next --wait [--timeout seconds] [--all] --json
 operator review next --json
 operator review skip <pr-url> --json
 operator review cleanup <pr-url> --json
@@ -33,7 +33,7 @@ An assignment reviewer is off by default.
 `operator config apply --set review.assignments=true` queues a review request when a PR owner runs `pr associate`, or, with internal review on, when the internal review ends.
 Its review is always a comment, because the owner's account cannot approve its own PR, so it never supplies the merge approval.
 
-`review wait` watches every open request until something changes or a row needs you, then returns its `events` and only the rows of `review next` that its events name or that have an action.
+The coordination wait runs review upkeep and returns new review `events` and only their named or newly actionable `requests`.
 Add `--all` for every row. `review next` always shows every row.
 It starts rounds, moves reviewers to new heads, sets the stale flag, and ends closed PRs by itself.
 Do not repeat that work.
@@ -50,7 +50,7 @@ Run it again after you act on its rows.
 - `post_review` with `review_post_uncertain`: run the `command`.
   It finds a review or a thread reply that GitHub created and does not post twice.
 - `wait_reviews`: a reviewer move did not finish.
-  Run `operator review wait`.
+  Run `operator next --wait`.
   `reviewer.failure` names a move that failed.
 - `review_watching` and `review_approved`: the review is posted.
   `stale: true` means seven days without author activity.

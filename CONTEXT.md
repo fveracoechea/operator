@@ -201,6 +201,7 @@ The SuperAgent's blocking read of next actions, which returns only the actions t
 A wait without a source from an agent session covers every source that the session supervises, and a change that the session made itself does not end it.
 The SuperAgent runs it in the background, so its host delivers the result as a notification rather than as typed input.
 It reads all parked PRs in one batch every 15 minutes, with one recorded schedule across waits.
+It also runs review upkeep, including rounds, reviewer moves, stale flags, and closed PRs.
 Quiet and repeated observations wake nothing.
 _Avoid_: poll, watcher, worker ping
 

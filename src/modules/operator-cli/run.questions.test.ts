@@ -83,6 +83,16 @@ test("a worker question stays in next actions until the SuperAgent answers it on
       next: { decider: "person", question: "Is b.ts in scope?" },
     },
   ]);
+  const notices = await Promise.all([
+    device.run(["question", "wait", "--key", "scope", "--timeout", "0"], pane),
+    device.run(["question", "wait", "--key", "scope", "--timeout", "0"], pane),
+  ]);
+  expect(notices.map((notice) => notice.output.reason).toSorted()).toEqual([
+    "question_awaiting_person",
+    "question_wait_timed_out",
+  ]);
+  for (const notice of notices)
+    expect(notice.output.next).toMatchObject({ command: "operator question wait --key scope" });
   expect(
     await device.run(["question", "wait", "--key", "scope", "--timeout", "0"], pane),
   ).toMatchObject({
@@ -118,6 +128,12 @@ test("a worker question stays in next actions until the SuperAgent answers it on
       reason: "question_answered",
       data: { answer: "No, only a.ts.", by: "person" },
     },
+  });
+  expect(
+    await device.run(["question", "wait", "--key", "scope", "--timeout", "1000000"], pane),
+  ).toMatchObject({
+    code: 0,
+    output: { reason: "question_answered", data: { by: "person" } },
   });
   expect(await device.herdrCalls()).not.toContain("pane send");
   for (const key of ["still-open", "withdrawn"]) {

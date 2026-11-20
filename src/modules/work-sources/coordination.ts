@@ -7,7 +7,36 @@ type Row = {
   question?: { key: string };
   message?: { key: string };
 };
-type Answer = { sources: { id: string; actions: Row[] }[] };
+type ReviewRow = { url?: string; action?: string; attention?: string; reason?: string };
+type ReviewEvent = { url: string; kind: string } & Record<string, unknown>;
+type Answer = {
+  sources: { id: string; actions: Row[] }[];
+  requests?: ReviewRow[];
+  events?: ReviewEvent[];
+};
+
+export function reviewKey(row: ReviewRow) {
+  return actionKey(`review:${row.url}`, {
+    action: row.action ?? "review_attention",
+    reason: row.reason ?? row.attention,
+  });
+}
+
+export function eventKey(event: ReviewEvent) {
+  if (event.kind === "read_failed")
+    return JSON.stringify([`review:${event.url}`, null, "review_event", event.kind, event.reason]);
+  return JSON.stringify([
+    `review:${event.url}`,
+    null,
+    "review_event",
+    event.kind,
+    JSON.stringify(event),
+  ]);
+}
+
+function actionable(row: ReviewRow) {
+  return row.attention !== undefined || (row.action !== undefined && row.action !== "wait_reviews");
+}
 
 /**
  * One action of a coordination wait as stored text. Recorded facts beside an action, such as
@@ -22,9 +51,11 @@ export function actionKey(sourceId: string, row: Row) {
 
 /** The keys of the answer's actions. */
 export function actionKeys(answer: Answer) {
-  return new Set(
-    answer.sources.flatMap((source) => source.actions.map((row) => actionKey(source.id, row))),
-  );
+  return new Set([
+    ...answer.sources.flatMap((source) => source.actions.map((row) => actionKey(source.id, row))),
+    ...(answer.requests ?? []).filter(actionable).map(reviewKey),
+    ...(answer.events ?? []).map(eventKey),
+  ]);
 }
 
 const keySchema = z
@@ -115,11 +146,19 @@ export function dueKeys(input: {
 }
 
 /** The answer's sources with only the actions whose keys are given, without waits. */
-export function changedAnswer<T extends Row>(
-  answer: { sources: { id: string; state: string; repository?: string; actions: T[] }[] },
+export function changedAnswer<
+  T extends Row,
+  R extends ReviewRow = ReviewRow,
+  E extends ReviewEvent = ReviewEvent,
+>(
+  answer: {
+    sources: { id: string; state: string; repository?: string; actions: T[] }[];
+    requests?: R[];
+    events?: E[];
+  },
   keys: Set<string>,
 ) {
-  return {
+  const result: typeof answer = {
     sources: answer.sources.flatMap((source) => {
       const actions = source.actions.filter((row) => keys.has(actionKey(source.id, row)));
       if (actions.length === 0) return [];
@@ -127,4 +166,12 @@ export function changedAnswer<T extends Row>(
       return [{ id: source.id, ...where, state: source.state, actions }];
     }),
   };
+  if (answer.requests !== undefined) {
+    result.events = (answer.events ?? []).filter((event) => keys.has(eventKey(event)));
+    const named = new Set(result.events.map((event) => event.url));
+    result.requests = answer.requests.filter(
+      (row) => keys.has(reviewKey(row)) || named.has(row.url ?? ""),
+    );
+  }
+  return result;
 }

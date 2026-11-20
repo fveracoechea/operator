@@ -41,6 +41,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Environment } from "../environment/main.ts";
 import {
   actionKeys,
+  eventKey,
   addKeys,
   changedAnswer,
   dropKeys,
@@ -53,6 +54,7 @@ import {
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 import { missingWorkers } from "./missing-workers.ts";
+import type { ReviewRequests } from "../review-requests/main.ts";
 // Bun has no synchronous directory metadata API.
 import { lstatSync } from "node:fs";
 import type { ResultContext, Refusal } from "../../lib/cli-result.ts";
@@ -949,7 +951,15 @@ type WatchFailure =
   | import("unthrown").AsyncErrOf<ReturnType<typeof observeSources>>
   | ErrOf<ReturnType<import("unthrown").AsyncOkOf<ReturnType<typeof observeSources>>["reconcile"]>>
   | ErrOf<ReturnType<typeof DeviceState.finishCoordinationWait>>;
-type Answer = { sources: (ReturnType<typeof nextActions> & { repository: string })[] };
+type ReviewObservation = import("unthrown").AsyncOkOf<ReturnType<typeof ReviewRequests.upkeep>>;
+type ReviewScope = Parameters<typeof ReviewRequests.upkeep>[0]["scopes"][number];
+type CoordinationWatch = Watch & {
+  reviewReadAt: number | null;
+  reviewFailures: ReviewObservation["events"];
+};
+type Answer = {
+  sources: (ReturnType<typeof nextActions> & { repository: string })[];
+} & ReviewObservation;
 type WatchOutcome = {
   reason: "next_actions_changed" | "next_wait_timed_out";
   data: Answer | ReturnType<typeof changedAnswer<Answer["sources"][number]["actions"][number]>>;
@@ -989,7 +999,23 @@ type WaitInput = Input & {
   timeoutSeconds: number;
   all?: boolean;
   observeParked?: () => AsyncResult<undefined, Refusal>;
+  reviewUpkeep?: (input: {
+    scopes: readonly ReviewScope[];
+    observe: boolean;
+  }) => ReturnType<typeof ReviewRequests.upkeep>;
 };
+
+function reviewScopes(input: WaitInput & { session: string | null }, repository: string) {
+  if (input.sourceId !== undefined)
+    return Ok<ReviewScope[]>([{ repository, sourceIds: [input.sourceId], manual: false }]);
+  if (input.session === null) return Ok<ReviewScope[]>([{ repository }]);
+  return DeviceState.readSupervision(input.paths, input.session).map((sources) =>
+    [...new Set([repository, ...sources.map((source) => source.repository)])].map((repo) => ({
+      repository: repo,
+      sourceIds: sources.filter((source) => source.repository === repo).map((source) => source.id),
+    })),
+  );
+}
 
 function coordinationWait(input: WaitInput) {
   const deadline = Date.now() + input.timeoutSeconds * 1000;
@@ -1008,7 +1034,12 @@ function coordinationWait(input: WaitInput) {
         return fromPromise(
           async () => {
             try {
-              return await watchActions(watched, target, startWatch(), deadline);
+              return await watchActions(
+                watched,
+                target,
+                { ...startWatch(), reviewReadAt: null, reviewFailures: [] },
+                deadline,
+              );
             } finally {
               release();
             }
@@ -1075,14 +1106,37 @@ function scopeAnswer(
 function watchActions(
   input: WaitInput & { session: string | null },
   target: CoordinationScope,
-  watch: Watch,
+  watch: CoordinationWatch,
   deadline: number,
 ): AsyncResult<WatchOutcome, WatchFailure> {
   // The stored set is read before the actions, so an acknowledged change is already visible.
   const read = (input.observeParked?.() ?? OkAsync(undefined))
-    .flatMap(() => DeviceState.readCoordinationWait(input.paths, target))
-    .flatMap((stored) =>
-      scopeAnswer(input, target.repository).flatMap((answer) => {
+    .flatMap(() => reviewScopes(input, target.repository))
+    .flatMap((scopes) => {
+      const observe = watch.reviewReadAt === null || Date.now() - watch.reviewReadAt >= 30000;
+      if (observe) watch.reviewReadAt = Date.now();
+      const read =
+        input.reviewUpkeep?.({ scopes, observe }) ??
+        OkAsync<ReviewObservation>({ events: [], requests: [] });
+      return read.map((reviews) => {
+        if (observe) {
+          watch.reviewFailures = reviews.events.filter((event) => event.kind === "read_failed");
+          return reviews;
+        }
+        // An omitted GitHub read cannot clear a failed observation's acknowledgement.
+        const visible = new Set(reviews.requests.map((request) => request.url));
+        return {
+          ...reviews,
+          events: watch.reviewFailures.filter((event) => visible.has(event.url)),
+        };
+      });
+    })
+    .flatMap((reviews) =>
+      DeviceState.readCoordinationWait(input.paths, target).map((stored) => ({ stored, reviews })),
+    )
+    .flatMap(({ stored, reviews }) =>
+      scopeAnswer(input, target.repository).flatMap((sources) => {
+        const answer = { ...sources, ...reviews };
         const set = parseSet(stored);
         const current = actionKeys(answer);
         const dropped =
@@ -1100,11 +1154,19 @@ function watchActions(
     const now = Date.now();
     // A scope that never returned a set returns at once with every action. It records the end of
     // each ended source without returning it, so a first session wait carries no old ends.
-    const due = stored === null ? [...current] : dueKeys({ stored, current, watch, now });
+    const due =
+      stored === null
+        ? [...current]
+        : [
+            ...new Set([
+              ...dueKeys({ stored, current, watch, now }),
+              ...answer.events.map(eventKey).filter((key) => !stored.has(key)),
+            ]),
+          ];
+    const shown = stored === null ? actionKeys(withoutEnded(answer)) : new Set(due);
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
-    if (stored === null || due.length > 0 || now >= deadline) {
-      const changed = stored === null || due.length > 0;
-      const shown = stored === null ? actionKeys(withoutEnded(answer)) : new Set(due);
+    if (shown.size > 0 || now >= deadline) {
+      const changed = shown.size > 0;
       return DeviceState.finishCoordinationWait(input.paths, target, addKeys(due))
         .toAsync()
         .map(() => ({
@@ -1112,10 +1174,21 @@ function watchActions(
           data: input.all === true ? answer : changedAnswer(answer, shown),
         }));
     }
-    return fromPromise(
-      () => Bun.sleep(Math.min(coordinationPollMs, deadline - Date.now())),
-      (cause, defect) => defect(cause),
-    ).flatMap(() => watchActions(input, target, watch, deadline));
+    const initialized =
+      stored === null
+        ? DeviceState.changeCoordinationWait(input.paths, target, addKeys(current), {
+            initialize: true,
+          }).discard()
+        : Ok(undefined);
+    return initialized
+      .toAsync()
+      .flatMap(() =>
+        fromPromise(
+          () => Bun.sleep(Math.min(coordinationPollMs, deadline - Date.now())),
+          (cause, defect) => defect(cause),
+        ),
+      )
+      .flatMap(() => watchActions(input, target, watch, deadline));
   });
 }
 

@@ -99,6 +99,24 @@ test("a finished wait records its set and ends, and the next wait of the scope r
   ]);
 });
 
+test("a quiet first observation accepts own-command acknowledgements without releasing its lease", () => {
+  using db = fixture();
+  expect(changeCoordinationWait(db, all, () => "[]", { initialize: true })).toMatchObject({
+    tag: "Ok",
+    value: null,
+  });
+  expect(rows(db)).toEqual([]);
+  startCoordinationWait(db, all, by("pane-1"));
+  expect(changeCoordinationWait(db, all, () => "[]", { initialize: true })).toMatchObject({
+    tag: "Ok",
+    value: "[]",
+  });
+  expect(rows(db)).toMatchObject([{ actions: "[]", owner_pid: process.pid, returned_at: null }]);
+  acknowledgeCoordinationWaits(db, "ses-pane-1", () => '["own-command"]');
+  expect(readCoordinationWait(db, all)).toMatchObject({ tag: "Ok", value: '["own-command"]' });
+  expect(rows(db)).toMatchObject([{ owner_pid: process.pid, returned_at: null }]);
+});
+
 test("a wait that a later process replaced records its set but leaves the later wait running", () => {
   using db = fixture();
   startCoordinationWait(db, all, by("pane-1"));

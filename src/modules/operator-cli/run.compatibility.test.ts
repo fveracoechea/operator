@@ -200,7 +200,7 @@ test("startup backfills populated historical handoffs without changing their his
   expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 22").all()).toEqual(
     history,
   );
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(27);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(await backups()).toHaveLength(1);
   const beforeRepeat = db.serialize();
@@ -288,7 +288,7 @@ test.each(["live", "stale", "stopped", "unowned"] as const)(
       db.query("UPDATE kind_handoffs SET owner_pid = NULL, lease_at = NULL").run();
       expect(await run(["--version"])).toMatchObject({ code: 0 });
     } else expect(outcome).toMatchObject({ code: 0 });
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(27);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
     expect(
       db.query("SELECT name FROM sqlite_master WHERE name = 'stack_operations'").all(),
     ).toEqual([{ name: "stack_operations" }]);
@@ -329,7 +329,7 @@ test("readiness migration preserves populated historical PRs without inventing a
   expect(db.query("SELECT * FROM pull_requests").all()).toEqual(
     rows.map((row) => ({ ...row, readiness: null, parking: null })),
   );
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(27);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
   const copies = await backups();
   expect(copies).toHaveLength(1);
   using backup = new Database(`${root}/state/operator/backups/${copies[0]}`, { readonly: true });
@@ -337,7 +337,7 @@ test("readiness migration preserves populated historical PRs without inventing a
   expect(backup.query("PRAGMA integrity_check").values()).toEqual([["ok"]]);
 });
 
-test.each(Array.from({ length: 26 }, (_, index) => index + 1))(
+test.each(Array.from({ length: 27 }, (_, index) => index + 1))(
   "startup upgrades matching older prefix %i before a state-free handler and verifies its backup",
   async (prefix) => {
     await oldDatabase(prefix);
@@ -346,7 +346,7 @@ test.each(Array.from({ length: 26 }, (_, index) => index + 1))(
       output: { reason: "version_reported" },
     });
     using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(27);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
     expect(db.query("SELECT * FROM stack_operations").all()).toEqual([]);
     expect(db.query("SELECT * FROM stack_bases").all()).toEqual([]);
     expect(db.query("SELECT repository FROM projects").all()).toEqual([
@@ -422,7 +422,7 @@ test.each(["live", "stale", "unowned"] as const)(
     expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 26").all()).toEqual(
       history,
     );
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
     const copies = await backups();
     expect(copies).toHaveLength(1);
     using backup = new Database(`${root}/state/operator/backups/${copies[0]}`, { readonly: true });
@@ -465,7 +465,7 @@ test.each(["live", "stale", "stopped", "unowned"] as const)(
     expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 24").all()).toEqual(
       history,
     );
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
     expect(db.query("SELECT id, state, data FROM stack_operations").all()).toEqual([
       { id: "effect", state: "planned", data: "{}" },
     ]);
@@ -628,7 +628,7 @@ test("skipped releases apply each fixed migration in order with one pre-migratio
   );
   expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
   expect(db.query("SELECT * FROM later").all()).toEqual([{ repository: "example/one" }]);
   expect(await backups()).toHaveLength(1);
 });
@@ -704,10 +704,10 @@ test("migration-specific held records stop startup but assignment state does not
     output: { reason: "state_migration_blocked" },
   });
   expect((await backups()).toSorted()).toEqual(copies.toSorted());
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(27);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
   db.exec("UPDATE sources SET state = 'finished'");
   expect((await run(["--version"], entry)).code).toBe(0);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
 });
 
 test("retention keeps three verified backups only after success and corruption names the latest valid copy", async () => {
@@ -782,7 +782,7 @@ Database.prototype.serialize = function(...args) {
   );
   expect(await backups()).toHaveLength(1);
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(27);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
 });
 
 test("a pending migration has a definite writer timeout and never runs its handler", async () => {

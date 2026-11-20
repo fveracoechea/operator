@@ -405,6 +405,7 @@ export const workerQuestions = sqliteTable(
       .references(() => launches.id),
     question: text().notNull(),
     askedAt: text("asked_at").notNull(),
+    awaitingPersonSeenAt: text("awaiting_person_seen_at"),
     state: text().notNull(),
     answer: text(),
     answeredBy: text("answered_by"),

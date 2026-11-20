@@ -694,7 +694,7 @@ test("a draft that the PR refuses, or an approval that waits for CI, posts nothi
     error: {
       reason: "review_ci_pending",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Wait for required CI before posting the approval.",
       },
       state: {
@@ -825,7 +825,7 @@ test("a post that another process turned into a retry after the read posts nothi
       reason: "review_post_in_progress",
       detail: "Another process started this post. Run the post again. Nothing was posted.",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Let the process that started the post finish.",
       },
     },

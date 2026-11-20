@@ -1,4 +1,5 @@
 import { PullRequests } from "../pull-requests/main.ts";
+import { timeoutSeconds } from "../../lib/timeout-seconds.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 import { recoveryArgs } from "./internal-review-recovery-args.ts";
@@ -107,7 +108,7 @@ function waitArgs(flags: string[]) {
     values[flag] = value;
   }
   const timeout = values["--timeout"];
-  if (timeout !== undefined && !/^\d{1,5}$/.test(timeout)) return null;
+  if (timeout !== undefined && timeoutSeconds(timeout) === null) return null;
   const parsed: { operation: "pr_wait"; timeoutSeconds: number; note?: string } = {
     operation: "pr_wait",
     timeoutSeconds: timeout === undefined ? defaultTimeoutSeconds : Number(timeout),

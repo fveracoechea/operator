@@ -115,6 +115,29 @@ test("a scope that never returned a set returns every action at once and records
   expect(calls.supervision).not.toHaveBeenCalled();
 });
 
+test("a quiet first wait initializes its acknowledgement set without ending the live wait", async () => {
+  const calls = device(null, undefined, [running], [running]);
+  calls.read.mockReturnValue(Ok([running]));
+  calls.stored.mockReturnValueOnce(Ok(null)).mockReturnValue(Ok("[]"));
+  let now = 0;
+  spyOn(Date, "now").mockImplementation(() => now);
+  spyOn(Bun, "sleep").mockImplementation(async () => {
+    expect(calls.finish).not.toHaveBeenCalled();
+    expect(calls.change).toHaveBeenCalledWith(
+      paths,
+      { repository: "example/one", scope: "" },
+      expect.any(Function),
+      { initialize: true },
+    );
+    now = 3000;
+  });
+  expect(await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 3 })).toMatchObject({
+    tag: "Ok",
+    value: { reason: "next_wait_timed_out" },
+  });
+  expect(calls.finish).toHaveBeenCalledTimes(1);
+});
+
 test.each([
   {
     oldAction: "resume_worker",
@@ -231,7 +254,7 @@ test("a parked batch defect retains its original cause rather than returning a q
 
 test("a scope's first wait records a source's end without returning it", async () => {
   const calls = device(null, "ses-1", [ended]);
-  const result = await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 300 });
+  const result = await WorkSources.wait({ paths, cwd: root, timeoutSeconds: 0 });
   expect(result).toMatchObject({ tag: "Ok", value: { data: { sources: [] } } });
   const endedKey = actionKey("one", { action: "source_ended", reason: "finished" });
   expect(finished(calls, null)).toBe(addKeys([endedKey])(null));

@@ -107,7 +107,7 @@ test("a missing remote, PR ref, or new head refuses the move", async () => {
       reason: "review_fetch_failed",
       detail: `Git could not fetch ${project.head} of PR #8 from origin.`,
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Retry the failed PR-head fetch before moving the reviewer.",
       },
     }),
@@ -118,7 +118,7 @@ test("a missing remote, PR ref, or new head refuses the move", async () => {
       reason: "review_fetch_failed",
       detail: `Git could not fetch ${unknown} of PR #7 from origin.`,
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Retry the failed PR-head fetch before moving the reviewer.",
       },
     }),

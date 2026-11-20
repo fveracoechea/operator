@@ -48,7 +48,7 @@ test("the migration renames the slack origin to manual", async () => {
   ]);
   {
     using db = new Database(file, { readonly: true });
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(26);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
     expect(
       db
         .query("SELECT name FROM sqlite_master WHERE name IN ('slack_effects', 'slack_watches')")

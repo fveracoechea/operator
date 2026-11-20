@@ -1,0 +1,1 @@
+ALTER TABLE `worker_questions` ADD `awaiting_person_seen_at` text;

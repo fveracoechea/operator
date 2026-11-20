@@ -6,6 +6,7 @@ Accepted - 2026-11-11.
 Amends ADR-0022 and ADR-0001. Builds on ADR-0025, which makes the agent session the supervisor.
 Decided in the SuperAgent retro of 2026-11-11, finding 1.
 Amended 2026-11-18: coordination waits batch parked PR observations on one durable 15-minute schedule.
+Amended 2026-11-20: three event-driven waits remain, with a 540-second default and longer explicit timeouts. Coordination owns review upkeep. Decided in #373 and #394.
 Amended 2026-11-20: renamed assignment actions return once per scope; only worker-idle attention retains the settling period. Decided in #373 and #393.
 
 ## Context
@@ -15,11 +16,17 @@ Six SuperAgent sessions showed what that cost.
 Each wake carried every source, so a wait returned about 25 `source_ended` rows and every unchanged row on each wake. One `question_awaiting_person` came back 95 times.
 Wake payloads outweighed all other tool output, and 40% to 66% of wakes needed no action: an action that turned back into a wait, the SuperAgent's own `message close`, or an owner whose PR wait timed out and started again.
 SuperAgents worked around it with one wait per source, home-made JSON filters, and sleep loops.
-`operator review wait` repeated every review request on each wake in the same way.
+The separate review wait repeated every review request on each wake in the same way.
 
 ## Decision
 
 A coordination wait returns only the actions that its scope has not returned yet.
+Only three waits remain: `operator next --wait`, `operator pr wait`, and `operator question wait`.
+Each polls inside the CLI and returns an event with a `next`, or its timeout outcome.
+Each defaults to 540 seconds and accepts longer whole-second timeouts without a host-duration cap.
+A quiet coordination or question timeout prints one line whose next step repeats that wait.
+A quiet PR wait parks its launch, except while checks run on the worker's pushed head.
+Question waits return `question_awaiting_person` once per question, then continue waiting for an answer or an end.
 Each scope stores the keys of the actions it returned: the source, the assignment, the action, its reason, and the question or message that the action names.
 A key that went away leaves the stored set, so its return is new again. A removed action never ends a wait.
 A key that appears during a wait counts from its second read, two seconds later.
@@ -38,8 +45,11 @@ A wait reads the stored set on each read, so a change that its own session made 
 A wait without a source from an agent session has its own scope for that session. It covers every source that the session supervises in every project, and it claims the current project's open sources that nobody supervises yet. Without a session, it covers the current project as before.
 
 `next` leaves an ended source's `source_ended` row out and shows the source only with its prune or owed cleanup. A wait returns a newly ended source's `source_ended` once, so the SuperAgent can tell the person. A scope's first wait records the ends it finds without returning them.
-`--all` returns the whole board on `next` and on both waits.
-`operator review wait` returns its events with only the requests that the events name and those with an action.
+The coordination wait runs review upkeep: rounds, reviewer moves, stale flags, and closed PRs.
+It returns only newly actionable review requests and the requests named by new review events.
+Quiet review reads and unchanged review actions wake nothing.
+An explicit source scope includes only its assignment review requests, not unrelated manual requests.
+`--all` returns the whole board on `next` and on the coordination wait, without changing what wakes it.
 
 ## Consequences
 

@@ -62,7 +62,7 @@ function expectHelp(output: string) {
   expect(output).toStartWith("Usage: operator --help | --version [--json]\n");
   expect(output).toContain("operator abandon --source id --assignment key [--json]");
   expect(output).toContain("operator review add <pr-url> [--slack-thread permalink] [--json]");
-  expect(output).toContain("operator review wait [--timeout seconds] [--all] [--json]");
+  expect(output).not.toContain("operator review wait");
   expect(output).toEndWith("operator opencode hook\n");
   for (const removed of ["review ingest", "review slack-done", "review slack-drop", "[--slack]"])
     expect(output).not.toContain(removed);
@@ -76,7 +76,7 @@ function expectHelp(output: string) {
   expect(output).toContain("operator message ack --key key [--file path|-] [--json]");
   expect(output).toContain("operator report submit --file path|- [--json]");
   expect(output).toContain("operator pr round --file path|- [--json]");
-  expect(output).toContain("operator pr ready --file path|- [--json]");
+  expect(output).toContain("operator pr ready [--file path|-] [--note path|-] [--json]");
   expect(output).toContain("operator dispatch --source id --assignment key [--json]");
   expect(output).toContain("operator pr associate [--json]");
   expect(output).not.toContain("operator handoff");

@@ -19,7 +19,7 @@ Never type a question into the SuperAgent's pane.
    Is `b.ts` in scope?
    QUESTION
    ```
-3. Run `operator question wait --key <key> --json`. Set your shell command timeout above the wait timeout, which is 300 seconds by default and `--timeout <seconds>` otherwise.
+3. Run `operator question wait --key <key> --json`. Set your shell command timeout above the wait timeout, which is 540 seconds by default and `--timeout <seconds>` otherwise.
 4. Handle the result.
 
 - `question_answered`: read `answer` and `by`. Only `by: person` is a human answer.

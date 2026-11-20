@@ -315,7 +315,7 @@ A linked plugin file or folder, or a file there that Operator did not write, sta
 operator source register --file /absolute/path/assignments.json --json
 operator source show --source <source-id> --json
 operator next --json
-operator next --wait --timeout 300 --json
+operator next --wait --timeout 540 --json
 operator herdr install --json
 operator dispatch --source <source-id> --assignment <key> --json
 operator dispatch --kind research --brief /absolute/path/task.md [--intent-file /absolute/path/intent.txt] [--profile <name>] [--tracker-key <key>] --json
@@ -378,7 +378,7 @@ Use a quoted heredoc with stdin to preserve shell punctuation, as ADR-0032 requi
 
 ```sh
 operator question ask --key <key> --file <question.md> --json
-operator question wait --key <key> --timeout 300 --json
+operator question wait --key <key> --timeout 540 --json
 operator question withdraw --key <key> --json
 operator question escalate --source <source-id> --assignment <key> --key <question> --json
 operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json
@@ -435,7 +435,7 @@ Bracket-prefixed prose such as `[Hold] Wait for approval.` remains plain text.
 ```sh
 operator pr associate --json
 operator pr round --file <findings.md> --json
-operator pr wait --timeout 300 --json
+operator pr wait --timeout 540 --json
 operator pr ready --file <summary.md> --note <reviewer-note.md> --json
 operator pr merge --json
 operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
@@ -530,7 +530,7 @@ Recovered handoffs recheck the authorization, active review, draft, branch, clea
 ```sh
 operator review add <pr-url> --json
 operator review start <pr-url> --json
-operator review wait --json
+operator next --wait --json
 operator review next --json
 operator review post <pr-url> --json
 operator review skip <pr-url> --json
@@ -546,3 +546,5 @@ On request, the SuperAgent searches GitHub for requested reviews or reads Slack 
 An optional `--slack-thread <permalink>` on `review add` keeps the thread link on each review row.
 After a post, the SuperAgent replies once in that thread with one short status line and the review link, with no draft.
 Operator schedules no Slack reads and records no reply acknowledgement or retry.
+The coordination wait runs review upkeep and returns new review events and actions.
+All three waits default to 540 seconds and accept longer `--timeout` values.

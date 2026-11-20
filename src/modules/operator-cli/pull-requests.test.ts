@@ -84,7 +84,7 @@ test.each([
   [["pr", "wait", "--timeout"]],
   [["pr", "wait", "--timeout", "x5"]],
   [["pr", "wait", "--timeout", "5x"]],
-  [["pr", "wait", "--timeout", "123456"]],
+  [["pr", "wait", "--timeout", "9007199254740992"]],
   [["pr", "wait", "--timeout", "5", "--timeout", "6"]],
   [["pr", "wait", "--note"]],
   [["pr", "wait", "--note", "--json"]],

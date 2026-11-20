@@ -116,6 +116,7 @@ function ask(input: { paths: Paths; key: string; file: string }) {
             launchId: facts.launch?.id ?? "",
             question: asked.question,
             askedAt: now(),
+            awaitingPersonSeenAt: null,
             state,
             answer: null,
             answeredBy: null,
@@ -216,14 +217,27 @@ async function poll(
     const current = read(input.paths, input.target, input.key);
     if (current.tag !== "Ok") return stop(current);
     const { facts, row, state } = current.value;
-    const reason = decideQuestionWait(started, state);
+    let reason = decideQuestionWait(started, state);
+    if (state === "awaiting_person") {
+      const notified = DeviceState.changeQuestion(input.paths, input.target, input.key, (current) =>
+        Ok(
+          current.question?.state === "awaiting_person" &&
+            current.question.awaitingPersonSeenAt === null
+            ? { update: { awaitingPersonSeenAt: now() } }
+            : {},
+        ),
+      );
+      if (notified.tag !== "Ok") return stop(notified);
+      reason = notified.value.change.update === undefined ? null : "question_awaiting_person";
+    }
     if (reason === "question_answered") {
       // Reading the answer acknowledges the steering message that delivered it.
       const read = acknowledge(input.paths, input.target, answerKey(input.key), null);
       if (read.tag === "Defect" || (read.tag === "Err" && read.error.reason !== "message_not_open"))
         return stop(read);
     }
-    if (reason !== null) return Ok<WaitOutcome>({ reason, data: summary(facts, row) });
+    if (reason !== null)
+      return Ok<WaitOutcome>({ reason, data: summary(facts, row), next: waitNext(row.key) });
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
     if (Date.now() >= deadline)
       return Ok<WaitOutcome>({
