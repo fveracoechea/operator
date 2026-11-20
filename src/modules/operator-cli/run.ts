@@ -13,7 +13,7 @@ import { runSkills } from "./skills.ts";
 import { runLauncher } from "./launcher.ts";
 import { runReadiness } from "./readiness.ts";
 import { runSources } from "./sources.ts";
-import { runDispatch } from "./dispatch.ts";
+import { dispatchArgs, runDispatch } from "./dispatch.ts";
 import { runAsk } from "./ask.ts";
 import { pullRequestArgs, pullRequestExitCodes, runPullRequests } from "./pull-requests.ts";
 import { reportArgs, runReports } from "./reports.ts";
@@ -237,6 +237,28 @@ function phaseReadFailure(
 
 export async function run(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  const dispatch = dispatchArgs(args);
+  if (
+    dispatch?.operation === "one_off_dispatch" &&
+    dispatch.brief === "-" &&
+    dispatch.intentFile === "-"
+  ) {
+    failure(
+      "dispatch",
+      "invalid_source_plan",
+      "The brief and intent cannot both read stdin. Supply a file for either field.",
+      2,
+      json,
+      {
+        next: {
+          command: "operator dispatch --kind <kind> --brief <path|->",
+          why: "Correct the kind, brief, or optional one-off flags before dispatching again.",
+        },
+        state: { inputValid: false },
+      },
+    );
+    return;
+  }
   const started = await startup(args, json);
   if (started === null) return;
   await withWorkerContext(args, started.paths, async () => {
