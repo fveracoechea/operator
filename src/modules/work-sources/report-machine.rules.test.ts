@@ -23,6 +23,7 @@ function decide(
     ],
     launch: options.launch === undefined ? worker : options.launch,
     latest: options.latest === undefined ? null : options.latest,
+    reports: [],
     caller: options.caller ?? superAgent,
   });
 }
@@ -68,6 +69,7 @@ test("PR work has no report and the worker never decides its own report", () => 
       assignments: [],
       launch: worker,
       latest: null,
+      reports: [],
       caller: superAgent,
     }),
   ).toMatchObject(

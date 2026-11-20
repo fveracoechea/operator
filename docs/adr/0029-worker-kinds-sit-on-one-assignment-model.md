@@ -5,6 +5,7 @@
 Accepted - 2026-11-13. Decided in #373.
 Amends ADR-0003, ADR-0013, ADR-0017, and ADR-0020.
 The kind and data decision lands first in #382; later tickets supply the phase machine and kind transitions.
+Amended 2026-11-19: each assignment permits at most two report returns, including replacement launches, then requires the person's decision.
 
 ## Context
 
@@ -32,12 +33,17 @@ A kind declares only the work phases before its tail.
 A handoff changes kinds inside one assignment and links only kinds with the same completion type.
 The fresh reviewer reads no implementer note.
 
+An assignment permits at most two report returns across all its launches, so replacing a worker does not restart the loop.
+A third return refuses and preserves the work while asking the person whether to accept the report, abandon the assignment, or start a new assignment.
+The report-return limit is independent of the PR review-round limit.
+
 ## Consequences
 
 - A new kind of work needs a kind definition before its first dispatch.
 - Kind guides delegate work methods to upstream skills without duplicating their procedures.
 - Adding a kind does not add an assignment model or a next-action identifier.
 - Null kinds preserve old records without guessing the worker's task from its completion type.
+- Exhausting report returns requires the person's decision without automatically abandoning the assignment or deleting its work.
 
 ## Alternatives considered
 

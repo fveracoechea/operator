@@ -17,6 +17,8 @@ type Facts = {
     worktreePath?: string | null;
   } | null;
   latest: { number: number; decision: string | null; cleanupState: string | null } | null;
+  /** Every recorded report for this assignment, including earlier launches. ADR-0029. */
+  reports: { decision: string | null }[];
   /** The pane that runs the command, when Herdr supplies one. */
   caller: Pane;
   /** The source state and the key of the PR assignment that a promotion adds. ADR-0023. */
@@ -204,14 +206,28 @@ const rules: Record<ReportCommand, (facts: Facts) => Result<ReportTransition, Re
           },
         );
   },
-  return({ assignment, latest }) {
-    return assignment.state === "reported" && latest?.decision === null
-      ? Ok({ report: { update: latest.number, decision: "returned" } })
-      : refuse(
-          "report_not_submitted",
-          `${assignment.key} has no submitted report that awaits a decision.`,
-          { state: { assignment: assignment.state, decision: latest?.decision ?? null } },
-        );
+  return({ assignment, latest, reports }) {
+    if (assignment.state !== "reported" || latest?.decision !== null)
+      return refuse(
+        "report_not_submitted",
+        `${assignment.key} has no submitted report that awaits a decision.`,
+        { state: { assignment: assignment.state, decision: latest?.decision ?? null } },
+      );
+    const reportReturns = reports.filter((report) => report.decision === "returned").length;
+    if (reportReturns >= 2)
+      return refuse(
+        "report_return_limit_reached",
+        `Assignment ${assignment.key} has reached its two-report-return limit. Its work is preserved.`,
+        {
+          next: {
+            decider: "person",
+            question:
+              "Should this report be accepted, the assignment abandoned, or a new assignment started?",
+          },
+          state: { reportReturns, limit: 2 },
+        },
+      );
+    return Ok({ report: { update: latest.number, decision: "returned" } });
   },
   cleanup({ assignment, latest }) {
     return assignment.state === "completed" && latest?.decision === "accepted"

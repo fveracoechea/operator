@@ -357,6 +357,109 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   ]);
 }, 60000);
 
+test.each([false, true])(
+  "the assignment refuses a third report return and preserves work with replacement=%s",
+  async (replace) => {
+    const source = await device.register({
+      trackerKey: "github:example/one#40",
+      assignments: [
+        {
+          ...plan().assignments[0],
+          resources: "worktree",
+          branch: "task/report-cap",
+        },
+      ],
+    });
+    let worker = await device.dispatch(source, "investigate");
+    const worktree = worker.worktreePath ?? expect.unreachable();
+    await Bun.write(`${worktree}/kept.ts`, "export const kept = true;\n");
+    const notes = `${device.root}/drafts/cap-notes.md`;
+    await Bun.write(notes, "original supporting evidence\n", { createPath: true });
+    const file = await device.writeReport("cap-report.md", { ...report, files: [notes] });
+    const followUp = `${device.root}/drafts/cap-follow-up.md`;
+    await Bun.write(followUp, "Add evidence.\n");
+    const args = [
+      "report",
+      "return",
+      "--source",
+      source,
+      "--assignment",
+      "investigate",
+      "--file",
+      followUp,
+    ];
+
+    for (const number of [1, 2]) {
+      expect(
+        await device.run(["report", "submit", "--file", file], { pane: worker.paneId }),
+      ).toMatchObject({ code: 0, output: { data: { report: number } } });
+      expect(await device.run(args)).toMatchObject({
+        code: 0,
+        output: { reason: "report_returned" },
+      });
+      // Retrying the same decision must not consume another return.
+      expect(await device.run(args)).toMatchObject({
+        code: 3,
+        output: { reason: "report_not_submitted" },
+      });
+      if (replace) {
+        await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main);
+        worker = await device.dispatch(source, "investigate");
+      } else {
+        expect(await device.run(["report", "resume"], { pane: worker.paneId })).toMatchObject({
+          code: 0,
+          output: { reason: "report_resumed" },
+        });
+      }
+    }
+    const third = await device.run(["report", "submit", "--file", file], { pane: worker.paneId });
+    expect(third).toMatchObject({ code: 0, output: { data: { report: 3 } } });
+    const stored = z.object({ data: z.object({ file: z.string() }) }).parse(third.output).data.file;
+    const database = `${device.root}/state/operator/operator.sqlite`;
+    const before = await Bun.file(database).arrayBuffer();
+    const calls = await device.herdrCalls();
+    for (const attempt of [1, 2]) {
+      expect(await device.run(args), `third return attempt ${attempt}`).toMatchObject({
+        code: 3,
+        output: {
+          reason: "report_return_limit_reached",
+          next: {
+            decider: "person",
+            question:
+              "Should this report be accepted, the assignment abandoned, or a new assignment started?",
+          },
+          state: { reportReturns: 2, limit: 2 },
+        },
+      });
+      expect(await Bun.file(database).arrayBuffer()).toEqual(before);
+    }
+    expect(await device.herdrCalls()).toEqual(calls);
+    expect(await Bun.file(`${worktree}/kept.ts`).text()).toBe("export const kept = true;\n");
+    expect(await Bun.file(stored).text()).toContain(report.conclusion);
+    const directory = stored.replace(/\/3\/report\.md$/, "");
+    expect(await Bun.file(`${directory}/1/files/cap-notes.md`).text()).toBe(
+      "original supporting evidence\n",
+    );
+    expect(await Bun.file(`${directory}/../follow-ups/3.md`).exists()).toBe(false);
+    expect((await sourceLaunches(source)).reports).toMatchObject([
+      { number: 1, decision: "returned" },
+      { number: 2, decision: "returned" },
+      { number: 3, decision: null },
+    ]);
+    expect(await device.next("investigate")).toMatchObject([
+      { action: "review_report", report: { number: 3 } },
+    ]);
+    expect(
+      await device.run(["report", "accept", "--source", source, "--assignment", "investigate"]),
+    ).toMatchObject({
+      code: 0,
+      output: { reason: "report_accepted", data: { cleanup: { state: "kept" } } },
+    });
+    expect(await Bun.file(`${worktree}/kept.ts`).exists()).toBe(true);
+  },
+  60000,
+);
+
 test("acceptance keeps a worktree with unlanded work for the person, and failed cleanup stays in next", async () => {
   const source = await device.register({
     trackerKey: "github:example/one#20",

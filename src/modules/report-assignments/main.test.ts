@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no recursive removal, folder creation, or folder listing API.
 import { mkdir, readdir, rm } from "node:fs/promises";
-import { Err, ErrAsync, fromPromise, OkAsync } from "unthrown";
+import { chmodSync } from "node:fs";
+import { Err, ErrAsync, fromPromise, fromThrowable, OkAsync } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -396,6 +397,82 @@ test("a returned report of a stopped worker needs a replacement worker", async (
     data: { next: "replace_worker" },
   });
 });
+
+test("the report return cap is checked again inside the write transaction", async () => {
+  const { sourceId, file } = await submitted();
+  for (const number of [1, 2]) {
+    expect(okValue(await returned(sourceId))).toMatchObject({ data: { report: number } });
+    device.inPane(workerPane);
+    okValue(await ReportAssignments.resume({ paths: device.paths }));
+    okValue(await ReportAssignments.submit({ paths: device.paths, file }));
+    mock.restore();
+  }
+  const before = await device.show(sourceId);
+  const original = DeviceState.readReport;
+  // The optimistic read misses one return; the transaction still reads all recorded decisions.
+  spyOn(DeviceState, "readReport").mockImplementation((paths, target) =>
+    original(paths, target).map((facts) => ({ ...facts, reports: facts.reports.slice(1) })),
+  );
+  expect(await returned(sourceId)).toMatchObject({
+    tag: "Err",
+    error: { reason: "report_return_limit_reached", state: { reportReturns: 2, limit: 2 } },
+  });
+  expect(await device.show(sourceId)).toEqual(before);
+  const { directory, followUps } = device.assignmentFiles(sourceId);
+  expect(await readdir(`${directory}/pending`)).toEqual([]);
+  expect(await Bun.file(`${followUps}/3.md`).exists()).toBe(false);
+});
+
+test.each(["Err", "Defect"] as const)(
+  "a refused return preserves its primary %s when staged follow-up cleanup fails",
+  async (tag) => {
+    const { sourceId } = await submitted();
+    const { directory, followUps } = device.assignmentFiles(sourceId);
+    const cause = new Error("original report transaction defect");
+    const primary =
+      tag === "Err"
+        ? Err({
+            reason: "report_return_limit_reached",
+            detail: "The assignment has two returns. Nothing changed.",
+            next: {
+              decider: "person" as const,
+              question: "Accept, abandon, or start a new assignment?",
+            },
+            state: { reportReturns: 2, limit: 2 },
+          })
+        : fromThrowable(
+            (): never => {
+              // oxlint-disable-next-line unthrown/no-throw -- Inject an original defect at the device-state boundary.
+              throw cause;
+            },
+            (failure, defect) => defect(failure),
+          )();
+    spyOn(DeviceState, "changeReport").mockImplementation(() => {
+      chmodSync(`${directory}/pending`, 0o500);
+      return primary;
+    });
+    const diagnostics = spyOn(console, "error").mockImplementation(() => {});
+    const file = `${device.root}/drafts/follow-up.md`;
+    await Bun.write(file, "More evidence.");
+    device.inPane(superPane);
+    const result = await ReportAssignments.return({
+      paths: device.paths,
+      cwd: device.checkout,
+      sourceId,
+      assignment: "read",
+      file,
+    });
+    chmodSync(`${directory}/pending`, 0o700);
+    expect(result).toEqual(primary);
+    if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    expect(diagnostics).toHaveBeenCalledWith(
+      "Report follow-up cleanup failed:",
+      expect.stringContaining("EACCES"),
+    );
+    expect(await Bun.file(`${followUps}/1.md`).exists()).toBe(false);
+    expect((await device.show(sourceId)).reports).toMatchObject([{ number: 1, decision: null }]);
+  },
+);
 
 test("an empty follow-up or a changed decision returns nothing", async () => {
   const { sourceId } = await submitted();
