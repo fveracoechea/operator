@@ -59,13 +59,14 @@ test.each([
     const launched = spyOn(WorkerDispatch, "dispatch");
     const checked = spyOn(WorkerDispatch, "checkHandoff");
     const closed = spyOn(Herdr, "closePane");
-    const result = await dispatch({
+    const request: Parameters<typeof dispatch>[0] = {
       paths: device.paths,
       cwd: device.checkout,
       sourceId: device.sourceId,
       assignment: "parent",
-      ...(race === "kind" ? { kind: "implementation" } : {}),
-    });
+    };
+    if (race === "kind") request.kind = "implementation";
+    const result = await dispatch(request);
     expect(result).toMatchObject({
       tag: "Err",
       error: { reason: race === "kind" ? "assignment_kind_set" : "source_supervised_elsewhere" },

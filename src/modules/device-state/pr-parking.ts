@@ -206,6 +206,33 @@ function parkingCompletionFacts(
   };
 }
 
+function resumeAuthorityRefusal(
+  kind: string | null,
+  supervisorSession: string | null,
+  fillKind: string | undefined,
+  callerSession: string | null,
+): Refusal | null {
+  if (fillKind !== undefined && kind !== null)
+    return {
+      reason: "assignment_kind_set",
+      detail: "The assignment already has a kind. Nothing changed.",
+      next: { command: "operator next", why: "Use the recorded assignment kind." },
+      state: { kind },
+    };
+  if (supervisorSession !== null && supervisorSession !== callerSession)
+    return {
+      reason: "source_supervised_elsewhere",
+      detail: "Another agent session now supervises this source. Nothing changed.",
+      next: {
+        decider: "super-agent",
+        question:
+          "Will the recorded supervisor continue, or should the person authorize a source take-over?",
+      },
+      state: { supervisorSession, callerSession },
+    };
+  return null;
+}
+
 export function resumeParkedPullRequest(
   client: Database,
   target: Target,
@@ -234,27 +261,13 @@ export function resumeParkedPullRequest(
         source?.state !== "open"
       )
         return Err(refused());
-      if (fillKind !== undefined && assignment.kind !== null)
-        return Err({
-          reason: "assignment_kind_set",
-          detail: "The assignment already has a kind. Nothing changed.",
-          next: { command: "operator next", why: "Use the recorded assignment kind." },
-          state: { kind: assignment.kind },
-        });
-      if (source.supervisingSession !== null && source.supervisingSession !== supervisor.session)
-        return Err({
-          reason: "source_supervised_elsewhere",
-          detail: "Another agent session now supervises this source. Nothing changed.",
-          next: {
-            decider: "super-agent",
-            question:
-              "Will the recorded supervisor continue, or should the person authorize a source take-over?",
-          },
-          state: {
-            supervisorSession: source.supervisingSession,
-            callerSession: supervisor.session,
-          },
-        });
+      const authority = resumeAuthorityRefusal(
+        assignment.kind,
+        source.supervisingSession,
+        fillKind,
+        supervisor.session,
+      );
+      if (authority !== null) return Err(authority);
       const parking = prParkingSchema.parse(JSON.parse(row.parking));
       const latest = db
         .select()
