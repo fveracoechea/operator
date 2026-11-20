@@ -7,6 +7,7 @@ The [constraints page](issue-373-user-constraints.md) records the source and aut
 
 - [Worker-kind spec history](issue-373-scope.md): Dated scope, amendment reversals, and architecture sources for #373.
 - [Landing history](issue-373-landing.md): Commit-pinned delivery snapshots, the released batch hold, and landing safeguards with the local-qualification exception.
+- [Recovery findings](issue-373-recovery.md): The 2026-11-20 #419 merge, draft #429 correction, #420 blockers and conditional review disposition, and preserved downstream candidates without final qualification claims.
 
 ## User constraints and coordination lessons
 

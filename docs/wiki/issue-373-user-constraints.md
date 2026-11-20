@@ -33,6 +33,18 @@ It did not authorize this documentation agent to merge or mark ready.
 It granted no runtime or release authority.
 As with the earlier decisions, the source was the supervising session's dated delegation; no public transcript URL was supplied.
 
+On 2026-11-20, the later wiki-ingest delegation authorized updating existing docs-only [PR #428](https://github.com/fveracoechea/operator/pull/428) through a safe fast-forward push.
+It required a new isolated worktree at the verified remote head and retained the original documentation worktree untouched.
+It limited this ingest to documentation format, link, index, and privacy checks during the separate qualification campaigns.
+It authorized no full-quality or full-suite run, ready transition, merge, issue closure, review post, deletion, release, or runtime operation.
+This extended the earlier documentation publication assignment, not the implementation candidates' authority or qualification.
+The source was the supervising session's dated native delegation; no public transcript URL was supplied.
+The [recovery page](issue-373-recovery.md#qualification-evidence-limits) records the associated evidence limits.
+
+On 2026-11-20, the chief separately [kept reviewer-prompt invariants subordinate to canonical product sources](issue-373-recovery.md#conditional-bookkeeping-finding-and-disposition).
+The delegation treated write-free recovery bookkeeping as nonblocking unless those sources required it, while retaining verification of potentially false refusal metadata.
+This was a review disposition, not a new human answer, spec amendment, or waiver of the independent Standards findings.
+
 ## Later ownership decision on 2026-11-20
 
 After the initial wiki commit, `fveracoechea/operator@4ee11c1`, the supervising session relayed the person's instruction to take ownership of the existing stack.

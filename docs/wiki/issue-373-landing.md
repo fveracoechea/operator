@@ -36,6 +36,16 @@ That observation replaced its earlier draft status, not the need to verify quali
 On that date, #389 through #396 also remained open.
 The #373 parent remained open; these counts alone did not satisfy its acceptance criteria.
 
+Supersession verified on 2026-11-20: GitHub reported [#419](https://github.com/fveracoechea/operator/pull/419) merged at 08:09:16 UTC, replacing its earlier open status above.
+Its final head was `fveracoechea/operator@ec9279ee7ae2e5cf4685d53f38cea2ec7cf35d49`, superseding the earlier snapshot above.
+Its main merge was `fveracoechea/operator@7fd3cfb3532ab82f74cc6a4cefd87c3ce5afce98`.
+The merge's first parent was `fveracoechea/operator@3f40479dd188a53ef43d945bc04afa5cdd88eb30`.
+The [recovery findings](issue-373-recovery.md#landed-419-and-draft-429-correction) record independent findings against that actual head and the separately unqualified #429 correction.
+
+Supersession verified on 2026-11-20: [#420](https://github.com/fveracoechea/operator/pull/420) remained draft but targeted main at `fveracoechea/operator@f40c232cd4829fec54f3e7b0a587e021f77eb072`.
+This replaced its earlier head and dependency-only base above, not its qualification requirements.
+The [recovery findings](issue-373-recovery.md#recovered-420-and-unresolved-review-findings) separate preservation and corruption correction from unresolved review and mutation blockers.
+
 ## Merge hold and #422
 
 On 2026-11-17, [#422](https://github.com/fveracoechea/operator/issues/422) recorded approval for owner-safe open-parent refresh and per-child dependency-only integration bases.
@@ -74,6 +84,9 @@ The other safeguards and the documentation agent's draft-only boundary remained 
 Later on 2026-11-20, the [ownership decision](issue-373-user-constraints.md#later-ownership-decision-on-2026-11-20) resolved the earlier inventory's uncertainty about another agent owning the stack.
 It retained original work, recoverable refs, and exact-candidate qualification as requirements; it did not expand this documentation reviewer's authority.
 The [native delegation retro](issue-373-native-delegation-retro.md) recorded a separate routing failure, not a failed PR #420 code qualification.
+
+On 2026-11-20, the recovery handoff clarified that full quality already included the test suite at `fveracoechea/operator@7fd3cfb3532ab82f74cc6a4cefd87c3ce5afce98`.
+The [qualification evidence limits](issue-373-recovery.md#qualification-evidence-limits) reject external tool timeouts and runs against changing content as final-head passes.
 
 ## Baseline evidence limit recorded on 2026-11-20
 

@@ -17,6 +17,9 @@ Its description scoped it to SuperAgent delegation with an absolute brief; its b
 The native assignment did not meet that route's requirements.
 This evidence supported a workflow-selection failure, not a finding that PR #420's code or tests failed.
 
+On 2026-11-20, the later [recovery findings](issue-373-recovery.md#recovered-420-and-unresolved-review-findings) recorded separate code-review blockers at `fveracoechea/operator@f40c232cd4829fec54f3e7b0a587e021f77eb072`.
+Those findings did not change the earlier routing diagnosis or establish that its replacement brief alone qualified the code.
+
 On 2026-11-20, the supervising session supplied `/tmp/opencode/issue373-pr420-brief.md` as the replacement native brief.
 The retro verified its explicit native identity, allowed tools, output paths, authority boundary, and test-concurrency limit.
 The brief was a local context pointer, not permanent public evidence.
