@@ -51,9 +51,11 @@ function usageText(text: string | undefined) {
     "       operator internal-review recover --source id --assignment key --launch id --pr number --head sha --person-instructed [--json]",
   );
   expect(usage).toContain("       operator abandon --source id --assignment key [--json]");
-  expect(usage).toContain("       operator dispatch --source id --assignment key [--json]");
+  expect(usage).toContain(
+    "       operator dispatch --source id --assignment key [--kind kind] [--json]",
+  );
   expect(usage).toContain("       operator pr associate [--json]");
-  expect(usage).toContain("       operator pr merge --source id --assignment key [--json]");
+  expect(usage).toContain("       operator pr merge --source <id> --assignment <key> [--json]");
   expect(String(text)).not.toContain("operator handoff");
   expect(usage).toContain(
     "       operator dispatch --kind kind --brief path|- [--intent-file path|-] [--profile name] [--tracker-key key] [--json]",
