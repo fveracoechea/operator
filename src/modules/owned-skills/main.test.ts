@@ -93,14 +93,14 @@ test("release guides include each built-in kind and its skill instructions", asy
   ]);
   expect(guides.map(({ text }) => text.split("\n")[0])).toEqual([
     "# Research",
-    "# Answer",
+    "# answer",
     "# Prototype",
     "# Implementation",
     "# Review",
     "# PR feedback",
   ]);
   expect(guides[1]?.text).toContain("../../show-me/SKILL.md");
-  expect(guides[5]?.text).toContain("Load `resolving-merge-conflicts`");
+  expect(guides[5]?.text).toContain("Use `resolving-merge-conflicts` for conflicts");
 });
 
 test("names every bundled skill folder with a SKILL.md, sorted", async () => {

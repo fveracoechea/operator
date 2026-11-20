@@ -104,3 +104,9 @@ Only the chief retains the parent-completion claim.
 Active #422/#423, #414/#415, release #398, runtime activation, installation, publication, and tags remain outside acceptance.
 Inherited inactive storage and lease protections remain preserved.
 No final delivery, issue closure, or runtime activation follows merely from updating this wiki.
+
+On 2026-11-20, the independent runtime verifier completed `/tmp/opencode/issue373-final-runtime-acceptance.md` at actual main `e107e16e86deaccb4974fea80937a6939a130fbf`.
+It mapped all 23 children, demonstrated the 22 runtime deliveries, and found no concrete runtime correctness gap.
+It audited eight modern full-quality receipts, merge/tested-tree equality, migration/blob identities, and cross-ticket assertions without another broad run.
+This superseded the pre-final ledger's pending #392/#394 runtime entries, not #396's package or whole-parent acceptance obligations.
+The final package still required exact-tree quality, independent reviews, and the chief's acceptance decision.

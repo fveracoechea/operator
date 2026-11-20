@@ -274,7 +274,7 @@ test("the actual source command passes readiness through its PATH link", async (
     await Bun.write(root + "/config/operator/config.json", JSON.stringify({ superAgent: { host: "opencode" } }), { createPath: true });
     await mkdir(root + "/config/opencode", { recursive: true });
     await symlink(project + "/skills", root + "/config/opencode/skills");
-    await writeGuideSkills(root + "/home/.agents/skills");
+    await writeGuideSkills(root + "/home/.agents/skills", root + "/config/opencode/skills");
     await Bun.write(root + "/home/.agents/skills/code-review/SKILL.md", "# Test upstream review\\n", { createPath: true });
     await writeOpenCodePlugin(root + "/config");
     await mkdir(root + "/tools", { recursive: true });

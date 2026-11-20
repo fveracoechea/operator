@@ -794,6 +794,7 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
     const entries: Record<string, Record<string, string>> = {};
     const retired = "retired transport instructions\n";
     for (const host of hosts) {
+      await Bun.write(`${host}/handoff/SKILL.md`, "# Fixture handoff\n", { createPath: true });
       const destination = `${host}/slack-pr-review-workflow`;
       await Bun.write(`${destination}/SKILL.md`, retired, { createPath: true });
       entries[destination] = { "/": "directory", "SKILL.md": sha256(retired) };

@@ -35,6 +35,7 @@ The [chief-of-staff acceptance ownership](issue-373-user-constraints.md#combined
 
 The [verified landing chain](issue-373-landing.md#qualified-main-chain-on-2026-11-20) supersedes the older draft and main pointers above.
 The [final package checkpoint](issue-373-scope.md#final-role-package-checkpoint-on-2026-11-20) names the remaining #396 and combined-acceptance limits.
+That checkpoint also records the independent 22-runtime-delivery verification at actual #436 main, without claiming final package acceptance.
 The [current qualification decision](issue-373-user-constraints.md#final-package-authority-on-2026-11-20) makes mutation diagnostics non-gating without calling unfinished results clean.
 
 On 2026-11-20, this wiki adopted the historical-record rules in the [chief-of-staff skill at `fveracoechea/operator@3f40479`](https://github.com/fveracoechea/operator/blob/3f40479dd188a53ef43d945bc04afa5cdd88eb30/.agents/skills/chief-of-staff/SKILL.md).
