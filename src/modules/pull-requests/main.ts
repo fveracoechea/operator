@@ -529,8 +529,8 @@ function waitWithNote(input: Request & { timeoutSeconds: number }) {
 }
 
 /**
- * PR operations of the owner WorkerAgent, whose worktree is the only assignment selector, and
- * the cleanup that follows a verified merge, which the SuperAgent can repeat after a failure.
+ * Worker-owned PR operations and supervised parked merges share one gate. Cleanup follows a
+ * verified merge, and the SuperAgent can repeat it after a failure.
  */
 export const PullRequests = {
   /** The canonical validated PR command target, shared with worker-phase guards. */
@@ -545,7 +545,7 @@ export const PullRequests = {
   recoverReview(input: Parameters<typeof recoverReview>[0]) {
     return recoverReview(input);
   },
-  merge(input: Request) {
+  merge(input: Parameters<typeof merge>[0]) {
     return merge(input);
   },
   cleanup(input: Parameters<typeof cleanup>[0]) {

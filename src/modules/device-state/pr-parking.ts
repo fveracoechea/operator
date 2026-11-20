@@ -31,6 +31,8 @@ const parkingReceipt = z.object({
   state: z.enum(["parking", "parked", "resuming", "active", "closed"]),
   events: z.array(z.string()),
   parentSeen: z.boolean().default(false),
+  // The guarded queue attempt owns batch completion, even if its response is lost.
+  queueHead: z.string().nullable().optional(),
 });
 export const prParkingSchema = z.union([
   parkingReceipt.extend({
@@ -91,6 +93,41 @@ function facts(state: PrParking["state"] | null): ParkingFacts {
   };
 }
 
+/** Persist the batch-owned lifecycle before an enqueue can take effect or lose its response. */
+export function recordPullRequestQueue(client: Database, launchId: string, head: string) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
+        ({ source, assignment, launch }): Result<undefined, Refusal> => {
+          const row = db
+            .select()
+            .from(pullRequests)
+            .where(key({ sourceId: source.id, assignment: assignment.key }))
+            .get();
+          if (row === undefined || assignment.state !== "pr-open" || row.branch !== launch.branch)
+            return Err(refused());
+          const previous =
+            row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
+          const parking: PrParking = previous ?? {
+            launchId,
+            head,
+            at: new Date().toISOString(),
+            note: null,
+            state: "active",
+            events: [],
+            parentSeen: false,
+          };
+          db.update(pullRequests)
+            .set({ parking: JSON.stringify({ ...parking, queueHead: head }) })
+            .where(key(row))
+            .run();
+          return Ok(undefined);
+        },
+      ),
+    ),
+  );
+}
+
 export function parkPullRequest(
   client: Database,
   launchId: string,
@@ -128,6 +165,7 @@ export function parkPullRequest(
               at: new Date().toISOString(),
               state: decision.state,
               events: [],
+              queueHead: previous?.queueHead ?? null,
               parentSeen:
                 row.parking === null
                   ? false

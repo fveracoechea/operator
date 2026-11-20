@@ -62,6 +62,7 @@ export function worktreeOwners(client: Database) {
           relay: pullRequests.relay,
           progress: pullRequests.progress,
           readiness: pullRequests.readiness,
+          parking: pullRequests.parking,
           internalReview: launches.internalReview,
           kind: launches.kind,
           reviewState: internalReviews.state,
@@ -202,6 +203,27 @@ function parkedMergeOwner(db: Db, launch: typeof launches.$inferSelect | undefin
   )
     return false;
   return parking.launchId === launch.id && parking.head === head && parking.state === "parked";
+}
+
+/** Supervised merge admission reuses the same parked and historical-owner fence as completion. */
+export function checkParkedMergeOwner(client: Database, launchId: string, head: string) {
+  return transaction(client, false, () =>
+    checkHistory(client).flatMap((db) =>
+      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(({ launch }) =>
+        parkedMergeOwner(db, launch, head)
+          ? Ok(undefined)
+          : Err<PullRequestFailure>({
+              reason: "pr_owner_inactive",
+              detail:
+                "The selected parked PR has an active or changed owner. Nothing was read from GitHub or changed.",
+              next: {
+                command: "operator next",
+                why: "Read the assignment's current owner before merging.",
+              },
+            }),
+      ),
+    ),
+  );
 }
 
 /**

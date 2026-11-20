@@ -9,6 +9,7 @@ Amended 2026-11-04 in #305: the merge also requires that an internal review of t
 Amended 2026-11-04 in #320: the guarded merge uses GitHub's asynchronous merge endpoint, because the synchronous endpoint refuses a stacked PR.
 Amended 2026-11-17 in #389: a fresh pr-feedback launch takes over at ready, and the merge requires the recorded ready transition.
 Amended 2026-11-18 in #390: quiet feedback waits park the assignment and changes resume a fresh launch.
+Amended 2026-11-20 in #392: the supervisor may merge parked work on the person's instruction, and a queue retains parking until observed merge.
 
 ## Context
 
@@ -43,13 +44,17 @@ The child PR stacks on the parent's branch, and the CLI coordinates the relay an
 A PR stacks on one parent branch, so a PR assignment with several open parent PRs waits until all but one merge. Amended in #250.
 A stacked PR is not merge eligible until its parent merged and its relay finished.
 Report dependencies instead require accepted completion.
-The PR owner invokes the CLI merge operation.
+The PR owner invokes the CLI merge operation, or the supervising SuperAgent selects a parked assignment on the person's instruction.
 It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.
 ADR-0020 added the draft condition, implemented in #316.
 It also requires the assignment's recorded ready transition, because an ended review or an external draft change alone cannot prove that transition.
 It merges through GitHub's asynchronous merge endpoint as a direct merge pinned to the guarded head, because the synchronous endpoint refuses a PR that GitHub keeps in a stack, also after its relay.
 That endpoint also merges a stacked PR's open PRs below it, and the default branch base rules them out.
-It is used for every PR, not only after the synchronous endpoint refuses, because GitHub does not document that refusal's text. The cost is a merge that can wait up to two minutes of status reads, and no merge queue.
+It is used for every non-queue PR, not only after the synchronous endpoint refuses, because GitHub does not document that refusal's text.
+The cost is a merge that can wait up to two minutes of status reads.
+When the PR's base requires a merge queue, the same passed gate enqueues the guarded head instead of requesting a direct merge.
+Observed queue membership prevents a retry from enqueueing the same PR again, including after a lost response.
+Enqueueing proves no completion. The assignment stays PR-open and parked, with its worktree retained, until a batch read verifies its merge.
 GitHub CI and GitHub reviews are the gates, not a separate local gate declaration or a supervisor's claim.
 
 After verified merge, the CLI deletes the remote branch, closes the worker pane, and removes the worktree in that order without a separate approval grant.
@@ -74,6 +79,6 @@ Report assignments have a separate completion contract and support planning and 
 - Waiting for parent merge before any dependent starts was rejected in favor of PR stacking and explicit rebase handling.
 - Supervisor-written scripts and ledgers were rejected because the CLI must own the repeatable feedback, merge, and cleanup steps.
 - Retaining tracker recovery, write-path scheduling, and local gates was rejected because the sessions did not need them and existing tracker tools, Git conflicts, and CI already covered the retained work.
-- A blanket ban on agent merges was rejected in favor of a guarded merge by the owner WorkerAgent.
+- A blanket ban on agent merges was rejected in favor of a guarded merge by the owner WorkerAgent or the instructed supervisor of parked work.
 
 Related: ADR-0001 and ADR-0003, deterministic coordination; ADR-0012, reset and prune; ADR-0013, report completion and safe cleanup; ADR-0015, optional review requests; ADR-0016, mutation analysis does not join the gate; ADR-0017, worker ownership and guarded merge.

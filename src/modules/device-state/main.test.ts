@@ -457,6 +457,10 @@ test("each interface operation reaches its state owner on the registered databas
     tag: "Ok",
     value: [{ launchId: "l1" }],
   });
+  expect(DeviceState.checkParkedMergeOwner(paths, "l1", "h")).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_inactive" },
+  });
   expect(
     DeviceState.observePane(paths, {
       socket: "/herdr.sock",

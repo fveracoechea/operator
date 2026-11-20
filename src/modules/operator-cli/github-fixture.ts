@@ -209,6 +209,20 @@ if (query.includes("files(first")) {
 }
 // With a real bare remote, an open PR's head is its branch there, as GitHub reports a push.
 const headOf = (pr) => pr.head ?? (state.remote ? Bun.spawnSync(["git", "--git-dir", state.remote, "rev-parse", "refs/heads/" + pr.headRefName]).stdout.toString().trim() : "head-1");
+if (query.includes("MergeQueueFacts")) {
+  const pr = state.pulls.find(row => row.number === Number(field("number")));
+  answer({ data: { repository: { pullRequest: { id: "PR_" + pr.number, state: pr.state, headRefOid: headOf(pr), isMergeQueueEnabled: pr.isMergeQueueEnabled ?? false, mergeQueueEntry: pr.queueEntry ? { id: pr.queueEntry } : null } } } });
+  process.exit(0);
+}
+if (query.includes("mutation EnqueuePR")) {
+  const pr = state.pulls.find(row => "PR_" + row.number === field("id"));
+  if (state.enqueueRefuse || field("head") !== headOf(pr)) { answer({ data: null, errors: [{ message: "Queue refused the head." }] }); process.exit(0); }
+  pr.queueEntry = "QUEUE_" + pr.number;
+  await save();
+  if (state.enqueueLost) { state.enqueueLost = false; await save(); status(502, "Bad Gateway", { message: "lost" }); process.exit(1); }
+  answer({ data: { enqueuePullRequest: { mergeQueueEntry: { id: pr.queueEntry } } } });
+  process.exit(0);
+}
 const page = (items, connection, selection) => {
   const marker = connection + '(first: 100, after: "';
   const start = Number(selection.split(marker)[1]?.split('"')[0] ?? 0);
@@ -218,13 +232,18 @@ const page = (items, connection, selection) => {
   return { totalCount: items.length, nodes: items.slice(start, end), pageInfo: { hasNextPage: end < items.length, endCursor: String(end) } };
 };
 const feedbackComment = (comment) => ({ id: comment.id, body: comment.body ?? "", updatedAt: comment.updatedAt ?? "2000-01-01T00:00:00Z", url: "https://github.com/c/" + comment.id, author: author(comment.author ?? "reviewer") });
-const prFacts = (pr, selection = query) => ({
+const prFacts = (pr, selection = query) => {
+  const facts = {
+    mergeQueueEntry: pr.queueEntry ? { id: pr.queueEntry } : null,
     state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), isDraft: pr.isDraft ?? false, reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
     reviews: page((pr.reviews ?? []).map((review) => ({ ...feedbackComment(review), state: review.state })), "reviews", selection),
     comments: page((pr.comments ?? []).map(feedbackComment), "comments", selection),
     reviewThreads: page((pr.threads ?? []).map((thread) => ({ id: thread.id, isResolved: thread.resolved ?? false, path: thread.path ?? "file.ts", comments: page(thread.comments.map(feedbackComment), "threadComments", selection) })), "reviewThreads", selection),
     commits: nodes([{ commit: { statusCheckRollup: pr.checks === null ? null : { contexts: { totalCount: pr.totalChecks ?? (pr.checks ?? []).length, nodes: (pr.checks ?? []).slice(0, 100).map(check) } } } }]),
-});
+  };
+  if (state.omitQueueEntry) delete facts.mergeQueueEntry;
+  return facts;
+};
 if (query.includes("ParkedThreadPages")) {
   const data = {};
   for (const match of query.matchAll(/(t\\d+): node\\(id: "([^"]+)"\\) \\{([\\s\\S]*?)(?=t\\d+: node|$)/g)) {

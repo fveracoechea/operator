@@ -74,6 +74,7 @@ async function run(args: string[], cwd = checkout, stdin?: string, pane?: string
     cwd,
     stdin,
   );
+  expect(result.stdout, result.stderr).not.toBe("");
   const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
   expectWorkflowRefusal(args, output, result.stderr);
   return { code: result.code, output, stderr: result.stderr };
@@ -244,6 +245,8 @@ async function dispatch(source: string, assignment = "implement", kind?: string)
 
 type Pull = Record<string, unknown> & { number: number };
 async function github(change: {
+  omitQueueEntry?: boolean;
+  enqueueLost?: boolean;
   pulls?: Pull[];
   commentLost?: boolean;
   readyLost?: boolean;
@@ -580,6 +583,346 @@ async function coordination(source: string, now: number, expectedCode = 0) {
   expect(result.code, result.stderr).toBe(expectedCode);
   return workflowOutputSchema.parse(JSON.parse(result.stdout));
 }
+
+test("the SuperAgent merges a parked PR through the gate, and a merge-queue repository stays parked until merge", async () => {
+  const { source, worker, head } = await parkedFixture();
+  const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+  expect(await run(command)).toMatchObject({ output: { reason: "pr_merge_blocked" } });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  await github({
+    pulls: [
+      pull({
+        head,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+        isMergeQueueEnabled: true,
+      }),
+    ],
+  });
+  expect(await run(command)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "pr_enqueued",
+      data: { state: "pr-open" },
+      next: { command: `operator next --source ${source} --wait` },
+    },
+  });
+  expect(await run(command)).toMatchObject({ code: 0, output: { reason: "pr_enqueued" } });
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  const parked = await shown(source);
+  expect(parked.launches).toHaveLength(2);
+  expect(parked.launches.at(-1)?.state).toBe("finished");
+  expect(parked.pullRequests[0]).toMatchObject({ parking: { state: "parked" }, mergedAt: null });
+  expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+  const observedAt = Date.now();
+  await coordination(source, observedAt);
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_parked" });
+  expect((await shown(source)).pullRequests[0]).toMatchObject({ mergedAt: null });
+  expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+  await github({
+    pulls: [
+      pull({
+        head,
+        state: "MERGED",
+        mergeCommit: `merge-${head}`,
+        isMergeQueueEnabled: false,
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  expect(await run(command)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "pr_merge_awaiting_batch",
+      data: { state: "pr-open" },
+      next: { command: `operator next --source ${source} --wait` },
+    },
+  });
+  expect((await shown(source)).pullRequests[0]).toMatchObject({ mergedAt: null });
+  expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+  await coordination(source, observedAt + 900000);
+  expect((await shown(source)).pullRequests[0]).toMatchObject({
+    mergedHead: head,
+    mergeCommit: `merge-${head}`,
+  });
+  expect(await Bun.file(`${worker.worktreePath}/work.txt`).exists()).toBe(false);
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+}, 120000);
+
+test.each(["worker", "supervisor"] as const)(
+  "corrupt readiness refuses the %s merge before any GitHub or cleanup effect",
+  async (caller) => {
+    const { source, worker, head } =
+      caller === "supervisor" ? await parkedFixture() : await feedbackFixture();
+    await github({
+      pulls: [
+        pull({
+          head,
+          reviewDecision: "APPROVED",
+          checks: [{ name: "ci", conclusion: "SUCCESS" }],
+          isMergeQueueEnabled: true,
+        }),
+      ],
+    });
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    for (const readiness of ["{", "{}", '{"head":null,"at":"now","note":null,"dispositions":[]}']) {
+      db.query("UPDATE pull_requests SET readiness = ?").run(readiness);
+      const before = db.serialize();
+      const reads = await calls("gh-calls.jsonl", "graphql");
+      const closes = await calls("herdr-calls.jsonl", "pane close");
+      const command =
+        caller === "supervisor"
+          ? ["pr", "merge", "--source", source, "--assignment", "implement"]
+          : ["pr", "merge"];
+      expect(
+        await run(command, caller === "supervisor" ? checkout : worker.worktreePath),
+      ).toMatchObject({ code: 3, output: { reason: "state_corrupt" } });
+      expect(await calls("gh-calls.jsonl", "graphql")).toBe(reads);
+      expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+      expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+      expect(await calls("herdr-calls.jsonl", "pane close")).toBe(closes);
+      expect(db.serialize()).toEqual(before);
+      expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+    }
+  },
+  120000,
+);
+
+test.each([true, false])(
+  "a parked merge refuses an advanced local and GitHub head before effects: queue %s",
+  async (enabled) => {
+    const { source, worker, head: parkedHead } = await parkedFixture();
+    const head = await commit(worker.worktreePath, "outside-update.txt");
+    expect(head).not.toBe(parkedHead);
+    await github({
+      pulls: [
+        pull({
+          head,
+          reviewDecision: "APPROVED",
+          checks: [{ name: "ci", conclusion: "SUCCESS" }],
+          isMergeQueueEnabled: enabled,
+        }),
+      ],
+    });
+    const before = await shown(source);
+    expect(
+      await run(["pr", "merge", "--source", source, "--assignment", "implement"]),
+    ).toMatchObject({ code: 3, output: { reason: "pr_head_mismatch" } });
+    expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+    expect(await calls("gh-calls.jsonl", '"DELETE"')).toBe(0);
+    expect(await shown(source)).toEqual(before);
+    expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+  },
+  120000,
+);
+
+test("queued feedback and its replacement retain batch-owned completion after policy changes", async () => {
+  const { source, worker, head } = await parkedFixture();
+  const facts = {
+    head,
+    reviewDecision: "APPROVED",
+    checks: [{ name: "ci", conclusion: "SUCCESS" }],
+    isMergeQueueEnabled: true,
+  };
+  await github({ pulls: [pull(facts)] });
+  expect(await run(["pr", "merge", "--source", source, "--assignment", "implement"])).toMatchObject(
+    { code: 0, output: { reason: "pr_enqueued" } },
+  );
+  const now = Date.now();
+  await github({
+    pulls: [
+      pull({
+        ...facts,
+        queueEntry: "QUEUE_7",
+        comments: [{ id: "Q1", author: "person", body: "Check queued feedback." }],
+      }),
+    ],
+  });
+  await coordination(source, now);
+  expect(await entry(source)).toMatchObject({ action: "resume_pr_feedback" });
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  const first = await feedbackLaunch(source, 3);
+  await exec(["herdr", "pane", "exit", first.launches.at(-1)?.paneId ?? "", "w"]);
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  await feedbackLaunch(source, 4);
+  await github({
+    pulls: [
+      pull({
+        head,
+        state: "MERGED",
+        mergeCommit: `merge-${head}`,
+        isMergeQueueEnabled: false,
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      }),
+    ],
+  });
+  expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_merge_awaiting_batch" },
+  });
+  await latestWorker(source, worker.worktreePath, "finished", 4);
+  expect((await shown(source)).pullRequests[0]).toMatchObject({
+    mergedAt: null,
+    parking: { state: "parked", queueHead: head },
+  });
+  expect(await Bun.file(`${worker.worktreePath}/work.txt`).exists()).toBe(true);
+  await coordination(source, now + 900000);
+  expect((await shown(source)).pullRequests[0]).toMatchObject({
+    mergedHead: head,
+    mergeCommit: `merge-${head}`,
+  });
+  expect(await Bun.file(`${worker.worktreePath}/work.txt`).exists()).toBe(false);
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+}, 120000);
+
+test("an omitted queue field preserves parked cursors and the batch retry schedule", async () => {
+  const { source, head } = await parkedFixture();
+  const facts = pull({
+    head,
+    reviewDecision: "APPROVED",
+    checks: [{ name: "ci", conclusion: "SUCCESS" }],
+  });
+  const before = (await shown(source)).pullRequests;
+  const now = Date.now();
+  await github({ pulls: [facts], omitQueueEntry: true });
+  expect(await coordination(source, now, 3)).toMatchObject({ reason: "github_invalid_response" });
+  expect((await shown(source)).pullRequests).toEqual(before);
+  const reads = await calls("gh-calls.jsonl", "query ParkedPRs");
+  await github({ pulls: [facts], omitQueueEntry: false });
+  expect(await coordination(source, now + 1)).toMatchObject({ reason: "next_actions_changed" });
+  expect(await calls("gh-calls.jsonl", "query ParkedPRs")).toBe(reads + 1);
+  expect((await shown(source)).pullRequests[0]?.parking).toMatchObject({
+    events: [expect.stringContaining("merge_eligible")],
+  });
+}, 120000);
+
+test("only the recorded supervisor can select a parked merge, and a live worker cannot be selected", async () => {
+  const { source, worker } = await feedbackFixture();
+  const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+  const before = await shown(source);
+  const reads = await calls("gh-calls.jsonl", "graphql");
+  expect(await run(command)).toMatchObject({ code: 4, output: { reason: "pr_owner_inactive" } });
+  expect(await calls("gh-calls.jsonl", "graphql")).toBe(reads);
+  expect(await shown(source)).toEqual(before);
+  expect((await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).code).toBe(0);
+  await latestWorker(source, worker.worktreePath, "finished");
+  const parked = await shown(source);
+  const parkedReads = await calls("gh-calls.jsonl", "graphql");
+  const result = await exec([
+    "env",
+    "OPENCODE_SESSION_ID=ses_foreign",
+    process.execPath,
+    cli,
+    ...command,
+    "--json",
+  ]);
+  expect(result.code).toBe(4);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    reason: "source_supervised_elsewhere",
+    next: { decider: "super-agent" },
+  });
+  expect(await calls("gh-calls.jsonl", "graphql")).toBe(parkedReads);
+  expect(await shown(source)).toEqual(parked);
+}, 120000);
+
+test("a parked merge rechecks every observed gate condition before it can enqueue", async () => {
+  const { source, head } = await parkedFixture();
+  const before = await shown(source);
+  const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+  const cases: { change: Record<string, unknown>; condition: string }[] = [
+    { change: { reviewDecision: null }, condition: "approved" },
+    { change: { checks: [{ name: "ci" }] }, condition: "checksPassing" },
+    { change: { checks: [{ name: "ci", conclusion: "FAILURE" }] }, condition: "checksPassing" },
+    { change: { checks: [] }, condition: "checksPassing" },
+    { change: { totalChecks: 2 }, condition: "checksPassing" },
+    {
+      change: { threads: [{ id: "T1", resolved: false, comments: [] }] },
+      condition: "threadsResolved",
+    },
+    { change: { baseRefName: "parent" }, condition: "defaultBase" },
+    { change: { isDraft: true }, condition: "notDraft" },
+  ];
+  for (const { change, condition } of cases) {
+    await github({
+      pulls: [
+        pull({
+          head,
+          reviewDecision: "APPROVED",
+          checks: [{ name: "ci", conclusion: "SUCCESS" }],
+          isMergeQueueEnabled: true,
+          ...change,
+        }),
+      ],
+    });
+    expect(await run(command)).toMatchObject({
+      output: {
+        reason: "pr_merge_blocked",
+        state: { conditions: { [condition]: false } },
+        next: { command: `operator next --source ${source} --wait` },
+      },
+    });
+  }
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  expect(await shown(source)).toEqual(before);
+}, 120000);
+
+test("a supervised parked merge without a queue verifies the merge before cleanup", async () => {
+  const { source, worker, head } = await parkedFixture();
+  await github({
+    pulls: [
+      pull({ head, reviewDecision: "APPROVED", checks: [{ name: "ci", conclusion: "SUCCESS" }] }),
+    ],
+  });
+  expect(await run(["pr", "merge", "--source", source, "--assignment", "implement"])).toMatchObject(
+    {
+      code: 0,
+      output: {
+        reason: "pr_merged",
+        data: { head, mergeCommit: `merge-${head}` },
+        next: { command: `operator next --source ${source}` },
+      },
+    },
+  );
+  for (
+    let tries = 0;
+    tries < 100 && (await Bun.file(`${worker.worktreePath}/work.txt`).exists());
+    tries++
+  )
+    await Bun.sleep(50);
+  expect(await Bun.file(`${worker.worktreePath}/work.txt`).exists()).toBe(false);
+  expect((await shown(source)).pullRequests[0]).toMatchObject({
+    mergedHead: head,
+    mergeCommit: `merge-${head}`,
+  });
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+}, 120000);
+
+test("a lost enqueue response is observed without repeating the mutation or ending the parked assignment", async () => {
+  const { source, head } = await parkedFixture();
+  await github({
+    enqueueLost: true,
+    pulls: [
+      pull({
+        head,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+        isMergeQueueEnabled: true,
+      }),
+    ],
+  });
+  const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+  for (let attempt = 0; attempt < 2; attempt++)
+    expect(await run(command)).toMatchObject({ code: 0, output: { reason: "pr_enqueued" } });
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+  expect((await shown(source)).pullRequests[0]).toMatchObject({
+    parking: { state: "parked" },
+    mergedAt: null,
+  });
+}, 120000);
 
 test("new guarded merge eligibility wakes a parked PR without bypassing approval or merging", async () => {
   const { source, head } = await parkedFixture();
@@ -1297,9 +1640,19 @@ test("draft association with review off refreshes readiness at the current pushe
 }, 120000);
 
 test.each(["custom", "legacy"] as const)(
-  "ready association actually dispatches %s feedback without supervisor recovery",
+  "ready association dispatches %s feedback after required kind selection without supervisor recovery",
   async (kind) => {
     const source = await setup("opencode", plan, kind);
+    const registered = await shown(source);
+    if (kind === "legacy") {
+      expect(
+        await run(["dispatch", "--source", source, "--assignment", "implement"]),
+      ).toMatchObject({
+        code: 4,
+        output: { reason: "assignment_kind_required", state: { kind: null } },
+      });
+      expect(await shown(source)).toEqual(registered);
+    }
     const worker = await dispatch(
       source,
       "implement",

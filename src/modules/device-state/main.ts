@@ -37,6 +37,7 @@ import {
 } from "./launches.ts";
 import {
   worktreeOwners,
+  checkParkedMergeOwner,
   associatePullRequest,
   recordPullRequestWait,
   renewPullRequestWait,
@@ -57,6 +58,7 @@ import { checkAdoption, type AdoptionTarget } from "./adoptions.ts";
 import { prReadinessSchema, storedPrReadinessSchema } from "./pr-readiness.ts";
 import {
   prParkingSchema,
+  recordPullRequestQueue,
   parkPullRequest,
   completeParking,
   resumeParkedPullRequest,
@@ -159,6 +161,9 @@ function hold(renew: () => void) {
 export const DeviceState = {
   prParkingSchema() {
     return prParkingSchema;
+  },
+  recordPullRequestQueue(paths: Paths, launchId: string, head: string) {
+    return writing(paths, (client) => recordPullRequestQueue(client, launchId, head));
   },
   parkPullRequest(paths: Paths, launchId: string, input: Parameters<typeof parkPullRequest>[2]) {
     return writing(paths, (client) => parkPullRequest(client, launchId, input));
@@ -310,6 +315,9 @@ export const DeviceState = {
   },
   worktreeOwners(paths: Paths) {
     return reading(paths, (client) => worktreeOwners(client));
+  },
+  checkParkedMergeOwner(paths: Paths, launchId: string, head: string) {
+    return reading(paths, (client) => checkParkedMergeOwner(client, launchId, head));
   },
   /**
    * With `review`, the association also queues the optional assignment-origin review request.
