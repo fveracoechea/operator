@@ -59,3 +59,25 @@ It deferred global trigger changes because one misrouted native session did not 
 It deferred a procedure-link checker to a separately authorized tooling task; missing files were mechanically checkable, but repairing tooling exceeded this docs-only assignment.
 It deferred a dispatch regression check until an authorized native dispatch entry point and observable routing contract were defined.
 No transcript export, full test suite, runtime operation, ready transition, review post, or merge formed part of this retro.
+
+## Batch retro and external qualification runner
+
+On 2026-11-20, a later ten-case native batch retro identified repeated qualification interruptions and candidate/scope evidence corrections.
+Its primary logs established outer interruptions in three distinct sessions, followed by complete passing reruns.
+The cases were a purposive sample; an exact one-in-five sampling rate and complete transcript coverage remained unverified.
+The primary report was `/tmp/opencode/issue373-retro-batch.md`.
+It recommended consolidating existing external qualification runners rather than adding repository checks, global instructions, or CI changes.
+This supplemented the earlier routing lesson without reopening its deferred global-skill work.
+
+Later on 2026-11-20, the supervising chief pursued that bounded recommendation outside the repository.
+The shared implementation was `/tmp/opencode/issue373-qualification/run-check.py`, SHA-256 `ba0d0a27ed111bead487486b02eedc148402db2b5b6b47905ed52091c347b171`.
+Its report recorded 20 passing synthetic tests and six killed deliberate guard breaks.
+It checked completion, exact declared scope, and frozen pre/post HEAD, index, and tracked content.
+Interrupted, missing-completion, dirty, or wrong-scope receipts could not qualify; expected failing child controls did not falsely fail a successful outer command.
+The primary source was `/tmp/opencode/issue373-qualification-runner-report.md`.
+
+On 2026-11-20, this was an external evidence helper, not a repository framework, scheduler, CI change, or installed-skill change.
+It left the repository watchdog unchanged and validated synthetic fixtures only, not the application full suite.
+Endpoint snapshots could not prove no intermediate edits occurred; unsigned local receipts and transient paths were not permanent archival evidence.
+The [later #420 blockers](issue-373-recovery.md#blocked-420-whole-candidate-qualification) remained blockers.
+The [automatic-guard decision](issue-373-user-constraints.md#automatic-guards-left-unchanged-on-2026-11-20) retained host guards without authorizing manual Operator commands or configuration changes.

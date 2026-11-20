@@ -114,6 +114,8 @@ This qualified the #429 correction, not later descendants or the whole #373 spec
 
 ## Assembled #420 and test-only qualification corrections
 
+The later [blocked whole-candidate qualification](#blocked-420-whole-candidate-qualification) supersedes this section's pending-review observation, not its scoped receipts.
+
 Supersession verified on 2026-11-20: draft [#420](https://github.com/fveracoechea/operator/pull/420) targeted main at `fveracoechea/operator@d9ed14c9bb9860132e7f1d26f6de406bd315a785`.
 It retained assembled parent `fveracoechea/operator@3ac7e0aa1d022f78018d8d368916e0b7f89ec667` and integrated main `fveracoechea/operator@0d19ea45d022183135c4121fa48ea6a29096b196`.
 That parent combined the continuation mutation correction, Defect preservation and direct write-owner tests, and #429's main changes.
@@ -133,6 +135,8 @@ GitHub still reported #420 open and draft, not merged.
 No earlier scoped pass or green main result replaced its remaining final-head gates.
 
 ## Published downstream drafts and eight inherited failures
+
+The later [readiness correction](#reviewed-and-corrected-430-readiness) and [fixture and child checkpoint](#fixture-corrections-and-additional-published-drafts) supersede the old #430 head and unresolved-fixture status below.
 
 Supersession verified on 2026-11-20: GitHub reported the following open drafts, replacing the earlier unpublished or provisional delivery observations above.
 Their reports recorded passing scoped tests and static checks, not final integrated acceptance.
@@ -155,6 +159,66 @@ This later inventory superseded #431's four-failure inventory as the known downs
 The supervising delegation recorded an active parent-fixture fix owner; none of the eight failures was waived or declared fixed by this checkpoint.
 The [combined acceptance owner](issue-373-user-constraints.md#combined-acceptance-ownership-on-2026-11-20) retained final cross-ticket verification.
 
+## Blocked #420 whole-candidate qualification
+
+On 2026-11-20, two fresh whole-candidate mutation campaigns selected all 19 eligible changed units against `fveracoechea/operator@0d19ea45d022183135c4121fa48ea6a29096b196`.
+Neither campaign passed.
+The final local test-only correction was `fveracoechea/operator@f2d86fba109866a84f419d6e98ace455e2cf7e4a`; published draft #420 still named `fveracoechea/operator@d9ed14c9bb9860132e7f1d26f6de406bd315a785`.
+Its latest diagnostic inventory retained 27 survivors and one incomplete timeout across two units.
+That inventory combined whole-campaign results with a later narrow reproof; it was not a fresh whole-candidate passing receipt.
+The exact local head passed 169 focused tests and static quality, but full quality had not run.
+The primary source was `/tmp/opencode/issue373-pr420-final-quality.md`.
+
+On 2026-11-20, independent Spec+Design review passed published `fveracoechea/operator@d9ed14c9bb9860132e7f1d26f6de406bd315a785`, with 187 selected tests.
+Standards review requested direct owning-unit coverage for remaining adapters and readers.
+The newer local tests addressed that request but lacked fresh independent delta approval.
+Neither verdict approved later production changes or waived mutation blockers.
+Sources were `/tmp/opencode/issue373-pr420-final-spec-design.md` and `/tmp/opencode/issue373-pr420-final-standards.md`.
+
+## Reviewed and corrected #430 readiness
+
+On 2026-11-20, independent review of `fveracoechea/operator@7a257f28895d4d3922bc867ee3df0c2363b8f878` requested changes on both axes.
+Spec+Design reproduced a P1 malformed-readiness merge authorization and a P2 bare-CR reviewer note that escaped its Markdown quote.
+Standards found two owning-test gaps for skipped readiness and branch-mismatch refusal.
+Sources were `/tmp/opencode/issue373-pr430-spec-design.md` and `/tmp/opencode/issue373-pr430-standards.md`.
+
+On 2026-11-20, correction `fveracoechea/operator@1ac79368a6b0ed4eb59348ca537d160958cff8c5` fixed those four findings.
+Owner reads validated readiness before effects with the shared decoder; note validation and quoting handled LF, CRLF, and bare CR.
+Its report recorded 219 focused passes, static quality, 61 killed owning-guard mutants, and 28 killed correction-delta mutants.
+Those narrow mutation passes did not supersede its earlier broader selection's 120 survivors or qualify the complete feature.
+The source was `/tmp/opencode/issue373-pr430-owning-test-fix.md`.
+
+Later on 2026-11-20, GitHub verified corrected draft [#430](https://github.com/fveracoechea/operator/pull/430) published at `fveracoechea/operator@dce10ebf63013d03c4e098caacca3b2f8df4ad56`.
+It integrated immutable parent `fveracoechea/operator@f2d86fba109866a84f419d6e98ace455e2cf7e4a`, the correction, and the #389 fixture commits below.
+Its report recorded 815 scoped tests and passing static quality on frozen content.
+The parent-relative inventory selected 24 eligible feature units; their final integrated mutations had not run.
+The candidate was not merge-qualified and still needed eventual parent production refresh, fresh review, complete mutations, and full quality.
+The source was `/tmp/opencode/issue373-pr430-corrected-integration.md`.
+
+## Fixture corrections and additional published drafts
+
+On 2026-11-20, the fixture report corrected all eight inherited failures and the earlier positional insert on `fveracoechea/operator@7eff577269c9b554bb5b75fbbcef0f26e77fd84e`.
+It recorded 215 focused passes and static quality, without changing production guards.
+The source was `/tmp/opencode/issue373-stack-fixture-fixes.md`.
+Its #389 commits, `fveracoechea/operator@493386fa054a1aa8139ac0436eedddf1550b3e20` and `fveracoechea/operator@94d4b8465a8d42469cdb821659313eb2b7dbaa7f`, were integrated into corrected #430.
+Its #390 commits, `fveracoechea/operator@6dc0c962f51a44a3e90ef62739367f42add73b3e` and `fveracoechea/operator@7eff577269c9b554bb5b75fbbcef0f26e77fd84e`, belonged on refreshed #431.
+This superseded the earlier unresolved-fixture observation, not the need to refresh and qualify every descendant.
+The combined correction branch's passes did not qualify the future refreshed stack.
+
+On 2026-11-20, GitHub also verified these open drafts, not main landings:
+
+- Migration [#434](https://github.com/fveracoechea/operator/pull/434) named `fveracoechea/operator@f6a2399882decd09c2bbeaf3e06892ac4e5ee15d`, based on #431's old head.
+  Its report retained fact-only migration, null-kind filling, historical-owner fencing, and raw-JSON compare-and-swap.
+  The source was `/tmp/opencode/issue373-issue391-integrated-evidence.md`.
+- Adoption [#433](https://github.com/fveracoechea/operator/pull/433) named `fveracoechea/operator@dafdd723905da907afef525274d8822736e120c5`, based on #430's old head.
+  Its 400 scoped passes and static quality excluded a separately recorded inherited fixture failure, not the requirement to correct it.
+  The source was `/tmp/opencode/issue373-issue395-integrated-evidence.md`.
+
+On 2026-11-20, the supervising delegation recorded child refresh work as unfinished; not all children contained corrected #430 or the fixture fixes.
+Migration-origin readiness still needed reconciliation with #430's shared validated schema, without restoring unchecked non-null merge authorization.
+Latest verified main remained `fveracoechea/operator@0d19ea45d022183135c4121fa48ea6a29096b196`, with #429's 3,992-test full-quality receipt.
+The [combined acceptance owner](issue-373-user-constraints.md#combined-acceptance-ownership-on-2026-11-20) still owed final cross-ticket proof.
+
 ## Qualification evidence limits
 
 On 2026-11-20, the [local qualification decision](issue-373-user-constraints.md#local-qualification-decision-on-2026-11-20) retained independent review and passing complete local checks on the actual candidate.
@@ -163,6 +227,9 @@ The recovery reports above distinguished completed scoped passes from external 1
 Neither an interrupted run nor tests against changing content established a final frozen-head pass.
 A run begun before a later commit also did not qualify that later head.
 Baseline failures established provenance, not permission to waive a red gate.
+
+Later on 2026-11-20, the chief pursued the [batch retro's external qualification runner](issue-373-native-delegation-retro.md#batch-retro-and-external-qualification-runner).
+Its synthetic validation did not qualify any application candidate or retroactively change earlier receipts' contracts.
 
 On 2026-11-20, the source reports cited here were local evidence pointers, not permanent public URLs or copied source records.
 The ingest verified GitHub merge metadata and published PR heads; it did not independently rerun implementation tests or qualification campaigns.

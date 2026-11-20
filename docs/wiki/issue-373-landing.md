@@ -53,7 +53,12 @@ This replaced the earlier unqualified correction status, not the historical #419
 The primary source was `/tmp/opencode/issue373-pr429-quality.md`, with GitHub's [#429 merge metadata](https://github.com/fveracoechea/operator/pull/429).
 The [corrected #420 draft](issue-373-recovery.md#assembled-420-and-test-only-qualification-corrections) and [published #430/#431/#432 drafts](issue-373-recovery.md#published-downstream-drafts-and-eight-inherited-failures) remained unmerged.
 Their scoped/static evidence did not qualify the combined stack, and eight inherited fixture failures remained tracked with a fix owner active.
+The later [fixture correction checkpoint](issue-373-recovery.md#fixture-corrections-and-additional-published-drafts) supersedes that unresolved-fixture status without qualifying all descendants.
 The [23-child acceptance plan](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) still required cross-ticket proof under the chief-of-staff's retained ownership.
+
+Later on 2026-11-20, verified main still named `fveracoechea/operator@0d19ea45d022183135c4121fa48ea6a29096b196`; no newer landing followed from this checkpoint.
+The [whole #420 campaign remained blocked](issue-373-recovery.md#blocked-420-whole-candidate-qualification), with published and local heads kept separate.
+The [corrected #430 draft](issue-373-recovery.md#reviewed-and-corrected-430-readiness) and [additional #433/#434 drafts](issue-373-recovery.md#fixture-corrections-and-additional-published-drafts) were published milestones, not merge qualification.
 
 ## Merge hold and #422
 
@@ -100,6 +105,10 @@ The [native delegation retro](issue-373-native-delegation-retro.md) recorded a s
 
 On 2026-11-20, the recovery handoff clarified that full quality already included the test suite at `fveracoechea/operator@7fd3cfb3532ab82f74cc6a4cefd87c3ce5afce98`.
 The [qualification evidence limits](issue-373-recovery.md#qualification-evidence-limits) reject external tool timeouts and runs against changing content as final-head passes.
+
+Later on 2026-11-20, the [hook audit and person's guard decision](issue-373-user-constraints.md#automatic-guards-left-unchanged-on-2026-11-20) retained ordinary Git without temporary hook overrides.
+Avoiding manual Operator/Herdr commands did not mean disabling automatic OpenCode callbacks or proving their historical execution absent.
+The [external runner](issue-373-native-delegation-retro.md#batch-retro-and-external-qualification-runner) strengthened receipt checks, not merge authority or the scope of passing evidence.
 
 ## Baseline evidence limit recorded on 2026-11-20
 

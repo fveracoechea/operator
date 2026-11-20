@@ -68,6 +68,12 @@ The [qualified #429 merge](issue-373-recovery.md#qualified-429-merge) also super
 The [downstream checkpoint](issue-373-recovery.md#published-downstream-drafts-and-eight-inherited-failures) supplied published #432 and the larger inherited-failure inventory after the planner's provisional observations.
 The planner remained a dated source, not a second live status ledger.
 
+Later on 2026-11-20, the [#420 qualification report](issue-373-recovery.md#blocked-420-whole-candidate-qualification) established whole-candidate mutation blockers, not an expanded feature requirement or passing final gate.
+The [#430 correction](issue-373-recovery.md#reviewed-and-corrected-430-readiness) enforced existing readiness and note boundaries; it did not amend canonical #373 scope.
+The [fixture corrections and published #433/#434 drafts](issue-373-recovery.md#fixture-corrections-and-additional-published-drafts) advanced integration evidence without completing combined acceptance.
+Migration-origin readiness still needed compatibility proof with the corrected shared decoder before the stack could claim acceptance.
+The [external qualification runner](issue-373-native-delegation-retro.md#batch-retro-and-external-qualification-runner) remained local evidence tooling, not a new product feature, CI requirement, or global-instruction change.
+
 ## Architecture references at the documentation base
 
 On 2026-11-20, `fveracoechea/operator@3f40479` contained the following decision records.

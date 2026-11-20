@@ -12,15 +12,24 @@ The [constraints page](issue-373-user-constraints.md) records the source and aut
 ## User constraints and coordination lessons
 
 - [User constraints](issue-373-user-constraints.md): The 2026-11-20 delegation, local-qualification and later ownership decisions, excluded device/release work, and chief-of-staff procedure pointers.
-- [Native delegation retro](issue-373-native-delegation-retro.md): The 2026-11-20 PR #420 routing failure, verified sources, bounded process correction, and deferred environment changes.
+- [Native delegation retro](issue-373-native-delegation-retro.md): The 2026-11-20 routing lesson, ten-case batch retro, external qualification runner, and deferred environment changes.
 
-## Latest checkpoint on 2026-11-20
+## Earlier checkpoint on 2026-11-20
 
 The [#429 merge supersession](issue-373-recovery.md#qualified-429-merge) records 3,992 passing tests, static quality, both clean independent reviews, and tested-tree equality.
 The [#420 supersession](issue-373-recovery.md#assembled-420-and-test-only-qualification-corrections) records the corrected draft without transferring earlier narrow mutation passes to whole-candidate qualification.
 The [published downstream checkpoint](issue-373-recovery.md#published-downstream-drafts-and-eight-inherited-failures) records drafts #430/#431/#432 and eight inherited fixture failures with an active fix owner.
 The [acceptance scope](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) covers all 23 children and separates inactive stack storage from active #422/#423 work.
 The [chief-of-staff acceptance ownership](issue-373-user-constraints.md#combined-acceptance-ownership-on-2026-11-20) remains an open responsibility, not a completion claim.
+
+## Later gates checkpoint on 2026-11-20
+
+- The [guard decision](issue-373-user-constraints.md#automatic-guards-left-unchanged-on-2026-11-20) retained automatic OpenCode guards and ordinary Git after the 65-worktree audit.
+- The [batch retro and external runner](issue-373-native-delegation-retro.md#batch-retro-and-external-qualification-runner) record 20 synthetic passes and six killed guard breaks, not application qualification.
+- The [whole #420 campaign](issue-373-recovery.md#blocked-420-whole-candidate-qualification) remained blocked by 27 diagnostic survivors and one timeout; local test corrections did not advance its published head.
+- The [corrected published #430](issue-373-recovery.md#reviewed-and-corrected-430-readiness) fixed readiness authorization and reviewer-note quoting, with 815 scoped passes but no merge qualification.
+- The [fixture and child checkpoint](issue-373-recovery.md#fixture-corrections-and-additional-published-drafts) records all eight fixture corrections and draft #433/#434, without claiming every child refreshed.
+- [Main remained at the qualified #429 merge](issue-373-landing.md#later-landing-checkpoint-on-2026-11-20); the [23-child acceptance scope](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) still required combined proof.
 
 ## Reading and updates
 

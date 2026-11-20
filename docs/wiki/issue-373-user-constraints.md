@@ -15,6 +15,7 @@ On 2026-11-20, the supervising session relayed these verified user decisions in 
 On 2026-11-20, the assignment supplied no public transcript URL for those decisions.
 Their provenance was the supervising session's delegation, not an invented GitHub approval or a new human answer by this agent.
 The documentation assignment itself prohibited Operator and Herdr invocation and inspection of real device state.
+The later [automatic-guard decision](#automatic-guards-left-unchanged-on-2026-11-20) clarified manual-command avoidance without disabling host callbacks.
 It authorized a docs-only commit and draft PR referencing #373, but not a merge, ready transition, deletion, or main-checkout modification.
 
 On 2026-11-20, runtime installation, runtime activation, release publication, and tags remained outside this delegation.
@@ -69,6 +70,22 @@ Inherited provenance did not waive those failures or any final local gate.
 The [acceptance scope checkpoint](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) found no missing feature ticket; the pending work was integration and combined proof.
 The documentation agent's authority remained a safe fast-forward update to draft #428, with format, link, index, and privacy checks only.
 Original work, real-state exclusions, and the runtime/release boundary remained unchanged.
+
+## Automatic guards left unchanged on 2026-11-20
+
+On 2026-11-20, the hook audit found no active Git hooks across all 65 then-registered worktrees.
+Temporary `core.hooksPath` overrides were unnecessary; the audit found no prohibited co-author tokens in its stated history scans.
+It separately found an installed OpenCode plugin that calls Operator automatically for matching shell commits and session idle.
+At `fveracoechea/operator@f19411de627451032dd5796e77af3e83d606ec2b`, [ADR-0021](https://github.com/fveracoechea/operator/blob/f19411de627451032dd5796e77af3e83d606ec2b/docs/adr/0021-a-claude-code-hook-keeps-co-authored-by-trailers-out-of-commits.md#opencode) documented this separate host guard.
+The primary audit source was `/tmp/opencode/issue373-native-hook-audit.md`.
+
+Later on 2026-11-20, the supervising delegation relayed the person's choice, "Leave guards unchanged".
+The task constraint therefore meant avoiding manual Operator CLI and Herdr commands, while retaining automatic OpenCode guards and ordinary Git checks.
+This clarified the earlier blanket CLI wording and resolved the audit's host-policy question without authorizing configuration changes or hook bypasses.
+The source was the dated supervising delegation; no public transcript URL was supplied.
+Historical automatic Operator execution remained unverified, not established absent.
+Neither the audit nor this clarification proved that automatic host callbacks left device state untouched.
+The real legacy/device-state exclusions still governed the agents' own work.
 
 ## Known chief-of-staff pointer limitation
 
