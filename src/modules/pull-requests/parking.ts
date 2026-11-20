@@ -53,7 +53,14 @@ export function parkedObservation(row: Parked, facts: BatchObservation) {
   const events =
     decision.result === "reported"
       ? decision.events
-          .filter((event) => event.kind !== "pr_merged" && event.kind !== "pr_closed")
+          .filter(
+            (event) =>
+              !(
+                event.kind === "merge_eligible" &&
+                facts.observed.queueEntry !== null &&
+                facts.observed.queueEntry !== undefined
+              ),
+          )
           .map((event) => JSON.stringify(event))
       : [];
   const parentMerged =

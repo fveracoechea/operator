@@ -71,6 +71,7 @@ test("the SuperAgent commands that coordinate a source name their operation and 
     [["message", "ring", "--source", "s1"], "message_ring"],
     [["message", "close", "--source", "s1"], "message_close"],
     [["cleanup", "--source", "s1", "--assignment", "a"], "cleanup"],
+    [["pr", "merge", "--source", "s1", "--assignment", "a"], "pr_merge"],
   ] as const)
     expect(coordinatedSource([...args, "--json"])).toEqual({ operation, sourceId: "s1" });
 });
@@ -79,6 +80,8 @@ test("reads, worker commands, unscoped waits, and the person's instructions are 
   for (const args of [
     [],
     ["next", "--source", "s1"],
+    ["pr", "merge"],
+    ["pr", "wait"],
     ["next", "--wait"],
     ["source", "show", "--source", "s1"],
     ["source", "reset", "--source", "s1", "--person-instructed"],

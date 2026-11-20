@@ -14,6 +14,8 @@ import {
   markReady,
   postComment,
   updateComment,
+  readMergeQueue,
+  enqueuePullRequest,
 } from "./github.ts";
 import { mergeConditions } from "./wait-machine.ts";
 
@@ -243,6 +245,102 @@ function ok<B>(body: B): Answer {
 
 const refused: Answer = { status: "failed", code: "http_422", detail: "Refused", httpStatus: 422 };
 const lost: Answer = { status: "uncertain", detail: "gh ended on SIGTERM" };
+
+test("queue reads preserve base policy, membership, identity, state, and guarded head", async () => {
+  const call = github(() =>
+    ok({
+      data: {
+        repository: {
+          pullRequest: {
+            id: "PR7",
+            state: "OPEN",
+            headRefOid: "abc",
+            isMergeQueueEnabled: true,
+            mergeQueueEntry: { id: "Q7" },
+          },
+        },
+      },
+    }),
+  );
+  expect<unknown>(await readMergeQueue("owner/one", 7)).toMatchObject({
+    tag: "Ok",
+    value: { id: "PR7", state: "OPEN", head: "abc", enabled: true, entry: "Q7" },
+  });
+  expect(call.mock.calls[0]?.[0].args).toEqual([
+    "graphql",
+    "-f",
+    expect.stringContaining("isMergeQueueEnabled mergeQueueEntry { id }"),
+    "-f",
+    "owner=owner",
+    "-f",
+    "name=one",
+    "-F",
+    "number=7",
+  ]);
+  call.mockImplementation(async () =>
+    ok({
+      data: {
+        repository: {
+          pullRequest: {
+            id: "PR7",
+            state: "OPEN",
+            headRefOid: "abc",
+            isMergeQueueEnabled: false,
+            mergeQueueEntry: null,
+          },
+        },
+      },
+    }),
+  );
+  expect<unknown>(await readMergeQueue("owner/one", 7)).toMatchObject({
+    tag: "Ok",
+    value: { enabled: false, entry: null },
+  });
+});
+
+test("queue policy reads fail closed rather than silently permitting a direct merge", async () => {
+  for (const response of [refused, lost, ok({ data: { repository: { pullRequest: null } } })]) {
+    github(() => response);
+    expect((await readMergeQueue("owner/one", 7)).tag).toBe("Err");
+  }
+});
+
+test("enqueue uses the guarded head without jumping the queue and validates GitHub's response", async () => {
+  const call = github(() =>
+    ok({ data: { enqueuePullRequest: { mergeQueueEntry: { id: "Q7" } } } }),
+  );
+  expect<unknown>(await enqueuePullRequest("PR7", "abc")).toMatchObject({ tag: "Ok" });
+  const args = call.mock.calls[0]?.[0].args ?? [];
+  expect<unknown>(args).toEqual([
+    "graphql",
+    "-f",
+    expect.stringContaining("expectedHeadOid: $head"),
+    "-f",
+    "id=PR7",
+    "-f",
+    "head=abc",
+  ]);
+  expect(args.join(" ")).not.toContain("jump:");
+  for (const [response, reason] of [
+    [refused, "github_failed"],
+    [lost, "github_uncertain"],
+    [ok({ unknown: true }), "github_uncertain"],
+    [ok({ data: null, errors: [{ message: "Restricted" }] }), "pr_enqueue_refused"],
+    [
+      ok({
+        data: { enqueuePullRequest: { mergeQueueEntry: { id: "Q7" } } },
+        errors: [{ message: "Partial failure" }],
+      }),
+      "pr_enqueue_refused",
+    ],
+  ] as const) {
+    call.mockImplementation(async () => response);
+    expect<unknown>(await enqueuePullRequest("PR7", "abc")).toMatchObject({
+      tag: "Err",
+      error: { reason },
+    });
+  }
+});
 
 test("parked observation reads all PRs and recorded parents in one validated GitHub request", async () => {
   const parent = { state: "MERGED", baseRefName: "main", headRefOid: "parent-head" };

@@ -159,6 +159,180 @@ test("a typed merge owner refuses hidden untracked work before requesting a merg
   expect(await Bun.file(`${worktree}/pending.txt`).text()).toBe("Keep.");
 });
 
+test("a queue-enabled merge pins the enqueue and parks without recording completion", async () => {
+  const { device, input, head, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  let queued = false;
+  device.answer((args) => {
+    if (requestKind(args) === "enqueue") {
+      expect(args).toContain(`head=${head}`);
+      expect(args).toContain("id=PR_7");
+      queued = true;
+      return uncertain("lost enqueue response");
+    }
+    return succeeded(
+      pullRequestBody({ head, queueEnabled: true, queueEntry: queued ? "Q7" : null }),
+    );
+  });
+  expect<unknown>(await merge(input)).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "pr_enqueued",
+      data: { state: "pr-open", queueEntry: "Q7" },
+      next: { command: `operator next --source ${device.sourceId} --wait` },
+    },
+  });
+  expect(device.calls.map(requestKind)).toEqual([
+    "pull_request",
+    "merge_queue",
+    "enqueue",
+    "merge_queue",
+  ]);
+  expect(assignmentState(device)).toBe("pr-open");
+  expect(detach).toHaveBeenCalledTimes(1);
+  expect(device.calls.some((args) => args.includes("PUT"))).toBe(false);
+});
+
+test("a scoped parked merge checks the gate, enqueues once, and never starts early cleanup", async () => {
+  const { device, input, head, launchId, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  expect(DeviceState.parkPullRequest(device.paths, launchId, { head, note: null }).tag).toBe("Ok");
+  expect(DeviceState.finishImplementer(device.paths, launchId).tag).toBe("Ok");
+  expect(
+    DeviceState.claimHandoff(device.paths, repository, device.sourceId, "other", null).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.completeParking(device.paths, {
+      repository,
+      sourceId: device.sourceId,
+      assignment: "other",
+    }).tag,
+  ).toBe("Ok");
+  const scoped = { ...input, cwd: device.checkout, sourceId: device.sourceId, assignment: "other" };
+  let queued = false;
+  let approved = false;
+  let landed = false;
+  device.answer((args) => {
+    if (requestKind(args) === "enqueue") {
+      queued = true;
+      return succeeded({ data: { enqueuePullRequest: { mergeQueueEntry: { id: "Q7" } } } });
+    }
+    return succeeded(
+      pullRequestBody({
+        head,
+        approved,
+        state: landed ? "MERGED" : "OPEN",
+        mergeCommit: landed ? "m1" : null,
+        queueEnabled: true,
+        queueEntry: queued ? "Q7" : null,
+      }),
+    );
+  });
+  const before = device.pullRequestRow("other");
+  expect<unknown>(await merge(scoped)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_merge_blocked",
+      next: { command: `operator next --source ${device.sourceId} --wait` },
+    },
+  });
+  expect(device.pullRequestRow("other")).toEqual(before);
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  approved = true;
+  for (let attempt = 0; attempt < 2; attempt++)
+    expect<unknown>(await merge(scoped)).toMatchObject({
+      tag: "Ok",
+      value: {
+        reason: "pr_enqueued",
+        data: { head, state: "pr-open" },
+        next: { command: `operator next --source ${device.sourceId} --wait` },
+      },
+    });
+  expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
+  expect(device.calls.some((args) => args.includes("PUT"))).toBe(false);
+  expect(device.pullRequestRow("other")).toEqual(before);
+  expect(detach).not.toHaveBeenCalled();
+  landed = true;
+  expect<unknown>(await merge(scoped)).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "pr_merge_awaiting_batch",
+      data: { state: "pr-open" },
+      next: { command: `operator next --source ${device.sourceId} --wait` },
+    },
+  });
+  expect(device.pullRequestRow("other")).toEqual(before);
+  expect(detach).not.toHaveBeenCalled();
+});
+
+test("an enqueue refusal keeps the assignment active and names a safe retry", async () => {
+  const { device, input, head, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  device.answer((args) =>
+    requestKind(args) === "enqueue"
+      ? succeeded({ data: null, errors: [{ message: "Queue rejected the head." }] })
+      : succeeded(pullRequestBody({ head, queueEnabled: true })),
+  );
+  expect<unknown>(await merge(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_enqueue_refused", next: { decider: "person" } },
+  });
+  expect(device.calls.map(requestKind)).toEqual([
+    "pull_request",
+    "merge_queue",
+    "enqueue",
+    "merge_queue",
+  ]);
+  expect(assignmentState(device)).toBe("pr-open");
+  expect(detach).not.toHaveBeenCalled();
+});
+
+test("a changed queue head refuses before enqueue and leaves work intact", async () => {
+  const { device, input, head, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  device.answer((args) =>
+    succeeded(
+      pullRequestBody({
+        head: requestKind(args) === "merge_queue" ? "changed" : head,
+        queueEnabled: true,
+      }),
+    ),
+  );
+  expect<unknown>(await merge(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_head_mismatch", state: { expectedHead: head, observedHead: "changed" } },
+  });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request", "merge_queue"]);
+  expect(assignmentState(device)).toBe("pr-open");
+  expect(detach).not.toHaveBeenCalled();
+});
+
+test("unknown queue policy never falls back to a direct merge", async () => {
+  const { device, input, head, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  const before = device.pullRequestRow("other");
+  for (const answer of [
+    failed("No queue policy"),
+    uncertain("Policy read timed out"),
+    succeeded({ data: null }),
+  ]) {
+    device.answer((args) =>
+      requestKind(args) === "merge_queue" ? answer : succeeded(pullRequestBody({ head })),
+    );
+    expect((await merge(input)).tag).toBe("Err");
+  }
+  expect(device.calls.map(requestKind)).toEqual([
+    "pull_request",
+    "merge_queue",
+    "pull_request",
+    "merge_queue",
+    "pull_request",
+    "merge_queue",
+  ]);
+  expect(device.pullRequestRow("other")).toEqual(before);
+  expect(detach).not.toHaveBeenCalled();
+});
+
 test("a typed merge owner without a ready frontier refuses without side effects", async () => {
   const { device, head, input, detach } = await owner(null, undefined, true, false);
   await using _ = device;
@@ -205,6 +379,7 @@ test.each(["ready", "skipped"] as const)(
     expect(device.calls.map(requestKind)).toEqual([
       "pull_request",
       "pull_request",
+      "merge_queue",
       "merge",
       "pull_request",
     ]);
@@ -271,11 +446,12 @@ test("an eligible PR at the worktree head merges once and starts its cleanup", a
   });
   expect(device.calls.map(requestKind)).toEqual([
     "pull_request",
+    "merge_queue",
     "merge",
     "merge_read",
     "pull_request",
   ]);
-  expect(device.calls[1]).toEqual([
+  expect(device.calls[2]).toEqual([
     "-X",
     "PUT",
     `repos/${repository}/pulls/7/merge-async`,
@@ -286,7 +462,7 @@ test("an eligible PR at the worktree head merges once and starts its cleanup", a
     "-f",
     "merge_action=direct_merge",
   ]);
-  expect(device.calls[2]).toEqual([`repos/${repository}/pulls/7/merge-async/u1`]);
+  expect(device.calls[3]).toEqual([`repos/${repository}/pulls/7/merge-async/u1`]);
   expect(sleep.mock.calls).toEqual([[1000]]);
   expect(detach.mock.calls).toEqual([
     [
@@ -612,6 +788,7 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
     expect<unknown>(await merge(input)).toEqual({ tag: "Err", error });
     expect(device.calls.map(requestKind)).toEqual([
       "pull_request",
+      "merge_queue",
       "merge",
       "merge_read",
       "pull_request",
@@ -638,7 +815,12 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
       state: { mergeRequest: "pending" },
     },
   });
-  expect(device.calls.map(requestKind)).toEqual(["pull_request", "merge", "pull_request"]);
+  expect(device.calls.map(requestKind)).toEqual([
+    "pull_request",
+    "merge_queue",
+    "merge",
+    "pull_request",
+  ]);
   expect(assignmentState(device)).toBe("pr-open");
 });
 

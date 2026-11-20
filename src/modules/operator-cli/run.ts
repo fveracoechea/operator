@@ -157,6 +157,8 @@ function recorded(paths: OperatorPaths, selected: Worker, clean: boolean): Resul
 
 /** Commands and results share the same phase decision over the launch's immutable kind. */
 async function withWorkerContext(args: string[], paths: OperatorPaths, run: () => Promise<void>) {
+  const pr = pullRequestArgs(args);
+  if (pr?.operation === "pr_merge" && "sourceId" in pr) return run();
   let selection: Result<Worker | null, Refusal>;
   const event = eventOf(args);
   if (event !== undefined && event !== "submit" && event !== "resume") {

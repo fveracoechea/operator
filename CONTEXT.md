@@ -262,6 +262,8 @@ A verified merge ends the assignment and runs cleanup.
 **PR merge gate**:
 The conditions that the CLI checks before it merges a PR.
 They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and a recorded ready transition.
+The PR owner and the instructed supervisor of a parked assignment use the same gate.
+A passed gate enqueues a PR whose base requires a merge queue, but completion still requires an observed merge.
 _Avoid_: project gate
 
 **Internal review**:

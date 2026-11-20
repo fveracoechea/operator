@@ -438,15 +438,23 @@ operator pr round --file <findings.md> --json
 operator pr wait --timeout 300 --json
 operator pr ready --file <summary.md> --note <reviewer-note.md> --json
 operator pr merge --json
+operator pr merge --source <source-id> --assignment <key> --json
 operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
 operator cleanup --source <source-id> --assignment <key> --json
 ```
 
-The WorkerAgent runs the `pr` commands in its worktree.
+The WorkerAgent runs unscoped `pr` commands in its worktree.
+On the person's instruction, the recorded supervisor can select a parked assignment with `pr merge --source --assignment` from its registered checkout.
+The selector refuses a live worker's assignment and does not transfer supervision.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
 `pr merge` merges only a ready PR whose base is the default branch.
 It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and recorded `pr_ready`.
 It asks GitHub for the merge in the background, then records it only after GitHub shows the PR merged.
+For a merge-queue base, the same passed gate enqueues the exact guarded head instead of requesting a direct merge.
+`pr_enqueued` keeps the assignment PR-open and parked, with its worktree retained. Its `next` names the coordination wait.
+Retries observe queue membership before enqueueing again, also after a lost response.
+Only a parked batch read that verifies the merge completes the queued assignment and starts cleanup.
+Before that batch, a merge retry that sees GitHub merged returns `pr_merge_awaiting_batch` and keeps the worktree.
 `pr round` records the findings of one internal review round at the worktree head, and refuses a third round or a second round at the first round's head.
 Both review commands read markdown from a file or stdin and refuse JSON.
 A round with no findings uses the heading without bullets:

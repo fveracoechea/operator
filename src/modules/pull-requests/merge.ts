@@ -1,4 +1,4 @@
-import { ErrAsync, fromPromise, type AsyncResult } from "unthrown";
+import { ErrAsync, OkAsync, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -7,6 +7,8 @@ import {
   mergePullRequest,
   observePullRequest,
   readMergeRequest,
+  readMergeQueue,
+  enqueuePullRequest,
   type Observation,
 } from "./github.ts";
 import {
@@ -16,13 +18,17 @@ import {
   verifiedMerge,
 } from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
-import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import { qualify, resolveOwner, resolveParkedOwner, type Owner, type Paths } from "./owner.ts";
 import { owned, reviewEnded } from "./internal-review.ts";
-import type { Refusal } from "../../lib/cli-result.ts";
+import { parkQuietWait } from "./parking.ts";
+import type { Refusal, ResultContext } from "../../lib/cli-result.ts";
 
-type Request = { paths: Paths; cwd: string };
+type Request = { paths: Paths; cwd: string } & (
+  | { sourceId: string; assignment: string }
+  | { sourceId?: never; assignment?: never }
+);
 type Failure = Refusal;
-type Outcome = { reason: string; data: object };
+type Outcome = { reason: string; data: object } & Partial<ResultContext>;
 
 // A built release runs `cli.js`, and a source install runs `cli.ts`.
 const packageRoot = new URL("../../", import.meta.url);
@@ -109,6 +115,8 @@ function verify(
   head: string | null,
   request: Failure | null,
 ): AsyncResult<Outcome, Failure> {
+  if (input.sourceId !== undefined && request?.next.command === "operator pr merge")
+    request = { ...request, next: { ...request.next, command: mergeCommand(input) } };
   return observePullRequest(owner.repository, number).flatMap((observed) => {
     const merged = verifiedMerge(observed, head);
     if (merged !== null) return record(input, owner, number, merged);
@@ -117,7 +125,7 @@ function verify(
         reason: "pr_merge_unverified",
         detail: `GitHub does not report PR #${number} merged at ${head ?? observed.head}. Nothing was recorded. Repeat operator pr merge.`,
         next: {
-          command: "operator pr merge",
+          command: mergeCommand(input),
           why: "Verify whether the earlier merge request landed.",
         },
         state: {
@@ -145,15 +153,128 @@ function guarded(
     stackRelayed: relay === null || relay.state === "relayed",
     reviewEnded: reviewEnded(owner),
   });
-  if (decision.result === "refused") return ErrAsync<Failure>(decision);
-  if (decision.result === "verify") return verify(input, owner, number, null, null);
-  return fromPromise(async () => {
-    const phase = await mergePhase(owner);
-    if (phase !== null) return ErrAsync<Failure>(phase);
-    // A refused or lost answer can follow a merge that landed, so every answer is verified.
-    const refused = await requestMerge(owner.repository, number, decision);
-    return await verify(input, owner, number, decision.head, refused);
-  }, qualify).flatMap((result) => result);
+  if (decision.result === "refused")
+    return ErrAsync<Failure>(
+      input.sourceId !== undefined && decision.reason === "pr_merge_blocked"
+        ? {
+            ...decision,
+            next: {
+              command: `operator next --source ${input.sourceId} --wait`,
+              why: "The parked assignment needs a changed observation before merge can pass.",
+            },
+          }
+        : decision,
+    );
+  if (decision.result === "verify") {
+    if (input.sourceId === undefined) return verify(input, owner, number, null, null);
+    return readMergeQueue(owner.repository, number).flatMap(
+      (queue): AsyncResult<Outcome, Failure> =>
+        queue.enabled
+          ? OkAsync({
+              reason: "pr_merge_awaiting_batch",
+              data: {
+                sourceId: owner.sourceId,
+                assignment: owner.assignment,
+                number,
+                head: observed.head,
+                state: "pr-open",
+              },
+              next: {
+                command: `operator next --source ${owner.sourceId} --wait`,
+                why: "Only the parked batch records the queued merge and starts cleanup.",
+              },
+            })
+          : verify(input, owner, number, null, null),
+    );
+  }
+  return fromPromise(() => mergePhase(owner), qualify).flatMap(
+    (phase): AsyncResult<Outcome, Failure> => {
+      if (phase !== null) return ErrAsync(phase);
+      return readMergeQueue(owner.repository, number).flatMap(
+        (queue): AsyncResult<Outcome, Failure> => {
+          if (queue.enabled)
+            return queuedMerge(input, owner, number, observed, decision.head, queue);
+          // A refused or lost answer can follow a merge that landed, so every answer is verified.
+          return fromPromise(
+            () => requestMerge(owner.repository, number, decision),
+            qualify,
+          ).flatMap((refused) => verify(input, owner, number, decision.head, refused));
+        },
+      );
+    },
+  );
+}
+
+type Queue = Extract<Awaited<ReturnType<typeof readMergeQueue>>, { tag: "Ok" }>["value"];
+
+function queuedMerge(
+  input: Request,
+  owner: Owner,
+  number: number,
+  observed: Observation,
+  head: string,
+  queue: Queue,
+): AsyncResult<Outcome, Failure> {
+  if (queue.head !== head || queue.state !== "OPEN")
+    return ErrAsync({
+      reason: "pr_head_mismatch",
+      detail: "The PR changed after the merge gate. Nothing was enqueued.",
+      next: { command: mergeCommand(input), why: "Repeat the fresh merge gate before enqueueing." },
+      state: { expectedHead: head, observedHead: queue.head, observedState: queue.state },
+    });
+  return fromPromise(
+    async () => ({
+      requested: queue.entry === null ? await enqueuePullRequest(queue.id, head) : null,
+    }),
+    qualify,
+  ).flatMap(({ requested }) =>
+    readMergeQueue(owner.repository, number).flatMap((confirmed): AsyncResult<Outcome, Failure> => {
+      // A lost answer can follow an accepted enqueue; membership, not the answer, proves it.
+      if (confirmed.entry === null || confirmed.head !== head) {
+        if (requested !== null && requested.tag !== "Ok")
+          return requested.map(() => enqueued(owner, number, head, confirmed.entry)).toAsync();
+        return ErrAsync({
+          reason: "pr_enqueue_unverified",
+          detail:
+            "GitHub did not confirm queue membership for the guarded head. The assignment remains open.",
+          next: {
+            command: mergeCommand(input),
+            why: "Read queue membership and the merge gate before retrying.",
+          },
+          state: { expectedHead: head, queued: confirmed.entry !== null },
+        });
+      }
+      return owner.launchState === "running"
+        ? parkQuietWait(input, owner, observed).map(() =>
+            enqueued(owner, number, head, confirmed.entry),
+          )
+        : OkAsync(enqueued(owner, number, head, confirmed.entry));
+    }),
+  );
+}
+
+function enqueued(owner: Owner, number: number, head: string, entry: string | null) {
+  return {
+    reason: "pr_enqueued",
+    data: {
+      sourceId: owner.sourceId,
+      assignment: owner.assignment,
+      number,
+      head,
+      state: "pr-open",
+      queueEntry: entry,
+    },
+    next: {
+      command: `operator next --source ${owner.sourceId} --wait`,
+      why: "The parked assignment completes only when a batch read verifies the merge.",
+    },
+  };
+}
+
+function mergeCommand(input: Request) {
+  return input.sourceId === undefined
+    ? "operator pr merge"
+    : `operator pr merge --source ${input.sourceId} --assignment ${input.assignment}`;
 }
 
 /** Earlier readiness is a phase witness, not a substitute for the fresh merge decision. */
@@ -243,8 +364,11 @@ async function requestMerge(
  * request and writes nothing.
  */
 export function merge(input: Request) {
-  return resolveOwner(input)
-    .flatMap(owned)
+  const owner =
+    input.sourceId !== undefined && input.assignment !== undefined
+      ? resolveParkedOwner({ ...input, sourceId: input.sourceId, assignment: input.assignment })
+      : resolveOwner(input).flatMap(owned);
+  return owner
     .flatMap((owner): AsyncResult<Outcome, Failure> => {
       const number = owner.pullRequest;
       if (number === null)
@@ -262,5 +386,16 @@ export function merge(input: Request) {
           guarded(input, owner, number, observed, local),
         ),
       );
-    });
+    })
+    .map((outcome) =>
+      input.sourceId === undefined || outcome.next !== undefined
+        ? outcome
+        : {
+            ...outcome,
+            next: {
+              command: `operator next --source ${input.sourceId}`,
+              why: "Read the assignment's completion and cleanup state.",
+            },
+          },
+    );
 }

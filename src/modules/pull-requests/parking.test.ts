@@ -387,6 +387,44 @@ test("quiet reads wake nothing and newly guarded merge eligibility is retained e
   expect(own.progress).toBe(row.progress);
 });
 
+test("a queued PR acknowledges eligibility without waking a worker or dropping real feedback", () => {
+  const queued = {
+    ...observed,
+    queueEntry: "Q7",
+    approved: true,
+    checks: [{ name: "ci", state: "passing" as const, url: null }],
+  };
+  const quiet = parkedObservation(row, { observed: queued, parent: null });
+  expect<unknown>(quiet.parking).toEqual(row.parking);
+  expect(JSON.parse(quiet.progress)).toEqual({ seen: [], failures: [], eligibleHead: "h" });
+  expect(
+    parkedObservation(row, { observed: { ...queued, queueEntry: null }, parent: null }).parking
+      .events,
+  ).toEqual(['{"kind":"merge_eligible","head":"h"}']);
+  const feedback = parkedObservation(row, {
+    observed: {
+      ...queued,
+      feedback: [
+        {
+          id: "C1",
+          kind: "comment",
+          author: "person",
+          fromViewer: false,
+          operatorReview: false,
+          body: "Check this claim",
+          url: "https://github.com/c/C1",
+          reviewState: null,
+          path: null,
+          threadResolved: null,
+        },
+      ],
+    },
+    parent: null,
+  });
+  expect(feedback.parking.events).toHaveLength(1);
+  expect(JSON.parse(feedback.parking.events[0] ?? "null")).toMatchObject({ kind: "feedback" });
+});
+
 test("new feedback and CI failures commit their independent cursors with durable events once", () => {
   const facts = {
     observed: {

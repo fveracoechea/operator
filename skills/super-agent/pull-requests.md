@@ -26,7 +26,9 @@ Your coordination wait returns `pr_wait_timed_out`, `pr_wait_stopped`, and `pr_o
 A missing PR worktree needs the person's recovery decision.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
-A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
+A `merge_eligible` report from the owner is not a merge. A live owner runs `operator pr merge --json`, which checks GitHub again.
+On the person's instruction, merge parked work from the registered checkout with `operator pr merge --source <id> --assignment <key> --json`.
+The command checks supervision and the same merge gate. Follow its `next`; `pr_enqueued` retains the parked worktree until the batch observes a verified merge.
 
 ## Adopt an open PR
 

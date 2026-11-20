@@ -37,6 +37,7 @@ import {
 } from "./launches.ts";
 import {
   worktreeOwners,
+  checkParkedMergeOwner,
   associatePullRequest,
   recordPullRequestWait,
   renewPullRequestWait,
@@ -294,6 +295,9 @@ export const DeviceState = {
   },
   worktreeOwners(paths: Paths) {
     return reading(paths, (client) => worktreeOwners(client));
+  },
+  checkParkedMergeOwner(paths: Paths, launchId: string, head: string) {
+    return reading(paths, (client) => checkParkedMergeOwner(client, launchId, head));
   },
   /**
    * With `review`, the association also queues the optional assignment-origin review request.

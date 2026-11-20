@@ -63,7 +63,7 @@ function proseArgs(flags: string[], allowed: string[]) {
   return parsed.file === "-" && parsed.note === "-" ? null : parsed;
 }
 
-/** No owner flag selects an assignment or a PR. The caller's worktree is the only selector. */
+/** Worker commands select by worktree; a supervised parked merge names its assignment. */
 export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
   if (group === "cleanup") return cleanupArgs(args.slice(1));
@@ -86,10 +86,23 @@ export function pullRequestArgs(args: string[]) {
 
 function ownerArgs(command: string, flags: string[]) {
   if (command === "wait") return waitArgs(flags);
+  if (command === "merge") return mergeArgs(flags);
   if (flags.length > 1 || flags.some((flag) => flag !== "--json")) return null;
-  return command === "merge"
-    ? { operation: "pr_merge" as const }
-    : { operation: "pr_associate" as const };
+  return { operation: "pr_associate" as const };
+}
+
+type MergeArgs =
+  | { operation: "pr_merge"; sourceId?: never; assignment?: never }
+  | { operation: "pr_merge"; sourceId: string; assignment: string };
+
+function mergeArgs(flags: string[]): MergeArgs | null {
+  if (flags.length <= 1 && flags.every((flag) => flag === "--json"))
+    return { operation: "pr_merge" };
+  if (flags.includes("--person-instructed")) return null;
+  const parsed = assignmentArgs(flags);
+  return parsed === null
+    ? null
+    : { operation: "pr_merge", sourceId: parsed.sourceId, assignment: parsed.assignment };
 }
 
 function waitArgs(flags: string[]) {
@@ -130,6 +143,9 @@ export const pullRequestExitCodes = {
   github_invalid_response: 1,
   pr_merge_refused: 1,
   pr_merge_unverified: 1,
+  pr_enqueue_unverified: 1,
+  pr_enqueue_refused: 1,
+  source_supervised_elsewhere: 4,
   cleanup_failed: 1,
   relay_fetch_failed: 1,
   relay_push_failed: 1,
@@ -175,7 +191,11 @@ export async function runPullRequests(
           : parsed.operation === "pr_ready"
             ? PullRequests.ready({ ...input, ...readyInput(parsed) })
             : parsed.operation === "pr_merge"
-              ? PullRequests.merge(input)
+              ? PullRequests.merge(
+                  parsed.sourceId !== undefined
+                    ? { ...input, sourceId: parsed.sourceId, assignment: parsed.assignment }
+                    : input,
+                )
               : parsed.operation === "pr_associate"
                 ? PullRequests.associate(input)
                 : PullRequests.wait({
