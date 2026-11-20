@@ -177,6 +177,83 @@ test("ready association durably records readiness and the fresh feedback handoff
   expect(db.serialize()).toEqual(before);
 });
 
+test.each(["first", "repeat"])(
+  "a readiness write fault rolls back the %s association and its feedback handoff",
+  (mode) => {
+    using db = fixture();
+    start(db, "l1", "change", "p1");
+    db.exec("UPDATE launches SET internal_review = 0");
+    if (mode === "repeat") expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+    db.exec(
+      "CREATE TRIGGER fail_ready BEFORE UPDATE OF readiness ON pull_requests BEGIN SELECT RAISE(FAIL, 'original readiness write fault'); END",
+    );
+    const before = db.serialize();
+    const result = associatePullRequest(
+      db,
+      "l1",
+      { ...pr, readiness: { head: "h1", at: "now", note: null, dispositions: [] } },
+      true,
+    );
+    expect(result.tag).toBe("Defect");
+    if (result.tag === "Defect")
+      expect(result.cause).toMatchObject({ message: "original readiness write fault" });
+    expect(db.serialize()).toEqual(before);
+    expect(assignmentState(db, "change")).toEqual({
+      state: mode === "first" ? "running" : "pr-open",
+    });
+    expect(db.query("SELECT readiness FROM pull_requests").all()).toEqual(
+      mode === "first" ? [] : [{ readiness: null }],
+    );
+    expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+    expect(db.query("SELECT * FROM review_requests").all()).toEqual([]);
+  },
+);
+
+test.each(["first", "repeat"])(
+  "a readiness handoff refusal rolls back the %s association without replacing the pending handoff",
+  (mode) => {
+    using db = fixture();
+    start(db, "l1", "change", "p1");
+    db.exec("UPDATE launches SET internal_review = 0");
+    if (mode === "repeat") expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+    insertRow(db, "kind_handoffs", {
+      source_id: "s1",
+      assignment: "change",
+      outgoing_launch_id: "l1",
+      next_kind: "review",
+      handoff_state: "pending",
+    });
+    const before = db.serialize();
+    expect(
+      associatePullRequest(
+        db,
+        "l1",
+        { ...pr, readiness: { head: "h1", at: "now", note: null, dispositions: [] } },
+        true,
+      ),
+    ).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "handoff_running",
+        detail:
+          "Finish the recorded outgoing handoff before starting another. Nothing was changed.",
+        next: { command: "operator next", why: "Read the pending handoff's recovery action." },
+      },
+    });
+    expect(db.serialize()).toEqual(before);
+    expect(assignmentState(db, "change")).toEqual({
+      state: mode === "first" ? "running" : "pr-open",
+    });
+    expect(db.query("SELECT readiness FROM pull_requests").all()).toEqual(
+      mode === "first" ? [] : [{ readiness: null }],
+    );
+    expect(
+      db.query("SELECT outgoing_launch_id, next_kind, handoff_state FROM kind_handoffs").all(),
+    ).toEqual([{ outgoing_launch_id: "l1", next_kind: "review", handoff_state: "pending" }]);
+    expect(db.query("SELECT * FROM review_requests").all()).toEqual([]);
+  },
+);
+
 test("only the exact finished parked owner can record its pinned merge and cleanup once", () => {
   using db = fixture();
   start(db, "l1", "change", "p1");
