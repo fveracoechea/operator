@@ -143,85 +143,128 @@ test.each([
   60000,
 );
 
-test("adopt of a PR left by an ended pr-open assignment copies its facts into the brief", async () => {
-  const github = {
-    viewer: "person",
-    pulls: [
-      { number: 41, state: "OPEN", isDraft: true, author: "person", headRefName: branch, head },
-    ],
-  };
-  await Bun.write(`${device.root}/github.json`, JSON.stringify(github));
-  const source = await device.register({
-    trackerKey: "old-plan",
-    intent: "Keep the person's API.",
-    assignments: [
-      {
-        key: "old-owner",
-        kind: "review",
-        trackerKey: "github:example/one#395",
-        instructions: "Review the PR.",
-        branch,
-        adopt: 41,
-        dependencies: [],
-      },
-    ],
-  });
-  const launch = await device.dispatch(source, "old-owner");
-  const worktree = launch.worktreePath ?? "";
-  const round = await device.run(["pr", "round", "--file", "-"], {
-    cwd: worktree,
-    pane: launch.paneId,
-    stdin:
-      "## Findings\n- blocker, Spec, src/api.ts: Preserve the API.\n- nice-to-have, Standards, src/api.ts: Rename the API.\n",
-  });
-  expect(round.code, round.stderr).toBe(0);
-  // Seed the earlier owner's recorded ready summary. This fixture never grants the new owner readiness.
-  {
-    using db = new Database(`${device.root}/state/operator/operator.sqlite`);
-    db.query(
-      "UPDATE internal_reviews SET state = 'ready', ready_head = ?, comment_url = 'https://github.com/c/earlier', ended_at = '2026-11-19' WHERE source_id = ?",
-    ).run(head, source);
-    db.query("UPDATE pull_requests SET readiness = ? WHERE source_id = ?").run(
-      JSON.stringify({
-        head,
-        at: "2026-11-19",
-        note: null,
-        dispositions: [
-          { round: 1, finding: 1, disposition: "applied" },
-          {
-            round: 1,
-            finding: 2,
-            disposition: "declined",
-            reason: "The person kept the public name.",
-          },
-        ],
-      }),
-      source,
+test.each([
+  [true, "review"],
+  [false, "pr-feedback"],
+] as const)(
+  "ended PR facts enter draft=%s %s without stale readiness",
+  async (draft, kind) => {
+    const github = {
+      viewer: "person",
+      pulls: [
+        { number: 41, state: "OPEN", isDraft: true, author: "person", headRefName: branch, head },
+      ],
+    };
+    await Bun.write(`${device.root}/github.json`, JSON.stringify(github));
+    const source = await device.register({
+      trackerKey: "old-plan",
+      intent: "Keep the person's API.",
+      assignments: [
+        {
+          key: "old-owner",
+          kind: "review",
+          trackerKey: "github:example/one#395",
+          instructions: "Review the PR.",
+          branch,
+          adopt: 41,
+          dependencies: [],
+        },
+      ],
+    });
+    const launch = await device.dispatch(source, "old-owner");
+    const worktree = launch.worktreePath ?? "";
+    const round = await device.run(["pr", "round", "--file", "-"], {
+      cwd: worktree,
+      pane: launch.paneId,
+      stdin:
+        "## Findings\n- blocker, Spec, src/api.ts: Preserve the API.\n- nice-to-have, Standards, src/api.ts: Rename the API.\n",
+    });
+    expect(round.code, round.stderr).toBe(0);
+    const earlierNote = `${device.root}/earlier-note.md`;
+    await Bun.write(earlierNote, "Do not inherit the earlier owner's authority or note.");
+    // Seed the earlier owner's recorded ready summary. This fixture never grants the new owner readiness.
+    {
+      using db = new Database(`${device.root}/state/operator/operator.sqlite`);
+      db.query(
+        "UPDATE internal_reviews SET state = 'ready', ready_head = ?, comment_url = 'https://github.com/c/earlier', ended_at = '2026-11-19' WHERE source_id = ?",
+      ).run(head, source);
+      db.query("UPDATE pull_requests SET readiness = ? WHERE source_id = ?").run(
+        JSON.stringify({
+          head,
+          at: "2026-11-19",
+          note: earlierNote,
+          dispositions: [
+            { round: 1, finding: 1, disposition: "applied" },
+            {
+              round: 1,
+              finding: 2,
+              disposition: "declined",
+              reason: "The person kept the public name.",
+            },
+          ],
+        }),
+        source,
+      );
+    }
+    const ended = await device.run(["abandon", "--source", source, "--assignment", "old-owner"]);
+    expect(ended.code, ended.stderr).toBe(0);
+    expect((await device.exec(["git", "worktree", "remove", worktree], device.main)).code).toBe(0);
+    for (const args of [
+      ["checkout", "-q", branch],
+      ["commit", "-q", "--allow-empty", "-m", "person's later work"],
+      ["push", "-q", "origin", branch],
+    ])
+      expect((await device.exec(["git", ...args], device.main)).code).toBe(0);
+    const incomingHead = (
+      await device.exec(["git", "rev-parse", "HEAD"], device.main)
+    ).stdout.trim();
+    expect(incomingHead).not.toBe(head);
+    expect((await device.exec(["git", "checkout", "-q", "main"], device.main)).code).toBe(0);
+    github.pulls = github.pulls.map((pr) => ({ ...pr, isDraft: draft, head: incomingHead }));
+    await Bun.write(`${device.root}/github.json`, JSON.stringify(github));
+    const adopted = await device.run(
+      ["dispatch", "--kind", kind, "--brief", "-", "--adopt", "41"],
+      { stdin: "Continue the PR." },
     );
-  }
-  const ended = await device.run(["abandon", "--source", source, "--assignment", "old-owner"]);
-  expect(ended.code, ended.stderr).toBe(0);
-  expect((await device.exec(["git", "worktree", "remove", worktree], device.main)).code).toBe(0);
-  github.pulls = github.pulls.map((pr) => ({ ...pr, isDraft: false }));
-  await Bun.write(`${device.root}/github.json`, JSON.stringify(github));
-  const adopted = await device.run(
-    ["dispatch", "--kind", "pr-feedback", "--brief", "-", "--adopt", "41"],
-    { stdin: "Continue the PR." },
-  );
-  expect(adopted.code, adopted.stderr).toBe(0);
-  const brief = z.object({ data: z.object({ brief: z.string() }) }).parse(adopted.output)
-    .data.brief;
-  const text = await Bun.file(brief).text();
-  expect(text).toContain("## Ended PR owner");
-  expect(text).toContain(source);
-  expect(text).toContain("> Keep the person's API.");
-  expect(text).toContain("github:example/one#395");
-  expect(text).toContain(`Round 1 at \`${head}\``);
-  expect(text).toContain("> Preserve the API.");
-  expect(text).toContain("> applied");
-  expect(text).toContain("> declined: The person kept the public name.");
-  expect(text).toContain("Summary: https://github.com/c/earlier");
-}, 60000);
+    expect(adopted.code, adopted.stderr).toBe(0);
+    const incoming = z
+      .object({ data: z.object({ brief: z.string(), sourceId: z.string() }) })
+      .parse(adopted.output).data;
+    const brief = incoming.brief;
+    const text = await Bun.file(brief).text();
+    expect(text).toContain("## Ended PR owner");
+    expect(text).toContain(source);
+    expect(text).toContain("> Keep the person's API.");
+    expect(text).toContain("github:example/one#395");
+    expect(text).toContain(`Round 1 at \`${head}\``);
+    expect(text).toContain("> Preserve the API.");
+    expect(text).toContain("> applied");
+    expect(text).toContain("> declined: The person kept the public name.");
+    expect(text).toContain("Summary: https://github.com/c/earlier");
+    expect(text).not.toContain("Do not inherit the earlier owner's authority or note.");
+    const current = z
+      .object({
+        data: z.object({
+          launches: z.array(z.object({ state: z.string(), internalReview: z.boolean() })),
+          pullRequests: z.array(z.object({ readiness: z.unknown() })),
+          handoffs: z.array(z.unknown()),
+          internalReviewRounds: z.array(z.unknown()),
+        }),
+      })
+      .parse((await device.run(["source", "show", "--source", incoming.sourceId])).output).data;
+    expect(current.launches).toMatchObject([{ state: "running", internalReview: draft }]);
+    expect(current.pullRequests).toEqual([
+      {
+        readiness: draft
+          ? null
+          : { head: incomingHead, at: expect.any(String), note: null, dispositions: [] },
+      },
+    ]);
+    expect(current.handoffs).toEqual([]);
+    expect(current.internalReviewRounds).toEqual([]);
+  },
+  60000,
+);
 
 test("adopt refuses another author's PR and a PR a live assignment owns", async () => {
   const state = {

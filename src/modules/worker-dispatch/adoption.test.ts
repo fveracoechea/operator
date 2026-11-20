@@ -91,6 +91,47 @@ test("an open PR from the planned branch of this repository is adopted with its 
 });
 
 test.each([
+  [null, "implementation", true],
+  [null, "review", false],
+  [null, "pr-feedback", false],
+  [true, "implementation", true],
+  [true, "review", true],
+  [true, "pr-feedback", false],
+  [false, "implementation", true],
+  [false, "review", false],
+  [false, "pr-feedback", true],
+  [false, "answer", false],
+] as const)("adoption reader draft=%s kind=%s permits=%s", async (draft, kind, permitted) => {
+  answer({ draft: draft ?? false });
+  const call = GithubApi.call.bind(GithubApi);
+  if (draft === null)
+    spyOn(GithubApi, "call").mockResolvedValue({
+      status: "succeeded",
+      value: { httpStatus: 200, body: [] },
+    });
+  else {
+    const pr = await call({ args: ["repos/example/one/pulls/41"], timeoutMs: 60000 });
+    if (pr.status !== "succeeded") throw new Error("The fixture PR must be readable.");
+    spyOn(GithubApi, "call").mockImplementation(async ({ args }) =>
+      args[0] === "user"
+        ? { status: "succeeded", value: { httpStatus: 200, body: { login: "person" } } }
+        : { status: "succeeded", value: { httpStatus: 200, body: [pr.value.body] } },
+    );
+  }
+  const result = await readAdoption({
+    repository: "example/one",
+    number: branch,
+    kind,
+    completion: kind === "answer" ? "report" : "pr",
+  });
+  expect(result).toMatchObject(
+    permitted
+      ? { tag: "Ok", value: { branch, draft, number: draft === null ? null : 41 } }
+      : { tag: "Err", error: { reason: "adopt_kind_invalid", state: { kind, draft } } },
+  );
+});
+
+test.each([
   [{ state: "merged" }, "adopt_pr_not_open", "PR #41 is merged.", { prState: "merged" }],
   [
     { ref: "feature/other" },
