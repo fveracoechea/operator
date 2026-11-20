@@ -1,5 +1,52 @@
 import { expect, test } from "bun:test";
 import { configuredPlanSchema, oneOffPlan } from "./plan.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
+
+test.each([
+  { completion: "pr", resources: "pane", needsBranch: true },
+  { completion: "pr", resources: "worktree", needsBranch: true },
+  { completion: "report", resources: "worktree", needsBranch: true },
+  { completion: "report", resources: "pane", needsBranch: false },
+])(
+  "custom $completion/$resources one-offs derive only required branch metadata",
+  ({ completion, resources, needsBranch }) => {
+    const definitions = WorkerKinds.customSchema().parse({
+      audit: {
+        completion,
+        resources,
+        guide: "audit/SKILL.md",
+        workPhases: [{ name: "inspect", goal: "Inspect the queue." }],
+      },
+    });
+    const supplied = oneOffPlan({
+      kind: "audit",
+      instructions: "Inspect the queue.",
+      trackerKey: "audit:one-off",
+    });
+    const plan = configuredPlanSchema(definitions, true).parse(supplied);
+    expect(plan.assignments).toHaveLength(1);
+    expect(plan.assignments[0]).toMatchObject({
+      key: "inspect-the-queue",
+      kind: "audit",
+      completion,
+      resources,
+      dependencies: [],
+    });
+    if (needsBranch) {
+      expect(plan.assignments[0]).toHaveProperty("branch", "inspect-the-queue");
+      expect(configuredPlanSchema(definitions).safeParse(supplied).success).toBe(false);
+      expect(
+        configuredPlanSchema(definitions).parse({
+          ...supplied,
+          assignments: [{ ...supplied.assignments[0], branch: "task/inspect" }],
+        }).assignments[0],
+      ).toHaveProperty("branch", "task/inspect");
+    } else {
+      expect(plan.assignments[0]).not.toHaveProperty("branch");
+      expect(configuredPlanSchema(definitions).parse(supplied)).toEqual(plan);
+    }
+  },
+);
 
 test("one-off plans preserve supplied task fields in exactly one dependency-free assignment", () => {
   expect(

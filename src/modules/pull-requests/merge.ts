@@ -159,7 +159,7 @@ function guarded(
 /** Earlier readiness is a phase witness, not a substitute for the fresh merge decision. */
 async function mergePhase(owner: Owner): Promise<Failure | null> {
   if (owner.kind === null) return null;
-  const ready = owner.readiness !== null;
+  const ready = reviewEnded(owner);
   const status = await ToolInvocation.run({
     tool: "git",
     args: ["status", "--porcelain", "--untracked-files=normal"],

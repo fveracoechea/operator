@@ -61,13 +61,7 @@ const pullRequestSchema = z.object({
   url: z.string(),
   branch: z.string(),
   associatedAt: z.string(),
-  readiness: z
-    .string()
-    .nullable()
-    .default(null)
-    .transform((text) =>
-      text === null ? null : DeviceState.prReadinessSchema().parse(JSON.parse(text)),
-    ),
+  readiness: DeviceState.storedPrReadinessSchema(),
   parking: z
     .string()
     .nullable()

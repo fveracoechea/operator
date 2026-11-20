@@ -2,7 +2,46 @@ import { expect, test } from "bun:test";
 import { z } from "zod";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { decodeSource } from "./snapshot.ts";
-import { storedLaunch, storedSource } from "./source-fixture.ts";
+import { storedLaunch, storedPullRequest, storedSource } from "./source-fixture.ts";
+
+test.each(["pending", "failed", "done"])(
+  "a populated %s handoff preserves its validated identity",
+  (handoffState) => {
+    const handoff = {
+      sourceId: "one",
+      assignment: "build",
+      outgoingLaunchId: "l-build",
+      nextKind: "review",
+      handoffState,
+      handoffDetail: "retained detail",
+      handoffRunning: false,
+      startedAt: "before",
+      updatedAt: "now",
+      ownerPid: null,
+      leaseAt: null,
+    };
+    const source = storedSource([{ key: "build", completion: "pr", state: "pr-open" }], {
+      handoffs: [handoff],
+      pullRequests: [storedPullRequest("build")],
+    });
+    expect(decodeSource(source).handoffs).toEqual([
+      {
+        assignment: "build",
+        outgoingLaunchId: "l-build",
+        nextKind: "review",
+        handoffState,
+        handoffDetail: "retained detail",
+        handoffRunning: false,
+      },
+    ]);
+    expect(() =>
+      decodeSource({ ...source, handoffs: [{ ...handoff, nextKind: "INVALID KIND" }] }),
+    ).toThrow(z.ZodError);
+    expect(() =>
+      decodeSource({ ...source, handoffs: [{ ...handoff, handoffState: "unknown" }] }),
+    ).toThrow(z.ZodError);
+  },
+);
 
 test("a stored launch decodes its complete resolved kind independently of the plan", () => {
   const kind = {

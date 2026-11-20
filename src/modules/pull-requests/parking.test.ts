@@ -200,7 +200,10 @@ test("a successful quiet park retains only its supplied note and starts the reco
 
 test("a quiet park without a supplied note never copies the reviewer note", async () => {
   await using device = await prDevice();
-  const owner = { ...startOwner(device), readiness: JSON.stringify({ note: "/reviewer/note.md" }) };
+  const owner = {
+    ...startOwner(device),
+    readiness: { head: "h1", at: "now", note: "/reviewer/note.md", dispositions: [] },
+  };
   const park = spyOn(DeviceState, "parkPullRequest").mockReturnValue(Ok(row.parking));
   spyOn(ToolInvocation, "detach").mockReturnValue(123);
   spyOn(DeviceState, "startHandoff").mockReturnValue(Ok(undefined));

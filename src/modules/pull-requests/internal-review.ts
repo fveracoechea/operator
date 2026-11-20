@@ -212,7 +212,17 @@ function runHandoff(
       if (checked.tag !== "Ok") return checked.map(() => null);
     }
     const recovery = await recoveryGate(request, facts);
-    if (recovery !== null) return Err(recovery);
+    if (recovery !== null)
+      return Err(
+        recovery.reason === "internal_review_recovery_incompatible"
+          ? {
+              ...recovery,
+              detail:
+                "The recorded recovery does not authorize this handoff. No implementer pane was closed and no successor was started. Handoff progress was claimed before this refusal.",
+              state: { ...recovery.state, handoffClaimed: true },
+            }
+          : recovery,
+      );
     // Recovery can await live PR/Git reads; it cannot extend a continuation's authorization.
     if (request.continuation !== undefined) {
       const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
@@ -240,33 +250,31 @@ function runHandoff(
       if (closed !== null) return Err(closed);
     }
     if (!decision.dispatch) return Ok(null);
-    const ended = DeviceState.finishImplementer(
-      request.paths,
-      facts.implementer.id,
-      request.continuation,
-    );
-    if (ended.tag !== "Ok") return Err(failure(ended));
-    const parked = DeviceState.completeParking(
-      request.paths,
-      {
-        repository: request.repository,
-        sourceId: request.sourceId,
-        assignment: request.assignment,
-      },
-      request.continuation,
-    );
-    if (parked.tag !== "Ok") return parked.map(() => null);
-    if (parked.value) return Ok(null);
-    const started = await WorkerDispatch.dispatch({
-      paths: request.paths,
-      cwd: facts.checkout,
-      sourceId: request.sourceId,
-      assignment: request.assignment,
-      handoff: true,
-      continuation: request.continuation,
-    });
-    if (started.tag !== "Ok") return Err(failure(started));
-    return Ok(started.value);
+    return DeviceState.finishImplementer(request.paths, facts.implementer.id, request.continuation)
+      .toAsync()
+      .flatMap(() =>
+        DeviceState.completeParking(
+          request.paths,
+          {
+            repository: request.repository,
+            sourceId: request.sourceId,
+            assignment: request.assignment,
+          },
+          request.continuation,
+        ),
+      )
+      .flatMap((parked) =>
+        parked
+          ? OkAsync(null)
+          : WorkerDispatch.dispatch({
+              paths: request.paths,
+              cwd: facts.checkout,
+              sourceId: request.sourceId,
+              assignment: request.assignment,
+              handoff: true,
+              continuation: request.continuation,
+            }),
+      );
   }, qualify).flatMap((result) => result);
 }
 

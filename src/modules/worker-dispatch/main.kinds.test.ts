@@ -7,6 +7,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { dispatchDevice, removeDevices } from "./dispatch-fixture.ts";
 import { WorkerDispatch } from "./main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 afterEach(() => {
   mock.restore();
@@ -161,6 +162,17 @@ test("the handoff launch records the review kind rather than the implementation 
     tag: "Err",
     error: { reason: "assignment_not_dispatchable" },
   });
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await WorkerDispatch.checkHandoff(device.request("impl"))).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+  expect(await WorkerDispatch.checkHandoff(device.request("blocked"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "assignment_not_dispatchable" },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
   expect(await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true })).toMatchObject(
     {
       tag: "Ok",
@@ -297,6 +309,46 @@ test("another assignment's running-cap wait does not block a failed worker's rep
   expect(await WorkerDispatch.dispatch({ ...device.request("failed"), sourceId })).toMatchObject({
     tag: "Ok",
   });
+});
+
+test("another assignment's missing successor never changes the selected handoff's kind", async () => {
+  await using device = await dispatchDevice();
+  for (const assignment of ["impl", "parent"]) {
+    expect(await WorkerDispatch.dispatch(device.request(assignment))).toMatchObject({ tag: "Ok" });
+    const launch = (await device.launches(assignment))[0];
+    if (launch === undefined) return expect.unreachable("The fixture starts each implementer.");
+    if (assignment === "impl") {
+      using db = new Database(device.paths.database);
+      db.query("UPDATE launches SET kind = ? WHERE id = ?").run(
+        JSON.stringify({ ...WorkerKinds.resolve("implementation"), nextKind: "removed-review" }),
+        launch.id,
+      );
+    }
+    expect(
+      DeviceState.associatePullRequest(
+        device.paths,
+        launch.id,
+        {
+          number: assignment === "impl" ? 7 : 8,
+          url: `https://github.com/example/one/pull/${assignment === "impl" ? 7 : 8}`,
+          branch: `task/${assignment}`,
+          relay: null,
+        },
+        false,
+        true,
+      ).tag,
+    ).toBe("Ok");
+  }
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await WorkerDispatch.checkHandoff(device.request("parent"))).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(await WorkerDispatch.checkHandoff(device.request("impl"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "invalid_settings", state: { settingsValid: false } },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
 });
 
 test("refresh and replacement briefs isolate answered questions and keep the promoted snapshot", async () => {
