@@ -205,7 +205,7 @@ function runHandoff(
   request: HandoffRequest & { repository: string },
   facts: Claimed,
 ): AsyncResult<Launch | null, Failure> {
-  return fromPromise<Result<Launch | null, Failure>, ReturnType<typeof qualify>>(async () => {
+  return fromPromise(async () => {
     await afterExit(request.afterPid);
     if (request.continuation !== undefined) {
       const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
@@ -275,7 +275,7 @@ function runHandoff(
               continuation: request.continuation,
             }),
       );
-  }, qualify).flatMap((result) => result);
+  }, qualify).flatMap((result): Result<Launch | null, Failure> => result);
 }
 
 type HandoffRequest = {
