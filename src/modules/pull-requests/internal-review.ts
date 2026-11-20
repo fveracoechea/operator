@@ -1,4 +1,4 @@
-import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult } from "unthrown";
+import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
@@ -205,7 +205,7 @@ function runHandoff(
   request: HandoffRequest & { repository: string },
   facts: Claimed,
 ): AsyncResult<Launch | null, Failure> {
-  return fromPromise(async () => {
+  return fromPromise<Result<Launch | null, Failure>, ReturnType<typeof qualify>>(async () => {
     await afterExit(request.afterPid);
     if (request.continuation !== undefined) {
       const checked = DeviceState.checkHandoffContinuation(request.paths, request.continuation);
@@ -263,7 +263,7 @@ function runHandoff(
           request.continuation,
         ),
       )
-      .flatMap((parked) =>
+      .flatMap((parked): AsyncResult<Launch | null, Failure> =>
         parked
           ? OkAsync(null)
           : WorkerDispatch.dispatch({

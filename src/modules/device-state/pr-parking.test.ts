@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
@@ -11,7 +11,10 @@ import {
   claimParkedRead,
   finishParkedRead,
   resumeParkedPullRequest,
+  activateParking,
 } from "./pr-parking.ts";
+
+afterEach(() => mock.restore());
 
 function fixture() {
   const db = new Database(":memory:");
@@ -39,6 +42,95 @@ function fixture() {
   });
   return db;
 }
+
+test.each(["park", "complete", "resume", "activate"] as const)(
+  "corrupt readiness refuses the %s transaction without authorizing a handoff",
+  (operation) => {
+    using db = fixture();
+    const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
+    if (operation !== "park") {
+      expect(parkPullRequest(db, "l", { head: "h", note: null }).tag).toBe("Ok");
+      db.exec("UPDATE launches SET state = 'finished'");
+    }
+    if (operation === "resume" || operation === "activate") {
+      expect(completeParking(db, target)).toMatchObject({ tag: "Ok", value: true });
+      db.exec(
+        `UPDATE pull_requests SET parking = json_set(parking, '$.events', json('["feedback"]'))`,
+      );
+    }
+    if (operation === "activate") expect(resumeParkedPullRequest(db, target).tag).toBe("Ok");
+    db.exec("UPDATE pull_requests SET readiness = '{}'");
+    const before = db.serialize();
+    const result =
+      operation === "park"
+        ? parkPullRequest(db, "l", { head: "h", note: null })
+        : operation === "complete"
+          ? completeParking(db, target)
+          : operation === "resume"
+            ? resumeParkedPullRequest(db, target)
+            : activateParking(drizzle(db), target, { id: "l" });
+    expect(result).toMatchObject({ tag: "Err", error: { reason: "state_corrupt" } });
+    expect(db.serialize()).toEqual(before);
+  },
+);
+
+test.each(["{", "{}", "", "null"])(
+  "a parked claim refuses corrupt readiness %j and rolls back its lease",
+  (readiness) => {
+    using db = fixture();
+    const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
+    expect(parkPullRequest(db, "l", { head: "h", note: null }).tag).toBe("Ok");
+    db.exec("UPDATE launches SET state = 'finished'");
+    expect(completeParking(db, target)).toMatchObject({ tag: "Ok", value: true });
+    db.query("UPDATE pull_requests SET readiness = ?").run(readiness);
+    const before = db.serialize();
+    expect(claimParkedRead(db, Date.now())).toMatchObject({
+      tag: "Err",
+      error: { reason: "state_corrupt", state: { readinessValid: false } },
+    });
+    expect(db.serialize()).toEqual(before);
+  },
+);
+
+test.each([null, { head: "legacy-ready-head", at: "then", note: null, dispositions: [] }])(
+  "a parked claim returns decoded readiness %j without adding a historical rule",
+  (readiness) => {
+    using db = fixture();
+    const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
+    expect(parkPullRequest(db, "l", { head: "h", note: null }).tag).toBe("Ok");
+    db.exec("UPDATE launches SET state = 'finished'");
+    expect(completeParking(db, target)).toMatchObject({ tag: "Ok", value: true });
+    db.query("UPDATE pull_requests SET readiness = ?").run(
+      readiness === null ? null : JSON.stringify({ ...readiness, extra: "historical metadata" }),
+    );
+    expect(claimParkedRead(db, Date.now())).toMatchObject({
+      tag: "Ok",
+      value: { rows: [{ readiness }] },
+    });
+  },
+);
+
+test("a parked claim preserves the original unexpected decoder fault and rolls back its lease", () => {
+  using db = fixture();
+  const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
+  expect(parkPullRequest(db, "l", { head: "h", note: null }).tag).toBe("Ok");
+  db.exec("UPDATE launches SET state = 'finished'");
+  expect(completeParking(db, target)).toMatchObject({ tag: "Ok", value: true });
+  const text = '{"head":"h","at":"now","note":null,"dispositions":[]}';
+  const before = db.serialize();
+  const cause = new TypeError("original parked readiness fault");
+  const parse = JSON.parse;
+  spyOn(JSON, "parse").mockImplementation((value, reviver) => {
+    // oxlint-disable-next-line unthrown/no-throw -- Inject a decoder fault to verify the original Defect survives the storage boundary.
+    if (value === text) throw cause;
+    const decoded: unknown = parse(value, reviver);
+    return decoded;
+  });
+  const result = claimParkedRead(db, Date.now());
+  expect(result.tag).toBe("Defect");
+  if (result.tag === "Defect") expect(result.cause).toBe(cause);
+  expect(db.serialize()).toEqual(before);
+});
 
 test("parking retains the pushed head and park note with the recorded outgoing handoff", () => {
   using db = fixture();
