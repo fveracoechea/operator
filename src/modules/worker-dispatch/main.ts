@@ -9,9 +9,11 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
+import { briefPhase } from "./brief-phase.ts";
 import { internalReview } from "./internal-review.ts";
 import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts";
 import { cleanWorktree } from "./worktree-cleanup.ts";
@@ -137,6 +139,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
                 (round) => round.assignment === input.assignment,
               ),
               readyHead: review.readyHead,
+              comment: review.commentUrl,
             };
       })
       // An adopted PR is read at each start until its owner associates it. ADR-0024.
@@ -163,8 +166,13 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               }),
             ),
       )
-      // A PR stacks on the branch of its one open parent PR. Next waits while several are open.
-      .let("stack", ({ source, planned }) => {
+      // An associated PR keeps its recorded parent base until its relay finishes.
+      .let("stack", ({ source, planned, pullRequest }) => {
+        if (pullRequest !== null) {
+          const relay = pullRequest.relay;
+          return relay === null || relay.state === "relayed" ? null : relay.parent;
+        }
+        // Next waits while several parents are open, before a PR is associated.
         const open = source.assignments.filter(
           (row) => planned.dependencies.includes(row.key) && row.state === "pr-open",
         );
@@ -332,6 +340,32 @@ function writeBrief(
   const promotion = settings.planned.promotion;
   return fromPromise(
     async () => {
+      const questions: NonNullable<Parameters<typeof renderBrief>[0]["questions"]> = [];
+      for (const row of settings.source.questions)
+        if (
+          row.assignment === settings.planned.key &&
+          // Stryker disable next-line ConditionalExpression: equivalent: decoded source questions with nonnull answer and authority must be answered; validQuestion rejects every contrary row before dispatch or refresh
+          row.state === "answered" &&
+          // Stryker disable next-line ConditionalExpression: equivalent: validQuestion requires every decoded answered question to have a nonnull answer before dispatch or refresh
+          row.answer !== null &&
+          // Stryker disable next-line ConditionalExpression: equivalent: validQuestion requires every decoded answered question to have a nonnull answer authority before dispatch or refresh
+          row.answeredBy !== null
+        )
+          questions.push({
+            key: row.key,
+            question: row.question,
+            answer: row.answer,
+            by: row.answeredBy,
+          });
+      const commit =
+        settings.pullRequest === null && settings.adoption === null
+          ? null
+          : await ToolInvocation.run({
+              tool: "git",
+              args: ["rev-parse", "--verify", "HEAD"],
+              cwd: placement.workingDirectory,
+              timeoutMs: 10000,
+            });
       const text = renderBrief({
         sourceId: request.sourceId,
         sourceTrackerKey: settings.planned.sourceTrackerKey,
@@ -339,6 +373,20 @@ function writeBrief(
         trackerKey: settings.planned.trackerKey,
         completion: settings.planned.completion,
         kind: settings.kind,
+        phase: briefPhase({
+          kind: settings.kind,
+          report:
+            settings.source.reports.findLast((row) => row.assignment === settings.planned.key) ??
+            null,
+          pullRequest: settings.pullRequest,
+          review:
+            settings.review === null
+              ? null
+              : { state: settings.review.state, rounds: settings.review.rounds.length },
+          internalReview: settings.internalReview,
+        }),
+        head: commit?.status === "completed" && commit.exitCode === 0 ? commit.stdout.trim() : null,
+        questions,
         profile: settings.launch.profile,
         instructions: settings.planned.instructions,
         intent: settings.planned.intent,

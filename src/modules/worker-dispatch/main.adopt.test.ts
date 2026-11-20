@@ -113,18 +113,15 @@ test("an adopted ready PR starts on its own branch at the PR head, with no inter
   expect(git(worktree, "rev-parse", "HEAD")).toBe(device.head);
   expect(git(worktree, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe(`local/${branch}`);
   const brief = await device.brief();
+  expect(brief).toContain(`Head: \`${device.head}\``);
+  expect(brief).toContain("## Adopted PR\n\nPR #41: https://github.com/example/one/pull/41");
   expect(brief).toContain(
-    "You adopt PR #41, which Operator did not open: https://github.com/example/one/pull/41.",
+    "Read reviews, comments, unresolved threads, and checks before changing code or waiting.",
   );
-  expect(brief).toContain(
-    "Read the PR, its reviews, comments, unresolved review threads, and checks before you change code or wait.",
-  );
-  expect(brief).toContain(
-    "Do not open another PR, and do not rewrite commits that the PR already has.",
-  );
-  expect(brief).toContain("The PR is ready for review, so it gets no internal review.");
+  expect(brief).toContain("Keep existing commits; open no second PR.");
+  expect(brief).toContain("State: `ready`.");
   expect(brief).not.toContain("Open one PR");
-  expect(brief).toContain("Run `operator pr wait --json` in your worktree");
+  expect(brief).toContain("Internal review: `off`");
 });
 
 test("an adopted draft keeps internal review, so its owner associates the draft for a reviewer", async () => {
@@ -132,8 +129,8 @@ test("an adopted draft keeps internal review, so its owner associates the draft 
   expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({ tag: "Ok" });
   expect(await device.launches()).toMatchObject([{ internalReview: true }]);
   const brief = await device.brief();
-  expect(brief).toContain("You adopt draft PR #41");
-  expect(brief).toContain("Internal review is on for this assignment.");
+  expect(brief).toContain("State: `draft`.");
+  expect(brief).toContain("Internal review: `on`");
   expect(brief).not.toContain("Open one draft PR");
 });
 

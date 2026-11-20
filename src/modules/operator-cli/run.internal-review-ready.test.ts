@@ -564,7 +564,9 @@ ${overview}
   });
   expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
   const owner = await Bun.file(brief).text();
-  expect(owner).toContain(`The internal review of PR #7 ended ready at \`${third}\`.`);
+  expect(owner).toContain(`Review: \`ready\`.\nReady head: \`${third}\`.`);
+  expect(owner).toContain("Summary: https://github.com/c/comment-1");
+  expect(owner).toContain("Phase: `feedback`");
   expect(owner).not.toContain("You are the internal reviewer");
   const pane = (await shown(source)).launches.at(-1)?.paneId ?? "";
   const afterReady = await commit(reviewer, "after-ready.txt");
@@ -757,7 +759,7 @@ test("a retry after a later push updates the earlier comment to the new head and
 test("a person-instructed skip ends the review with no comment, and the reviewer keeps the PR", async () => {
   const source = await setup("opencode");
   await config({ assignments: true });
-  const { reviewer, head } = await reviewing(source);
+  const { reviewer, head, brief } = await reviewing(source);
   const skip = ["internal-review", "skip", "--source", source, "--assignment", "implement"];
 
   expect(await run(skip)).toMatchObject({
@@ -860,4 +862,10 @@ test("a person-instructed skip ends the review with no comment, and the reviewer
   expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
     output: { reason: "pr_merge_refused", phase: "feedback" },
   });
+  await exec(["herdr", "pane", "exit", pane, "w"]);
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  const replacement = await Bun.file(brief).text();
+  expect(replacement).toContain("Phase: `feedback`");
+  expect(replacement).toContain("Review: `skipped`.");
+  expect(replacement).toContain("Internal review was skipped on the person's instruction.");
 }, 180000);

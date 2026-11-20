@@ -183,9 +183,7 @@ test("a PR owner's replacement continues on the PR worktree and gets its open PR
       assignment: "impl",
     }).brief,
   ).text();
-  expect(brief).toContain(
-    "PR #7 is already open for this assignment: https://github.com/example/one/pull/7.",
-  );
+  expect(brief).toContain("PR #7: https://github.com/example/one/pull/7");
   expect(device.herdr.createWorktree).toHaveBeenCalledTimes(1);
 });
 
@@ -300,9 +298,9 @@ test("a promoted assignment whose worker stopped starts in the promoted report's
       assignment: "build",
     }).brief,
   ).text();
-  expect(brief).toContain("The SuperAgent promoted report 1 of `survey` into this PR assignment.");
+  expect(brief).toContain("## Promotion\n\nReport 1 of `survey`.");
   expect(brief).toContain("### `survey` report 1");
-  expect(brief).toContain(`on branch \`task/build\``);
+  expect(brief).toContain(`Branch: \`task/build\``);
 });
 
 test("a promoted assignment whose worktree is gone is not started anywhere else", async () => {

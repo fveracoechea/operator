@@ -33,7 +33,10 @@ async function answerFile(text: string) {
 }
 
 test("a worker question stays in next actions until the SuperAgent answers it on the record", async () => {
-  const source = await device.register(plan);
+  const source = await device.register({
+    ...plan,
+    assignments: [...plan.assignments, { ...plan.assignments[0], key: "other" }],
+  });
   const worker = await device.dispatch(source, "investigate");
   const selector = ["--source", source, "--assignment", "investigate"];
   const pane = { pane: worker.paneId };
@@ -117,6 +120,49 @@ test("a worker question stays in next actions until the SuperAgent answers it on
     },
   });
   expect(await device.herdrCalls()).not.toContain("pane send");
+  for (const key of ["still-open", "withdrawn"]) {
+    expect(
+      (await device.run(["question", "ask", "--key", key, "--file", await answerFile(key)], pane))
+        .code,
+    ).toBe(0);
+  }
+  expect((await device.run(["question", "withdraw", "--key", "withdrawn"], pane)).code).toBe(0);
+  const other = await device.dispatch(source, "other");
+  expect(
+    (
+      await device.run(
+        ["question", "ask", "--key", "other-scope", "--file", await answerFile("Other scope?")],
+        { pane: other.paneId },
+      )
+    ).code,
+  ).toBe(0);
+  expect(
+    (
+      await device.run([
+        "question",
+        "answer",
+        "--source",
+        source,
+        "--assignment",
+        "other",
+        "--key",
+        "other-scope",
+        "--by",
+        "super-agent",
+        "--file",
+        await answerFile("Other answer."),
+      ])
+    ).code,
+  ).toBe(0);
+  await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main);
+  const replacement = await device.dispatch(source, "investigate");
+  const brief = await Bun.file(replacement.brief).text();
+  expect(brief).toContain(
+    "## Questions answered for this assignment\n\n### `scope`\n\nBy: `person`",
+  );
+  expect(brief).toContain("> Is b.ts in scope?\n\nAnswer:\n\n> No, only a.ts.");
+  expect(brief).toContain("Phase: `investigate`");
+  expect(brief).not.toMatch(/still-open|withdrawn|other-scope|Other answer/);
 }, 120000);
 
 test("a SuperAgent answer needs its authority, and only the asking pane withdraws", async () => {

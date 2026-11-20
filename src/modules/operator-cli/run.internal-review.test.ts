@@ -277,6 +277,7 @@ const blocker = {
 test("associate hands a clean draft to a fresh reviewer launch in the same worktree", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
+  expect(await Bun.file(worker.brief).text()).toContain("Phase: `build`");
   const head = await commit(worker.worktreePath, "work.txt");
   await github({ pulls: [pull({ head, isDraft: true })] });
 
@@ -308,10 +309,12 @@ test("associate hands a clean draft to a fresh reviewer launch in the same workt
   expect(await calls("herdr-calls.jsonl", '"worktree","open"')).toBe(1);
   // The reviewer brief comes from the recorded review, with no draft-state wording.
   const brief = await Bun.file(worker.brief).text();
-  expect(brief).toContain("You are the internal reviewer of PR #7.");
+  expect(brief).toContain("## Handoff\n\nPR #7:");
   expect(brief).toContain("Worker kind: `review`");
+  expect(brief).toContain("Phase: `review`");
+  expect(brief).toContain(`Head: \`${await git(worker.worktreePath, "rev-parse", "HEAD")}\``);
   expect(brief).toContain("/worker-agent/kinds/review.md`");
-  expect(brief).toContain("No round is recorded yet.");
+  expect(brief).not.toContain("### Round");
   expect(brief).not.toContain("If the PR is a draft");
   // The review runs as a wait, and the handoff left no failure in next.
   expect(await entry(source)).toMatchObject({
@@ -348,7 +351,7 @@ test("a failed reviewer start shows as replace_worker, and a dispatch starts the
     "failed",
     "running",
   ]);
-  expect(await Bun.file(worker.brief).text()).toContain("You are the internal reviewer of PR #7.");
+  expect(await Bun.file(worker.brief).text()).toContain("Worker kind: `review`");
 }, 180000);
 
 test("the reviewer records at most two rounds, the second at a newer head", async () => {
@@ -432,9 +435,10 @@ test("the reviewer records at most two rounds, the second at a newer head", asyn
   expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
   const brief = await Bun.file(worker.brief).text();
   expect(brief).toContain(
-    `- Round 1 at \`${first}\`:\n  - Spec, blocker, \`a.ts:1\`: The guard is missing.`,
+    `### Round 1 at \`${first}\`\n\n- Spec, blocker, \`a.ts:1\`:\n> The guard is missing.`,
   );
-  expect(brief).toContain(`- Round 2 at \`${second}\`: no findings.`);
+  expect(brief).toContain(`### Round 2 at \`${second}\``);
+  expect(brief).toContain("Phase: `ready`");
 }, 180000);
 
 async function herdrFail(fail: Record<string, string>) {

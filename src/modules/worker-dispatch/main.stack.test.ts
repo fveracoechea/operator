@@ -1,5 +1,6 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import { OperatorHome } from "../operator-home/main.ts";
+import { DeviceState } from "../device-state/main.ts";
 import { dispatchDevice, git, removeDevices } from "./dispatch-fixture.ts";
 import { WorkerDispatch } from "./main.ts";
 
@@ -8,6 +9,54 @@ afterEach(() => {
   setSystemTime();
 });
 afterAll(removeDevices);
+
+test.each(["stacked", "blocked", "relayed", null])(
+  "a replacement brief selects the recorded %s relay base, not current plan eligibility",
+  async (state) => {
+    await using device = await dispatchDevice();
+    expect(await WorkerDispatch.dispatch(device.request("parent"))).toMatchObject({ tag: "Ok" });
+    const [parent] = await device.launches("parent");
+    device.associate(parent?.id ?? "", 5, "task/parent");
+    // impl has no planned dependencies. Only its recorded PR relay can supply this base.
+    expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({ tag: "Ok" });
+    const [owner] = await device.launches("impl");
+    if (owner === undefined) expect.unreachable("The PR owner is missing.");
+    expect(
+      DeviceState.associatePullRequest(device.paths, owner.id, {
+        number: 7,
+        url: "https://github.com/example/one/pull/7",
+        branch: "task/impl",
+        relay:
+          state === null
+            ? null
+            : JSON.stringify({
+                parent: { assignment: "parent", number: 5, branch: "task/parent" },
+                state,
+                blocker:
+                  state === "blocked"
+                    ? { reason: "relay_conflict", detail: "Resolve the conflict." }
+                    : null,
+              }),
+      }).tag,
+    ).toBe("Ok");
+    if (state === "stacked" || state === "blocked") device.merged(parent?.id ?? "", 5);
+    device.exited("p2");
+    device.reopening();
+    const replacement = await WorkerDispatch.dispatch(device.request("impl"));
+    expect(replacement.tag).toBe("Ok");
+    if (replacement.tag !== "Ok") expect.unreachable("The PR replacement was refused.");
+    const brief = await Bun.file(replacement.value.brief).text();
+    expect(brief).toContain("PR #7: https://github.com/example/one/pull/7");
+    if (state === "stacked" || state === "blocked") {
+      expect(brief).toContain("Base: `task/parent`");
+      expect(brief).toContain("Parent: `parent`, PR #5, branch `task/parent`.");
+    } else {
+      expect(brief).toContain("Base: `default branch`");
+      expect(brief).not.toContain("## Stack");
+    }
+    expect(device.herdr.createWorktree).toHaveBeenCalledTimes(2);
+  },
+);
 
 test("a PR child starts at its one open parent's pushed head and targets its branch", async () => {
   await using device = await dispatchDevice();
@@ -37,9 +86,7 @@ test("a PR child starts at its one open parent's pushed head and targets its bra
       assignment: "child",
     }).brief,
   ).text();
-  expect(brief).toContain(
-    "Your branch starts on `task/parent`, the branch of PR #5 of assignment `parent`.",
-  );
+  expect(brief).toContain("Parent: `parent`, PR #5, branch `task/parent`.");
   // A report that depends on the PR does not stack on it.
   expect(await WorkerDispatch.dispatch(device.request("notes"))).toMatchObject({ tag: "Ok" });
   expect(device.herdr.createWorktree).toHaveBeenLastCalledWith({

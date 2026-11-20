@@ -578,11 +578,13 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
   expect(launched.output).toMatchObject({ data: { kind: expected } });
   const brief = await Bun.file(data.brief).text();
   expect(brief).toContain(`Worker kind: \`answer\``);
-  expect(brief).toContain(`Read \`${expected.guide}\``);
+  expect(brief).toContain(`Guide: \`${expected.guide}\``);
+  expect(brief).toContain("Phase: `investigate`");
+  expect(brief).not.toMatch(/operator |Grilling authority|Native subagents/);
   expect(await Bun.file(expected.guide).exists()).toBe(true);
   expect(await Bun.file(`${root}/config/opencode/skills/show-me/SKILL.md`).exists()).toBe(false);
   expect(brief).toContain(
-    `When the guide calls for it and the file exists, read skill by path: \`${root}/home/.agents/skills/show-me/SKILL.md\``,
+    `Skill: \`${root}/home/.agents/skills/show-me/SKILL.md\`. Read when the guide calls for it and the file exists.`,
   );
   await Bun.write(
     `${root}/config/operator/config.json`,
@@ -627,6 +629,9 @@ test("an existing assignment and its new launch keep a null kind and their old b
   });
   expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).not.toContain(
     "Worker kind:",
+  );
+  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
+    "Phase: `unrecorded`",
   );
   expect((await run(["source", "show", "--source", source])).output).toMatchObject({
     data: { planned: [{ kind: null, completion: "report" }], launches: [{ kind: null }] },
@@ -721,7 +726,7 @@ test.each([
     });
     expect(await Bun.file(guide).exists()).toBe(true);
     expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
-      `Read \`${guide}\``,
+      `Guide: \`${guide}\``,
     );
   },
 );
@@ -802,7 +807,12 @@ test("herdr install writes one stable manifest in device state and links it once
 });
 
 test("herdr install never replaces an unrecorded plugin with the same id", async () => {
-  await setHerdr({ plugins: [{ id: "operator", root: `${root}/someone-else` }] });
+  await setHerdr({
+    workspaces: [],
+    agents: [],
+    tabs: [],
+    plugins: [{ id: "operator", root: `${root}/someone-else` }],
+  });
   expect(await run(["herdr", "install"])).toMatchObject({
     code: 3,
     output: { reason: "herdr_plugin_conflict" },
@@ -851,7 +861,9 @@ test("read-only report work gets a tab in the project workspace and a device-sta
   expect(data.brief.startsWith(`${root}/state/operator/projects/example/one/`)).toBe(true);
   const brief = await Bun.file(data.brief).text();
   expect(brief).toContain("Read the module and report the gaps.");
-  expect(brief).toContain(`controlling checkout \`${checkout}\``);
+  expect(brief).toContain(
+    `Resources: \`pane\`, \`${checkout}\`. Read-only; change no project files.`,
+  );
   expect(brief).not.toContain(data.name);
   expect(brief).not.toContain(data.paneId);
   const state = await herdrState();
@@ -895,6 +907,36 @@ test("read-only report work gets a tab in the project workspace and a device-sta
       },
     },
   });
+});
+
+test("a pane worker starts when Git becomes unspawnable after its tab is created", async () => {
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  await tool("herdr-backend", fakeHerdrScript(root));
+  const unusableGit = `#!${root}/missing-interpreter\n`;
+  await tool(
+    "herdr",
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+const child = Bun.spawnSync([process.execPath, ${JSON.stringify(`${root}/tools/herdr-backend`)}, ...args], { stdout: "inherit", stderr: "inherit" });
+if (child.exitCode === 0 && args[0] === "tab" && args[1] === "create") {
+  await Bun.write(${JSON.stringify(`${root}/tools/git`)}, ${JSON.stringify(unusableGit)});
+  const { chmod } = await import("node:fs/promises");
+  await chmod(${JSON.stringify(`${root}/tools/git`)}, 0o755);
+}
+process.exit(child.exitCode);
+`,
+  );
+  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  expect(launched.output).toMatchObject({ reason: "worker_launched" });
+  const data = launchOutput.parse(launched.output).data;
+  expect(await Bun.file(`${root}/tools/git`).text()).toBe(unusableGit);
+  expect((await herdrState()).agents).toMatchObject([
+    { name: data.name, paneId: data.paneId, kind: "opencode" },
+  ]);
+  expect(await Bun.file(data.brief).text()).toContain("Phase: `investigate`");
+  expect(await herdrCalls()).toContain("agent prompt");
 });
 
 test("a workspace that Herdr gives no checkout is the project workspace when its panes are in the checkout", async () => {
@@ -965,7 +1007,7 @@ test("worktree work prepares the new Herdr worktree before the agent starts", as
   expect(await Bun.file(`${worktree}/.env.local.backup`).exists()).toBe(false);
   expect(await Bun.file(`${worktree}/node_modules`).exists()).toBe(false);
   expect(data.brief.startsWith(worktree)).toBe(false);
-  expect(await Bun.file(data.brief).text()).toContain(`branch \`task/12-implement\``);
+  expect(await Bun.file(data.brief).text()).toContain(`Branch: \`task/12-implement\``);
   const calls = await herdrCalls();
   expect(calls.indexOf("worktree create")).toBeLessThan(calls.indexOf("agent start"));
   expect((await herdrState()).workspaces.map((row) => row.label)).toEqual([

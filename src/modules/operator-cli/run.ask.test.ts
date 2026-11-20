@@ -63,8 +63,8 @@ test("ask registers a one-assignment report source and dispatches its worker in 
     "> Why does `next --wait` return ended sources?\n> ## Not a brief section",
   );
   expect(brief).not.toContain("\n## Not a brief section");
-  expect(brief).toContain("short conclusion");
-  expect(brief).toContain("operator report submit");
+  expect(brief).toContain("Completion: `report`");
+  expect(brief).not.toContain("operator report submit");
   expect(await device.next(data.assignment)).toMatchObject([{ reason: "assignment_active" }]);
 
   // Acceptance works as for any report assignment.
