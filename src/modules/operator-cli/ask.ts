@@ -25,7 +25,7 @@ export function askArgs(args: string[]) {
   const file = values["--file"];
   const profile = values["--profile"];
   if (file === undefined || file.trim() === "") return null;
-  if (profile !== undefined && !/^[a-z][a-z0-9-]*$/.test(profile)) return null;
+  if (!/^[a-z][a-z0-9-]*$/.test(profile ?? "default")) return null;
   return { file, profile };
 }
 

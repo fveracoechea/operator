@@ -52,14 +52,12 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
   const assignment = values["--assignment"];
   const kind = values["--kind"];
   const brief = values["--brief"];
-  if (kind !== undefined || brief !== undefined) {
+  if (kind !== undefined && brief !== undefined) {
     if (
       operation !== "dispatch" ||
       sourceId !== undefined ||
       assignment !== undefined ||
-      values["--after-pid"] !== undefined ||
-      kind === undefined ||
-      brief === undefined
+      values["--after-pid"] !== undefined
     )
       return null;
     return {

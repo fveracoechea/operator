@@ -60,6 +60,41 @@ test("an associated PR keeps its owner", async () => {
   });
 });
 
+test("a ready adopted owner carries a validated readiness receipt rather than storage text", async () => {
+  await using device = await prDevice();
+  const { launchId, worktree } = device.start("parent", {
+    kind: JSON.stringify(WorkerKinds.resolve("pr-feedback")),
+  });
+  const readiness = DeviceState.prReadinessSchema().parse({
+    head: "historical-head",
+    at: "historical-time",
+    note: null,
+    dispositions: [{ round: 1, finding: 1, disposition: "applied" }],
+  });
+  expect(
+    DeviceState.adoptPullRequest(
+      device.paths,
+      launchId,
+      {
+        number: 7,
+        url: `https://github.com/${repository}/pull/7`,
+        branch: "task/parent",
+        relay: null,
+        readiness,
+      },
+      { internalReview: false, assignmentReview: false },
+    ).tag,
+  ).toBe("Ok");
+  const owner = await resolveOwner({ paths: device.paths, cwd: worktree });
+  expect(owner.tag).toBe("Ok");
+  if (owner.tag !== "Ok") return;
+  expect(owner.value.readiness).toEqual(readiness);
+  expect(owner.value.readiness?.head).toBe("historical-head");
+  expect(owner.value.readiness?.dispositions[0]?.disposition).toBe("applied");
+  expect(owner.value.outgoingLaunchId).toBeNull();
+  expect(device.calls).toEqual([]);
+});
+
 test("a folder outside Git or outside a recorded worktree selects no owner", async () => {
   await using device = await prDevice();
   device.start("parent");

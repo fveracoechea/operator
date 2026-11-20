@@ -116,7 +116,7 @@ function readNote(file: string | undefined) {
     () => (file === undefined ? Promise.resolve(null) : readTextInput(file)),
     qualify,
   ).flatMap((note) =>
-    note !== null && note.trimEnd().split(/\r?\n/).length > 60
+    note !== null && note.trimEnd().split(/\r\n?|\n/).length > 60
       ? ErrAsync({
           reason: "pr_note_invalid",
           detail: "A reviewer note has at most 60 lines. Nothing was changed.",

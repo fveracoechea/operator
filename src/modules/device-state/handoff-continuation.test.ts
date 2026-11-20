@@ -33,7 +33,16 @@ const identity: HandoffContinuation = {
 };
 const refusal = {
   tag: "Err",
-  error: { reason: "handoff_continuation_refused", state: { continuationAuthorized: false } },
+  error: {
+    reason: "handoff_continuation_refused",
+    detail:
+      "This process no longer owns the exact pending kind handoff. No continuation effect was authorized.",
+    next: {
+      command: "operator next",
+      why: "The supervisor can recover the recorded failed or stopped handoff.",
+    },
+    state: { continuationAuthorized: false },
+  },
 };
 
 function seed(
@@ -209,12 +218,83 @@ test.each(["custom", "legacy"])(
   },
 );
 
+test("a ready receipt from another PR branch refuses continuation without writes", () => {
+  using client = new Database(":memory:");
+  const db = seed(client, JSON.stringify(WorkerKinds.resolve("review")), "pr-feedback");
+  const at = new Date().toISOString();
+  db.insert(pullRequests)
+    .values({
+      ...target,
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      branch: "task/another-assignment",
+      associatedAt: "now",
+      progress: "{}",
+      waitState: "idle",
+      readiness: JSON.stringify({ head: "pushed", at, note: null, dispositions: [] }),
+    })
+    .run();
+  client.query("UPDATE kind_handoffs SET started_at = ?").run(at);
+  const checked = { ...identity, startedAt: at, nextKind: "pr-feedback" };
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(readContinuation(client, target, context, process.ppid)).toMatchObject(refusal);
+  expect(validateContinuation(db, checked)).toMatchObject(refusal);
+  expect(
+    reservedContinuation(db, checked, target.repository, {
+      ...target,
+      kind: JSON.stringify(WorkerKinds.resolve("pr-feedback")),
+    }),
+  ).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
+
+test.each([
+  ["missing readiness", "UPDATE pull_requests SET readiness = NULL"],
+  ["another repository", "UPDATE pull_requests SET repository = 'other/repo'"],
+  ["a later outgoing launch", "UPDATE launches SET started_at = '2999-01-01'"],
+] as const)("feedback continuation refuses %s without writes", (_name, change) => {
+  using client = new Database(":memory:");
+  const db = seed(client, JSON.stringify(WorkerKinds.resolve("review")), "pr-feedback");
+  db.insert(pullRequests)
+    .values({
+      ...target,
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      branch: "task/build",
+      associatedAt: "now",
+      progress: "{}",
+      waitState: "idle",
+      readiness: JSON.stringify({
+        head: "pushed",
+        at: identity.startedAt,
+        note: null,
+        dispositions: [],
+      }),
+    })
+    .run();
+  const checked = { ...identity, nextKind: "pr-feedback" };
+  expect(inspectContinuation(db, target, context)).toMatchObject({
+    tag: "Ok",
+    value: { identity: checked },
+  });
+  client.exec(change);
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(validateContinuation(db, checked)).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
+
 test("publication PID can observe but cannot authorize effects until this process owns the hold", () => {
   using client = new Database(":memory:");
   const db = seed(client);
   client.query("UPDATE kind_handoffs SET owner_pid = ?").run(process.ppid);
   const before = client.serialize();
   expect(inspectContinuation(db, target, context, { publishingPid: process.ppid })).toMatchObject({
+    tag: "Ok",
+    value: { identity, published: false },
+  });
+  expect(readContinuation(client, target, context, process.ppid)).toMatchObject({
     tag: "Ok",
     value: { identity, published: false },
   });
@@ -227,6 +307,30 @@ test("publication PID can observe but cannot authorize effects until this proces
   expect(client.serialize()).toEqual(before);
   client.query("UPDATE kind_handoffs SET owner_pid = ?").run(process.pid);
   expect(validateContinuation(db, identity)).toMatchObject({ tag: "Ok" });
+});
+
+test("a continuation read needs no write reservation on a query-only connection", () => {
+  using client = new Database(":memory:");
+  seed(client);
+  client.exec("PRAGMA query_only = ON");
+  const before = client.serialize();
+  expect(readContinuation(client, target, context, process.ppid)).toMatchObject({
+    tag: "Ok",
+    value: { identity, published: true },
+  });
+  expect(client.inTransaction).toBe(false);
+  expect(client.serialize()).toEqual(before);
+});
+
+test("a process-group owner is not a positive publication PID", () => {
+  using client = new Database(":memory:");
+  const db = seed(client);
+  client.exec("UPDATE kind_handoffs SET owner_pid = 0");
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context, { publishingPid: 0 })).toMatchObject(refusal);
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(readContinuation(client, target, context, 0)).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
 });
 
 test("a corrupt recovery receipt cannot authorize the outgoing worker through its kind snapshot", () => {
@@ -328,6 +432,38 @@ test.each([null, "other"])("pane and socket must both match, including %s contex
   expect(inspectContinuation(db, target, { ...context, socket: value })).toMatchObject(refusal);
   expect(client.serialize()).toEqual(before);
 });
+
+test.each(["pane", "socket", "both"])(
+  "missing %s context refuses even when the outgoing launch has the same missing fields",
+  (field) => {
+    using client = new Database(":memory:");
+    const db = seed(client);
+    const missing = {
+      pane: field === "socket" ? context.pane : null,
+      socket: field === "pane" ? context.socket : null,
+    };
+    client
+      .query("UPDATE launches SET pane_id = ?, herdr_socket = ?")
+      .run(missing.pane, missing.socket);
+    const before = client.serialize();
+    expect(inspectContinuation(db, target, missing)).toMatchObject(refusal);
+    expect(readContinuation(client, target, missing, process.ppid)).toMatchObject(refusal);
+    expect(client.serialize()).toEqual(before);
+  },
+);
+
+test.each(["pr", "report"])(
+  "a report-kind outgoing cannot continue a %s assignment into review",
+  (completion) => {
+    using client = new Database(":memory:");
+    const db = seed(client, JSON.stringify(WorkerKinds.resolve("research")));
+    client.query("UPDATE assignments SET completion = ?").run(completion);
+    const before = client.serialize();
+    expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+    expect(validateContinuation(db, identity)).toMatchObject(refusal);
+    expect(client.serialize()).toEqual(before);
+  },
+);
 
 test("later launches and snapshot edits invalidate an existing continuation", () => {
   using client = new Database(":memory:");

@@ -42,7 +42,7 @@ type BriefInput = {
 /** Quoted record prose cannot introduce template sections. */
 function quote(text: string) {
   return text
-    .split("\n")
+    .split(/\r\n?|\n/)
     .map((line) => `> ${line}`)
     .join("\n");
 }
