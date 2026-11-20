@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Ok } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
-import { Environment } from "../environment/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import {
   failed,
@@ -20,33 +20,6 @@ import { stacked } from "./relay.ts";
 afterEach(() => {
   mock.restore();
 });
-
-test("canonical merge phase guards through the isolated CLI seam", async () => {
-  const root = Bun.fileURLToPath(new URL("../../../", import.meta.url));
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      `${root}/tools/test-watchdog.ts`,
-      `${root}/src/modules/operator-cli/run.pr-merge.test.ts`,
-      `${root}/src/modules/operator-cli/run.internal-review-ready.test.ts`,
-      "--test-name-pattern",
-      "a recorded wait frontier|a new merge refuses|an already merged PR|a PR that the person merged|the reviewer ends the review|a person-instructed skip ends",
-    ],
-    {
-      cwd: root,
-      env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  expect(code, `${stdout}\n${stderr}`).toBe(0);
-  expect(`${stdout}\n${stderr}`).toContain("11 pass");
-}, 120000);
 
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const parent = { assignment: "parent", number: 6, branch: "task/parent" };
@@ -74,9 +47,11 @@ const verifyRecovery = {
 };
 
 /** A running owner of `other` with PR #7 recorded, and a cleanup start that never runs. */
-async function owner(relay: string | null = null, assignments?: string[]) {
+async function owner(relay: string | null = null, assignments?: string[], typed = false) {
   const device = await prDevice({ assignments });
-  const started = device.start("other");
+  const started = device.start("other", {
+    kind: typed ? JSON.stringify(WorkerKinds.resolve("implementation")) : null,
+  });
   device.associate(started.launchId, 7, "task/other", relay);
   const head = git(started.worktree, "rev-parse", "HEAD");
   // A live process that is not this one, so the recorded cleanup stays visibly running.
@@ -92,6 +67,102 @@ async function owner(relay: string | null = null, assignments?: string[]) {
     input: { paths: device.paths, cwd: started.worktree },
   };
 }
+
+test("a typed merge owner refuses hidden untracked work before requesting a merge", async () => {
+  const { device, head, input, launchId, worktree, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  expect(
+    DeviceState.recordPullRequestWait(device.paths, launchId, () => ({
+      progress: JSON.stringify({ seen: [], failures: [], eligibleHead: head }),
+      waitState: "idle",
+    })).tag,
+  ).toBe("Ok");
+  git(worktree, "config", "status.showUntrackedFiles", "no");
+  await Bun.write(`${worktree}/pending.txt`, "Keep.");
+  device.answer(() => succeeded(pullRequestBody({ head })));
+  expect<unknown>(await merge(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_worktree_unclean", state: { worktree_clean: false } },
+  });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  expect(detach).not.toHaveBeenCalled();
+  expect(assignmentState(device)).toBe("pr-open");
+  expect(await Bun.file(`${worktree}/pending.txt`).text()).toBe("Keep.");
+});
+
+test("a typed merge owner without a ready frontier refuses without side effects", async () => {
+  const { device, head, input, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  device.answer(() => succeeded(pullRequestBody({ head })));
+  expect<unknown>(await merge(input)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_not_ready",
+      kind: "implementation",
+      phase: "feedback",
+      state: { pr_ready: false },
+    },
+  });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  expect(detach).not.toHaveBeenCalled();
+  expect(assignmentState(device)).toBe("pr-open");
+});
+
+test.each(["ready", "skipped"] as const)(
+  "a typed %s review frontier still requires a fresh gate before merging",
+  async (reviewState) => {
+    const { device, head, input, detach } = await owner(null, undefined, true);
+    await using _ = device;
+    const read = DeviceState.worktreeOwners;
+    spyOn(DeviceState, "worktreeOwners").mockImplementation((paths) =>
+      read(paths).map((rows) =>
+        rows.map((row) => ({ ...row, reviewState, reviewReadyHead: head })),
+      ),
+    );
+    device.answer(() => succeeded(pullRequestBody({ head, approved: false })));
+    expect<unknown>(await merge(input)).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_merge_blocked" },
+    });
+    expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+    expect(detach).not.toHaveBeenCalled();
+    let landed = false;
+    device.answer((args) => {
+      if (requestKind(args) === "merge") {
+        landed = true;
+        return mergeRequest("merged");
+      }
+      return succeeded(
+        pullRequestBody(landed ? { state: "MERGED", head, mergeCommit: "m1" } : { head }),
+      );
+    });
+    expect<unknown>(await merge(input)).toMatchObject({
+      tag: "Ok",
+      value: { reason: "pr_merged" },
+    });
+    expect(device.calls.map(requestKind)).toEqual([
+      "pull_request",
+      "pull_request",
+      "merge",
+      "pull_request",
+    ]);
+    expect(detach).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("a typed already merged owner verifies and starts cleanup even with hidden untracked work", async () => {
+  const { device, input, worktree, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  git(worktree, "config", "status.showUntrackedFiles", "no");
+  await Bun.write(`${worktree}/pending.txt`, "Keep.");
+  device.answer(() =>
+    succeeded(pullRequestBody({ state: "MERGED", head: "landed", mergeCommit: "m2" })),
+  );
+  expect<unknown>(await merge(input)).toMatchObject({ tag: "Ok", value: { reason: "pr_merged" } });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request", "pull_request"]);
+  expect(detach).toHaveBeenCalledTimes(1);
+  expect(await Bun.file(`${worktree}/pending.txt`).text()).toBe("Keep.");
+});
 
 function assignmentState(device: Awaited<ReturnType<typeof prDevice>>) {
   const owners = DeviceState.worktreeOwners(device.paths);

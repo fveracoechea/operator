@@ -46,7 +46,9 @@ test("a failed question dispatch retains its registered source and owner metadat
   );
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});
-  expect(await runAsk(["ask", "--question", "Why did it stop?"], paths, true)).toBe(true);
+  const file = `${root}/question.txt`;
+  await Bun.write(file, "Why did it stop?");
+  expect(await runAsk(["ask", "--file", file], paths, true)).toBe(true);
   expect(dispatch).toHaveBeenCalledTimes(1);
   const input = dispatch.mock.calls[0]?.[0];
   expect(input?.assignment).toBe("why-did-it-stop");

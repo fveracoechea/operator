@@ -42,10 +42,11 @@ test.each([
   },
   {
     name: "clean worktree",
-    file: "worker-kinds/phase-machine.ts",
-    replacements: [["worktree_clean: facts.worktreeClean,", "worktree_clean: true,"]],
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [["return facts.changed;", "return false;"]],
     testFile: guards,
     pattern: "associate refuses a ready PR",
+    assertion: "pr_worktree_unclean",
   },
   {
     name: "review-local clean worktree",
@@ -65,24 +66,55 @@ test.each([
   },
   {
     name: "handed-off launch refused",
-    file: "worker-kinds/phase-machine.ts",
-    replacements: [["event !== undefined && facts.handedOff === true", "false"]],
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [
+      [
+        'if (facts.guard === "ownership") return facts.handedOff;',
+        'if (facts.guard === "ownership") return false;',
+      ],
+    ],
     testFile: guards,
-    pattern: "a failed handoff shows",
+    pattern: "cannot close the implementer",
+    assertion: "pr_handed_off",
   },
   {
-    name: "review-local handed-off launch refused",
-    file: "pull-requests/internal-review-machine.ts",
-    replacements: [["return facts.implementer", "return false"]],
-    testFile: "pull-requests/internal-review-machine.test.ts",
-    pattern: "each round refusal names its reason",
+    name: "shared ownership policy",
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [
+      [
+        'if (facts.guard === "ownership") return facts.handedOff;',
+        'if (facts.guard === "ownership") return false;',
+      ],
+    ],
+    testFile: "worker-kinds/pr-policy.test.ts",
+    pattern: "PR ownership remains with a launch only before handoff",
+    behaviorFailure: true,
+  },
+  {
+    name: "shared round policy",
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [
+      [
+        'if (facts.guard === "round") return facts.rounds >= 2;',
+        'if (facts.guard === "round") return facts.rounds >= 3;',
+      ],
+    ],
+    testFile: "worker-kinds/pr-policy.test.ts",
+    pattern: "the PR round policy refuses round count 2: true",
+    behaviorFailure: true,
   },
   {
     name: "two rounds",
-    file: "worker-kinds/phase-machine.ts",
-    replacements: [["facts.pr.rounds >= 2", "facts.pr.rounds >= 3"]],
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [
+      [
+        'if (facts.guard === "round") return facts.rounds >= 2;',
+        'if (facts.guard === "round") return facts.rounds >= 3;',
+      ],
+    ],
     testFile: flow,
     pattern: "at most two rounds",
+    assertion: "internal_review_round_limit",
   },
   {
     name: "newer head for round two",
@@ -130,15 +162,11 @@ test.each([
   },
   {
     name: "a ready step refuses an unclean worktree",
-    file: "worker-kinds/phase-machine.ts",
-    replacements: [
-      [
-        'ready: ["pr_associated", "round_recorded", "worktree_clean"],',
-        'ready: ["pr_associated", "round_recorded"],',
-      ],
-    ],
+    file: "worker-kinds/pr-policy.ts",
+    replacements: [["return facts.changed;", "return false;"]],
     testFile: ready,
     pattern: "rendered comment",
+    assertion: "pr_worktree_unclean",
   },
   {
     name: "a ready step refuses a worktree away from the PR head",
@@ -216,12 +244,12 @@ test.each([
     let changed = original;
     for (const [before, after] of change.replacements) {
       expect(original).toContain(before);
+      if (change.behaviorFailure || change.assertion !== undefined)
+        expect(original.split(before)).toHaveLength(2);
       changed = changed.replace(before, after);
     }
     expect(changed).not.toBe(original);
-    try {
-      await Bun.write(file, changed);
-      expect(await Bun.file(file).text()).toBe(changed);
+    async function story() {
       const child = Bun.spawn(
         [
           process.execPath,
@@ -243,9 +271,50 @@ test.each([
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
       ]);
+      return { code, stdout, stderr };
+    }
+    try {
+      if (change.assertion !== undefined) {
+        const intact = await story();
+        const output = `${intact.stdout}${intact.stderr}`;
+        console.info(`${change.name} with intact consumer:\n${output}`);
+        expect(intact.code, output).toBe(0);
+        expect(output).toContain(change.pattern);
+        expect(output).toContain(`src/modules/${change.testFile}`);
+        expect(output).toContain("1 pass");
+        expect(output).toContain("0 fail");
+        expect(output).toContain("Ran 1 test across 1 file.");
+        expect(output).not.toContain("(fail)");
+        expect(output).not.toContain("Unhandled error");
+      }
+      await Bun.write(file, changed);
+      const { code, stdout, stderr } = await story();
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
+      if (change.behaviorFailure) {
+        const output = `${stdout}${stderr}`;
+        console.info(`${change.name}:\n${output}`);
+        expect(output).toContain(`(fail) ${change.pattern}`);
+        expect(output).toContain("expect(received).toBe(expected)");
+        expect(output).toContain("Expected: true");
+        expect(output).toContain("Received: false");
+        expect(output).toContain("pr-policy.test.ts:");
+        expect(output).toContain("0 pass");
+        expect(output).toContain("1 fail");
+        expect(output).not.toContain("Unhandled error");
+      }
+      if (change.assertion !== undefined) {
+        const output = `${stdout}${stderr}`;
+        console.info(`${change.name}:\n${output}`);
+        expect(output).toContain("1 fail");
+        expect(output).toContain("error: expect(received).toMatchObject(expected)");
+        expect(output).toMatch(new RegExp(`-\\s+"reason": "${change.assertion}"`));
+        expect(output).toMatch(
+          new RegExp(`at .*\\(.*${change.testFile.replaceAll(".", "\\.")}:\\d+:\\d+\\)`),
+        );
+        expect(output).not.toContain("Unhandled error");
+      }
     } finally {
       await Bun.write(file, original);
     }

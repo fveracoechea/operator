@@ -122,11 +122,13 @@ A running worker keeps that selection, while a replacement uses the settings res
 ## Delegated work
 
 **Work source**:
-A registered plan of assignments, dependencies, and tracker keys supplied by a SuperAgent, not read from a tracker by the CLI, plus any PR assignments that promotion adds.
+A registered plan or one-off source supplied by a SuperAgent, plus any PR assignments that promotion adds.
+The CLI does not read its assignments or dependencies from a tracker, and a one-off source's tracker key is optional at dispatch.
 Each registration has a new identity, and a source is ended when it is finished or reset.
 
-**Question source**:
-A work source that `operator ask` registers from one research question, with one read-only report assignment that it dispatches at once.
+**One-off source**:
+A work source with exactly one planned assignment that one-off dispatch or `operator ask` creates.
+It never gains a second planned assignment, but report promotion can add a PR assignment.
 
 **Assignment**:
 One independently scheduled unit of delegated work with a worker kind, a brief, dependencies, a start profile, and resource needs.

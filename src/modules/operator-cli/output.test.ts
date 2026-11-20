@@ -73,14 +73,18 @@ test("plain worker context renders commands, decisions and completion without ex
     log.mockClear();
     await withOutputContext(
       () => ({ kind: "research", phase: "report", next }),
-      async () => printWorkerContext(),
+      async () => {
+        printWorkerContext();
+      },
     );
     expect(log.mock.calls).toEqual([["kind: research; phase: report"], [`next: ${line}`]]);
   }
   log.mockClear();
   await withOutputContext(
     () => ({ kind: "research", phase: "report" }),
-    async () => printWorkerContext(),
+    async () => {
+      printWorkerContext();
+    },
   );
   expect(log.mock.calls).toEqual([["kind: research; phase: report"]]);
 });
@@ -366,3 +370,135 @@ test("grouped refusals retain indexed decisions and only their owning checked fa
     ["state: "],
   ]);
 });
+
+test.each([
+  { json: false, tag: "Err" },
+  { json: true, tag: "Err" },
+  { json: false, tag: "Defect" },
+  { json: true, tag: "Defect" },
+] as const)(
+  "one refusal snapshot avoids an unchecked second $tag read (json=$json)",
+  async ({ json, tag }) => {
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    const read = mock<Parameters<typeof withOutputContext>[0]>(() => ({
+      failure:
+        tag === "Err"
+          ? {
+              tag: "Err" as const,
+              error: { reason: "state_busy", detail: "Second read lock.", next: { why: "Retry." } },
+            }
+          : { tag: "Defect" as const, cause: new Error("original second read defect") },
+    }));
+    read.mockReturnValueOnce({ kind: "research", phase: "report" });
+    const next = { command: "operator report resume", why: "Resume." };
+    await withOutputContext(read, async () => {
+      failure("report_submit", "report_pending", "Already submitted.", 4, json, {
+        next,
+        state: { pending: true },
+      });
+    });
+    expect(error.mock.calls).toEqual([
+      ["operator: report_pending: Already submitted. [kind=research phase=report]"],
+      ["next: operator report resume"],
+      ["state: pending=true"],
+    ]);
+    expect(log).toHaveBeenCalledTimes(json ? 1 : 0);
+    if (json)
+      expect(JSON.parse(String(log.mock.lastCall?.[0]))).toEqual({
+        schemaVersion: 1,
+        operation: "report_submit",
+        outcome: "refused",
+        reason: "report_pending",
+        blockers: [{ reason: "report_pending", detail: "Already submitted." }],
+        next,
+        state: { pending: true },
+        kind: "research",
+        phase: "report",
+      });
+    expect(process.exitCode).toBe(4);
+    expect(read).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each([
+  { tag: "Err", json: true, primary: "success" },
+  { tag: "Defect", json: true, primary: "success" },
+  { tag: "Err", json: true, primary: "refusal" },
+  { tag: "Defect", json: true, primary: "refusal" },
+  { tag: "Err", json: false, primary: "success" },
+  { tag: "Defect", json: false, primary: "success" },
+  { tag: "Err", json: false, primary: "refusal" },
+  { tag: "Defect", json: false, primary: "refusal" },
+] as const)(
+  "first output $tag replaces $primary exactly once (json=$json)",
+  async ({ tag, json, primary }) => {
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    const original = new Error("original output phase cause");
+    const problem =
+      tag === "Err"
+        ? {
+            tag: "Err" as const,
+            error: {
+              reason: "state_busy",
+              detail: "Locked.",
+              next: { why: "Retry after the lock clears." },
+            },
+          }
+        : { tag: "Defect" as const, cause: original };
+    const read = mock(() => ({ failure: problem }));
+    await withOutputContext(read, async () =>
+      respond({
+        operation: "pr_wait",
+        result:
+          primary === "success"
+            ? Ok({ reason: "pr_wait_timed_out", data: {} })
+            : Err({
+                reason: "primary_refusal",
+                detail: "Original refusal.",
+                next: { why: "Original recovery." },
+              }),
+        exitCodes: {},
+        defect: "pr_defect",
+        json,
+      }),
+    );
+    const next =
+      tag === "Err"
+        ? { why: "Retry after the lock clears." }
+        : {
+            decider: "super-agent",
+            question: "How should worker_phase_defect be corrected before retrying pr_wait?",
+          };
+    if (json)
+      expect(JSON.parse(String(log.mock.lastCall?.[0]))).toEqual({
+        schemaVersion: 1,
+        operation: "pr_wait",
+        outcome: "refused",
+        reason: tag === "Err" ? "state_busy" : "worker_phase_defect",
+        blockers: [
+          {
+            reason: tag === "Err" ? "state_busy" : "worker_phase_defect",
+            detail: tag === "Err" ? "Locked." : "Error: original output phase cause",
+          },
+        ],
+        next,
+      });
+    expect(error.mock.calls).toEqual([
+      [
+        tag === "Err"
+          ? "operator: state_busy: Locked."
+          : "operator: worker_phase_defect: Error: original output phase cause",
+      ],
+      [
+        tag === "Err"
+          ? "next: Retry after the lock clears."
+          : "next: super-agent decides: How should worker_phase_defect be corrected before retrying pr_wait?",
+      ],
+    ]);
+    expect(log).toHaveBeenCalledTimes(json ? 1 : 0);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBe(1);
+  },
+);

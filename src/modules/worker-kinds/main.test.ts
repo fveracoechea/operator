@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import { WorkerKinds } from "./main.ts";
 
+test("imperative PR owners share the phase ownership, round, and cleanliness policy", () => {
+  expect(WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: true })).toBe(true);
+  expect(WorkerKinds.refusesPrGuard({ guard: "ownership", handedOff: false })).toBe(false);
+  expect(WorkerKinds.refusesPrGuard({ guard: "round", rounds: 1 })).toBe(false);
+  expect(WorkerKinds.refusesPrGuard({ guard: "round", rounds: 2 })).toBe(true);
+  expect(WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: true })).toBe(true);
+  expect(WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: false })).toBe(false);
+});
+
 test("kind snapshots preserve ordered free work and validate the closed exit guard catalog", () => {
   const prototype = WorkerKinds.resolve("prototype");
   expect(prototype.workPhases).toEqual([

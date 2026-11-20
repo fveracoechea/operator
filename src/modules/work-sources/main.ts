@@ -13,7 +13,13 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { configuredPlanSchema, storedPlanSchema, promotionSchema, questionPlan } from "./plan.ts";
+import {
+  configuredPlanSchema,
+  storedPlanSchema,
+  promotionSchema,
+  questionPlan,
+  oneOffPlan,
+} from "./plan.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
@@ -49,6 +55,7 @@ import { missingWorkers } from "./missing-workers.ts";
 // Bun has no synchronous directory metadata API.
 import { lstatSync } from "node:fs";
 import type { ResultContext } from "../../lib/cli-result.ts";
+import { readTextInput } from "../../lib/read-text-input.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
@@ -393,12 +400,13 @@ function retention(
 }
 
 /** Parses a supplied plan, checks its profiles against device settings, and writes the source. */
-function registerPlan(input: Input, supply: () => Promise<object>) {
+function registerPlan(input: Input, supply: () => Promise<object>, oneOff = false) {
   return DeviceSettings.show(input.paths)
     .flatMap(({ data: settings }) =>
       fromPromise(
-        async () => configuredPlanSchema(settings.config.kinds).parse(await supply()),
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        async () => configuredPlanSchema(settings.config.kinds, oneOff).parse(await supply()),
+        (cause, defect) =>
+          cause instanceof Error ? qualify(cause, defect, oneOff) : defect(cause),
       ).flatMap((plan) => {
         const missing = plan.assignments.find(
           (assignment) =>
@@ -521,12 +529,45 @@ export const WorkSources = {
   register(input: Input & { file: string }) {
     return registerPlan(input, () => Bun.file(input.file).json());
   },
+  oneOff(
+    input: Input & {
+      kind: string;
+      brief: string;
+      intentFile?: string;
+      profile?: string;
+      trackerKey?: string;
+    },
+  ) {
+    return registerPlan(
+      input,
+      async () => {
+        z.string()
+          .refine((brief) => brief !== "-" || input.intentFile !== "-", {
+            message: "The brief and intent cannot both read stdin. Supply a file for either field.",
+          })
+          .parse(input.brief);
+        return oneOffPlan({
+          ...input,
+          instructions: await readTextInput(input.brief),
+          intent:
+            input.intentFile === undefined ? undefined : await readTextInput(input.intentFile),
+        });
+      },
+      true,
+    );
+  },
   /**
-   * Registers a SuperAgent's research question as a source with one read-only report
+   * Registers a SuperAgent's question as a one-off source with one answer-kind report
    * assignment, so the question needs no plan file. ADR-0027.
    */
-  ask(input: Input & { question: string; profile?: string }) {
-    return registerPlan(input, async () => questionPlan(input.question, input.profile));
+  ask(input: Input & { file: string; profile?: string }) {
+    return registerPlan(input, async () => {
+      const question = z
+        .string()
+        .refine((text) => text.trim() !== "")
+        .parse(await readTextInput(input.file));
+      return questionPlan(question, input.profile);
+    });
   },
   show(input: Input & { sourceId: string }) {
     return read(input).map((sources) => {
