@@ -35,6 +35,7 @@ export function dispatchArgs(args: string[]) {
         "--intent-file",
         "--profile",
         "--tracker-key",
+        "--adopt",
       ].includes(flag) ||
       Object.hasOwn(values, flag) ||
       value === undefined ||
@@ -68,6 +69,7 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
       intentFile: values["--intent-file"],
       profile: values["--profile"],
       trackerKey: values["--tracker-key"],
+      adopt: values["--adopt"],
     };
   }
   return dispatchTarget(values, operation);

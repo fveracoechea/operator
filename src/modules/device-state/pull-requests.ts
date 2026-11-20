@@ -21,10 +21,12 @@ import type { StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
 import { abandonConversations } from "./sources.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
+import { adoptionOwner, type AdoptionFailure } from "./adoptions.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
   | StateFailure
+  | AdoptionFailure
   | (RefusalContext & {
       reason:
         | "pr_owner_inactive"
@@ -113,7 +115,7 @@ export function worktreeOwners(client: Database) {
  * Every PR write checks again that this launch is the running latest start of an open PR
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
-export function activeOwner(db: Db, launchId: string) {
+export function activeOwner(db: Db, launchId: string, adopting = false) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
     .from(launches)
@@ -139,7 +141,7 @@ export function activeOwner(db: Db, launchId: string) {
           )
           .get();
   if (
-    owner?.launch.state !== "running" ||
+    (owner?.launch.state !== "running" && !(adopting && owner?.launch.state === "starting")) ||
     newer !== undefined ||
     owner.source.state !== "open" ||
     owner.assignment.completion !== "pr" ||
@@ -162,6 +164,7 @@ function insertInternalReview(
   db: Db,
   review: { sourceId: string; assignment: string; implementerLaunchId: string },
   nextKind: string,
+  adopted = false,
 ) {
   const now = new Date().toISOString();
   db.insert(internalReviews)
@@ -181,6 +184,7 @@ function insertInternalReview(
       endedAt: null,
     })
     .run();
+  if (adopted) return;
   db.insert(kindHandoffs)
     .values({
       sourceId: review.sourceId,
@@ -274,11 +278,23 @@ export function associatePullRequest(
   pr: Association,
   review = false,
   internalReview = false,
+  adopted = false,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId).flatMap(
-        (owner): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
+      activeOwner(db, launchId, adopted)
+        .flatTap((owner) =>
+          adopted
+            ? adoptionOwner(db, {
+                repository: owner.source.repository,
+                sourceId: owner.source.id,
+                assignment: owner.assignment.key,
+                number: pr.number,
+                branch: pr.branch,
+              })
+            : Ok(undefined),
+        )
+        .flatMap((owner): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
           const { source, assignment, launch } = owner;
           const existing = current(db, source.id, assignment.key);
           if (existing !== undefined)
@@ -319,7 +335,7 @@ export function associatePullRequest(
             url: pr.url,
             branch: pr.branch,
             relay: pr.relay,
-            readiness: null,
+            readiness: adopted && pr.readiness !== undefined ? JSON.stringify(pr.readiness) : null,
             associatedAt: new Date().toISOString(),
             progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
             waitState: "idle",
@@ -348,8 +364,9 @@ export function associatePullRequest(
                   ? null
                   : WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
               ),
+              adopted,
             );
-          if (pr.readiness !== undefined && !internalReview) {
+          if (pr.readiness !== undefined && !internalReview && !adopted) {
             const recorded = recordPrReady(
               db,
               { sourceId: source.id, assignment: assignment.key, launchId },
@@ -368,8 +385,7 @@ export function associatePullRequest(
               assignment: assignment.key,
             });
           return Ok({ row, changed: true });
-        },
-      ),
+        }),
     ),
   );
 }

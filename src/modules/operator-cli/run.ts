@@ -146,7 +146,7 @@ function recorded(paths: OperatorPaths, selected: Worker, clean: boolean): Resul
       reviewSkipped: review?.state === "skipped",
       handedOff:
         source.handoffs.some((row) => row.outgoingLaunchId === selected.launch.id) ||
-        review?.implementerLaunchId === selected.launch.id,
+        (review?.implementerLaunchId === selected.launch.id && selected.kind.name !== "review"),
       worktreeClean: clean,
     });
   });

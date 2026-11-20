@@ -44,6 +44,42 @@ function next(all?: boolean) {
   return WorkSources.next({ paths, cwd: root, all });
 }
 
+test("adoption history copies only ended owners of the same still-open PR", async () => {
+  const ended = storedSource(
+    [{ key: "work", completion: "pr", state: "abandoned", intent: "Keep the API." }],
+    { pullRequests: [storedPullRequest("work")] },
+  );
+  const live = storedSource([{ key: "live", completion: "pr", state: "pr-open" }], {
+    pullRequests: [storedPullRequest("live")],
+  });
+  const merged = storedSource([{ key: "merged", completion: "pr", state: "merged" }], {
+    state: "finished",
+    endedAt: "now",
+    cleanups: [storedCleanup("merged", { state: "done", step: null })],
+    pullRequests: [
+      storedPullRequest("merged", { mergedAt: "now", mergedHead: "head", mergeCommit: "merge" }),
+    ],
+  });
+  const unrelated = storedSource([{ key: "other", completion: "pr", state: "abandoned" }], {
+    pullRequests: [storedPullRequest("other", { number: 8 })],
+  });
+  const read = stored([ended, live, merged, unrelated]);
+  expect(await WorkSources.adoptionHistory({ paths, cwd: root, number: 7 })).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        sourceId: "one",
+        assignment: "work",
+        intent: "Keep the API.",
+        issue: "APP-work",
+        summary: null,
+        rounds: [],
+      },
+    ],
+  });
+  expect(read).toHaveBeenCalledWith(paths, "example/one", undefined);
+});
+
 test("next projects a retained ready receipt without reconstructing review or wait evidence", async () => {
   const receipt = {
     head: "ready-head",

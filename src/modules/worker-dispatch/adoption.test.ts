@@ -58,21 +58,28 @@ function refused(
 }
 
 function answer(pr: { state?: string; draft?: boolean; ref?: string; repo?: string | null }) {
-  spyOn(GithubApi, "call").mockResolvedValue({
+  spyOn(GithubApi, "call").mockImplementation(async ({ args }) => ({
     status: "succeeded",
     value: {
       httpStatus: 200,
-      body: {
-        html_url: "https://github.com/example/one/pull/41",
-        state: pr.state ?? "open",
-        draft: pr.draft ?? false,
-        head: {
-          ref: pr.ref ?? branch,
-          repo: pr.repo === null ? null : { full_name: pr.repo ?? "example/one" },
-        },
-      },
+      body:
+        args[0] === "user"
+          ? { login: "person" }
+          : {
+              number: 41,
+              user: { login: "person" },
+              base: { ref: "main", repo: { default_branch: "main" } },
+              html_url: "https://github.com/example/one/pull/41",
+              state: pr.state ?? "open",
+              draft: pr.draft ?? false,
+              head: {
+                sha: "pr-head",
+                ref: pr.ref ?? branch,
+                repo: pr.repo === null ? null : { full_name: pr.repo ?? "example/one" },
+              },
+            },
     },
-  });
+  }));
 }
 
 test("an open PR from the planned branch of this repository is adopted with its draft state", async () => {
@@ -224,4 +231,11 @@ test("a branch that the remote does not have refuses", async () => {
     { headResolved: false },
   );
   expect(git(checkout, "branch", "--list", "feature/gone")).toBe("");
+});
+
+test("a branch changed after the PR read refuses before creating or moving the local branch", async () => {
+  expect(await prepareBranch({ ...request(), expectedHead: "stale-head" })).toMatchObject({
+    error: { reason: "adopt_head_changed", state: { headChanged: true } },
+  });
+  expect(git(checkout, "branch", "--list", branch)).toBe("");
 });

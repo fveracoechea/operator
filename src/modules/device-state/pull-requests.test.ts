@@ -105,6 +105,42 @@ const pr = {
   relay: null,
 };
 
+test("ready adoption associates a starting owner with readiness and no outgoing handoff", () => {
+  using db = fixture();
+  expect(reserveLaunch(db, "/one", "owner/one", launchRow("adopted", "change")).tag).toBe("Ok");
+  const readiness = { head: "observed-head", at: "now", note: null, dispositions: [] };
+  expect(associatePullRequest(db, "adopted", { ...pr, readiness })).toMatchObject({
+    error: { reason: "pr_owner_inactive" },
+  });
+  expect(
+    associatePullRequest(db, "adopted", { ...pr, readiness }, false, false, true),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { row: { readiness: JSON.stringify(readiness) }, changed: true },
+  });
+  expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+    assignments: [
+      { key: "change", state: "pr-open" },
+      { key: "other", state: "ready" },
+      { key: "read", state: "ready" },
+    ],
+    handoffs: [],
+    internalReviews: [],
+  });
+});
+
+test("draft review adoption creates a reviewer audit without ending or replacing the incoming reviewer", () => {
+  using db = fixture();
+  expect(reserveLaunch(db, "/one", "owner/one", launchRow("adopted", "change")).tag).toBe("Ok");
+  expect(associatePullRequest(db, "adopted", pr, false, true, true)).toMatchObject({ tag: "Ok" });
+  expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+    handoffs: [],
+    internalReviews: [{ state: "reviewing", implementerLaunchId: "adopted", handoffState: "done" }],
+    pullRequests: [{ readiness: null }],
+    launches: [{ state: "starting" }],
+  });
+});
+
 test("ready association durably records readiness and the fresh feedback handoff together", () => {
   using db = fixture();
   start(db, "l1", "change", "p1");

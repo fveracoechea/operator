@@ -1,5 +1,14 @@
 import { realPathOrNull } from "../../lib/real-path.ts";
-import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise, type AsyncOkOf } from "unthrown";
+import {
+  DoAsync,
+  Err,
+  ErrAsync,
+  Ok,
+  OkAsync,
+  fromPromise,
+  fromSafePromise,
+  type AsyncOkOf,
+} from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
@@ -19,7 +28,7 @@ import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts
 import { cleanWorktree } from "./worktree-cleanup.ts";
 import { handOver } from "./handover.ts";
 import { ensureWorkspace, launchSettings, preparedAgain } from "./launch-checks.ts";
-import { chooseNames, launchBase } from "./names.ts";
+import { adoptedNames, chooseNames, launchBase } from "./names.ts";
 import { installPlugin, observe } from "./hooks.ts";
 import {
   gitBranches,
@@ -177,21 +186,46 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               repository: source.repository,
               number: planned.adopt,
               branch: planned.branch,
+              kind: planned.kind,
+              completion: planned.completion,
             }),
       )
+      .flatTap(({ source, adoption }) =>
+        adoption === null
+          ? OkAsync(undefined)
+          : DeviceState.checkAdoption(input.paths, {
+              repository: source.repository,
+              sourceId: input.sourceId,
+              assignment: input.assignment,
+              number: adoption.number,
+              branch: adoption.branch,
+            }),
+      )
+      .bind("adoptionHistory", ({ adoption, pullRequest, planned }) => {
+        const number = adoption?.number ?? pullRequest?.number;
+        return !("adopt" in planned) || planned.adopt === undefined || number === undefined
+          ? OkAsync([])
+          : WorkSources.adoptionHistory({
+              paths: input.paths,
+              cwd: input.cwd,
+              number,
+            });
+      })
       // Only a start before the PR exists resolves internal review. After that, the recorded
       // review decides, so a settings change cannot drop a review that already started.
       // An adopted PR that is ready for review is already in front of people. ADR-0024.
       .bind("internalReview", ({ source, planned, pullRequest, review, adoption }) =>
-        pullRequest !== null || adoption?.draft === false
-          ? OkAsync(review !== null)
-          : DeviceSettings.show(input.paths).map(({ data }) =>
-              internalReview({
-                assignment: planned.completion === "pr" ? planned.internalReview : undefined,
-                plan: source.plan.internalReview,
-                device: data.config.review?.internal,
-              }),
-            ),
+        adoption?.draft === true && planned.kind === "review"
+          ? OkAsync(true)
+          : pullRequest !== null || adoption?.draft === false
+            ? OkAsync(review !== null)
+            : DeviceSettings.show(input.paths).map(({ data }) =>
+                internalReview({
+                  assignment: planned.completion === "pr" ? planned.internalReview : undefined,
+                  plan: source.plan.internalReview,
+                  device: data.config.review?.internal,
+                }),
+              ),
       )
       // An associated PR keeps its recorded parent base until its relay finishes.
       .let("stack", ({ source, planned, pullRequest }) => {
@@ -209,6 +243,23 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         return planned.completion === "pr" && one
           ? { assignment: parent.assignment, number: parent.number, branch: parent.branch }
           : null;
+      })
+      .flatTap(({ adoption, stack, planned }) => {
+        if (adoption === null) return OkAsync(undefined);
+        if (adoption.number === null || (adoption.draft && planned.kind !== "review"))
+          return OkAsync(undefined);
+        const expected = stack?.branch ?? adoption.defaultBranch;
+        return adoption.base === expected
+          ? OkAsync(undefined)
+          : ErrAsync<Failure>({
+              reason: "adopt_pr_base_mismatch",
+              detail: `The adopted PR's base is ${adoption.base}, not ${expected}. Correct its base before direct entry. Nothing was launched.`,
+              next: {
+                decider: "super-agent",
+                question: "How should the adopted PR's base be corrected before dispatch?",
+              },
+              state: { base: adoption.base, expected },
+            });
       })
       // An open PR lives on the worktree of an earlier start, even after a later start failed.
       // A promoted assignment's first start takes over the promoted report's worktree. ADR-0023.
@@ -283,13 +334,22 @@ function chooseResources(input: Request, facts: Facts) {
         : parentBase(checkout, facts.stack.branch),
     )
     .bind("names", ({ workspace, agents, tabs, recorded, branches, reuse }) => {
-      const names = chooseNames({
-        base: launchBase(facts.planned),
-        branch:
-          facts.planned.resources === "worktree" && reuse === null ? facts.planned.branch : null,
-        takenNames: new Set([...agents, ...tabs, ...workspace.labels, ...recorded]),
-        takenBranches: branches,
-      });
+      const takenNames = new Set([...agents, ...tabs, ...workspace.labels, ...recorded]);
+      const adopted =
+        facts.adoption?.branch ??
+        ("adopt" in facts.planned && facts.planned.adopt !== undefined ? reuse?.branch : undefined);
+      const names =
+        adopted === undefined
+          ? chooseNames({
+              base: launchBase(facts.planned),
+              branch:
+                facts.planned.resources === "worktree" && reuse === null
+                  ? facts.planned.branch
+                  : null,
+              takenNames,
+              takenBranches: branches,
+            })
+          : adoptedNames(adopted, takenNames);
       return names === null
         ? Err<Failure>({
             reason: "launch_name_exhausted",
@@ -302,8 +362,7 @@ function chooseResources(input: Request, facts: Facts) {
           })
         : Ok({
             name: names.name,
-            // An adopted PR keeps its own branch, which is taken by definition.
-            branch: reuse?.branch ?? facts.adoption?.branch ?? names.branch,
+            branch: reuse?.branch ?? names.branch,
           });
     })
     .flatTap(({ reuse }) =>
@@ -315,6 +374,7 @@ function chooseResources(input: Request, facts: Facts) {
             repository: facts.project.repository,
             number: facts.adoption.number,
             branch: facts.adoption.branch,
+            expectedHead: facts.adoption.head,
           }),
     );
 }
@@ -359,6 +419,26 @@ async function reviewerNote(settings: Pick<Settings, "kind" | "pullRequest">) {
   return file === null ? null : Bun.file(file).text();
 }
 
+/** Ready PRs and directly adopted reviewers enter their selected kind without a handoff. */
+function adoptionRecord(settings: Pick<Settings, "adoption" | "kind" | "stack">) {
+  const pr = settings.adoption;
+  if (pr === null) return null;
+  if (pr.number === null || (pr.draft && settings.kind?.name !== "review")) return null;
+  const row: Parameters<typeof DeviceState.adoptPullRequest>[2] & { mergedAt: null } = {
+    number: pr.number,
+    url: pr.url,
+    branch: pr.branch,
+    mergedAt: null,
+    relay:
+      settings.stack === null
+        ? null
+        : JSON.stringify({ parent: settings.stack, state: "stacked", blocker: null }),
+  };
+  if (!pr.draft)
+    row.readiness = { head: pr.head, at: new Date().toISOString(), note: null, dispositions: [] };
+  return row;
+}
+
 function writeBrief(
   request: Request,
   settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
@@ -371,6 +451,7 @@ function writeBrief(
     assignment: settings.planned.key,
   });
   const promotion = settings.planned.promotion;
+  const phasePr = settings.pullRequest ?? adoptionRecord(settings);
   return fromPromise(
     async () => {
       const questions: NonNullable<Parameters<typeof renderBrief>[0]["questions"]> = [];
@@ -411,7 +492,7 @@ function writeBrief(
           report:
             settings.source.reports.findLast((row) => row.assignment === settings.planned.key) ??
             null,
-          pullRequest: settings.pullRequest,
+          pullRequest: phasePr,
           review:
             settings.review === null
               ? null
@@ -436,6 +517,7 @@ function writeBrief(
         promotion:
           promotion === null ? null : { report: promotion.report, number: promotion.reportNumber },
         adoption: settings.adoption,
+        adoptionHistory: settings.adoptionHistory,
       });
       await Bun.write(files.brief, text);
       return files.brief;
@@ -495,6 +577,17 @@ function launchEffects(input: {
         return resources.reuse === null
           ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
           : preparedAgain(request.paths, placement.worktreePath);
+      })
+      .flatTap(() => {
+        const adopted = adoptionRecord(settings);
+        return adopted === null
+          ? OkAsync(undefined)
+          : DeviceSettings.show(request.paths).flatMap(({ data }) =>
+              DeviceState.adoptPullRequest(request.paths, input.id, adopted, {
+                internalReview: settings.kind?.name === "review",
+                assignmentReview: data.config.review?.assignments === true,
+              }),
+            );
       })
       .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
       .flatTap(({ placement }) =>
@@ -559,6 +652,11 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
     // The dispatching pane and session supervise the source.
     Environment.caller(),
     request.continuation,
+    settings.adoption === null
+      ? undefined
+      : {
+          number: settings.adoption.number,
+        },
   );
 }
 

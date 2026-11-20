@@ -89,6 +89,42 @@ test("a reservation starts the assignment once and refuses a second dispatch", (
   expect(launchNames(db)).toMatchObject({ value: ["report-app-1-read"] });
 });
 
+test("an adoption reservation rechecks branch ownership under its write lock", () => {
+  using db = fixture();
+  insertRow(db, "assignments", {
+    source_id: "s1",
+    key: "adopter",
+    completion: "pr",
+    state: "ready",
+  });
+  expect(reserveLaunch(db, "/one", "owner/one", { ...launch, branch: "feature/own" }).tag).toBe(
+    "Ok",
+  );
+  const before = db.serialize();
+  expect(
+    reserveLaunch(
+      db,
+      "/one",
+      "owner/one",
+      {
+        ...launch,
+        id: "adopted",
+        assignment: "adopter",
+        name: "adopted",
+        resources: "worktree",
+        branch: "feature/own",
+      },
+      undefined,
+      undefined,
+      undefined,
+      {
+        number: null,
+      },
+    ),
+  ).toMatchObject({ error: { reason: "adopt_assignment_owned" } });
+  expect(db.serialize()).toEqual(before);
+});
+
 function supervisor(db: Database) {
   return db
     .query("SELECT supervising_pane AS pane, supervising_session AS session FROM sources")

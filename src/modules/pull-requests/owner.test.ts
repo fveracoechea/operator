@@ -7,13 +7,26 @@ import { OkAsync } from "unthrown";
 import { Projects } from "../projects/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { git, prDevice, repository } from "./device-fixture.ts";
-import { qualify, resolveOwner } from "./owner.ts";
+import { isImplementer, qualify, resolveOwner } from "./owner.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 afterEach(() => {
   mock.restore();
 });
 
 const nothing = "Nothing was read from GitHub or changed.";
+
+test("a directly adopted reviewer is not an outgoing implementer, while implementation and legacy ownership stay fenced", () => {
+  const owner = { implementerLaunchId: "incoming", launchId: "incoming", kind: null };
+  expect(isImplementer(owner)).toBe(true);
+  expect(
+    isImplementer({ ...owner, kind: JSON.stringify(WorkerKinds.resolve("implementation")) }),
+  ).toBe(true);
+  expect(isImplementer({ ...owner, kind: JSON.stringify(WorkerKinds.resolve("review")) })).toBe(
+    false,
+  );
+  expect(isImplementer({ ...owner, launchId: "later" })).toBe(false);
+});
 
 test("the recorded worktree of a running PR assignment resolves its owner from any folder", async () => {
   await using device = await prDevice();

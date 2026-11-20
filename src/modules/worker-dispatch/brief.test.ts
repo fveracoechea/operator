@@ -24,6 +24,73 @@ const input = {
   adoption: null,
 };
 
+test("ended PR owners render quoted intent, issue, rounds, dispositions and summary without replacing current intent", () => {
+  const text = renderBrief({
+    ...input,
+    intent: "Today's acceptance criteria.",
+    adoptionHistory: [
+      {
+        sourceId: "ended-source",
+        assignment: "old-owner",
+        intent: "Earlier intent.\n## Not a heading",
+        issue: "APP-395",
+        summary: "https://github.com/c/earlier",
+        rounds: [
+          {
+            number: 2,
+            head: "earlier-head",
+            findings: [
+              {
+                severity: "blocker",
+                axis: "Spec",
+                location: "src/one.ts:4",
+                claim: "Keep the API.",
+                disposition: "applied",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Standards",
+                location: "src/one.ts:8",
+                claim: "Rename it.",
+                disposition: "declined: The person kept it.",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Skills",
+                location: "src/two.ts:2",
+                claim: "Read the guide.",
+                disposition: null,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        sourceId: "another",
+        assignment: "old",
+        intent: null,
+        issue: "APP-396",
+        summary: null,
+        rounds: [],
+      },
+    ],
+  });
+  expect(text).toContain("## Acceptance criteria\n\n> Today's acceptance criteria.");
+  expect(text).toContain("Source: `ended-source`. Assignment: `old-owner`.");
+  expect(text).toContain("Issue: `APP-395`.");
+  expect(text).toContain("Intent:\n> Earlier intent.\n> ## Not a heading");
+  expect(text).toContain("Summary: https://github.com/c/earlier");
+  expect(text).toContain("### Round 2 at `earlier-head`");
+  expect(text).toContain(
+    "- Spec, blocker, `src/one.ts:4`:\n> Keep the API.\n\nDisposition:\n> applied",
+  );
+  expect(text).toContain("> declined: The person kept it.");
+  expect(text).toContain("- Skills, nice-to-have, `src/two.ts:2`:\n> Read the guide.");
+  expect(text).toContain("Source: `another`. Assignment: `old`.\n\nIssue: `APP-396`.");
+  expect(text).not.toContain("Summary: null");
+  expect(text).not.toContain("Disposition:\n> null");
+});
+
 test("a worktree brief preserves every header fact without empty history or protocol", () => {
   expect(
     renderBrief({
@@ -164,6 +231,7 @@ test("each built-in kind's rendered brief holds at most 40 fixed words and 30 pe
         url: "https://github.com/example/one/pull/41",
         branch: "feature/existing",
         draft: true,
+        head: "adopted-head",
       },
       questions: [{ key: "scope", question: "QUESTION", answer: "ANSWER", by: "person" }],
       reports: { directory: "/state/reports", files: ["1/report.md"] },
@@ -306,6 +374,7 @@ test("handoff and adoption render recorded review facts, not worker procedure", 
       number: 41,
       url: "https://github.com/example/one/pull/41",
       draft: false,
+      head: "adopted-head",
       branch: "feature/existing",
     },
   });
@@ -419,6 +488,7 @@ test("handoff facts include only observed head, ready head, summary, and skipped
     number: 41,
     url: "https://github.com/example/one/pull/41",
     draft: true,
+    head: "adopted-head",
     branch: "feature/existing",
   };
   expect(renderBrief({ ...input, adoption })).toContain(

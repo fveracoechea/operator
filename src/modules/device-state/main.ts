@@ -53,6 +53,7 @@ import {
   startHandoff,
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
+import { checkAdoption, type AdoptionTarget } from "./adoptions.ts";
 import { prReadinessSchema } from "./pr-readiness.ts";
 import { recoverInternalReview, readInternalReviewRecovery } from "./internal-review-recovery.ts";
 import { readContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
@@ -174,10 +175,23 @@ export const DeviceState = {
     maxRunning?: number,
     supervisor?: Supervisor,
     continuation?: HandoffContinuation,
+    adoption?: Pick<AdoptionTarget, "number">,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor, continuation),
+      reserveLaunch(
+        client,
+        checkout,
+        repository,
+        launch,
+        maxRunning,
+        supervisor,
+        continuation,
+        adoption,
+      ),
     );
+  },
+  checkAdoption(paths: Paths, target: AdoptionTarget) {
+    return reading(paths, (client) => checkAdoption(client, target));
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
     return writing(paths, (client) => updateLaunch(client, id, change));
@@ -268,6 +282,24 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) =>
       associatePullRequest(client, launchId, pr, review, internalReview),
+    );
+  },
+  /** Adoption enters its selected kind directly, without an outgoing-worker handoff. */
+  adoptPullRequest(
+    paths: Paths,
+    launchId: string,
+    pr: Parameters<typeof associatePullRequest>[2],
+    entry: { internalReview: boolean; assignmentReview: boolean },
+  ) {
+    return writing(paths, (client) =>
+      associatePullRequest(
+        client,
+        launchId,
+        pr,
+        entry.assignmentReview && !entry.internalReview,
+        entry.internalReview,
+        true,
+      ),
     );
   },
   recoverInternalReview(paths: Paths, input: Parameters<typeof recoverInternalReview>[1]) {

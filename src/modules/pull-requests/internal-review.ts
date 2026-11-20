@@ -8,7 +8,7 @@ import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { decideInternalReview, decideOwnership } from "./internal-review-machine.ts";
 import { openPullRequests } from "./github.ts";
-import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import { isImplementer, qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 type Failure = Refusal;
@@ -443,7 +443,11 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
               const decision = decideInternalReview({
                 event: "round",
                 review: { state: facts.review.state, rounds: facts.rounds },
-                implementer: facts.review.implementerLaunchId === facts.launch.id,
+                implementer: isImplementer({
+                  implementerLaunchId: facts.review.implementerLaunchId,
+                  launchId: facts.launch.id,
+                  kind: facts.launch.kind,
+                }),
                 localHead,
               });
               if (decision.result !== "round")
@@ -484,8 +488,7 @@ export function round(input: { paths: Paths; cwd: string; file: string }) {
 /** Refuses a PR command of the launch that the handoff ended. */
 export function owned(owner: Owner): AsyncResult<Owner, Failure> {
   const refusal = decideOwnership({
-    implementer:
-      owner.implementerLaunchId === owner.launchId || owner.outgoingLaunchId === owner.launchId,
+    implementer: isImplementer(owner) || owner.outgoingLaunchId === owner.launchId,
   });
   return refusal === null ? OkAsync(owner) : ErrAsync(refusal);
 }

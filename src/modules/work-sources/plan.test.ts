@@ -10,6 +10,17 @@ const report = {
   dependencies: [],
 };
 
+test("adoption requires worktree resources rather than silently launching a pane assignment on a branch", () => {
+  expect(
+    planSchema.safeParse({
+      trackerKey: "adoption",
+      assignments: [
+        { ...report, kind: "implementation", resources: "pane", branch: "feature/own", adopt: 41 },
+      ],
+    }).success,
+  ).toBe(false);
+});
+
 test("a question plan selects the answer kind and preserves its selected profile", () => {
   const plan = planSchema.parse(questionPlan("Which module owns this?\nRead only.", "careful"));
   expect(plan.assignments).toMatchObject([

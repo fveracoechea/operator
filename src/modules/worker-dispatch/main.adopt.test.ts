@@ -33,23 +33,28 @@ async function adoptionDevice(
   git(checkout, "checkout", "-q", "main");
   git(checkout, "branch", "-q", "-D", branch);
   spyOn(Projects, "githubRemote").mockReturnValue(OkAsync("local"));
-  const github = spyOn(GithubApi, "call").mockResolvedValue({
+  const github = spyOn(GithubApi, "call").mockImplementation(async ({ args }) => ({
     status: "succeeded",
     value: {
       httpStatus: 200,
-      body: {
-        number: 41,
-        html_url: "https://github.com/example/one/pull/41",
-        state: pr.state ?? "open",
-        draft: pr.draft ?? false,
-        head: {
-          ref: pr.ref ?? branch,
-          sha: head,
-          repo: pr.repo === null ? null : { full_name: pr.repo ?? "example/one" },
-        },
-      },
+      body:
+        args[0] === "user"
+          ? { login: "person" }
+          : {
+              number: 41,
+              user: { login: "person" },
+              base: { ref: "main", repo: { default_branch: "main" } },
+              html_url: "https://github.com/example/one/pull/41",
+              state: pr.state ?? "open",
+              draft: pr.draft ?? false,
+              head: {
+                ref: pr.ref ?? branch,
+                sha: head,
+                repo: pr.repo === null ? null : { full_name: pr.repo ?? "example/one" },
+              },
+            },
     },
-  });
+  }));
   await Bun.write(
     `${device.root}/adopt.json`,
     JSON.stringify({
@@ -101,12 +106,13 @@ test("an adopted ready PR starts on its own branch at the PR head, with no inter
     args: ["repos/example/one/pulls/41"],
     timeoutMs: 60000,
   });
-  expect(device.herdr.createWorktree).toHaveBeenLastCalledWith({
+  const created = device.herdr.createWorktree.mock.calls.at(-1)?.[0];
+  expect(created).toMatchObject({
     workspaceId: "w1",
     branch,
-    label: "pr-one-41-adopted",
     base: undefined,
   });
+  expect(created?.label).toMatch(/^adopt-/);
   const [launch] = await device.launches();
   expect(launch).toMatchObject({ branch, internalReview: false });
   const worktree = launch?.worktreePath ?? "";
@@ -135,14 +141,14 @@ test("an adopted draft keeps internal review, so its owner associates the draft 
 });
 
 test("a replacement before the association reopens the worktree and reads the PR again", async () => {
-  await using device = await adoptionDevice();
+  await using device = await adoptionDevice({ draft: true });
   await WorkerDispatch.dispatch(device.request);
   device.exited("p2");
   device.reopening();
   expect(await WorkerDispatch.dispatch(device.request)).toMatchObject({ tag: "Ok" });
   const [first, second] = await device.launches();
-  expect(second).toMatchObject({ worktreePath: first?.worktreePath, internalReview: false });
-  expect(device.github).toHaveBeenCalledTimes(2);
+  expect(second).toMatchObject({ worktreePath: first?.worktreePath, internalReview: true });
+  expect(device.github).toHaveBeenCalledTimes(4);
 });
 
 test("a local branch behind the PR head moves forward to it", async () => {

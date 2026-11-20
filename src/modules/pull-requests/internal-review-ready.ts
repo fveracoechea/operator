@@ -8,7 +8,7 @@ import { decideInternalReview } from "./internal-review-machine.ts";
 import { startHandoff, worktreeFacts } from "./internal-review.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { readSummary, type Disposition } from "./internal-review-summary.ts";
-import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import { isImplementer, qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { readTextInput } from "../../lib/read-text-input.ts";
 
@@ -257,7 +257,7 @@ export function ready(input: { paths: Paths; cwd: string; file?: string; note?: 
                     event: "ready",
                     readyRecorded: owner.readiness !== null,
                     review: { state: review.state, rounds },
-                    implementer: owner.implementerLaunchId === owner.launchId,
+                    implementer: isImplementer(owner),
                     dispositions: summary.dispositions,
                     changed,
                     localHead,

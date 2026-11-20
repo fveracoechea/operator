@@ -1,6 +1,7 @@
 import type { WorkSources } from "../work-sources/main.ts";
 import type { Adoption } from "./adoption.ts";
 import type { WorkerKinds } from "../worker-kinds/main.ts";
+import type { AsyncOkOf } from "unthrown";
 
 type Finding = { axis: string; severity: string; location: string; claim: string };
 
@@ -34,7 +35,8 @@ type BriefInput = {
     comment?: string | null;
   } | null;
   promotion: { report: string; number: number } | null;
-  adoption: Adoption | null;
+  adoption: Pick<Adoption, "number" | "url" | "draft" | "branch" | "head"> | null;
+  adoptionHistory?: AsyncOkOf<ReturnType<typeof WorkSources.adoptionHistory>>;
 };
 
 /** Quoted record prose cannot introduce template sections. */
@@ -96,7 +98,7 @@ function reviewFacts(review: NonNullable<BriefInput["review"]>) {
 
 function handoff(input: BriefInput) {
   const head = input.head ?? null;
-  const pr = input.pullRequest ?? input.adoption;
+  const pr = input.pullRequest ?? (input.adoption?.number === null ? null : input.adoption);
   if (pr !== null || input.review !== null) {
     const facts: string[] = [];
     if (pr !== null) facts.push(`PR #${pr.number}: ${pr.url}`);
@@ -113,8 +115,31 @@ function handoff(input: BriefInput) {
   return "";
 }
 
-function history(input: BriefInput) {
+function adoptedHistory(history: NonNullable<BriefInput["adoptionHistory"]>) {
   const sections: string[] = [];
+  for (const previous of history) {
+    const facts = [
+      `Source: \`${previous.sourceId}\`. Assignment: \`${previous.assignment}\`.`,
+      `Issue: \`${previous.issue}\`.`,
+    ];
+    if (previous.intent !== null) facts.push(`Intent:\n${quote(previous.intent)}`);
+    if (previous.summary !== null) facts.push(`Summary: ${previous.summary}`);
+    for (const round of previous.rounds) {
+      facts.push(`### Round ${round.number} at \`${round.head}\``);
+      for (const finding of round.findings) {
+        facts.push(
+          `- ${finding.axis}, ${finding.severity}, \`${finding.location}\`:\n${quote(finding.claim)}`,
+        );
+        if (finding.disposition !== null) facts.push(`Disposition:\n${quote(finding.disposition)}`);
+      }
+    }
+    sections.push(section("Ended PR owner", facts.join("\n\n")));
+  }
+  return sections;
+}
+
+function history(input: BriefInput) {
+  const sections = adoptedHistory(input.adoptionHistory ?? []);
   if (input.dependencyReports.length > 0)
     sections.push(
       section(
@@ -151,11 +176,11 @@ function history(input: BriefInput) {
         `Parent: \`${input.stack.assignment}\`, PR #${input.stack.number}, branch \`${input.stack.branch}\`. The relay owns base changes; preserve unlanded work.`,
       ),
     );
-  if (input.adoption !== null)
+  if (input.adoption !== null && input.adoption.number !== null)
     sections.push(
       section(
         "Adopted PR",
-        `PR #${input.adoption.number}: ${input.adoption.url}\nBranch: \`${input.adoption.branch}\`. State: \`${input.adoption.draft ? "draft" : "ready"}\`.\nRead reviews, comments, unresolved threads, and checks before changing code or waiting. Keep existing commits; open no second PR.`,
+        `PR #${input.adoption.number}: ${input.adoption.url}\nBranch: \`${input.adoption.branch}\`. State: \`${input.adoption.draft ? "draft" : "ready"}\`.\n${input.adoption.draft ? "" : `Ready head: \`${input.adoption.head}\`.\n`}Read reviews, comments, unresolved threads, and checks before changing code or waiting. Keep existing commits; open no second PR.`,
       ),
     );
   if (input.questions !== undefined && input.questions.length > 0)
