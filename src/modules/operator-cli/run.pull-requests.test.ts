@@ -363,7 +363,7 @@ function describeHosts() {
             events: [
               {
                 kind: "checks_failed",
-                head: "head-1",
+                head: initialHead,
                 checks: [{ name: "lint", state: "failing" }],
               },
             ],
