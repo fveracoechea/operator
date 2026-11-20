@@ -7,13 +7,26 @@ import { OkAsync } from "unthrown";
 import { Projects } from "../projects/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { git, prDevice, repository } from "./device-fixture.ts";
-import { qualify, resolveOwner } from "./owner.ts";
+import { isImplementer, qualify, resolveOwner } from "./owner.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 afterEach(() => {
   mock.restore();
 });
 
 const nothing = "Nothing was read from GitHub or changed.";
+
+test("a directly adopted reviewer is not an outgoing implementer, while implementation and legacy ownership stay fenced", () => {
+  const owner = { implementerLaunchId: "incoming", launchId: "incoming", kind: null };
+  expect(isImplementer(owner)).toBe(true);
+  expect(
+    isImplementer({ ...owner, kind: JSON.stringify(WorkerKinds.resolve("implementation")) }),
+  ).toBe(true);
+  expect(isImplementer({ ...owner, kind: JSON.stringify(WorkerKinds.resolve("review")) })).toBe(
+    false,
+  );
+  expect(isImplementer({ ...owner, launchId: "later" })).toBe(false);
+});
 
 test("the recorded worktree of a running PR assignment resolves its owner from any folder", async () => {
   await using device = await prDevice();
@@ -45,6 +58,41 @@ test("an associated PR keeps its owner", async () => {
     tag: "Ok",
     value: { launchId, assignmentState: "pr-open", pullRequest: 7 },
   });
+});
+
+test("a ready adopted owner carries a validated readiness receipt rather than storage text", async () => {
+  await using device = await prDevice();
+  const { launchId, worktree } = device.start("parent", {
+    kind: JSON.stringify(WorkerKinds.resolve("pr-feedback")),
+  });
+  const readiness = DeviceState.prReadinessSchema().parse({
+    head: "historical-head",
+    at: "historical-time",
+    note: null,
+    dispositions: [{ round: 1, finding: 1, disposition: "applied" }],
+  });
+  expect(
+    DeviceState.adoptPullRequest(
+      device.paths,
+      launchId,
+      {
+        number: 7,
+        url: `https://github.com/${repository}/pull/7`,
+        branch: "task/parent",
+        relay: null,
+        readiness,
+      },
+      { internalReview: false, assignmentReview: false },
+    ).tag,
+  ).toBe("Ok");
+  const owner = await resolveOwner({ paths: device.paths, cwd: worktree });
+  expect(owner.tag).toBe("Ok");
+  if (owner.tag !== "Ok") return;
+  expect(owner.value.readiness).toEqual(readiness);
+  expect(owner.value.readiness?.head).toBe("historical-head");
+  expect(owner.value.readiness?.dispositions[0]?.disposition).toBe("applied");
+  expect(owner.value.outgoingLaunchId).toBeNull();
+  expect(device.calls).toEqual([]);
 });
 
 test("a folder outside Git or outside a recorded worktree selects no owner", async () => {

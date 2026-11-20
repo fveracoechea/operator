@@ -5,10 +5,11 @@ import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { markReady, postComment, readyFacts, updateComment } from "./github.ts";
 import { decideInternalReview } from "./internal-review-machine.ts";
-import { startHandoff, worktreeFacts } from "./internal-review.ts";
+import { startHandoff } from "./internal-review.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { readSummary, type Disposition } from "./internal-review-summary.ts";
-import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
+import { isImplementer, qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { readTextInput } from "../../lib/read-text-input.ts";
 
@@ -244,7 +245,7 @@ export function ready(input: { paths: Paths; cwd: string; file?: string; note?: 
                   ? readySummary(undefined, false)
                   : OkAsync(parsedSummary)
             ).flatMap((summary) =>
-              worktreeFacts(owner.worktreePath).flatMap(({ changed, localHead }) =>
+              PrEntry.worktreeFacts(owner.worktreePath).flatMap(({ changed, localHead }) =>
                 readyFacts(owner.repository, number, marker).flatMap((pr) => {
                   const body = renderSummary({
                     marker,
@@ -257,7 +258,7 @@ export function ready(input: { paths: Paths; cwd: string; file?: string; note?: 
                     event: "ready",
                     readyRecorded: owner.readiness !== null,
                     review: { state: review.state, rounds },
-                    implementer: owner.implementerLaunchId === owner.launchId,
+                    implementer: isImplementer(owner),
                     dispositions: summary.dispositions,
                     changed,
                     localHead,

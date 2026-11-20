@@ -22,10 +22,12 @@ import { stateFailure, type StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
 import { abandonConversations } from "./sources.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
+import { adoptionOwner, type AdoptionFailure } from "./adoptions.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
   | StateFailure
+  | AdoptionFailure
   | (RefusalContext & {
       reason:
         | "pr_owner_inactive"
@@ -127,7 +129,11 @@ export function worktreeOwners(client: Database) {
  * Every PR write checks again that this launch is the running latest start of an open PR
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
-export function activeOwner(db: Db, launchId: string, parkedMergeHead?: string) {
+export function activeOwner(
+  db: Db,
+  launchId: string,
+  options: { adopting?: boolean; parkedMergeHead?: string } = {},
+) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
     .from(launches)
@@ -152,10 +158,12 @@ export function activeOwner(db: Db, launchId: string, parkedMergeHead?: string) 
             ),
           )
           .get();
-  const parkedMerge = parkedMergeOwner(db, owner?.launch, parkedMergeHead);
+  const parkedMerge = parkedMergeOwner(db, owner?.launch, options.parkedMergeHead);
   if (
     owner === undefined ||
-    (owner.launch.state !== "running" && !parkedMerge) ||
+    (owner.launch.state !== "running" &&
+      !(options.adopting && owner.launch.state === "starting") &&
+      !parkedMerge) ||
     newer !== undefined ||
     owner.source.state !== "open" ||
     owner.assignment.completion !== "pr" ||
@@ -204,6 +212,7 @@ function insertInternalReview(
   db: Db,
   review: { sourceId: string; assignment: string; implementerLaunchId: string },
   nextKind: string,
+  adopted = false,
 ) {
   const now = new Date().toISOString();
   db.insert(internalReviews)
@@ -223,6 +232,7 @@ function insertInternalReview(
       endedAt: null,
     })
     .run();
+  if (adopted) return;
   db.insert(kindHandoffs)
     .values({
       sourceId: review.sourceId,
@@ -316,11 +326,23 @@ export function associatePullRequest(
   pr: Association,
   review = false,
   internalReview = false,
+  adopted = false,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId).flatMap(
-        (owner): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
+      activeOwner(db, launchId, { adopting: adopted })
+        .flatTap((owner) =>
+          adopted
+            ? adoptionOwner(db, {
+                repository: owner.source.repository,
+                sourceId: owner.source.id,
+                assignment: owner.assignment.key,
+                number: pr.number,
+                branch: pr.branch,
+              })
+            : Ok(undefined),
+        )
+        .flatMap((owner): Result<{ row: PullRequestRow; changed: boolean }, PullRequestFailure> => {
           const { source, assignment, launch } = owner;
           const existing = current(db, source.id, assignment.key);
           if (existing !== undefined)
@@ -361,7 +383,7 @@ export function associatePullRequest(
             url: pr.url,
             branch: pr.branch,
             relay: pr.relay,
-            readiness: null,
+            readiness: adopted && pr.readiness !== undefined ? JSON.stringify(pr.readiness) : null,
             parking: null,
             associatedAt: new Date().toISOString(),
             progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
@@ -391,9 +413,10 @@ export function associatePullRequest(
                   ? null
                   : WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
               ),
+              adopted,
             );
           const recorded =
-            pr.readiness !== undefined && !internalReview
+            pr.readiness !== undefined && !internalReview && !adopted
               ? recordPrReady(
                   db,
                   { sourceId: source.id, assignment: assignment.key, launchId },
@@ -415,8 +438,7 @@ export function associatePullRequest(
               });
             return { row, changed: true };
           });
-        },
-      ),
+        }),
     ),
   );
 }
@@ -549,60 +571,63 @@ export function recordPullRequestMerge(
         recorded.number === merge.number
       )
         return Ok({ changed: false });
-      return activeOwner(db, launchId, merge.head).flatMap(({ source, assignment }) => {
-        const row = current(db, source.id, assignment.key);
-        if (row === undefined || assignment.state !== "pr-open" || row.number !== merge.number)
-          return Err<PullRequestFailure>({
-            reason: "pr_not_associated",
-            next: {
-              decider: "super-agent",
-              question: "Why does the observed merge not match the assignment's recorded open PR?",
-            },
-            detail: `PR #${merge.number} is not the open PR of assignment ${assignment.key}. Nothing was changed.`,
-          });
-        const now = new Date().toISOString();
-        const key = and(
-          eq(pullRequests.sourceId, source.id),
-          eq(pullRequests.assignment, assignment.key),
-        );
-        db.update(pullRequests)
-          .set({ mergedHead: merge.head, mergeCommit: merge.mergeCommit, mergedAt: now })
-          .where(key)
-          .run();
-        db.update(assignments)
-          .set({ state: "merged" })
-          .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
-          .run();
-        abandonConversations(db, source.id, [assignment.key]);
-        db.insert(cleanups)
-          .values({
-            sourceId: source.id,
-            assignment: assignment.key,
-            launchId,
-            step: "remote_branch",
-            state: "pending",
-            reason: null,
-            detail: null,
-            updatedAt: now,
-            ownerPid: null,
-            leaseAt: null,
-          })
-          .run();
-        const state = sourceState(
-          db
-            .select({
-              key: assignments.key,
-              completion: assignments.completion,
-              state: assignments.state,
+      return activeOwner(db, launchId, { parkedMergeHead: merge.head }).flatMap(
+        ({ source, assignment }) => {
+          const row = current(db, source.id, assignment.key);
+          if (row === undefined || assignment.state !== "pr-open" || row.number !== merge.number)
+            return Err<PullRequestFailure>({
+              reason: "pr_not_associated",
+              next: {
+                decider: "super-agent",
+                question:
+                  "Why does the observed merge not match the assignment's recorded open PR?",
+              },
+              detail: `PR #${merge.number} is not the open PR of assignment ${assignment.key}. Nothing was changed.`,
+            });
+          const now = new Date().toISOString();
+          const key = and(
+            eq(pullRequests.sourceId, source.id),
+            eq(pullRequests.assignment, assignment.key),
+          );
+          db.update(pullRequests)
+            .set({ mergedHead: merge.head, mergeCommit: merge.mergeCommit, mergedAt: now })
+            .where(key)
+            .run();
+          db.update(assignments)
+            .set({ state: "merged" })
+            .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
+            .run();
+          abandonConversations(db, source.id, [assignment.key]);
+          db.insert(cleanups)
+            .values({
+              sourceId: source.id,
+              assignment: assignment.key,
+              launchId,
+              step: "remote_branch",
+              state: "pending",
+              reason: null,
+              detail: null,
+              updatedAt: now,
+              ownerPid: null,
+              leaseAt: null,
             })
-            .from(assignments)
-            .where(eq(assignments.sourceId, source.id))
-            .all(),
-        );
-        if (state !== source.state)
-          db.update(sources).set({ state, endedAt: now }).where(eq(sources.id, source.id)).run();
-        return Ok({ changed: true });
-      });
+            .run();
+          const state = sourceState(
+            db
+              .select({
+                key: assignments.key,
+                completion: assignments.completion,
+                state: assignments.state,
+              })
+              .from(assignments)
+              .where(eq(assignments.sourceId, source.id))
+              .all(),
+          );
+          if (state !== source.state)
+            db.update(sources).set({ state, endedAt: now }).where(eq(sources.id, source.id)).run();
+          return Ok({ changed: true });
+        },
+      );
     }),
   );
 }

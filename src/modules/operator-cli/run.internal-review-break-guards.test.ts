@@ -33,7 +33,7 @@ const ready = "operator-cli/run.internal-review-ready.test.ts";
 test.each([
   {
     name: "draft required",
-    file: "pull-requests/internal-review-machine.ts",
+    file: "pr-entry/decision.ts",
     replacements: [
       ["when: (facts) => facts.internalReview && !facts.draft,", "when: () => false,"],
     ],
@@ -50,15 +50,15 @@ test.each([
   },
   {
     name: "review-local clean worktree",
-    file: "pull-requests/internal-review-machine.ts",
+    file: "pr-entry/decision.ts",
     replacements: [
       [
         'when: (facts) =>\n      (facts.internalReview || !facts.draft) &&\n      WorkerKinds.refusesPrGuard({ guard: "worktree_clean", changed: facts.changed }),',
         "when: () => false,",
       ],
     ],
-    testFile: "pull-requests/internal-review-machine.test.ts",
-    pattern: "with internal review on, each unready PR",
+    testFile: "pr-entry/decision.test.ts",
+    pattern: "ready entry without internal review requires a clean pushed head",
     assertion: "pr_worktree_unclean",
   },
   {

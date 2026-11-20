@@ -91,6 +91,43 @@ test("a reservation starts the assignment once and refuses a second dispatch", (
   expect(launchNames(db)).toMatchObject({ value: ["report-app-1-read"] });
 });
 
+test("an adoption reservation rechecks branch ownership without filling the refused assignment's kind", () => {
+  using db = fixture();
+  insertRow(db, "assignments", {
+    source_id: "s1",
+    key: "adopter",
+    completion: "pr",
+    state: "ready",
+  });
+  expect(reserveLaunch(db, "/one", "owner/one", { ...launch, branch: "feature/own" }).tag).toBe(
+    "Ok",
+  );
+  const before = db.serialize();
+  expect(
+    reserveLaunch(
+      db,
+      "/one",
+      "owner/one",
+      {
+        ...launch,
+        id: "adopted",
+        assignment: "adopter",
+        name: "adopted",
+        resources: "worktree",
+        branch: "feature/own",
+      },
+      undefined,
+      undefined,
+      undefined,
+      "implementation",
+      {
+        number: null,
+      },
+    ),
+  ).toMatchObject({ error: { reason: "adopt_assignment_owned" } });
+  expect(db.serialize()).toEqual(before);
+});
+
 test("null-kind compare and fill shares launch reservation and a racing stale fill cannot rewrite it", () => {
   using db = fixture();
   expect(

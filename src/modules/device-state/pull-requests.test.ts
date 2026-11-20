@@ -18,6 +18,8 @@ import {
 } from "./pull-requests.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { changeReviewRequest } from "./review-requests.ts";
+import { Ok } from "unthrown";
 import {
   beforeKindsMigration,
   historicalAssignment,
@@ -51,17 +53,23 @@ test("a migration marker with an unknown head does not authorize merge ownership
   historicalAssignment(client, { key: "old" });
   migrateKinds(client);
   const db = drizzle(client);
-  expect(activeOwner(db, "launch-old", "observed-head")).toMatchObject({
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "observed-head" })).toMatchObject({
     tag: "Err",
     error: { reason: "pr_owner_inactive" },
   });
   client.exec("UPDATE pull_requests SET parking = json_set(parking, '$.head', 'observed-head')");
-  expect(activeOwner(db, "launch-old", "wrong-head")).toMatchObject({ tag: "Err" });
-  expect(activeOwner(db, "launch-old", "observed-head")).toMatchObject({ tag: "Ok" });
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "wrong-head" })).toMatchObject({
+    tag: "Err",
+  });
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "observed-head" })).toMatchObject({
+    tag: "Ok",
+  });
   client
     .query("UPDATE launches SET owner_pid = ?, lease_at = ?")
     .run(process.pid, new Date().toISOString());
-  expect(activeOwner(db, "launch-old", "observed-head")).toMatchObject({ tag: "Err" });
+  expect(activeOwner(db, "launch-old", { parkedMergeHead: "observed-head" })).toMatchObject({
+    tag: "Err",
+  });
 });
 
 function fixture() {
@@ -151,6 +159,92 @@ const pr = {
   branch: "task/change",
   relay: null,
 };
+
+test.each(["assignment", "review"])(
+  "adoption rechecks a %s owner acquired after reservation without writes",
+  (owner) => {
+    using db = fixture();
+    expect(reserveLaunch(db, "/one", "owner/one", launchRow("incoming", "change")).tag).toBe("Ok");
+    if (owner === "assignment")
+      expect(
+        reserveLaunch(db, "/one", "owner/one", {
+          ...launchRow("racer", "other"),
+          branch: pr.branch,
+        }).tag,
+      ).toBe("Ok");
+    else
+      expect(
+        changeReviewRequest(db, { repository: "owner/one", number: 7 }, () =>
+          Ok({
+            insert: {
+              id: "racing-review",
+              repository: "owner/one",
+              number: 7,
+              url: pr.url,
+              origin: "manual",
+              state: "queued",
+            },
+          }),
+        ).tag,
+      ).toBe("Ok");
+    const before = db.serialize();
+    expect(
+      associatePullRequest(
+        db,
+        "incoming",
+        { ...pr, readiness: { head: "pushed", at: "now", note: null, dispositions: [] } },
+        true,
+        false,
+        true,
+      ),
+    ).toMatchObject({
+      tag: "Err",
+      error: { reason: owner === "assignment" ? "adopt_assignment_owned" : "adopt_review_owned" },
+    });
+    expect(db.serialize()).toEqual(before);
+    expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+      pullRequests: [],
+      internalReviews: [],
+      handoffs: [],
+    });
+  },
+);
+
+test("ready adoption associates a starting owner with readiness and no outgoing handoff", () => {
+  using db = fixture();
+  expect(reserveLaunch(db, "/one", "owner/one", launchRow("adopted", "change")).tag).toBe("Ok");
+  const readiness = { head: "observed-head", at: "now", note: null, dispositions: [] };
+  expect(associatePullRequest(db, "adopted", { ...pr, readiness })).toMatchObject({
+    error: { reason: "pr_owner_inactive" },
+  });
+  expect(
+    associatePullRequest(db, "adopted", { ...pr, readiness }, false, false, true),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { row: { readiness: JSON.stringify(readiness) }, changed: true },
+  });
+  expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+    assignments: [
+      { key: "change", state: "pr-open" },
+      { key: "other", state: "ready" },
+      { key: "read", state: "ready" },
+    ],
+    handoffs: [],
+    internalReviews: [],
+  });
+});
+
+test("draft review adoption creates a reviewer audit without ending or replacing the incoming reviewer", () => {
+  using db = fixture();
+  expect(reserveLaunch(db, "/one", "owner/one", launchRow("adopted", "change")).tag).toBe("Ok");
+  expect(associatePullRequest(db, "adopted", pr, false, true, true)).toMatchObject({ tag: "Ok" });
+  expect(readSources(db, "owner/one").getOr([])[0]).toMatchObject({
+    handoffs: [],
+    internalReviews: [{ state: "reviewing", implementerLaunchId: "adopted", handoffState: "done" }],
+    pullRequests: [{ readiness: null }],
+    launches: [{ state: "starting" }],
+  });
+});
 
 test("ready association durably records readiness and the fresh feedback handoff together", () => {
   using db = fixture();

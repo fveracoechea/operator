@@ -8,7 +8,15 @@ import { WorkSources } from "../work-sources/main.ts";
 import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { associationBody, failed, git, prDevice, repository, succeeded } from "./device-fixture.ts";
-import { dispatch, dispatchPermission, handoff, owned, reviewEnded } from "./internal-review.ts";
+import {
+  dispatch,
+  dispatchPermission,
+  handoff,
+  owned,
+  reviewEnded,
+  round,
+} from "./internal-review.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { PullRequests } from "./main.ts";
 
 test("the merge readiness witness is an explicit transition, never an ended or absent review", () => {
@@ -21,6 +29,77 @@ test("the merge readiness witness is an explicit transition, never an ended or a
 });
 
 afterEach(() => mock.restore());
+
+test.each(["review", "implementation"])(
+  "round and ownership adapters allow a direct %s reviewer only",
+  async (kind) => {
+    await using device = await prDevice();
+    const started = device.start("parent", { kind: JSON.stringify(WorkerKinds.resolve(kind)) });
+    const pr = {
+      number: 7,
+      url: `https://github.com/${repository}/pull/7`,
+      branch: "task/parent",
+      relay: null,
+    };
+    expect(
+      (kind === "review"
+        ? DeviceState.adoptPullRequest(device.paths, started.launchId, pr, {
+            internalReview: true,
+            assignmentReview: false,
+          })
+        : DeviceState.associatePullRequest(device.paths, started.launchId, pr, false, true)
+      ).tag,
+    ).toBe("Ok");
+    const file = `${device.root}/findings.md`;
+    await Bun.write(file, "## Findings\n- nice-to-have, Spec, src/api.ts: Keep the API.\n");
+    const before = await Bun.file(device.paths.database).arrayBuffer();
+    const result = await round({ paths: device.paths, cwd: started.worktree, file });
+    const owners = DeviceState.worktreeOwners(device.paths);
+    expect(owners.tag).toBe("Ok");
+    if (owners.tag !== "Ok") return;
+    const owner = owners.value[0] ?? expect.unreachable("Missing owner");
+    const ownership = await owned({
+      ...owner,
+      worktreePath: started.worktree,
+      branch: "task/parent",
+    });
+    if (kind === "review") {
+      expect(result).toMatchObject({
+        tag: "Ok",
+        value: {
+          reason: "pr_round_recorded",
+          data: { round: 1, head: git(started.worktree, "rev-parse", "HEAD"), findings: 1 },
+        },
+      });
+      expect(ownership).toMatchObject({ tag: "Ok", value: { launchId: started.launchId } });
+      expect(DeviceState.readSources(device.paths, repository, device.sourceId)).toMatchObject({
+        tag: "Ok",
+        value: [
+          {
+            internalReviewRounds: [
+              {
+                number: 1,
+                findings: JSON.stringify([
+                  {
+                    axis: "Spec",
+                    severity: "nice-to-have",
+                    location: "src/api.ts",
+                    claim: "Keep the API.",
+                  },
+                ]),
+              },
+            ],
+          },
+        ],
+      });
+    } else {
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "pr_handed_off" } });
+      expect(ownership).toMatchObject({ tag: "Err", error: { reason: "pr_handed_off" } });
+      expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+    }
+    expect(device.calls).toEqual([]);
+  },
+);
 
 test("a ready handoff fences its outgoing owner at the PR interface before pane closure", async () => {
   await using device = await prDevice();

@@ -37,7 +37,12 @@ test.each([
   {
     name: "running owner in the write transaction",
     file: "device-state/pull-requests.ts",
-    replacements: [['(owner.launch.state !== "running" && !parkedMerge) ||', ""]],
+    replacements: [
+      [
+        '(owner.launch.state !== "running" &&\n      !(options.adopting && owner.launch.state === "starting") &&\n      !parkedMerge) ||',
+        "",
+      ],
+    ],
     testFile: "device-state/pull-requests.test.ts",
     pattern: "a replacement keeps PR open",
   },

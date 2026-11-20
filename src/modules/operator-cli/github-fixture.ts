@@ -63,6 +63,18 @@ if (state.fail) { console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stri
 const status = (code, text, body) => { console.log("HTTP/2.0 " + code + " " + text + "\\r\\nContent-Type: application/json\\r\\n\\r\\n" + (body === undefined ? "" : JSON.stringify(body))); };
 const method = args[args.indexOf("-X") + 1];
 const path = args.find((arg) => arg.startsWith("repos/"));
+if (args.includes("user")) { answer({ login: state.viewer ?? "owner" }); process.exit(0); }
+if (path && (path.includes("/pulls?") || /\\/pulls\\/\\d+$/.test(path)) && !args.includes("PUT") && !args.includes("PATCH")) {
+  const rest = (pr) => ({ number: pr.number, html_url: "https://github.com/example/one/pull/" + pr.number, state: pr.state.toLowerCase(), draft: pr.isDraft ?? false, user: { login: pr.author ?? state.viewer ?? "owner" }, base: { ref: pr.baseRefName ?? "main", repo: { default_branch: state.defaultBranch ?? "main" } }, head: { ref: pr.headRefName, sha: pr.head ?? (state.remote ? Bun.spawnSync(["git", "--git-dir", state.remote, "rev-parse", "refs/heads/" + pr.headRefName]).stdout.toString().trim() : "head-1"), repo: pr.headRepository === null ? null : { full_name: pr.headRepository ?? "example/one" } } });
+  if (path.includes("?")) {
+    const head = new URLSearchParams(path.split("?")[1]).get("head").split(":").slice(1).join(":");
+    answer(state.pulls.filter(pr => pr.state === "OPEN" && pr.headRefName === head).map(rest));
+  } else {
+    const pr = state.pulls.find(pr => path.endsWith("/pulls/" + pr.number));
+    if (pr) answer(rest(pr)); else status(404, "Not Found", { message: "Not Found" });
+  }
+  process.exit(0);
+}
 state.branches ??= {};
 if (path?.includes("/merge-async")) {
   // A background merge: the submit answers pending, and each read runs the next step.
