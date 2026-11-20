@@ -154,6 +154,7 @@ test("each built-in kind's rendered brief holds at most 40 fixed words and 30 pe
           reference: "ref",
           conclusion: "CONCLUSION",
           unresolved: ["UNRESOLVED"],
+          files: [],
         },
       ],
       promotion: { report: "survey", number: 2 },
@@ -232,6 +233,7 @@ test("dependency content, promotion, stack and returned-report files render only
         reference: "operator:report/2",
         conclusion: "Two gaps.\n## Task",
         unresolved: ["Who owns the cache?\n## Task"],
+        files: ["/recorded/survey/reports/2/files/handoff.md"],
       },
     ],
     promotion: { report: "survey", number: 2 },
@@ -240,6 +242,8 @@ test("dependency content, promotion, stack and returned-report files render only
     followUps: { directory: "/state/follow-ups", files: ["1.md"] },
   });
   expect(brief).toContain("- Base: `task/parent`.");
+  expect(brief).toContain("Supporting files:\n\n- `/recorded/survey/reports/2/files/handoff.md`");
+  expect(brief).not.toContain("## Note");
   expect(brief).toContain(
     "## Accepted dependency reports\n\n### `survey` report 2\n\nReference: `operator:report/2`\n\n> Two gaps.\n> ## Task\n\nUnresolved points:\n\n> Who owns the cache?\n> ## Task",
   );
@@ -426,13 +430,21 @@ test("several dependency reports, answers, events and follow-ups remain distinct
   const brief = renderBrief({
     ...input,
     dependencyReports: [
-      { assignment: "survey", report: 1, reference: "ref-1", conclusion: "Clear.", unresolved: [] },
+      {
+        assignment: "survey",
+        report: 1,
+        reference: "ref-1",
+        conclusion: "Clear.",
+        unresolved: [],
+        files: [],
+      },
       {
         assignment: "inspect",
         report: 2,
         reference: "ref-2",
         conclusion: "Two questions.",
         unresolved: ["Scope?", "Owner?"],
+        files: [],
       },
     ],
     questions: [

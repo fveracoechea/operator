@@ -7,6 +7,7 @@ import { editorSchemaText } from "./schema.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { selectLaunch, type SelectionRequest } from "./selection.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 type SettingsError = Error & { code?: unknown };
@@ -49,6 +50,29 @@ function operate(action: () => Promise<SettingsOutcome>) {
 
 /** Device settings never depend on the current checkout. */
 export const DeviceSettings = {
+  kind(input: { paths: OperatorPaths; name: string; host: "opencode" | "claude-code" }) {
+    return fromPromise(
+      async () => {
+        const { config } = await readConfig(input.paths);
+        const kind = WorkerKinds.resolve(input.name, config.kinds);
+        for (const root of [
+          input.paths.skillHosts[input.host],
+          input.paths.upstreamSkills[input.host],
+        ]) {
+          const guide = `${root}/${kind.guide}`;
+          if (await Bun.file(guide).exists()) return { ...kind, guide };
+        }
+        // oxlint-disable-next-line unthrown/no-throw -- The settings boundary qualifies a missing guide for the selected launch host.
+        throw new SyntaxError(
+          `Kind ${input.name}: No installed guide skill for ${input.host}: ${kind.guide}.`,
+        );
+      },
+      (cause, defect) =>
+        cause instanceof Error || cause instanceof z.ZodError
+          ? qualify(cause, defect)
+          : defect(cause),
+    );
+  },
   resolve(input: SelectionRequest & { paths: OperatorPaths; cwd: string }) {
     return fromPromise(
       () => readConfig(input.paths),
