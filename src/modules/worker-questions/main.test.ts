@@ -157,6 +157,26 @@ test("a question that needs the person shows as a person decision and records a 
   expect((await device.actions()).map((row) => row.action)).toEqual(["ready_assignment"]);
 });
 
+test("concurrent waits deliver an already escalated question once and still deliver its answer", async () => {
+  const { sourceId } = await asked();
+  device.inPane(superPane);
+  okValue(await WorkerQuestions.escalate(selector(sourceId)));
+  mock.restore();
+  const notices = await Promise.all([wait(), wait()]);
+  expect(notices.map((notice) => okValue(notice).reason).toSorted()).toEqual([
+    "question_awaiting_person",
+    "question_wait_timed_out",
+  ]);
+  for (const notice of notices)
+    expect(okValue(notice).next).toMatchObject({ command: "operator question wait --key scope" });
+  expect(okValue(await wait()).reason).toBe("question_wait_timed_out");
+  okValue(await answer(sourceId, "person"));
+  expect(okValue(await wait())).toMatchObject({
+    reason: "question_answered",
+    data: { answer: "No, only a.ts.", by: "person" },
+  });
+});
+
 test("a wait returns the answer that arrives while it waits, and the move to the person", async () => {
   const { sourceId } = await asked();
   const waiting = wait("scope", 10);
