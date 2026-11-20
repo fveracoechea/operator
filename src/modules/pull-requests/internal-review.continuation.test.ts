@@ -225,13 +225,13 @@ test.each([false, true])(
     const launched = spyOn(WorkerDispatch, "dispatch").mockReturnValue(OkAsync(successor) as never);
     const exited = Bun.spawn([process.execPath, "-e", ""], { stdout: "ignore", stderr: "ignore" });
     expect(await exited.exited).toBe(0);
-    const input = {
+    const input: Parameters<typeof dispatch>[0] = {
       paths: device.paths,
       cwd: device.checkout,
       sourceId: device.sourceId,
       assignment: "parent",
-      ...(internal ? { afterPid: exited.pid } : {}),
     };
+    if (internal) input.afterPid = exited.pid;
     expect(await dispatch(input)).toMatchObject({ tag: "Ok", value: successor });
     expect(close.mock.calls).toEqual([["p1"]]);
     expect<unknown>(launched.mock.calls).toEqual([
