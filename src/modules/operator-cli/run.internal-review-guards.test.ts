@@ -419,6 +419,7 @@ test("stopped handoff recovery serializes competing dispatches and preserves the
   await herdrFail({});
   // The recovery process holds the handoff while waiting for this synthetic parent, before any close effect.
   using db = new Database(`${root}/state/operator/operator.sqlite`);
+  db.exec("PRAGMA busy_timeout = 5000");
   db.query("UPDATE kind_handoffs SET handoff_state = 'pending', owner_pid = ?, lease_at = ?").run(
     process.pid,
     new Date().toISOString(),
