@@ -152,7 +152,8 @@ export function configuredPlanSchema(
             resources: assignment.resources ?? kind.resources,
             profile: assignment.profile ?? kind.profile ?? undefined,
           };
-          if (oneOff && kind.resources === "worktree") resolved.branch = assignment.key;
+          if (oneOff && (kind.resources === "worktree" || kind.completion === "pr"))
+            resolved.branch = assignment.key;
           return resolved;
         }),
       });
