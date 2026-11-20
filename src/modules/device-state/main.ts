@@ -57,6 +57,7 @@ import { leaseRenewMs } from "./leases.ts";
 import { prReadinessSchema } from "./pr-readiness.ts";
 import {
   prParkingSchema,
+  recordPullRequestQueue,
   parkPullRequest,
   completeParking,
   resumeParkedPullRequest,
@@ -159,6 +160,9 @@ function hold(renew: () => void) {
 export const DeviceState = {
   prParkingSchema() {
     return prParkingSchema;
+  },
+  recordPullRequestQueue(paths: Paths, launchId: string, head: string) {
+    return writing(paths, (client) => recordPullRequestQueue(client, launchId, head));
   },
   parkPullRequest(paths: Paths, launchId: string, input: Parameters<typeof parkPullRequest>[2]) {
     return writing(paths, (client) => parkPullRequest(client, launchId, input));

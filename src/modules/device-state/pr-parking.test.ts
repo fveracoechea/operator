@@ -12,6 +12,7 @@ import {
   finishParkedRead,
   resumeParkedPullRequest,
   prParkingSchema,
+  recordPullRequestQueue,
 } from "./pr-parking.ts";
 
 test("parking retains legacy facts and accepts unknown heads only with explicit migration origin", () => {
@@ -59,6 +60,38 @@ function fixture() {
   });
   return db;
 }
+
+test("queue disposition belongs to the PR receipt and survives parking again", () => {
+  using db = fixture();
+  expect(recordPullRequestQueue(db, "l", "h")).toMatchObject({ tag: "Ok" });
+  expect(db.query("SELECT COUNT(*) AS count FROM kind_handoffs").get()).toEqual({ count: 0 });
+  expect(parkPullRequest(db, "l", { head: "h", note: "/park.md" })).toMatchObject({
+    tag: "Ok",
+    value: { queueHead: "h", state: "parking" },
+  });
+  db.exec("UPDATE launches SET state = 'finished'");
+  const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
+  expect(completeParking(db, target).tag).toBe("Ok");
+  expect(recordPullRequestQueue(db, "l", "h").tag).toBe("Ok");
+  const before = db.serialize();
+  expect(recordPullRequestQueue(db, "l", "different").tag).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+  const claim = claimParkedRead(db, Date.now()).getOr(null);
+  expect(claim?.rows[0]?.parking).toMatchObject({ queueHead: "h", head: "h", state: "parked" });
+});
+
+test.each([
+  "DELETE FROM pull_requests",
+  "UPDATE assignments SET state = 'running'",
+  "UPDATE pull_requests SET branch = 'foreign'",
+  "UPDATE launches SET state = 'finished'",
+])("queue disposition refuses a changed owner without a receipt write: %s", (change) => {
+  using db = fixture();
+  db.exec(change);
+  const before = db.serialize();
+  expect(recordPullRequestQueue(db, "l", "h").tag).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+});
 
 test("parking retains the pushed head and park note with the recorded outgoing handoff", () => {
   using db = fixture();

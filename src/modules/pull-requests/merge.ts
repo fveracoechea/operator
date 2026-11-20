@@ -146,6 +146,23 @@ function guarded(
   observed: Observation,
   local: string | null,
 ) {
+  if (
+    owner.parkedHead !== undefined &&
+    (observed.head !== owner.parkedHead || local !== owner.parkedHead)
+  )
+    return ErrAsync<Failure>({
+      reason: "pr_head_mismatch",
+      detail: "The parked head changed. Nothing was merged, enqueued, or recorded.",
+      next: {
+        decider: "super-agent",
+        question: "How should the parked head be reconciled without losing work?",
+      },
+      state: { expectedHead: owner.parkedHead, observedHead: observed.head, localHead: local },
+    });
+  const queueHead =
+    owner.parking === null
+      ? null
+      : (DeviceState.prParkingSchema().parse(JSON.parse(owner.parking)).queueHead ?? null);
   const relay = owner.relay === null ? null : relaySchema.parse(JSON.parse(owner.relay));
   const decision = decideMerge({
     observed,
@@ -166,6 +183,7 @@ function guarded(
         : decision,
     );
   if (decision.result === "verify") {
+    if (queueHead !== null) return awaitBatch(input, owner, number, observed);
     if (input.sourceId === undefined) return verify(input, owner, number, null, null);
     return readMergeQueue(owner.repository, number).flatMap(
       (queue): AsyncResult<Outcome, Failure> =>
@@ -192,8 +210,9 @@ function guarded(
       if (phase !== null) return ErrAsync(phase);
       return readMergeQueue(owner.repository, number).flatMap(
         (queue): AsyncResult<Outcome, Failure> => {
-          if (queue.enabled)
+          if (queue.enabled || queue.entry !== null)
             return queuedMerge(input, owner, number, observed, decision.head, queue);
+          if (queueHead !== null) return awaitBatch(input, owner, number, observed);
           // A refused or lost answer can follow a merge that landed, so every answer is verified.
           return fromPromise(
             () => requestMerge(owner.repository, number, decision),
@@ -206,6 +225,30 @@ function guarded(
 }
 
 type Queue = Extract<Awaited<ReturnType<typeof readMergeQueue>>, { tag: "Ok" }>["value"];
+
+function awaitBatch(
+  input: Request,
+  owner: Owner,
+  number: number,
+  observed: Observation,
+): AsyncResult<Outcome, Failure> {
+  const parked =
+    owner.launchState === "running" ? parkQuietWait(input, owner, observed) : OkAsync(true);
+  return parked.map(() => ({
+    reason: "pr_merge_awaiting_batch",
+    data: {
+      sourceId: owner.sourceId,
+      assignment: owner.assignment,
+      number,
+      head: observed.head,
+      state: "pr-open",
+    },
+    next: {
+      command: `operator next --source ${owner.sourceId} --wait`,
+      why: "Only the parked batch records the queued merge and starts cleanup.",
+    },
+  }));
+}
 
 function queuedMerge(
   input: Request,
@@ -222,35 +265,41 @@ function queuedMerge(
       next: { command: mergeCommand(input), why: "Repeat the fresh merge gate before enqueueing." },
       state: { expectedHead: head, observedHead: queue.head, observedState: queue.state },
     });
-  return fromPromise(
-    async () => ({
-      requested: queue.entry === null ? await enqueuePullRequest(queue.id, head) : null,
-    }),
-    qualify,
-  ).flatMap(({ requested }) =>
-    readMergeQueue(owner.repository, number).flatMap((confirmed): AsyncResult<Outcome, Failure> => {
-      // A lost answer can follow an accepted enqueue; membership, not the answer, proves it.
-      if (confirmed.entry === null || confirmed.head !== head) {
-        if (requested !== null && requested.tag !== "Ok")
-          return requested.map(() => enqueued(owner, number, head, confirmed.entry)).toAsync();
-        return ErrAsync({
-          reason: "pr_enqueue_unverified",
-          detail:
-            "GitHub did not confirm queue membership for the guarded head. The assignment remains open.",
-          next: {
-            command: mergeCommand(input),
-            why: "Read queue membership and the merge gate before retrying.",
-          },
-          state: { expectedHead: head, queued: confirmed.entry !== null },
+  return DeviceState.recordPullRequestQueue(input.paths, owner.launchId, head)
+    .toAsync()
+    .flatMap(() =>
+      fromPromise(async () => {
+        const requested = queue.entry === null ? await enqueuePullRequest(queue.id, head) : null;
+        const verification = await readMergeQueue(owner.repository, number);
+        if (requested?.tag === "Defect") {
+          if (verification.tag !== "Ok")
+            console.error("enqueue_verification", { secondary: verification });
+          return requested.map<Outcome>(() => enqueued(owner, number, head, null));
+        }
+        return verification.toAsync().flatMap((confirmed): AsyncResult<Outcome, Failure> => {
+          // A lost answer can follow an accepted enqueue; membership, not the answer, proves it.
+          if (confirmed.entry === null || confirmed.head !== head) {
+            if (requested !== null && requested.tag !== "Ok")
+              return requested.map(() => enqueued(owner, number, head, confirmed.entry)).toAsync();
+            return ErrAsync({
+              reason: "pr_enqueue_unverified",
+              detail:
+                "GitHub did not confirm queue membership for the guarded head. The assignment remains open.",
+              next: {
+                command: mergeCommand(input),
+                why: "Read queue membership and the merge gate before retrying.",
+              },
+              state: { expectedHead: head, queued: confirmed.entry !== null },
+            });
+          }
+          return owner.launchState === "running"
+            ? parkQuietWait(input, owner, observed).map(() =>
+                enqueued(owner, number, head, confirmed.entry),
+              )
+            : OkAsync(enqueued(owner, number, head, confirmed.entry));
         });
-      }
-      return owner.launchState === "running"
-        ? parkQuietWait(input, owner, observed).map(() =>
-            enqueued(owner, number, head, confirmed.entry),
-          )
-        : OkAsync(enqueued(owner, number, head, confirmed.entry));
-    }),
-  );
+      }, qualify).flatMap((result) => result),
+    );
 }
 
 function enqueued(owner: Owner, number: number, head: string, entry: string | null) {

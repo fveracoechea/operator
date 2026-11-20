@@ -167,6 +167,9 @@ test("a queue-enabled merge pins the enqueue and parks without recording complet
     if (requestKind(args) === "enqueue") {
       expect(args).toContain(`head=${head}`);
       expect(args).toContain("id=PR_7");
+      expect(JSON.parse(device.pullRequestRow("other")?.parking ?? "null")).toMatchObject({
+        queueHead: head,
+      });
       queued = true;
       return uncertain("lost enqueue response");
     }
@@ -223,7 +226,7 @@ test("a scoped parked merge checks the gate, enqueues once, and never starts ear
         approved,
         state: landed ? "MERGED" : "OPEN",
         mergeCommit: landed ? "m1" : null,
-        queueEnabled: true,
+        queueEnabled: !landed,
         queueEntry: queued ? "Q7" : null,
       }),
     );
@@ -250,7 +253,13 @@ test("a scoped parked merge checks the gate, enqueues once, and never starts ear
     });
   expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
   expect(device.calls.some((args) => args.includes("PUT"))).toBe(false);
-  expect(device.pullRequestRow("other")).toEqual(before);
+  const receipt = device.pullRequestRow("other");
+  expect<unknown>(receipt).toEqual({ ...before, parking: receipt?.parking });
+  expect(JSON.parse(receipt?.parking ?? "null")).toMatchObject({
+    head,
+    queueHead: head,
+    state: "parked",
+  });
   expect(detach).not.toHaveBeenCalled();
   landed = true;
   expect<unknown>(await merge(scoped)).toMatchObject({
@@ -261,9 +270,46 @@ test("a scoped parked merge checks the gate, enqueues once, and never starts ear
       next: { command: `operator next --source ${device.sourceId} --wait` },
     },
   });
-  expect(device.pullRequestRow("other")).toEqual(before);
+  expect(device.pullRequestRow("other")).toEqual(receipt);
   expect(detach).not.toHaveBeenCalled();
 });
+
+test.each(["both", "local", "remote"])(
+  "a scoped merge binds the parked head when %s heads change",
+  async (change) => {
+    const { device, head, input, launchId, worktree, detach } = await owner(null, undefined, true);
+    await using _ = device;
+    expect(DeviceState.parkPullRequest(device.paths, launchId, { head, note: null }).tag).toBe(
+      "Ok",
+    );
+    expect(DeviceState.finishImplementer(device.paths, launchId).tag).toBe("Ok");
+    expect(
+      DeviceState.claimHandoff(device.paths, repository, device.sourceId, "other", null).tag,
+    ).toBe("Ok");
+    expect(
+      DeviceState.completeParking(device.paths, {
+        repository,
+        sourceId: device.sourceId,
+        assignment: "other",
+      }).tag,
+    ).toBe("Ok");
+    if (change !== "remote") git(worktree, "commit", "--allow-empty", "-qm", "Changed head");
+    const remote = change === "local" ? head : "new-remote-head";
+    device.answer(() => succeeded(pullRequestBody({ head: remote, queueEnabled: true })));
+    const before = device.pullRequestRow("other");
+    expect(
+      await merge({
+        ...input,
+        cwd: device.checkout,
+        sourceId: device.sourceId,
+        assignment: "other",
+      }),
+    ).toMatchObject({ tag: "Err", error: { reason: "pr_head_mismatch" } });
+    expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+    expect(device.pullRequestRow("other")).toEqual(before);
+    expect(detach).not.toHaveBeenCalled();
+  },
+);
 
 test("an enqueue refusal keeps the assignment active and names a safe retry", async () => {
   const { device, input, head, detach } = await owner(null, undefined, true);
@@ -285,6 +331,69 @@ test("an enqueue refusal keeps the assignment active and names a safe retry", as
   ]);
   expect(assignmentState(device)).toBe("pr-open");
   expect(detach).not.toHaveBeenCalled();
+});
+
+test.each([false, true])(
+  "an enqueue Defect keeps its cause when verification fails: %s",
+  async (fails) => {
+    const { device, input, head } = await owner(null, undefined, true);
+    await using _ = device;
+    const cause = new TypeError("original enqueue defect");
+    const secondary = new TypeError("secondary membership defect");
+    const log = spyOn(console, "error").mockImplementation(() => undefined);
+    let requested = false;
+    device.answer((args) => {
+      if (requestKind(args) === "enqueue") {
+        requested = true;
+        return Promise.reject(cause);
+      }
+      if (requested && requestKind(args) === "merge_queue" && fails)
+        return Promise.reject(secondary);
+      return succeeded(
+        pullRequestBody({ head, queueEnabled: true, queueEntry: requested ? "Q7" : null }),
+      );
+    });
+    const result = await merge(input);
+    expect(result.tag).toBe("Defect");
+    if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    if (fails)
+      expect(log).toHaveBeenCalledWith(
+        "enqueue_verification",
+        expect.objectContaining({
+          secondary: expect.objectContaining({ cause: secondary }) as unknown,
+        }),
+      );
+    expect(assignmentState(device)).toBe("pr-open");
+  },
+);
+
+test("a lost enqueue and failed membership read retain batch completion on a later retry", async () => {
+  const { device, input, head, detach } = await owner(null, undefined, true);
+  await using _ = device;
+  let requested = false;
+  device.answer((args) => {
+    if (requestKind(args) === "enqueue") {
+      requested = true;
+      return uncertain("Lost enqueue");
+    }
+    if (requested && requestKind(args) === "merge_queue") return uncertain("Lost verification");
+    return succeeded(pullRequestBody({ head, queueEnabled: true }));
+  });
+  expect(await merge(input)).toMatchObject({ tag: "Err", error: { reason: "github_uncertain" } });
+  expect(detach).not.toHaveBeenCalled();
+  device.answer(() =>
+    succeeded(pullRequestBody({ head, queueEnabled: false, state: "MERGED", mergeCommit: "m1" })),
+  );
+  expect(await merge(input)).toMatchObject({
+    tag: "Ok",
+    value: { reason: "pr_merge_awaiting_batch" },
+  });
+  expect(device.pullRequestRow("other")?.mergedAt).toBeNull();
+  expect(assignmentState(device)).toBe("pr-open");
+  expect(JSON.parse(device.pullRequestRow("other")?.parking ?? "null")).toMatchObject({
+    queueHead: head,
+    state: "parking",
+  });
 });
 
 test("a changed queue head refuses before enqueue and leaves work intact", async () => {

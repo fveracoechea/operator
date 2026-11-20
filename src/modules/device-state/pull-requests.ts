@@ -60,6 +60,7 @@ export function worktreeOwners(client: Database) {
           relay: pullRequests.relay,
           progress: pullRequests.progress,
           readiness: pullRequests.readiness,
+          parking: pullRequests.parking,
           internalReview: launches.internalReview,
           kind: launches.kind,
           reviewState: internalReviews.state,

@@ -68,7 +68,7 @@ const pullRequestAnswer = z.object({
         isDraft: z.boolean(),
         reviewDecision: z.string().nullable(),
         mergeCommit: z.object({ oid: z.string() }).nullable(),
-        mergeQueueEntry: z.object({ id: z.string() }).nullable().optional(),
+        mergeQueueEntry: z.object({ id: z.string() }).nullable(),
         reviews: z.object({
           pageInfo: pageInfo.optional(),
           nodes: z.array(comment.extend({ state: z.string() })),
@@ -416,12 +416,8 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
       return check;
     }),
   };
-  if (pr.mergeQueueEntry !== undefined) observed.queueEntry = queueEntryId(pr.mergeQueueEntry);
+  observed.queueEntry = pr.mergeQueueEntry === null ? null : pr.mergeQueueEntry.id;
   return observed;
-}
-
-function queueEntryId(entry: { id: string } | null) {
-  return entry?.id ?? null;
 }
 
 export function observePullRequest(repository: string, number: number) {

@@ -66,7 +66,13 @@ test("a scoped merge selects the retained parked owner from the registered check
   await using _ = device;
   expect<unknown>(await resolveParkedOwner(input)).toMatchObject({
     tag: "Ok",
-    value: { launchId, worktreePath: worktree, launchState: "finished", assignment: "other" },
+    value: {
+      launchId,
+      worktreePath: worktree,
+      launchState: "finished",
+      assignment: "other",
+      parkedHead: git(worktree, "rev-parse", "HEAD"),
+    },
   });
   expect(device.calls).toEqual([]);
   git(worktree, "switch", "-q", "-c", "different");

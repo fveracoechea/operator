@@ -21,7 +21,7 @@ type OwnerFailure = RefusalContext & {
 };
 type Owners = Extract<ReturnType<typeof DeviceState.worktreeOwners>, { tag: "Ok" }>["value"];
 type Recorded = Owners[number] & { worktreePath: string };
-export type Owner = Recorded & { branch: string };
+export type Owner = Recorded & { branch: string; parkedHead?: string };
 
 export function qualify<C, T>(cause: C, defect: (cause: C) => T) {
   if (
@@ -215,7 +215,7 @@ export function resolveParkedOwner(input: {
               ? ErrAsync(found)
               : DeviceState.checkParkedMergeOwner(input.paths, found.launchId, head)
                   .toAsync()
-                  .map(() => found),
+                  .map(() => ({ ...found, parkedHead: head })),
           ),
         );
     }),

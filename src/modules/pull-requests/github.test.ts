@@ -19,6 +19,24 @@ import {
 } from "./github.ts";
 import { mergeConditions } from "./wait-machine.ts";
 
+test.each([undefined, null, { id: "Q7" }])(
+  "parked membership must be explicitly observed: %j",
+  async (entry) => {
+    const data = answer({ mergeQueueEntry: entry });
+    github(() => ok({ data: { viewer: data.viewer, r0: data.repository } }));
+    const result = await observeParkedPullRequests([
+      { repository: "owner/one", number: 7, parent: null },
+    ]);
+    if (entry === undefined)
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "github_invalid_response" } });
+    else
+      expect(result).toMatchObject({
+        tag: "Ok",
+        value: [{ observed: { queueEntry: entry === null ? null : "Q7" } }],
+      });
+  },
+);
+
 const readRecovery = {
   decider: "super-agent",
   question:
@@ -67,6 +85,7 @@ function answer(change: Record<string, unknown> = {}) {
         isDraft: false,
         reviewDecision: null,
         mergeCommit: null,
+        mergeQueueEntry: null,
         reviews: { nodes: [] },
         comments: { nodes: [] },
         reviewThreads: { totalCount: 0, nodes: [] },
@@ -1162,6 +1181,7 @@ describe("GitHub answers in the expected form", () => {
         state: "MERGED",
         head: "abc",
         mergeCommit: "m1",
+        queueEntry: null,
         mergeMethod: "squash",
         base: "main",
         defaultBranch: "main",
