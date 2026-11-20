@@ -125,7 +125,7 @@ test("an already-associated promoted draft needs explicit recovery, then gets on
   const migrations = beforeHistory
     .query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id")
     .all();
-  expect(migrations).toHaveLength(25);
+  expect(migrations).toHaveLength(26);
   beforeHistory.close();
   // Neither a fixed promotion implementation nor repeated association repairs retained state.
   expect(

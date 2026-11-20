@@ -217,6 +217,7 @@ export const pullRequests = sqliteTable(
     progress: text().notNull(),
     // Explicit ready transition, with complete dispositions and a device-file note reference.
     readiness: text(),
+    parking: text(),
     waitState: text("wait_state").notNull(),
     waitAt: text("wait_at"),
     // The waiting process and its lease. A gone process or a stale lease is a stopped wait.
@@ -237,6 +238,14 @@ export const pullRequests = sqliteTable(
     }),
   ],
 );
+
+// One device-wide schedule across coordination scopes, held only during the batch read.
+export const parkedPrReads = sqliteTable("parked_pr_reads", {
+  id: integer().primaryKey(),
+  lastReadAt: text("last_read_at"),
+  ownerPid: integer("owner_pid"),
+  leaseAt: text("lease_at"),
+});
 
 // The ordered disposal after a verified merge. A failure stays recorded until a retry finishes it.
 export const cleanups = sqliteTable(

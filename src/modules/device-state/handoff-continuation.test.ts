@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { migrationsFolder } from "./database.ts";
+import { insertRow } from "./state-fixture.ts";
 import { recordPrReady } from "./pr-readiness.ts";
 import {
   inspectContinuation,
@@ -44,6 +45,37 @@ const refusal = {
     state: { continuationAuthorized: false },
   },
 };
+
+test("same-kind feedback continuation needs the exact durable parking or resume receipt", () => {
+  using client = new Database(":memory:");
+  const db = seed(client, JSON.stringify(WorkerKinds.resolve("pr-feedback")), "pr-feedback");
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  insertRow(client, "pull_requests", {
+    source_id: target.sourceId,
+    assignment: target.assignment,
+    parking: JSON.stringify({ launchId: "outgoing", state: "parking" }),
+  });
+  expect(inspectContinuation(db, target, context)).toMatchObject({
+    tag: "Ok",
+    value: { identity: { ...identity, nextKind: "pr-feedback" } },
+  });
+  for (const state of ["parked", "active", "closed"]) {
+    client
+      .query("UPDATE pull_requests SET parking = ?")
+      .run(JSON.stringify({ launchId: "outgoing", state }));
+    expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  }
+  client
+    .query("UPDATE pull_requests SET parking = ?")
+    .run(JSON.stringify({ launchId: "outgoing", state: "resuming" }));
+  expect(inspectContinuation(db, target, context)).toMatchObject({ tag: "Ok" });
+  client
+    .query("UPDATE pull_requests SET parking = ?")
+    .run(JSON.stringify({ launchId: "different", state: "resuming" }));
+  const before = client.serialize();
+  expect(inspectContinuation(db, target, context)).toMatchObject(refusal);
+  expect(client.serialize()).toEqual(before);
+});
 
 function seed(
   client: Database,

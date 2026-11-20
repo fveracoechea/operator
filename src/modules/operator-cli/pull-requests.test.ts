@@ -47,7 +47,12 @@ function spies() {
 test("parses owner and cleanup commands", () => {
   expect(pullRequestArgs(["pr", "associate", "--json"])).toEqual({ operation: "pr_associate" });
   expect(pullRequestArgs(["pr", "merge"])).toEqual({ operation: "pr_merge" });
-  expect(pullRequestArgs(["pr", "wait"])).toEqual({ operation: "pr_wait", timeoutSeconds: 300 });
+  expect(pullRequestArgs(["pr", "wait"])).toEqual({ operation: "pr_wait", timeoutSeconds: 540 });
+  expect(pullRequestArgs(["pr", "wait", "--note", "-"])).toEqual({
+    operation: "pr_wait",
+    timeoutSeconds: 540,
+    note: "-",
+  });
   expect(pullRequestArgs(["pr", "wait", "--timeout", "0", "--json"])).toEqual({
     operation: "pr_wait",
     timeoutSeconds: 0,
@@ -81,6 +86,10 @@ test.each([
   [["pr", "wait", "--timeout", "5x"]],
   [["pr", "wait", "--timeout", "123456"]],
   [["pr", "wait", "--timeout", "5", "--timeout", "6"]],
+  [["pr", "wait", "--note"]],
+  [["pr", "wait", "--note", "--json"]],
+  [["pr", "wait", "--note", "one", "--note", "two"]],
+  [["pr", "merge", "--note", "one"]],
   [["pr", "wait", "--source", "s"]],
   [["cleanup"]],
   [["cleanup", "--source", "s"]],

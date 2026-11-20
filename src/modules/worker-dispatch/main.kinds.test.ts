@@ -189,6 +189,75 @@ test("the handoff launch records the review kind rather than the implementation 
   expect((await device.launches("impl"))[1]).toMatchObject({ kind: { name: "review" } });
 });
 
+test("a parked feedback successor receives durable events but never substitutes the ready note for an absent park note", async () => {
+  await using device = await dispatchDevice();
+  const first = await WorkerDispatch.dispatch(device.request("impl"));
+  if (first.tag !== "Ok") expect.unreachable("No implementation launch");
+  const implementation = (await device.launches("impl"))[0];
+  if (implementation === undefined) expect.unreachable("No recorded implementation");
+  const note = `${device.root}/reviewer.md`;
+  await Bun.write(note, "Reviewer open points, not a park note.\n");
+  expect(
+    DeviceState.associatePullRequest(device.paths, implementation.id, {
+      number: 7,
+      url: "https://github.com/example/one/pull/7",
+      branch: "task/impl",
+      relay: null,
+      readiness: { head: "h", at: "now", note, dispositions: [] },
+    }).tag,
+  ).toBe("Ok");
+  expect(DeviceState.finishImplementer(device.paths, implementation.id).tag).toBe("Ok");
+  const feedback = await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true });
+  if (feedback.tag !== "Ok") expect.unreachable("No feedback launch");
+  expect(await Bun.file(feedback.value.brief).text()).toContain("Reviewer open points");
+  const latest = (await device.launches("impl")).at(-1);
+  if (latest === undefined) expect.unreachable("No recorded feedback");
+  expect(DeviceState.parkPullRequest(device.paths, latest.id, { head: "h", note: null }).tag).toBe(
+    "Ok",
+  );
+  expect(DeviceState.finishImplementer(device.paths, latest.id).tag).toBe("Ok");
+  const target = { repository: "example/one", sourceId: device.sourceId, assignment: "impl" };
+  expect(DeviceState.completeParking(device.paths, target)).toMatchObject({
+    tag: "Ok",
+    value: true,
+  });
+  expect(await WorkSources.next(device.request("impl"))).toMatchObject({
+    tag: "Ok",
+    value: {
+      sources: [
+        {
+          waits: expect.arrayContaining([
+            expect.objectContaining({ assignment: "impl", reason: "pr_parked" }),
+          ]) as unknown,
+        },
+      ],
+    },
+  });
+  const claim = DeviceState.claimParkedRead(device.paths);
+  if (claim.tag !== "Ok" || claim.value === null) expect.unreachable("No batch claim");
+  const row = claim.value.rows[0];
+  if (row === undefined) expect.unreachable("No parked PR");
+  const event = '{"kind":"feedback","items":[{"body":"Check the recorded retry."}]}';
+  expect(
+    DeviceState.finishParkedRead(device.paths, claim.value.at, [
+      {
+        ...target,
+        previous: JSON.stringify(row.parking),
+        progress: row.progress,
+        parking: { ...row.parking, events: [event] },
+      },
+    ]).tag,
+  ).toBe("Ok");
+  expect(DeviceState.resumeParkedPullRequest(device.paths, target).tag).toBe("Ok");
+  const resumed = await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true });
+  if (resumed.tag !== "Ok") expect.unreachable("No resumed feedback");
+  expect(resumed.value.kind?.name).toBe("pr-feedback");
+  const brief = await Bun.file(resumed.value.brief).text();
+  expect(brief).toContain(event);
+  expect(brief).not.toContain("Reviewer open points");
+  expect(brief).not.toContain("## Note");
+});
+
 test("another assignment's running-cap wait does not block a failed worker's replacement", async () => {
   await using device = await dispatchDevice();
   const file = `${device.root}/capped-replacement.json`;

@@ -21,6 +21,65 @@ const open: Observation = {
   checks: [],
   checksComplete: true,
 };
+
+test("edited feedback and a new same-head CI failure generation report once each", () => {
+  const first = decideWait({
+    stackRelayed: true,
+    reviewEnded: true,
+    progress: empty,
+    observed: {
+      ...open,
+      feedback: [{ ...item("edited"), version: "v1" }],
+      checks: [{ name: "ci", state: "failing", url: null, generation: "run1" }],
+    },
+  });
+  expect(first.result).toBe("reported");
+  if (first.result !== "reported") return;
+  const changed = {
+    ...open,
+    feedback: [{ ...item("edited"), body: "Edited claim", version: "v2" }],
+    checks: [{ name: "ci", state: "failing" as const, url: null, generation: "run2" }],
+  };
+  const second = decideWait({
+    stackRelayed: true,
+    reviewEnded: true,
+    progress: first.progress,
+    observed: changed,
+  });
+  expect(second.result).toBe("reported");
+  if (second.result !== "reported") return;
+  expect(second.events.map((event) => event.kind)).toEqual(["feedback", "checks_failed"]);
+  expect(
+    decideWait({
+      stackRelayed: true,
+      reviewEnded: true,
+      progress: second.progress,
+      observed: changed,
+    }),
+  ).toEqual({ result: "none" });
+});
+
+test("same-head CI regaining guarded eligibility is a change rather than a consumed event", () => {
+  const progress = { ...empty, eligibleHead: "h1" };
+  const pending = decideWait({
+    stackRelayed: true,
+    reviewEnded: true,
+    progress,
+    observed: { ...open, approved: true, checks: [{ name: "ci", state: "pending", url: null }] },
+  });
+  expect(pending).toEqual({ result: "none", progress: { ...empty, eligibleHead: null } });
+  if (pending.result !== "none") return;
+  const green = decideWait({
+    stackRelayed: true,
+    reviewEnded: true,
+    progress: pending.progress ?? progress,
+    observed: { ...open, approved: true, checks: [{ name: "ci", state: "passing", url: null }] },
+  });
+  expect(green).toMatchObject({
+    result: "reported",
+    events: [{ kind: "merge_eligible", head: "h1" }],
+  });
+});
 function item(id: string, change: Record<string, unknown> = {}) {
   return {
     id,
@@ -287,7 +346,7 @@ test("the owner's own items never end a wait alone and are reported with the nex
   ).toMatchObject({ events: [{ kind: "feedback", items: [own] }, { kind: "checks_failed" }] });
 });
 
-test("a report while not eligible keeps the recorded eligible head", () => {
+test("a report while not eligible clears the previous eligibility observation", () => {
   const progress = { seen: [], failures: [], eligibleHead: "h0" };
   const blank = item("blank", { kind: "review", body: "  \n", reviewState: "COMMENTED" });
   expect(
@@ -300,7 +359,7 @@ test("a report while not eligible keeps the recorded eligible head", () => {
   ).toEqual({
     result: "reported",
     events: [{ kind: "feedback", items: [item("a")] }],
-    progress: { seen: ["a"], failures: [], eligibleHead: "h0" },
+    progress: { seen: ["a"], failures: [], eligibleHead: null },
   });
 });
 

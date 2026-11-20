@@ -160,6 +160,13 @@ async function openParent(source: string) {
   return { worktree, head: await git(worktree, "rev-parse", "HEAD") };
 }
 
+async function passingChildChecks() {
+  await github((state) => {
+    const child = state.pulls.find((row) => row.number === 8);
+    if (child !== undefined) child.checks = [{ name: "ci", conclusion: "SUCCESS" }];
+  });
+}
+
 /** The child owner commits its change, pushes, opens PR #8 on the parent branch, and associates. */
 async function openChild(source: string, content = "child\n") {
   const owner = await (device as Device).dispatch(source, "child");
@@ -179,7 +186,8 @@ async function openChild(source: string, content = "child\n") {
       baseRefName: "task/21-parent",
       state: "OPEN",
       reviewDecision: "APPROVED",
-      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      // Running checks keep this owner active while the story exercises repeated relay reads.
+      checks: [{ name: "ci" }],
     });
   });
   const associated = await run(["pr", "associate"], worktree);
@@ -308,11 +316,11 @@ test("a child starts on the open parent's branch and is relayed onto main after 
     },
   });
 
-  // Approved with passing checks, the stacked PR is still not eligible while it targets the parent.
+  // Approval cannot make the stacked PR eligible while it targets the parent and checks run.
   const stacked = await wait(child.worktree);
   expect(data(stacked.output)).toMatchObject({
-    reason: "pr_wait_timed_out",
-    data: { mergeConditions: { approved: true, checksPassing: true, defaultBase: false } },
+    reason: "pr_checks_running",
+    data: { mergeConditions: { approved: true, checksPassing: false, defaultBase: false } },
   });
 
   const controller = await git((device as Device).main, "rev-parse", "HEAD");
@@ -359,6 +367,7 @@ test("a child starts on the open parent's branch and is relayed onto main after 
   expect(replacement.brief).not.toContain("## Stack");
 
   // A repeated wait does not relay again. With the default branch as base, the PR is eligible.
+  await passingChildChecks();
   const again = await wait(child.worktree);
   expect(data(again.output)).toMatchObject({
     reason: "pr_events_observed",
@@ -454,7 +463,7 @@ test("a live relay claim holds other waits, a stopped one is taken over, and sim
   // This test process stands for another live relay of the same PR.
   claim(process.pid);
   const held = await wait(child.worktree);
-  expect(data(held.output)).toMatchObject({ reason: "pr_wait_timed_out" });
+  expect(data(held.output)).toMatchObject({ reason: "pr_checks_running" });
   expect(await git(child.worktree, "rev-parse", "HEAD")).toBe(before);
   expect(await baseChanges()).toBe(0);
 
@@ -486,7 +495,7 @@ test("a stacked PR moved to main by hand stays ineligible until its relay finish
   // The parent is still open, so its commits would ride along into main.
   const early = await wait(child.worktree);
   expect(data(early.output)).toMatchObject({
-    reason: "pr_wait_timed_out",
+    reason: "pr_checks_running",
     data: { mergeConditions: { defaultBase: true, stackRelayed: false } },
   });
   // The guarded merge reads the same condition, so it refuses before any merge request.
@@ -501,6 +510,7 @@ test("a stacked PR moved to main by hand stays ineligible until its relay finish
   });
   // The base was already main, so the relay rebased and pushed without a base change.
   expect(await baseChanges()).toBe(0);
+  await passingChildChecks();
   const eligible = await wait(child.worktree);
   expect(data(eligible.output)).toMatchObject({
     data: {

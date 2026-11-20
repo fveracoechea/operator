@@ -6,6 +6,7 @@ import {
   observation,
   observeParent,
   observePullRequest,
+  observeParkedPullRequests,
   openPullRequests,
   readMergeRequest,
   remoteBranch,
@@ -67,7 +68,9 @@ function answer(change: Record<string, unknown> = {}) {
         reviews: { nodes: [] },
         comments: { nodes: [] },
         reviewThreads: { totalCount: 0, nodes: [] },
-        commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+        commits: {
+          nodes: [{ commit: { statusCheckRollup: { contexts: { totalCount: 0, nodes: [] } } } }],
+        },
         ...change,
       },
     },
@@ -240,6 +243,349 @@ function ok<B>(body: B): Answer {
 
 const refused: Answer = { status: "failed", code: "http_422", detail: "Refused", httpStatus: 422 };
 const lost: Answer = { status: "uncertain", detail: "gh ended on SIGTERM" };
+
+test("parked observation reads all PRs and recorded parents in one validated GitHub request", async () => {
+  const parent = { state: "MERGED", baseRefName: "main", headRefOid: "parent-head" };
+  const call = github(() =>
+    ok({
+      data: {
+        viewer: { login: "owner" },
+        r0: answer().repository,
+        r1: { ...answer({ headRefOid: "child-head" }).repository, parent },
+      },
+    }),
+  );
+  expect(
+    await observeParkedPullRequests([
+      { repository: "owner/one", number: 7, parent: null },
+      { repository: "owner/two", number: 8, parent: 6 },
+    ]),
+  ).toMatchObject({
+    tag: "Ok",
+    value: [
+      { observed: { head: "abc" }, parent: null },
+      {
+        observed: { head: "child-head" },
+        parent: { state: "MERGED", head: "parent-head", base: "main" },
+      },
+    ],
+  });
+  expect(call).toHaveBeenCalledTimes(1);
+  const query = call.mock.calls[0]?.[0].args.find((arg) => arg.startsWith("query="));
+  expect(query).toContain('r0: repository(owner: "owner", name: "one")');
+  expect(query).toContain('r1: repository(owner: "owner", name: "two")');
+  expect(query).toContain("parent: pullRequest(number: 6)");
+});
+
+test("a partial parked batch or missing recorded parent refuses without another GitHub read", async () => {
+  for (const body of [
+    { data: { viewer: { login: "owner" } } },
+    { data: { viewer: { login: "owner" }, r0: answer().repository } },
+  ]) {
+    const call = github(() => ok(body));
+    call.mockClear();
+    expect(
+      await observeParkedPullRequests([{ repository: "owner/one", number: 7, parent: 6 }]),
+    ).toMatchObject({ tag: "Err", error: { reason: "github_invalid_response" } });
+    expect(call).toHaveBeenCalledTimes(1);
+  }
+});
+
+test("parked feedback pages stay batched and include older feedback beyond the first hundred", async () => {
+  let reads = 0;
+  const call = github((args) => {
+    reads++;
+    if (reads === 2) expect(args.join(" ")).toContain('after: "older"');
+    const comments = {
+      nodes:
+        reads === 1
+          ? Array.from({ length: 100 }, (_, index) => ({
+              id: `C${index}`,
+              body: "first page",
+              url: "u",
+              author: null,
+            }))
+          : [
+              {
+                id: "older",
+                body: "Edited old feedback",
+                updatedAt: "now",
+                url: "u",
+                author: null,
+              },
+            ],
+      pageInfo: { hasNextPage: reads === 1, endCursor: reads === 1 ? "older" : "end" },
+    };
+    return ok({
+      data: {
+        viewer: { login: "owner" },
+        r0: answer({ comments }).repository,
+        r1: answer({ comments }).repository,
+      },
+    });
+  });
+  const result = await observeParkedPullRequests([
+    { repository: "owner/one", number: 7, parent: null },
+    { repository: "owner/two", number: 8, parent: null },
+  ]);
+  expect(result.tag).toBe("Ok");
+  if (result.tag !== "Ok") return;
+  expect(result.value.map(({ observed }) => observed.feedback.length)).toEqual([101, 101]);
+  expect(result.value[0]?.observed.feedback.at(-1)).toMatchObject({
+    id: "older",
+    body: "Edited old feedback",
+  });
+  expect(call).toHaveBeenCalledTimes(2);
+});
+
+test("a batch with a hundred completed checks and an unread pending context fails closed", async () => {
+  const passing = {
+    __typename: "CheckRun",
+    name: "completed",
+    status: "COMPLETED",
+    conclusion: "SUCCESS",
+    detailsUrl: null,
+  };
+  const data = answer({
+    commits: {
+      nodes: [
+        {
+          commit: {
+            statusCheckRollup: {
+              contexts: { totalCount: 101, nodes: Array.from({ length: 100 }, () => passing) },
+            },
+          },
+        },
+      ],
+    },
+  });
+  const call = github(() => ok({ data: { viewer: { login: "owner" }, r0: data.repository } }));
+  const result = await observeParkedPullRequests([
+    { repository: "owner/one", number: 7, parent: null },
+  ]);
+  expect(result).toMatchObject({
+    tag: "Err",
+    error: { reason: "github_invalid_response" },
+  });
+  if (result.tag === "Err") expect(result.error.detail).toContain("check");
+  expect(call).toHaveBeenCalledTimes(1);
+});
+
+test.each(["null", "missing", "incomplete"] as const)(
+  "a parked %s check observation is not acknowledged as a complete empty set",
+  async (kind) => {
+    const commits = {
+      nodes:
+        kind === "missing"
+          ? []
+          : [
+              {
+                commit: {
+                  statusCheckRollup:
+                    kind === "null" ? null : { contexts: { totalCount: 1, nodes: [] } },
+                },
+              },
+            ],
+    };
+    const data = answer({ commits });
+    expect(observation(data).checksComplete).toBe(false);
+    github(() => ok({ data: { viewer: data.viewer, r0: data.repository } }));
+    expect(
+      await observeParkedPullRequests([{ repository: "owner/one", number: 7, parent: null }]),
+    ).toMatchObject({ tag: "Err", error: { reason: "github_invalid_response" } });
+  },
+);
+
+test("a checked complete empty context connection remains a valid observation", async () => {
+  github(() => ok({ data: { viewer: answer().viewer, r0: answer().repository } }));
+  expect(
+    await observeParkedPullRequests([{ repository: "owner/one", number: 7, parent: null }]),
+  ).toMatchObject({ tag: "Ok", value: [{ observed: { checksComplete: true, checks: [] } }] });
+});
+
+test.each(["live", "batch", "page", "thread"] as const)(
+  "a %s GraphQL error rejects usable-looking partial data",
+  async (kind) => {
+    let reads = 0;
+    github(() => {
+      reads++;
+      const paged = kind === "page" || kind === "thread";
+      const comments = {
+        nodes: [{ id: `C${reads}`, body: "claim", url: "u", author: null }],
+        pageInfo: { hasNextPage: reads === 1, endCursor: String(reads) },
+      };
+      const data = answer(
+        kind === "page"
+          ? { comments }
+          : kind === "thread"
+            ? {
+                reviewThreads: {
+                  totalCount: 1,
+                  nodes: [{ id: "T", isResolved: false, path: "a.ts", comments }],
+                },
+              }
+            : {},
+      );
+      return ok({
+        data:
+          kind === "live"
+            ? data
+            : kind === "thread" && reads > 1
+              ? { t0: { pullRequest: { headRefOid: "abc" }, comments } }
+              : { viewer: data.viewer, r0: data.repository },
+        errors: !paged || reads > 1 ? [{ message: "Partial read refused" }] : [],
+      });
+    });
+    expect(
+      await (kind === "live"
+        ? observePullRequest("owner/one", 7)
+        : observeParkedPullRequests([{ repository: "owner/one", number: 7, parent: null }])),
+    ).toMatchObject({ tag: "Err", error: { reason: "github_invalid_response" } });
+    expect(reads).toBe(kind === "page" || kind === "thread" ? 2 : 1);
+  },
+);
+
+test("an unknown completed check conclusion remains pending rather than granting quiet parking", () => {
+  const data = answer({
+    commits: {
+      nodes: [
+        {
+          commit: {
+            statusCheckRollup: {
+              contexts: {
+                totalCount: 1,
+                nodes: [
+                  {
+                    __typename: "CheckRun",
+                    name: "unknown",
+                    status: "COMPLETED",
+                    conclusion: "FUTURE_UNKNOWN",
+                    detailsUrl: null,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ],
+    },
+  });
+  expect(observation(data).checks).toEqual([{ name: "unknown", state: "pending", url: null }]);
+});
+
+test("thread-comment continuation includes feedback older than the first thread page", async () => {
+  let reads = 0;
+  const call = github((args) => {
+    reads++;
+    if (reads === 2) {
+      expect(args.join(" ")).toContain('node(id: "thread")');
+      return ok({
+        data: {
+          t0: {
+            pullRequest: { headRefOid: "abc" },
+            comments: {
+              pageInfo: { hasNextPage: false, endCursor: "end" },
+              nodes: [
+                {
+                  id: "older-inline",
+                  body: "old inline edit",
+                  updatedAt: "v2",
+                  url: "u",
+                  author: null,
+                },
+              ],
+            },
+          },
+        },
+      });
+    }
+    const reviewThreads = {
+      totalCount: 1,
+      pageInfo: { hasNextPage: false, endCursor: "end" },
+      nodes: [
+        {
+          id: "thread",
+          isResolved: false,
+          path: "file.ts",
+          comments: { pageInfo: { hasNextPage: true, endCursor: "older" }, nodes: [] },
+        },
+      ],
+    };
+    return ok({ data: { viewer: { login: "owner" }, r0: answer({ reviewThreads }).repository } });
+  });
+  const result = await observeParkedPullRequests([
+    { repository: "owner/one", number: 7, parent: null },
+  ]);
+  expect(result.tag).toBe("Ok");
+  if (result.tag === "Ok")
+    expect(result.value[0]?.observed.feedback).toMatchObject([
+      { id: "older-inline", body: "old inline edit", kind: "thread_comment" },
+    ]);
+  expect(call).toHaveBeenCalledTimes(2);
+});
+
+test.each(["head", "cursor", "error"] as const)(
+  "a paged feedback %s failure refuses the whole observation",
+  async (failure) => {
+    let reads = 0;
+    const call = github(() => {
+      reads++;
+      if (reads > 1 && failure === "error") return refused;
+      const comments = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "repeated" } };
+      return ok({
+        data: {
+          viewer: { login: "owner" },
+          r0: answer({
+            comments,
+            headRefOid: reads > 1 && failure === "head" ? "different" : "abc",
+          }).repository,
+        },
+      });
+    });
+    expect(
+      await observeParkedPullRequests([{ repository: "owner/one", number: 7, parent: null }]),
+    ).toMatchObject({ tag: "Err" });
+    expect(call).toHaveBeenCalledTimes(2);
+  },
+);
+test.each(["comments", "thread", "cycle-comments", "cycle-thread"] as const)(
+  "a repeated terminal %s cursor refuses instead of returning duplicate feedback",
+  async (connection) => {
+    let reads = 0;
+    const nested = connection.endsWith("thread");
+    const cycle = connection.startsWith("cycle");
+    github(() => {
+      reads++;
+      const terminal = reads === (cycle ? 3 : 2);
+      const comments = {
+        nodes: [{ id: "same", body: "claim", url: "u", author: null }],
+        pageInfo: { hasNextPage: !terminal, endCursor: reads === 2 && cycle ? "second" : "first" },
+      };
+      if (nested && reads > 1)
+        return ok({ data: { t0: { pullRequest: { headRefOid: "abc" }, comments } } });
+      return ok({
+        data: {
+          viewer: answer().viewer,
+          r0: answer(
+            nested
+              ? {
+                  reviewThreads: {
+                    totalCount: 1,
+                    nodes: [{ id: "thread", isResolved: false, path: "file.ts", comments }],
+                  },
+                }
+              : { comments },
+          ).repository,
+        },
+      });
+    });
+    expect(
+      await observeParkedPullRequests([{ repository: "owner/one", number: 7, parent: null }]),
+    ).toMatchObject({ tag: "Err", error: { reason: "github_invalid_response" } });
+    expect(reads).toBe(cycle ? 3 : 2);
+  },
+);
+
 afterEach(() => {
   mock.restore();
 });

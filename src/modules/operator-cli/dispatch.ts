@@ -194,7 +194,7 @@ export async function runDispatch(
         sourceId: parsed.sourceId,
         assignment: parsed.assignment,
         afterPid: parsed.afterPid,
-      }).map((data) => ({ reason: "worker_launched", data }))
+      }).map((data) => ({ reason: "parked" in data ? "pr_parked" : "worker_launched", data }))
     : parsed.operation === "abandon"
       ? WorkSources.abandon({
           paths,

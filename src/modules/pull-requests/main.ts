@@ -2,6 +2,7 @@ import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result 
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import {
   observeParent,
   observePullRequest,
@@ -35,8 +36,9 @@ import {
 import { ready, skip } from "./internal-review-ready.ts";
 import { recoverReview } from "./internal-review-recovery.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
+import { parkQuietWait, readParkNote, observeParked } from "./parking.ts";
 
-type Request = { paths: Paths; cwd: string };
+type Request = { paths: Paths; cwd: string; parkNote?: string | null };
 type Failure = Refusal;
 
 // GitHub limits API reads, so a wait observes the PR at most twice a minute.
@@ -399,34 +401,45 @@ function poll(
   pr: Recorded,
   deadline: number,
 ): AsyncResult<Outcome, Failure> {
-  return observePullRequest(owner.repository, pr.number).flatMap((observed) =>
-    relayStep(input, owner, pr, observed).flatMap((relayed): AsyncResult<Outcome, Failure> => {
-      if (relayed?.kind === "blocked") return ErrAsync(relayed.blocker);
-      if (relayed?.kind === "relayed")
-        return OkAsync({
-          reason: "pr_events_observed",
-          data: {
-            ...summary(owner, pr),
-            head: relayed.head,
-            // The relay pushed a new head on a new base, so no check has reported for it yet,
-            // and the relay counts from the next wait.
-            mergeConditions: mergeConditions(
-              { ...observed, base: relayed.base, checks: [] },
-              { stackRelayed: false, reviewEnded: reviewEnded(owner) },
-            ),
-            events: [
-              {
-                kind: "parent_relayed",
-                parent: relayed.relay.parent,
-                base: relayed.base,
-                head: relayed.head,
-              },
-            ],
-          },
-        });
-      return decideOnce(input, owner, pr, observed, deadline);
-    }),
-  );
+  return observePullRequest(owner.repository, pr.number).flatMap((observed) => {
+    if (!observed.checksComplete)
+      return ErrAsync<Failure>({
+        reason: "pr_checks_unknown",
+        detail: "The complete check set could not be verified. No observation cursors changed.",
+        next: {
+          command: "operator pr wait",
+          why: "Read complete checks before acknowledging this observation.",
+        },
+      });
+    return relayStep(input, owner, pr, observed).flatMap(
+      (relayed): AsyncResult<Outcome, Failure> => {
+        if (relayed?.kind === "blocked") return ErrAsync(relayed.blocker);
+        if (relayed?.kind === "relayed")
+          return OkAsync({
+            reason: "pr_events_observed",
+            data: {
+              ...summary(owner, pr),
+              head: relayed.head,
+              // The relay pushed a new head on a new base, so no check has reported for it yet,
+              // and the relay counts from the next wait.
+              mergeConditions: mergeConditions(
+                { ...observed, base: relayed.base, checks: [] },
+                { stackRelayed: false, reviewEnded: reviewEnded(owner) },
+              ),
+              events: [
+                {
+                  kind: "parent_relayed",
+                  parent: relayed.relay.parent,
+                  base: relayed.base,
+                  head: relayed.head,
+                },
+              ],
+            },
+          });
+        return decideOnce(input, owner, pr, observed, deadline);
+      },
+    );
+  });
 }
 
 function decideOnce(
@@ -455,7 +468,9 @@ function decideOnce(
       const decision = decideWait({ progress: progress(row.progress), observed, ...gates });
       outcome.decision = decision;
       return decision.result === "none"
-        ? null
+        ? decision.progress === undefined
+          ? null
+          : { progress: JSON.stringify(decision.progress), waitState: row.waitState }
         : { progress: JSON.stringify(decision.progress), waitState: decision.result };
     })
       .toAsync()
@@ -467,6 +482,21 @@ function decideOnce(
             data: { ...data, events: reported.events },
           });
         // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
+        if (
+          Date.now() >= deadline &&
+          owner.kind !== null &&
+          WorkerKinds.snapshotSchema().parse(JSON.parse(owner.kind)).name === "pr-feedback"
+        )
+          return parkQuietWait(input, owner, observed).map((parked) => ({
+            reason: parked ? "pr_parked" : "pr_checks_running",
+            data: { ...data, events: [] },
+            next: parked
+              ? {
+                  command: "operator next --wait",
+                  why: "The assignment is parked until a recorded PR change.",
+                }
+              : { command: "operator pr wait", why: "Wait for checks on the pushed head." },
+          }));
         if (Date.now() >= deadline)
           return DeviceState.recordPullRequestWait(input.paths, owner.launchId, (row) => ({
             progress: row.progress,
@@ -488,7 +518,11 @@ function decideOnce(
  * The recorded start clears an earlier timeout, so the SuperAgent sees a timeout only while
  * the owner does not wait again.
  */
-function wait(input: Request & { timeoutSeconds: number }) {
+function wait(input: Request & { timeoutSeconds: number; note?: string }) {
+  return readParkNote(input.note).flatMap((parkNote) => waitWithNote({ ...input, parkNote }));
+}
+
+function waitWithNote(input: Request & { timeoutSeconds: number }) {
   return resolveOwner(input)
     .flatMap(owned)
     .flatMap((owner) =>
@@ -559,8 +593,11 @@ export const PullRequests = {
   associate(input: Request) {
     return associate(input);
   },
-  wait(input: Request & { timeoutSeconds: number }) {
+  wait(input: Request & { timeoutSeconds: number; note?: string }) {
     return wait(input);
+  },
+  observeParked(input: { paths: Paths }) {
+    return observeParked(input);
   },
   /** Starts a worker or resumes the recorded kind handoff without a separate recovery command. */
   dispatch(input: Parameters<typeof dispatch>[0]) {

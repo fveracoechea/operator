@@ -62,6 +62,13 @@ const pullRequestSchema = z.object({
   branch: z.string(),
   associatedAt: z.string(),
   readiness: DeviceState.storedPrReadinessSchema(),
+  parking: z
+    .string()
+    .nullable()
+    .default(null)
+    .transform((text) =>
+      text === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(text)),
+    ),
   waitState: z.enum(["idle", "waiting", "reported", "timed_out", "not_open"]),
   waitAt: z.string().nullable(),
   waitStopped: z.boolean(),

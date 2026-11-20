@@ -20,6 +20,35 @@ test("PR and report states remain closed and completion-specific", () => {
   ).toBe(false);
 });
 const child: AssignmentState = { key: "child", completion: "pr", state: "ready" };
+test("parking waits, durable events resume, and a closed PR names safe cleanup", () => {
+  const facts = {
+    assignment: { key: "a", completion: "pr" as const, state: "pr-open" as const },
+    dependencies: [],
+    launch: "finished" as const,
+    parked: true,
+  };
+  expect(decideAssignment(facts)).toEqual({ action: "wait", reason: "pr_parked", blockers: [] });
+  for (const waking of ["pr_feedback", "ci_failed", "pr_relay_blocked"] as const) {
+    expect(decideAssignment({ ...facts, waking })).toEqual({
+      action: "resume_pr_feedback",
+      reason: waking,
+      blockers: [],
+    });
+  }
+  expect(decideAssignment({ ...facts, prClosed: true })).toEqual({
+    action: "clean_up",
+    reason: "pr_closed",
+    blockers: [],
+  });
+  expect(decideAssignment({ ...facts, handoff: "running", waking: "pr_feedback" })).toEqual({
+    action: "wait",
+    reason: "kind_handoff",
+    blockers: [],
+  });
+  expect(
+    decideAssignment({ ...facts, parked: false, launch: "failed", waking: "pr_feedback" }),
+  ).toEqual({ action: "replace_worker", reason: "launch_failed", blockers: [] });
+});
 test("resource facts end work only when its required resources are gone, and retain abandoned work for the person", () => {
   const assignment: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
   for (const workerGone of [false, true]) {

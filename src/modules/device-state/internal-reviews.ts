@@ -431,46 +431,51 @@ export function endInternalReview(
             next: { why: "The internal review has already ended. No transition remains." },
             state: { review: review.state },
           });
-        if (end.readiness !== undefined && target.launchId !== null) {
-          const recorded = recordPrReady(
-            db,
-            { ...target, launchId: target.launchId },
-            end.readiness,
-            "pr-feedback",
-          );
-          if (recorded.tag === "Err") return Err(recorded.error);
-        }
-        const now = new Date().toISOString();
-        const ended = {
-          ...review,
-          state: end.state,
-          readyHead: end.readyHead,
-          commentId: end.commentId,
-          commentUrl: end.commentUrl,
-          endedAt: now,
-          updatedAt: now,
-        };
-        db.update(internalReviews).set(ended).where(key(target.sourceId, target.assignment)).run();
-        const pr = db
-          .select()
-          .from(pullRequests)
-          .where(
-            and(
-              eq(pullRequests.sourceId, target.sourceId),
-              eq(pullRequests.assignment, target.assignment),
-            ),
-          )
-          .get();
-        // Stryker disable next-line ConditionalExpression: equivalent: a recorded review always has its associated PR
-        if (queueReview && pr !== undefined)
-          requestAssignmentReview(db, {
-            repository: pr.repository,
-            number: pr.number,
-            url: pr.url,
-            sourceId: target.sourceId,
-            assignment: target.assignment,
-          });
-        return Ok({ changed: true, review: ended });
+        const recorded =
+          end.readiness !== undefined && target.launchId !== null
+            ? recordPrReady(
+                db,
+                { ...target, launchId: target.launchId },
+                end.readiness,
+                "pr-feedback",
+              )
+            : Ok(undefined);
+        return recorded.map(() => {
+          const now = new Date().toISOString();
+          const ended = {
+            ...review,
+            state: end.state,
+            readyHead: end.readyHead,
+            commentId: end.commentId,
+            commentUrl: end.commentUrl,
+            endedAt: now,
+            updatedAt: now,
+          };
+          db.update(internalReviews)
+            .set(ended)
+            .where(key(target.sourceId, target.assignment))
+            .run();
+          const pr = db
+            .select()
+            .from(pullRequests)
+            .where(
+              and(
+                eq(pullRequests.sourceId, target.sourceId),
+                eq(pullRequests.assignment, target.assignment),
+              ),
+            )
+            .get();
+          // Stryker disable next-line ConditionalExpression: equivalent: a recorded review always has its associated PR
+          if (queueReview && pr !== undefined)
+            requestAssignmentReview(db, {
+              repository: pr.repository,
+              number: pr.number,
+              url: pr.url,
+              sourceId: target.sourceId,
+              assignment: target.assignment,
+            });
+          return { changed: true, review: ended };
+        });
       }),
     ),
   );

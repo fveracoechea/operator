@@ -1,4 +1,5 @@
 import { WorkSources } from "../work-sources/main.ts";
+import { PullRequests } from "../pull-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 import { withNext } from "./next.ts";
@@ -158,6 +159,7 @@ export async function runSources(
           sourceId: parsed.sourceId,
           timeoutSeconds: parsed.timeoutSeconds,
           all: parsed.all,
+          observeParked: () => PullRequests.observeParked({ paths }),
         })
       : (await execute(parsed, input)).map((data) => ({
           reason: completed[parsed.operation],

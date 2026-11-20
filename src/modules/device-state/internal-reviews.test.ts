@@ -199,6 +199,24 @@ function reviewFixture(state: "reviewing" | "ready" | "skipped") {
 
 const readiness = { head: "pushed", at: "2026-11-20T00:00:00.000Z", note: null, dispositions: [] };
 
+test("a readiness write fault rolls back review completion and its feedback handoff", () => {
+  using client = reviewFixture("reviewing");
+  client.exec(
+    "CREATE TRIGGER fail_ready BEFORE UPDATE OF readiness ON pull_requests BEGIN SELECT RAISE(FAIL, 'original readiness write fault'); END",
+  );
+  const before = client.serialize();
+  const result = endInternalReview(
+    client,
+    { sourceId: "s", assignment: "a", launchId: "r" },
+    { state: "ready", readyHead: "pushed", commentId: null, commentUrl: null, readiness },
+    false,
+  );
+  expect(result.tag).toBe("Defect");
+  if (result.tag === "Defect")
+    expect(String(result.cause)).toContain("original readiness write fault");
+  expect(client.serialize()).toEqual(before);
+});
+
 test.each(["ready", "skipped"] as const)(
   "a %s review cannot reopen without the skipped-readiness exception",
   (state) => {
