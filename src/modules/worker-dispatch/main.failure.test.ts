@@ -30,24 +30,15 @@ test("a pane that ends during the start leaves the launch interrupted", async ()
   ]);
 });
 
-test("a defect during the start is recorded as a failed launch", async () => {
+test("a defect during the start is recorded as failed and retains its original cause", async () => {
   await using device = await dispatchDevice();
+  const original = new TypeError("boom", { cause: { original: true } });
   device.herdr.prompt.mockReturnValue(
-    fromPromise(Promise.reject(new TypeError("boom")), (cause, defect) => defect(cause)),
+    fromPromise(Promise.reject(original), (cause, defect) => defect(cause)),
   );
-  expect(await WorkerDispatch.dispatch(device.request("read"))).toMatchObject({
-    tag: "Err",
-    error: {
-      reason: "launch_failed",
-      detail:
-        "launch_defect: Dispatch stopped: TypeError: boom The launch is recorded as failed. Read operator next before a replacement.",
-      next: {
-        command: "operator next",
-        why: "Read the recorded launch action before starting a replacement.",
-      },
-      state: { launch: "failed" },
-    },
-  });
+  const result = await WorkerDispatch.dispatch(device.request("read"));
+  expect(result.tag).toBe("Defect");
+  if (result.tag === "Defect") expect(result.cause).toBe(original);
   expect(await device.launches("read")).toMatchObject([
     { state: "failed", failureReason: "launch_defect" },
   ]);
