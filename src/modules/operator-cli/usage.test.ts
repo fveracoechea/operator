@@ -46,13 +46,14 @@ function capture() {
 function usageText(text: string | undefined) {
   const usage = String(text).split("\n");
   expect(usage[0]).toBe("Usage: operator --help | --version [--json]");
-  expect(usage).toHaveLength(55);
+  expect(usage).toHaveLength(56);
   expect(usage).toContain(
     "       operator internal-review recover --source id --assignment key --launch id --pr number --head sha --person-instructed [--json]",
   );
   expect(usage).toContain("       operator abandon --source id --assignment key [--json]");
   expect(usage).toContain("       operator dispatch --source id --assignment key [--json]");
   expect(usage).toContain("       operator pr associate [--json]");
+  expect(usage).toContain("       operator pr merge --source id --assignment key [--json]");
   expect(String(text)).not.toContain("operator handoff");
   expect(usage).toContain(
     "       operator dispatch --kind kind --brief path|- [--intent-file path|-] [--profile name] [--tracker-key key] [--json]",
