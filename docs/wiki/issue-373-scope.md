@@ -48,6 +48,26 @@ It also excluded the unrelated cancelled-CI-job review-post bug from #349.
 On 2026-11-17, [#422](https://github.com/fveracoechea/operator/issues/422) recorded separately approved open-parent refresh and managed multiple-parent stacks as a prerequisite.
 Its approval did not authorize runtime activation or waive merge gates; see [landing history](issue-373-landing.md#merge-hold-and-422).
 
+## Final acceptance scope checkpoint on 2026-11-20
+
+On 2026-11-20, the read-only planner `/tmp/opencode/issue373-final-acceptance-map.md` mapped all 23 children to requirements, delivery pointers, and observable acceptance checks.
+It found no missing feature ticket among canonical [#373](https://github.com/fveracoechea/operator/issues/373) requirements and [#347](https://github.com/fveracoechea/operator/issues/347) amendments through 27.
+Cross-ticket proof remained pending; closed children and published drafts did not establish complete acceptance.
+The [chief-of-staff retained ownership](issue-373-user-constraints.md#combined-acceptance-ownership-on-2026-11-20) of that proof and the future fresh verifier.
+
+On 2026-11-20, the planner found no canonical #373 requirement or native child dependency requiring active [#422](https://github.com/fveracoechea/operator/issues/422)/[#423](https://github.com/fveracoechea/operator/pull/423) managed-stack behavior.
+The demonstrated technical dependency was inherited inactive stack storage and lease protection, not active refresh or multiple-parent operations.
+This clarified the earlier prerequisite wording above without cancelling the separately approved #422 work.
+Any newly discovered active API dependency still required proof before integration.
+[#414](https://github.com/fveracoechea/operator/issues/414), [#415](https://github.com/fveracoechea/operator/issues/415), and version/release [#398](https://github.com/fveracoechea/operator/pull/398) remained outside this completion effort.
+No runtime activation or publication followed from this scope assessment.
+
+On 2026-11-20, the planner's #420 pointer named `fveracoechea/operator@3ac7e0aa1d022f78018d8d368916e0b7f89ec667`.
+The [later recovery checkpoint](issue-373-recovery.md#assembled-420-and-test-only-qualification-corrections) superseded that pointer with the test-only corrected draft, not a final qualification pass.
+The [qualified #429 merge](issue-373-recovery.md#qualified-429-merge) also superseded its earlier draft correction status and resolved the recorded custom-kind parity finding.
+The [downstream checkpoint](issue-373-recovery.md#published-downstream-drafts-and-eight-inherited-failures) supplied published #432 and the larger inherited-failure inventory after the planner's provisional observations.
+The planner remained a dated source, not a second live status ledger.
+
 ## Architecture references at the documentation base
 
 On 2026-11-20, `fveracoechea/operator@3f40479` contained the following decision records.

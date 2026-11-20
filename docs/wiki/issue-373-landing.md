@@ -46,6 +46,15 @@ Supersession verified on 2026-11-20: [#420](https://github.com/fveracoechea/oper
 This replaced its earlier head and dependency-only base above, not its qualification requirements.
 The [recovery findings](issue-373-recovery.md#recovered-420-and-unresolved-review-findings) separate preservation and corruption correction from unresolved review and mutation blockers.
 
+## Later landing checkpoint on 2026-11-20
+
+Supersession verified on 2026-11-20: [#429 merged](issue-373-recovery.md#qualified-429-merge) into main at `fveracoechea/operator@0d19ea45d022183135c4121fa48ea6a29096b196` after exact-head qualification.
+This replaced the earlier unqualified correction status, not the historical #419 finding or the remaining #373 acceptance requirements.
+The primary source was `/tmp/opencode/issue373-pr429-quality.md`, with GitHub's [#429 merge metadata](https://github.com/fveracoechea/operator/pull/429).
+The [corrected #420 draft](issue-373-recovery.md#assembled-420-and-test-only-qualification-corrections) and [published #430/#431/#432 drafts](issue-373-recovery.md#published-downstream-drafts-and-eight-inherited-failures) remained unmerged.
+Their scoped/static evidence did not qualify the combined stack, and eight inherited fixture failures remained tracked with a fix owner active.
+The [23-child acceptance plan](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) still required cross-ticket proof under the chief-of-staff's retained ownership.
+
 ## Merge hold and #422
 
 On 2026-11-17, [#422](https://github.com/fveracoechea/operator/issues/422) recorded approval for owner-safe open-parent refresh and per-child dependency-only integration bases.
@@ -59,6 +68,10 @@ It did not establish that #422's requested tooling had landed or that its techni
 The older hold remained visible in #422 and #420's body; those sources were not rewritten by this wiki.
 The [2026-11-20 user delegation](issue-373-user-constraints.md#delegated-user-decisions-on-2026-11-20) separately allowed main merges to complete #373.
 That delegation still did not authorize this documentation agent to merge or mark a PR ready.
+
+Later on 2026-11-20, the [final acceptance audit](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) distinguished active #422/#423 behavior from its inherited inactive storage foundation.
+Canonical #373 acceptance did not require the active feature; the earlier prerequisite wording did not expand that canonical checklist.
+The source was `/tmp/opencode/issue373-final-acceptance-map.md`; this did not cancel #422 or qualify #423.
 
 ## Native Git and GitHub safeguards recorded on 2026-11-20
 

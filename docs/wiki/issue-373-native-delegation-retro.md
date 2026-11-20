@@ -20,6 +20,10 @@ This evidence supported a workflow-selection failure, not a finding that PR #420
 On 2026-11-20, the later [recovery findings](issue-373-recovery.md#recovered-420-and-unresolved-review-findings) recorded separate code-review blockers at `fveracoechea/operator@f40c232cd4829fec54f3e7b0a587e021f77eb072`.
 Those findings did not change the earlier routing diagnosis or establish that its replacement brief alone qualified the code.
 
+Later on 2026-11-20, the [assembled #420 checkpoint](issue-373-recovery.md#assembled-420-and-test-only-qualification-corrections) superseded the old candidate's fix status, with final qualification and reviews still active.
+That code recovery did not change the routing diagnosis or authorize the deferred environment changes below.
+The [combined acceptance owner](issue-373-user-constraints.md#combined-acceptance-ownership-on-2026-11-20) retained the future fresh-verifier dispatch after stable integration.
+
 On 2026-11-20, the supervising session supplied `/tmp/opencode/issue373-pr420-brief.md` as the replacement native brief.
 The retro verified its explicit native identity, allowed tools, output paths, authority boundary, and test-concurrency limit.
 The brief was a local context pointer, not permanent public evidence.

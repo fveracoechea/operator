@@ -56,6 +56,20 @@ The decision retained work-preservation requirements and the [landing safeguards
 It did not waive independent review or any local test or quality gate.
 It granted this documentation reviewer no ready, merge, runtime, release, or real-state authority.
 
+## Combined acceptance ownership on 2026-11-20
+
+On 2026-11-20, the supervising chief-of-staff retained direct responsibility for the combined acceptance ledger and cross-ticket qualification.
+After the stack reached a stable integrated candidate, that chief-of-staff would dispatch a fresh verifier against the final immutable head/base.
+This named an owner and a future verification step; it did not claim that verification ran or acceptance completed.
+The source was the supervising session's dated native checkpoint delegation, alongside `/tmp/opencode/issue373-final-acceptance-map.md`.
+This resolved the planner's open ownership recommendation without rewriting that local planning source.
+
+On 2026-11-20, the same delegation recorded an active parent-fixture fix owner for the [eight inherited failures](issue-373-recovery.md#published-downstream-drafts-and-eight-inherited-failures).
+Inherited provenance did not waive those failures or any final local gate.
+The [acceptance scope checkpoint](issue-373-scope.md#final-acceptance-scope-checkpoint-on-2026-11-20) found no missing feature ticket; the pending work was integration and combined proof.
+The documentation agent's authority remained a safe fast-forward update to draft #428, with format, link, index, and privacy checks only.
+Original work, real-state exclusions, and the runtime/release boundary remained unchanged.
+
 ## Known chief-of-staff pointer limitation
 
 On 2026-11-20, at `fveracoechea/operator@3f40479`, the [chief-of-staff skill](https://github.com/fveracoechea/operator/blob/3f40479dd188a53ef43d945bc04afa5cdd88eb30/.agents/skills/chief-of-staff/SKILL.md) named four sibling procedure paths.

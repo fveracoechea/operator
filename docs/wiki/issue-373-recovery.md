@@ -5,6 +5,9 @@ Related pages: [landing history](issue-373-landing.md), [scope](issue-373-scope.
 
 ## Landed #419 and draft #429 correction
 
+The later [qualified #429 merge](#qualified-429-merge) supersedes this section's draft and pending-qualification status.
+The earlier findings and scoped evidence remain dated history.
+
 On 2026-11-20, GitHub verified [#419](https://github.com/fveracoechea/operator/pull/419) merged head `fveracoechea/operator@ec9279ee7ae2e5cf4685d53f38cea2ec7cf35d49` into main at `fveracoechea/operator@7fd3cfb3532ab82f74cc6a4cefd87c3ce5afce98`.
 The merge's first parent was `fveracoechea/operator@3f40479dd188a53ef43d945bc04afa5cdd88eb30`.
 This superseded the [earlier open-head observations](issue-373-landing.md#delivery-snapshots), not the spec's acceptance criteria.
@@ -26,6 +29,9 @@ Spec review and final full-quality qualification remained pending in this handof
 The sources were `/tmp/opencode/issue373-dispatch-test-correction.md` and `/tmp/opencode/issue373-pr429-standards.md`.
 
 ## Recovered #420 and unresolved review findings
+
+The later [assembled #420 checkpoint](#assembled-420-and-test-only-qualification-corrections) supersedes this section's candidate and fix status.
+The earlier review findings retain their original head and scope.
 
 On 2026-11-20, GitHub verified [#420](https://github.com/fveracoechea/operator/pull/420) open and draft, targeting main at `fveracoechea/operator@f40c232cd4829fec54f3e7b0a587e021f77eb072`.
 This superseded its earlier remote head `fveracoechea/operator@b14ddab5b1183be30a5ec89e529f3228bfe1f151` and dependency-only base.
@@ -94,6 +100,60 @@ None of these entries established a main landing or final integrated qualificati
   Missing prerequisite help options and the unchanged production release inventory left six final content/inventory gates failing.
   Synthetic guide resolution did not prove actual installed-host loading, and the prose did not prove command prerequisites implemented.
   The source was `/tmp/opencode/issue373-issue396-evidence.md`.
+
+## Qualified #429 merge
+
+Supersession verified on 2026-11-20: [#429](https://github.com/fveracoechea/operator/pull/429) merged at 09:03:30 UTC, replacing its draft status and pending qualification above.
+The tested candidate was `fveracoechea/operator@44d5bd3fc039e0315ac23b5a9fc285efefeb51aa` on base `fveracoechea/operator@7fd3cfb3532ab82f74cc6a4cefd87c3ce5afce98`.
+The qualification report recorded `bun run quality` exit 0, all 3,992 tests passing, zero failures, and complete static quality.
+It recorded clean independent Standards and Spec+Design reviews of that exact head/base.
+GitHub verified main merge `fveracoechea/operator@0d19ea45d022183135c4121fa48ea6a29096b196`.
+The report verified the merge's parents and equality with the tested candidate's tree, `bf61791c64238c18c5253fc177168ec92e144b33`.
+The primary source was `/tmp/opencode/issue373-pr429-quality.md`, alongside the linked GitHub PR.
+This qualified the #429 correction, not later descendants or the whole #373 spec.
+
+## Assembled #420 and test-only qualification corrections
+
+Supersession verified on 2026-11-20: draft [#420](https://github.com/fveracoechea/operator/pull/420) targeted main at `fveracoechea/operator@d9ed14c9bb9860132e7f1d26f6de406bd315a785`.
+It retained assembled parent `fveracoechea/operator@3ac7e0aa1d022f78018d8d368916e0b7f89ec667` and integrated main `fveracoechea/operator@0d19ea45d022183135c4121fa48ea6a29096b196`.
+That parent combined the continuation mutation correction, Defect preservation and direct write-owner tests, and #429's main changes.
+Its public probe recorded `state.handoffClaimed: true` and actionable refusal metadata after corrupt-receipt bookkeeping, without pane closure, successor launch, or launch-row changes.
+This superseded the possible false-refusal verification task above, without imposing a write-free bookkeeping requirement.
+
+On 2026-11-20, the successor changed four test files only; its other tracked files matched the assembled parent.
+The correction report recorded passing static quality and 63 tests across those four files, with zero failures.
+These repaired migration-count fixtures, deliberate-break targeting, handoff-marker synchronization, and private executable-copy assumptions.
+The primary sources were `/tmp/opencode/issue373-pr420-final-integration.md`, `/tmp/opencode/issue373-pr420-qualification-fixes.md`, and `/tmp/opencode/issue373-pr420-candidate.json`.
+
+On 2026-11-20, the integration report retained earlier narrow mutation passes of 215 and 165 killed mutants across their stated correction scopes.
+The latter total combined 151 state-owner and 14 PR-correction kills; the state-owner receipt also retained eight existing ignored mutants.
+Those receipts did not qualify the corrected candidate or all 19 eligible changed units against its actual main merge-base.
+The supervising delegation recorded final qualification and fresh independent reviews as active, with no completed final verdict supplied to this ingest.
+GitHub still reported #420 open and draft, not merged.
+No earlier scoped pass or green main result replaced its remaining final-head gates.
+
+## Published downstream drafts and eight inherited failures
+
+Supersession verified on 2026-11-20: GitHub reported the following open drafts, replacing the earlier unpublished or provisional delivery observations above.
+Their reports recorded passing scoped tests and static checks, not final integrated acceptance.
+
+- Readiness [#430](https://github.com/fveracoechea/operator/pull/430) named `fveracoechea/operator@7a257f28895d4d3922bc867ee3df0c2363b8f878`, based on #420's branch.
+  Sources were `/tmp/opencode/issue373-issue389-candidate.json` and `/tmp/opencode/issue373-issue389-evidence.md`.
+- Parking [#431](https://github.com/fveracoechea/operator/pull/431) named `fveracoechea/operator@f7e2c7ace55a095f0f3900a9dd700e004d5ce8e2`, based on #430's branch.
+  Sources were `/tmp/opencode/issue373-issue390-integrated-candidate.json` and `/tmp/opencode/issue373-issue390-integrated-evidence.md`.
+- Assignment actions [#432](https://github.com/fveracoechea/operator/pull/432) named `fveracoechea/operator@3c062c73150c102cc28332701572e4945f75e768`, based on #431's branch.
+  Sources were `/tmp/opencode/issue373-issue393-integrated-candidate.json` and `/tmp/opencode/issue373-issue393-integrated-evidence.md`.
+
+On 2026-11-20, #430 still integrated historical #420 parent `fveracoechea/operator@f40c232cd4829fec54f3e7b0a587e021f77eb072` and main `fveracoechea/operator@7fd3cfb3532ab82f74cc6a4cefd87c3ce5afce98`.
+#431 and #432 inherited that older foundation; publication did not propagate the corrected #420 or qualified #429 merge.
+Parent refresh, deliberate combination with #391, fresh review, full quality, and applicable mutation qualification remained pending.
+
+On 2026-11-20, #432's report established eight distinct inherited fixture failures, with parent reproduction evidence.
+They comprised two host owner-head mismatches, three delegated-run stories, internal-review-off ownership, reset ownership, and the source consumer's missing parked-observation callback.
+This later inventory superseded #431's four-failure inventory as the known downstream blocker set, not as proof those earlier failures never occurred.
+#393's explicit-column fixture had corrected the earlier positional PR insert.
+The supervising delegation recorded an active parent-fixture fix owner; none of the eight failures was waived or declared fixed by this checkpoint.
+The [combined acceptance owner](issue-373-user-constraints.md#combined-acceptance-ownership-on-2026-11-20) retained final cross-ticket verification.
 
 ## Qualification evidence limits
 
