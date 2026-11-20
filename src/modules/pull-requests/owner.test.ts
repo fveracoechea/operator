@@ -141,6 +141,13 @@ test("a scoped migrated owner keeps validated nullable readiness and refuses an 
     JSON.stringify({ ...parking, origin: "migration-0026" }),
   );
   expect(await resolveParkedOwner(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_inactive" },
+  });
+  db.query(
+    "UPDATE launches SET state = 'interrupted', owner_pid = NULL, lease_at = NULL WHERE id = ?",
+  ).run(launchId);
+  expect(await resolveParkedOwner(input)).toMatchObject({
     tag: "Ok",
     value: {
       launchId,
