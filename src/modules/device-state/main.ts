@@ -53,7 +53,7 @@ import {
   startHandoff,
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
-import { prReadinessSchema } from "./pr-readiness.ts";
+import { prReadinessSchema, storedPrReadinessSchema } from "./pr-readiness.ts";
 import {
   prParkingSchema,
   parkPullRequest,
@@ -187,6 +187,9 @@ export const DeviceState = {
   },
   prReadinessSchema() {
     return prReadinessSchema;
+  },
+  storedPrReadinessSchema() {
+    return storedPrReadinessSchema;
   },
   checkCompatibility(paths: Paths, firstRegistration = false) {
     return compatibility(paths, firstRegistration);

@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { Err, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
@@ -19,7 +20,7 @@ const row: Parameters<typeof parkedObservation>[0] = {
   branch: "task/a",
   associatedAt: "then",
   progress: '{"seen":[],"failures":[],"eligibleHead":null}',
-  readiness: "explicit-ready",
+  readiness: { head: "h", at: "then", note: null, dispositions: [] },
   waitState: "idle",
   waitAt: null,
   waitOwnerPid: null,
@@ -67,6 +68,32 @@ test("an unclaimed device batch performs no GitHub or persistence work", async (
   expect(github).not.toHaveBeenCalled();
   expect(finish).not.toHaveBeenCalled();
 });
+
+test.each(["{", "{}", ""])(
+  "corrupt readiness %j refuses a parked batch before GitHub, wakeup, or cleanup",
+  async (readiness) => {
+    await using device = await prDevice();
+    const worker = device.start("parent");
+    device.associate(worker.launchId, 7, "task/parent");
+    using client = new Database(device.paths.database);
+    client
+      .query("UPDATE pull_requests SET readiness = ?, parking = ?")
+      .run(readiness, JSON.stringify({ ...row.parking, launchId: worker.launchId }));
+    client.exec("UPDATE launches SET state = 'finished'");
+    const before = client.serialize();
+    const github = spyOn(GithubApi, "call");
+    const merge = spyOn(DeviceState, "recordPullRequestMerge");
+    const cleanup = spyOn(DeviceState, "claimCleanup");
+    expect(await observeParked({ paths: device.paths })).toMatchObject({
+      tag: "Err",
+      error: { reason: "state_corrupt" },
+    });
+    expect(github).not.toHaveBeenCalled();
+    expect(merge).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(client.serialize()).toEqual(before);
+  },
+);
 
 test.each(["Err", "Defect", "stale"] as const)(
   "a %s batch persistence outcome never records a merge and releases its claim",
@@ -252,7 +279,10 @@ test("a successful quiet park retains only its supplied note and starts the reco
 
 test("a quiet park without a supplied note never copies the reviewer note", async () => {
   await using device = await prDevice();
-  const owner = { ...startOwner(device), readiness: JSON.stringify({ note: "/reviewer/note.md" }) };
+  const owner = {
+    ...startOwner(device),
+    readiness: { head: "h1", at: "now", note: "/reviewer/note.md", dispositions: [] },
+  };
   const park = spyOn(DeviceState, "parkPullRequest").mockReturnValue(Ok(row.parking));
   spyOn(ToolInvocation, "detach").mockReturnValue(123);
   spyOn(DeviceState, "startHandoff").mockReturnValue(Ok(undefined));

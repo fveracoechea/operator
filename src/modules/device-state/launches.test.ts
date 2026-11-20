@@ -17,6 +17,8 @@ import {
   updateLaunch,
 } from "./launches.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
+import { continuation, handoffWriteFixture } from "./handoff-write-fixture.ts";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -121,6 +123,104 @@ function supervisor(db: Database) {
     .query("SELECT supervising_pane AS pane, supervising_session AS session FROM sources")
     .get();
 }
+
+const reviewer = {
+  ...launch,
+  id: "reviewer",
+  sourceId: "s1",
+  assignment: "build",
+  name: "reviewer",
+  resources: "worktree",
+  branch: "task/build",
+  kind: JSON.stringify(WorkerKinds.resolve("review")),
+};
+
+test.each(["continuation", "supervisor recovery"])(
+  "%s reservation starts the reviewer, consumes the hold, and preserves supervision",
+  (mode) => {
+    using db = handoffWriteFixture();
+    db.exec("UPDATE launches SET state = 'finished'");
+    expect(
+      reserveLaunch(
+        db,
+        "/checkout",
+        "owner/repo",
+        reviewer,
+        undefined,
+        { pane: "dispatching-worker", session: "ses_dispatching_worker" },
+        mode === "continuation" ? continuation : undefined,
+      ),
+    ).toMatchObject({ tag: "Ok", value: { id: "reviewer", attempt: 2, state: "starting" } });
+    expect(db.query("SELECT id, state, attempt FROM launches ORDER BY attempt").all()).toEqual([
+      { id: "implementer", state: "finished", attempt: 1 },
+      { id: "reviewer", state: "starting", attempt: 2 },
+    ]);
+    expect(
+      db
+        .query("SELECT handoff_state, handoff_detail, owner_pid, lease_at FROM kind_handoffs")
+        .get(),
+    ).toEqual({
+      handoff_state: "done",
+      handoff_detail: null,
+      owner_pid: null,
+      lease_at: null,
+    });
+    expect(state(db)).toEqual({ state: "pr-open" });
+    expect(supervisor(db)).toEqual({ pane: "supervisor", session: "ses_supervisor" });
+  },
+);
+
+test.each(["identity", "kind", "missing kind", "source", "assignment", "repository"])(
+  "reservation refuses a different continuation %s without any write or supervision claim",
+  (changed) => {
+    using db = handoffWriteFixture();
+    db.exec("UPDATE launches SET state = 'finished'");
+    const before = db.serialize();
+    expect(
+      reserveLaunch(
+        db,
+        "/checkout",
+        changed === "repository" ? "other/repo" : "owner/repo",
+        {
+          ...reviewer,
+          kind:
+            changed === "kind"
+              ? JSON.stringify(WorkerKinds.resolve("pr-feedback"))
+              : changed === "missing kind"
+                ? null
+                : reviewer.kind,
+          sourceId: changed === "source" ? "other" : "s1",
+          assignment: changed === "assignment" ? "other" : "build",
+        },
+        undefined,
+        { pane: "dispatching-worker", session: "ses_dispatching_worker" },
+        changed === "identity" ? { ...continuation, startedAt: "different" } : continuation,
+      ),
+    ).toMatchObject({
+      tag: "Err",
+      error: { reason: "handoff_continuation_refused", state: { continuationAuthorized: false } },
+    });
+    expect(db.serialize()).toEqual(before);
+  },
+);
+
+test("a malformed reservation snapshot remains a Defect and rolls back without consuming the hold", () => {
+  using db = handoffWriteFixture();
+  db.exec("UPDATE launches SET state = 'finished'");
+  const before = db.serialize();
+  const result = reserveLaunch(
+    db,
+    "/checkout",
+    "owner/repo",
+    { ...reviewer, kind: "{" },
+    undefined,
+    { pane: "dispatching-worker", session: "ses_dispatching_worker" },
+    continuation,
+  );
+  expect(result.tag).toBe("Defect");
+  expect(result.tag === "Defect" ? result.cause : undefined).toBeInstanceOf(SyntaxError);
+  expect(db.serialize()).toEqual(before);
+});
 
 test("a dispatch makes its pane and session the source's supervisor, and a refused dispatch claims nothing", () => {
   using db = fixture();

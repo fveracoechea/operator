@@ -56,9 +56,7 @@ function dispatchMode(values: Record<string, string>, operation: "dispatch" | "a
       operation !== "dispatch" ||
       sourceId !== undefined ||
       assignment !== undefined ||
-      values["--after-pid"] !== undefined ||
-      kind === undefined ||
-      brief === undefined
+      values["--after-pid"] !== undefined
     )
       return null;
     return {
