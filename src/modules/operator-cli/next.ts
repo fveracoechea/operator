@@ -38,6 +38,11 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
       command: `operator message close ${target} --key ${argument(row.message.key)}`,
       why: "Read the recorded reply and act on it before closing the message.",
     };
+  if (row.reason === "pr_closed")
+    return {
+      command: `operator abandon ${target}`,
+      why: "The PR closed without merge; retain its unlanded work.",
+    };
   const steering: NextStep = {
     decider: "super-agent",
     question: `What steering does the worker need for ${row.reason}?`,
@@ -56,10 +61,6 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
       why: "Start fresh PR feedback with the recorded waking events.",
     },
     clean_up: {
-      command: `operator abandon ${target}`,
-      why: "The PR closed without merge; retain its unlanded work.",
-    },
-    retry_cleanup: {
       command:
         "report" in row && row.report !== undefined
           ? `operator report accept ${target}`
@@ -76,8 +77,6 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
         "question" in row ? row.question.question : "May the retained work or resource be removed?",
     },
     worker_attention: steering,
-    owner_attention: steering,
-    resume_worker: steering,
     prune_source: {
       command: "operator source prune",
       why: "The source retention period has elapsed.",

@@ -13,7 +13,7 @@ operator report return --source <source-id> --assignment <key> --file <follow-up
 ```
 
 Return specific follow-up instructions when the report is not sufficient.
-After a return, `next` shows `resume_worker` when the worker is still live. Tell it in a steering message to run `operator report resume --json`, as [steering.md](steering.md) says.
+After a return, `next` shows `worker_attention` with `follow_up_returned` when the worker is still live. Tell it to run `operator report resume --json` through [steering.md](steering.md).
 It runs `operator report resume --json` and submits a new report.
 When the worker stopped, `next` shows `replace_worker`. Dispatch again, and the new brief lists every earlier report and follow-up.
 
@@ -26,7 +26,7 @@ Acceptance is your decision, not a human answer, as [delegation.md](delegation.m
 
 Acceptance closes the worker pane and removes a report worktree only when Git shows no unlanded work.
 A kept worktree names its reason and shows in `next` as `person_decision` with `cleanup_unlanded_work`. Only the person can authorize its deletion, so tell the person. After the person removes the work, run `report accept` again.
-`retry_cleanup` means that cleanup failed or did not finish. Fix the reported cause, then run `report accept` again.
+`clean_up` with `cleanup_failed` or `cleanup_stopped` means cleanup failed or did not finish. Fix the reported cause, then run `report accept` again.
 Run acceptance on the Herdr server that runs the worker, because another server cannot close its pane.
 
 ## Promotion into a PR assignment

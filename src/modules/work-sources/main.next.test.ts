@@ -251,7 +251,7 @@ test.each([
   ["pending", true, "wait", "kind_handoff", "pending"],
   ["pending", false, "replace_worker", "handoff_failed", "stopped"],
   ["failed", false, "replace_worker", "handoff_failed", "failed"],
-  ["done", false, "wait", "pr_feedback_loop", "done"],
+  ["done", false, "wait", "assignment_active", "done"],
 ] as const)(
   "next projects the selected %s handoff with running=%s",
   async (state, running, action, reason, described) => {
@@ -340,7 +340,7 @@ const open = storedSource(
         activity: "working",
         activityAt: "2026-01-02T01:00:00.000Z",
       }),
-      storedLaunch("stop"),
+      storedLaunch("stop", { state: "interrupted" }),
       storedLaunch("rep", { state: "finished", endedAt: "2026-01-03T00:00:00.000Z" }),
       storedLaunch("ret"),
       storedLaunch("acc", { state: "finished" }),
@@ -462,10 +462,10 @@ test("next describes each open assignment with its recorded facts", async () => 
     {
       assignment: "stop",
       kind: null,
-      action: "owner_attention",
-      reason: "pr_wait_stopped",
+      action: "replace_worker",
+      reason: "worker_interrupted",
       blockers: [],
-      launch: { ...finishedLaunch("stop"), state: "running" },
+      launch: { ...finishedLaunch("stop"), state: "interrupted" },
       pullRequest: {
         number: 8,
         url: "https://github.com/example/one/pull/7",
@@ -499,7 +499,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     {
       assignment: "ret",
       kind: null,
-      action: "resume_worker",
+      action: "worker_attention",
       reason: "follow_up_returned",
       blockers: [],
       launch: { ...finishedLaunch("ret"), state: "running" },
@@ -546,7 +546,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     {
       assignment: "acf",
       kind: null,
-      action: "retry_cleanup",
+      action: "clean_up",
       reason: "cleanup_failed",
       blockers: [],
       launch: finishedLaunch("acf"),
@@ -571,12 +571,12 @@ test("next describes each open assignment with its recorded facts", async () => 
       state: "blocked",
       failure: { reason: "cleanup_unlanded_work", detail: "Unpushed commits." },
     }),
-    mergedRow("m4", "retry_cleanup", "cleanup_failed", {
+    mergedRow("m4", "clean_up", "cleanup_failed", {
       step: "remote_branch",
       state: "failed",
       failure: { reason: "push_failed", detail: "The remote refused." },
     }),
-    mergedRow("m6", "retry_cleanup", "cleanup_stopped", {
+    mergedRow("m6", "clean_up", "cleanup_stopped", {
       step: "pane",
       state: "pending",
       failure: null,
@@ -587,7 +587,7 @@ test("next describes each open assignment with its recorded facts", async () => 
       assignment: "pr1",
       kind: null,
       action: "wait",
-      reason: "pr_feedback_loop",
+      reason: "assignment_active",
       blockers: [],
       launch: {
         ...finishedLaunch("pr1"),
@@ -663,7 +663,7 @@ test("an ended source keeps its owed cleanup and offers prune only after retenti
   expect(source?.state).toBe("finished");
   expect(source?.actions.map((row) => [row.action, row.reason])).toEqual([
     ["source_ended", "finished"],
-    ["retry_cleanup", "cleanup_failed"],
+    ["clean_up", "cleanup_failed"],
     ["person_decision", "cleanup_unlanded_work"],
   ]);
   expect(source?.actions[0]).toEqual({

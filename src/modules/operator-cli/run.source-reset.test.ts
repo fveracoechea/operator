@@ -579,7 +579,7 @@ test("an open cleanup keeps its ended source visible until the cleanup finishes"
   expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
   expect((await sourceNext(source))?.actions).toMatchObject([
     { action: "source_ended", reason: "finished" },
-    { action: "retry_cleanup", reason: "cleanup_failed" },
+    { action: "clean_up", reason: "cleanup_failed" },
   ]);
   await device.setHerdr({ fail: {} });
   expect(await device.run(accept)).toMatchObject({

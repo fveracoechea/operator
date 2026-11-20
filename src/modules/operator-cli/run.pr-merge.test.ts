@@ -448,7 +448,7 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
     },
   });
   expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   expect(await exists(worker.worktreePath)).toBe(true);
 }, 90000);
 
@@ -771,7 +771,7 @@ test("failed steps stop the declared order, stay visible, and continue after a r
           actions: [
             {
               assignment: "implement",
-              action: "retry_cleanup",
+              action: "clean_up",
               reason: "cleanup_failed",
               cleanup: { step: "remote_branch", state: "failed" },
             },
@@ -996,7 +996,7 @@ test("a node_modules/* ignore pattern still marks dependency folders as preparat
   const merged = await run(["pr", "merge"], worker.worktreePath);
   expect(merged).toMatchObject({ code: 0, output: { reason: "pr_merged" } });
   // The merge records its cleanup process at once, so next never asks for a retry meanwhile.
-  expect((await entry(source))?.action).not.toBe("retry_cleanup");
+  expect((await entry(source))?.action).not.toBe("clean_up");
   expect(await settled(source)).toMatchObject({ state: "done" });
   expect(await exists(worker.worktreePath)).toBe(false);
 }, 90000);
