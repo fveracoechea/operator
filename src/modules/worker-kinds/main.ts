@@ -10,20 +10,21 @@ const nameSchema = z.enum([
   "review",
   "pr-feedback",
 ]);
+const kindNameSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 const definitionSchema = z.object({
-  name: nameSchema,
+  name: kindNameSchema,
   completion: z.enum(["report", "pr"]),
   resources: z.enum(["pane", "worktree"]),
   profile: z.string().nullable(),
-  nextKind: nameSchema.nullable(),
+  nextKind: kindNameSchema.nullable(),
   readsNote: z.union([z.boolean(), z.literal("promotion")]),
   guide: z.string(),
   skillsToRead: z.array(z.string()).default([]),
   dispatchable: z.boolean(),
   workPhases: z.array(
     z.object({
-      name: z.string(),
-      goal: z.string(),
+      name: z.string().trim().min(1),
+      goal: z.string().trim().min(1),
       guard: z
         .enum([
           "report_submitted",
@@ -38,6 +39,55 @@ const definitionSchema = z.object({
   ),
 });
 type WorkerKind = z.infer<typeof definitionSchema>;
+
+const customSchema = definitionSchema
+  .omit({ name: true })
+  .extend({
+    profile: z.string().nullable().default(null),
+    nextKind: definitionSchema.shape.nextKind.default(null),
+    readsNote: definitionSchema.shape.readsNote.default(false),
+    dispatchable: z.literal(true).default(true),
+    guide: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]*\/SKILL\.md$/, "Name an installed guide skill as <skill>/SKILL.md."),
+    workPhases: definitionSchema.shape.workPhases.min(
+      1,
+      "A person-defined kind needs at least one work phase.",
+    ),
+  })
+  .strict();
+const customKindsSchema = z.preprocess(
+  (input, context) => {
+    // Zod records omit __proto__ before key validation.
+    if (input instanceof Object && Object.hasOwn(input, "__proto__"))
+      context.addIssue({ code: "custom", message: "Unsupported kind name: __proto__." });
+    return input;
+  },
+  z.record(definitionSchema.shape.name, customSchema).superRefine((definitions, context) => {
+    for (const [name, definition] of Object.entries(definitions)) {
+      if (Object.hasOwn(kinds, name))
+        context.addIssue({
+          code: "custom",
+          path: [name],
+          message: `Built-in kind ${name} cannot be reused.`,
+        });
+      if (definition.nextKind !== null) {
+        const builtin = nameSchema.safeParse(definition.nextKind);
+        const next = Object.hasOwn(definitions, definition.nextKind)
+          ? definitions[definition.nextKind]
+          : builtin.success
+            ? kinds[builtin.data]
+            : undefined;
+        if (next?.completion !== definition.completion)
+          context.addIssue({
+            code: "custom",
+            path: [name, "nextKind"],
+            message: "The next kind must exist and have the same completion type.",
+          });
+      }
+    }
+  }),
+);
 
 const kinds: Record<z.infer<typeof nameSchema>, WorkerKind> = {
   research: {
@@ -131,7 +181,16 @@ export const WorkerKinds = {
   snapshotSchema() {
     return definitionSchema;
   },
-  resolve(name: z.infer<typeof nameSchema>): WorkerKind {
-    return definitionSchema.parse(kinds[name]);
+  customSchema() {
+    return customKindsSchema;
+  },
+  dispatchable(name: string | null) {
+    const builtin = nameSchema.safeParse(name);
+    return !builtin.success || kinds[builtin.data].dispatchable;
+  },
+  resolve(name: string, definitions: z.infer<typeof customKindsSchema> = {}): WorkerKind {
+    if (Object.hasOwn(definitions, name))
+      return definitionSchema.parse({ ...definitions[name], name });
+    return definitionSchema.parse(kinds[nameSchema.parse(name)]);
   },
 };
