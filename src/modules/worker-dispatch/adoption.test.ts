@@ -57,7 +57,23 @@ function refused(
   expect(result.tag === "Err" ? result.error.detail : "").toContain(detail);
 }
 
-function answer(pr: { state?: string; draft?: boolean; ref?: string; repo?: string | null }) {
+function answer(
+  pr: { state?: string; draft?: boolean; ref?: string; repo?: string | null },
+  listing?: "empty" | "branch",
+) {
+  const pull = {
+    number: 41,
+    user: { login: "person" },
+    base: { ref: "main", repo: { default_branch: "main" } },
+    html_url: "https://github.com/example/one/pull/41",
+    state: pr.state ?? "open",
+    draft: pr.draft ?? false,
+    head: {
+      sha: "pr-head",
+      ref: pr.ref ?? branch,
+      repo: pr.repo === null ? null : { full_name: pr.repo ?? "example/one" },
+    },
+  };
   spyOn(GithubApi, "call").mockImplementation(async ({ args }) => ({
     status: "succeeded",
     value: {
@@ -65,19 +81,11 @@ function answer(pr: { state?: string; draft?: boolean; ref?: string; repo?: stri
       body:
         args[0] === "user"
           ? { login: "person" }
-          : {
-              number: 41,
-              user: { login: "person" },
-              base: { ref: "main", repo: { default_branch: "main" } },
-              html_url: "https://github.com/example/one/pull/41",
-              state: pr.state ?? "open",
-              draft: pr.draft ?? false,
-              head: {
-                sha: "pr-head",
-                ref: pr.ref ?? branch,
-                repo: pr.repo === null ? null : { full_name: pr.repo ?? "example/one" },
-              },
-            },
+          : listing === "empty"
+            ? []
+            : listing === "branch"
+              ? [pull]
+              : pull,
     },
   }));
 }
@@ -102,22 +110,7 @@ test.each([
   [false, "pr-feedback", true],
   [false, "answer", false],
 ] as const)("adoption reader draft=%s kind=%s permits=%s", async (draft, kind, permitted) => {
-  answer({ draft: draft ?? false });
-  const call = GithubApi.call.bind(GithubApi);
-  if (draft === null)
-    spyOn(GithubApi, "call").mockResolvedValue({
-      status: "succeeded",
-      value: { httpStatus: 200, body: [] },
-    });
-  else {
-    const pr = await call({ args: ["repos/example/one/pulls/41"], timeoutMs: 60000 });
-    if (pr.status !== "succeeded") throw new Error("The fixture PR must be readable.");
-    spyOn(GithubApi, "call").mockImplementation(async ({ args }) =>
-      args[0] === "user"
-        ? { status: "succeeded", value: { httpStatus: 200, body: { login: "person" } } }
-        : { status: "succeeded", value: { httpStatus: 200, body: [pr.value.body] } },
-    );
-  }
+  answer({ draft: draft ?? false }, draft === null ? "empty" : "branch");
   const result = await readAdoption({
     repository: "example/one",
     number: branch,

@@ -246,20 +246,34 @@ test.each([
       .object({
         data: z.object({
           launches: z.array(z.object({ state: z.string(), internalReview: z.boolean() })),
-          pullRequests: z.array(z.object({ readiness: z.unknown() })),
+          pullRequests: z.array(
+            z.object({
+              readiness: z
+                .object({
+                  head: z.string(),
+                  at: z.string(),
+                  note: z.string().nullable(),
+                  dispositions: z.array(z.unknown()),
+                })
+                .nullable(),
+            }),
+          ),
           handoffs: z.array(z.unknown()),
           internalReviewRounds: z.array(z.unknown()),
         }),
       })
       .parse((await device.run(["source", "show", "--source", incoming.sourceId])).output).data;
     expect(current.launches).toMatchObject([{ state: "running", internalReview: draft }]);
-    expect(current.pullRequests).toEqual([
-      {
-        readiness: draft
-          ? null
-          : { head: incomingHead, at: expect.any(String), note: null, dispositions: [] },
-      },
-    ]);
+    expect(current.pullRequests).toHaveLength(1);
+    if (draft) expect(current.pullRequests[0]?.readiness).toBeNull();
+    else {
+      expect(current.pullRequests[0]?.readiness).toMatchObject({
+        head: incomingHead,
+        note: null,
+        dispositions: [],
+      });
+      expect(current.pullRequests[0]?.readiness?.at).not.toBe("2026-11-19");
+    }
     expect(current.handoffs).toEqual([]);
     expect(current.internalReviewRounds).toEqual([]);
   },
