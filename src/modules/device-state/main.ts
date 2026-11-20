@@ -169,8 +169,15 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) => completeParking(client, target, continuation));
   },
-  resumeParkedPullRequest(paths: Paths, target: Parameters<typeof resumeParkedPullRequest>[1]) {
-    return writing(paths, (client) => resumeParkedPullRequest(client, target));
+  resumeParkedPullRequest(
+    paths: Paths,
+    target: Parameters<typeof resumeParkedPullRequest>[1],
+    fillKind?: string,
+    supervisor?: Parameters<typeof resumeParkedPullRequest>[3],
+  ) {
+    return writing(paths, (client) =>
+      resumeParkedPullRequest(client, target, fillKind, supervisor),
+    );
   },
   claimParkedRead(paths: Paths) {
     return writing(paths, (client) => claimParkedRead(client, Date.now()));

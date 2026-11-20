@@ -19,6 +19,7 @@ import {
   sources,
 } from "./schema.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
+import type { Supervisor } from "./sources.ts";
 
 const parkingReceipt = z.object({
   launchId: z.string(),
@@ -205,7 +206,12 @@ function parkingCompletionFacts(
   };
 }
 
-export function resumeParkedPullRequest(client: Database, target: Target) {
+export function resumeParkedPullRequest(
+  client: Database,
+  target: Target,
+  fillKind?: string,
+  supervisor: Supervisor = { pane: null, session: null },
+) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<undefined, Refusal> => {
       const row = db
@@ -228,6 +234,27 @@ export function resumeParkedPullRequest(client: Database, target: Target) {
         source?.state !== "open"
       )
         return Err(refused());
+      if (fillKind !== undefined && assignment.kind !== null)
+        return Err({
+          reason: "assignment_kind_set",
+          detail: "The assignment already has a kind. Nothing changed.",
+          next: { command: "operator next", why: "Use the recorded assignment kind." },
+          state: { kind: assignment.kind },
+        });
+      if (source.supervisingSession !== null && source.supervisingSession !== supervisor.session)
+        return Err({
+          reason: "source_supervised_elsewhere",
+          detail: "Another agent session now supervises this source. Nothing changed.",
+          next: {
+            decider: "super-agent",
+            question:
+              "Will the recorded supervisor continue, or should the person authorize a source take-over?",
+          },
+          state: {
+            supervisorSession: source.supervisingSession,
+            callerSession: supervisor.session,
+          },
+        });
       const parking = prParkingSchema.parse(JSON.parse(row.parking));
       const latest = db
         .select()

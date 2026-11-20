@@ -52,6 +52,85 @@ test("dispatch --kind fills a null kind and refuses when the kind is set", async
 });
 
 test.each([
+  ["migration", false],
+  ["ordinary", false],
+  ["migration", true],
+  ["ordinary", true],
+] as const)(
+  "an existing kind refuses dispatch --kind without changing %s parking or ownership, foreign supervisor %s",
+  async (origin, foreign) => {
+    const device = await workerDevice({ github: true });
+    root = device.root;
+    const source = await device.register({
+      trackerKey: "parked-fill-refusal",
+      assignments: [
+        {
+          key: "old",
+          trackerKey: "old",
+          kind: "implementation",
+          instructions: "Keep the PR.",
+          dependencies: [],
+          branch: "task/old",
+        },
+      ],
+    });
+    const worktree = `${root}/old`;
+    expect(
+      (await device.exec(["git", "worktree", "add", "-b", "task/old", worktree], device.main)).code,
+    ).toBe(0);
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    db.exec("UPDATE assignments SET state = 'pr-open', kind = 'pr-feedback'");
+    db.query(
+      "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at, ended_at, worktree_path) VALUES ('historical', ?, 'old', 1, 'finished', 'historical', 'worktree', 'task/old', 'opencode', 'test/reasoner', 'test/reasoner', 'medium', '{\"version\":\"historical\"}', '[]', 'then', 'later', ?)",
+    ).run(source, worktree);
+    const migration =
+      origin === "migration" ? { origin: "migration-0026", head: null } : { head: "h" };
+    const ready = JSON.stringify({ ...migration, at: "then", note: null, dispositions: [] });
+    const parking = JSON.stringify({
+      ...migration,
+      launchId: "historical",
+      at: "then",
+      note: null,
+      state: "parked",
+      events: ['{"kind":"feedback"}'],
+      parentSeen: false,
+    });
+    db.query(
+      "INSERT INTO pull_requests (source_id, assignment, repository, number, url, branch, associated_at, progress, wait_state, readiness, parking) VALUES (?, 'old', 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/old', 'then', '{\"seen\":[],\"failures\":[],\"eligibleHead\":null}', 'idle', ?, ?)",
+    ).run(source, ready, parking);
+    if (foreign) db.exec("UPDATE sources SET supervising_session = 'foreign-session'");
+    const before = db.serialize();
+    const calls = await device.herdrCalls();
+    const result = await device.run([
+      "dispatch",
+      "--source",
+      source,
+      "--assignment",
+      "old",
+      "--kind",
+      "implementation",
+    ]);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toMatchObject(
+      foreign
+        ? { reason: "source_supervised_elsewhere" }
+        : {
+            reason: "assignment_kind_set",
+            state: { kind: "pr-feedback" },
+          },
+    );
+    expect(db.serialize()).toEqual(before);
+    expect(db.query("SELECT parking FROM pull_requests").get()).toEqual({ parking });
+    expect(db.query("SELECT id FROM launches").all()).toEqual([{ id: "historical" }]);
+    expect(db.query("SELECT * FROM kind_handoffs").all()).toEqual([]);
+    expect((await device.herdrCalls()).filter((call) => call !== "plugin list")).toEqual(
+      calls.filter((call) => call !== "plugin list"),
+    );
+    expect(await Bun.file(`${root}/gh-calls.jsonl`).exists()).toBe(false);
+  },
+);
+
+test.each([
   ["implementation", "kind_completion_changed"],
   ["review", "kind_not_dispatchable"],
   ["pr-feedback", "kind_not_dispatchable"],

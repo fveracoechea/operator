@@ -448,11 +448,16 @@ function supervisorDispatch(input: DispatchInput): AsyncResult<DispatchOutcome, 
       (row) => row.assignment === input.assignment,
     )?.parking;
     if (source !== undefined && parking?.state === "parked" && parking.events.length > 0)
-      return DeviceState.resumeParkedPullRequest(input.paths, {
-        repository: source.repository,
-        sourceId: input.sourceId,
-        assignment: input.assignment,
-      })
+      return DeviceState.resumeParkedPullRequest(
+        input.paths,
+        {
+          repository: source.repository,
+          sourceId: input.sourceId,
+          assignment: input.assignment,
+        },
+        input.kind,
+        Environment.caller(),
+      )
         .toAsync()
         .flatMap(() => supervisorDispatch(input));
     const recorded = source?.handoffs.find((row) => row.assignment === input.assignment);
