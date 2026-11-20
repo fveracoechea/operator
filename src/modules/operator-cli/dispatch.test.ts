@@ -102,6 +102,7 @@ test("one-off dispatch and registered kind filling keep distinct selectors", () 
     intentFile: undefined,
     profile: undefined,
     trackerKey: undefined,
+    adopt: undefined,
   });
   for (const args of [
     ["dispatch", "--brief", "task.md"],
@@ -143,6 +144,14 @@ test("only registered dispatch accepts a numeric continuation publication PID", 
   }
   expect(called.dispatch).not.toHaveBeenCalled();
 });
+test.each(["41", "https://github.com/owner/one/pull/41", "feature/own"])(
+  "one-off dispatch preserves the explicit adoption selector %s",
+  (adopt) => {
+    expect(
+      dispatchArgs(["dispatch", "--kind", "implementation", "--brief", "-", "--adopt", adopt]),
+    ).toMatchObject({ operation: "one_off_dispatch", kind: "implementation", brief: "-", adopt });
+  },
+);
 
 test("abandon passes its exact selector and preserves the result and next without launching or observing a worker", async () => {
   const called = spies();
@@ -185,6 +194,9 @@ test.each([
   [["dispatch", "--source", "s", "--assignment"]],
   [["dispatch", "--source", "--assignment", "a"]],
   [["dispatch", "--source", "s", "--assignment", "a", "--other", "x"]],
+  [["dispatch", "--source", "s", "--assignment", "a", "--adopt", "41"]],
+  [["dispatch", "--kind", "implementation", "--brief", "-", "--adopt", "41", "--adopt", "42"]],
+  [["dispatch", "--kind", "implementation", "--brief", "-", "--adopt"]],
 ])("refuses %j before any dispatch operation", async (args) => {
   const called = spies();
   expect(dispatchArgs(args)).toBeNull();

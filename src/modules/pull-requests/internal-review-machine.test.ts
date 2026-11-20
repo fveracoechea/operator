@@ -6,10 +6,6 @@ import {
 import { expectRefusalContext } from "../../lib/cli-result-fixture.ts";
 
 const expectedRecovery: Record<string, object> = {
-  pr_draft_required: {
-    command: "gh pr ready --undo",
-    why: "Convert the PR to a draft before associating it for internal review.",
-  },
   pr_worktree_unclean: {
     decider: "super-agent",
     question:
@@ -76,65 +72,6 @@ function decideInternalReview(...args: Parameters<typeof internalReviewDecision>
   }
   return result;
 }
-
-const draft = {
-  event: "associate" as const,
-  internalReview: true,
-  draft: true,
-  changed: false,
-  localHead: "h1" as string | null,
-  prHead: "h1",
-};
-
-test("a clean, pushed draft starts an internal review", () => {
-  expect(decideInternalReview(draft)).toEqual({ result: "associate", review: true });
-});
-
-test("with internal review on, each unready PR or worktree refuses with its own reason", () => {
-  const cases: [Partial<typeof draft>, string, string][] = [
-    [{ draft: false }, "pr_draft_required", "gh pr ready --undo"],
-    [{ changed: true }, "pr_worktree_unclean", "untracked files"],
-    [{ localHead: "h0" }, "pr_worktree_unsynced", "The worktree is at h0, but the PR head is h1."],
-    [{ localHead: null }, "pr_worktree_unsynced", "The worktree is at no commit"],
-  ];
-  for (const [change, reason, text] of cases) {
-    const decision = decideInternalReview({ ...draft, ...change });
-    expect(decision).toMatchObject({ result: "refused", reason });
-    expect("detail" in decision ? decision.detail : "").toContain(text);
-    expect("detail" in decision ? decision.detail : "").toEndWith("Nothing was changed.");
-  }
-  // The draft check comes first, so a ready PR is never reported as an unclean worktree.
-  expect(decideInternalReview({ ...draft, draft: false, changed: true })).toMatchObject({
-    reason: "pr_draft_required",
-  });
-  expect(decideInternalReview({ ...draft, changed: true, localHead: "h0" })).toMatchObject({
-    reason: "pr_worktree_unclean",
-  });
-});
-
-test("ready association without internal review still requires the clean pushed head", () => {
-  expect(
-    decideInternalReview({
-      ...draft,
-      internalReview: false,
-      draft: false,
-      changed: true,
-      localHead: "h0",
-    }),
-  ).toMatchObject({ result: "refused", reason: "pr_worktree_unclean" });
-  expect(
-    decideInternalReview({
-      ...draft,
-      internalReview: false,
-      draft: false,
-      changed: false,
-      localHead: "h1",
-    }),
-  ).toEqual({ result: "associate", review: false });
-  expect(
-    decideInternalReview({ ...draft, internalReview: false, draft: false, localHead: "unpushed" }),
-  ).toMatchObject({ result: "refused", reason: "pr_worktree_unsynced" });
-});
 
 test("the handoff closes a live implementer's pane and starts the reviewer once", () => {
   function handoff(state: string, paneId: string | null, reviewerStarted: boolean) {

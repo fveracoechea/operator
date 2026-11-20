@@ -28,6 +28,7 @@ test("parses one-off input without interpreting file contents or kind policy", (
     intentFile: undefined,
     profile: undefined,
     trackerKey: undefined,
+    adopt: undefined,
   });
   expect(
     dispatchArgs([
@@ -51,6 +52,7 @@ test("parses one-off input without interpreting file contents or kind policy", (
     intentFile: "intent.txt",
     profile: "careful",
     trackerKey: "github:example/one#42",
+    adopt: undefined,
   });
 });
 
@@ -122,6 +124,7 @@ test.each([true, false])(
       intentFile: "-",
       profile: "careful",
       trackerKey: "issue:42",
+      adopt: undefined,
     });
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledWith({

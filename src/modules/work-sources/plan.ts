@@ -49,17 +49,22 @@ export const storedPlanSchema = z
     maxRunning: z.number().int().min(1).optional(),
     assignments: z.array(
       z.union([
-        z.strictObject({
-          ...shared,
-          kind: z.string().nullable().default(null),
-          completion: z.literal("pr"),
-          resources: z.enum(["worktree", "pane"]),
-          branch,
-          internalReview: z.boolean().optional(),
-          // An open PR whose branch Operator did not create. Dispatch checks the PR at each
-          // start until its owner associates it. ADR-0024.
-          adopt: z.number().int().min(1).optional(),
-        }),
+        z
+          .strictObject({
+            ...shared,
+            kind: z.string().nullable().default(null),
+            completion: z.literal("pr"),
+            resources: z.enum(["worktree", "pane"]),
+            branch,
+            internalReview: z.boolean().optional(),
+            // An open PR whose branch Operator did not create. Dispatch checks the PR at each
+            // start until its owner associates it. ADR-0024.
+            adopt: z.union([z.number().int().min(1), z.string().min(1)]).optional(),
+          })
+          .refine(
+            (assignment) => assignment.adopt === undefined || assignment.resources === "worktree",
+            "Adoption requires worktree resources.",
+          ),
         z.strictObject({
           ...shared,
           kind: z.string().nullable().default(null),
@@ -137,7 +142,10 @@ export function configuredPlanSchema(
           resources: z.enum(["pane", "worktree"]).optional(),
           branch: branch.optional(),
           internalReview: z.boolean().optional(),
-          adopt: z.number().int().min(1).optional(),
+          adopt: (oneOff
+            ? z.union([z.number().int().min(1), z.string().min(1)])
+            : z.number().int().min(1)
+          ).optional(),
         }),
       ),
     })
@@ -195,9 +203,12 @@ export function oneOffPlan(input: {
   profile?: string;
   trackerKey?: string;
   key?: string;
+  adopt?: string;
 }) {
   const trackerKey = input.trackerKey ?? `${input.kind}:${crypto.randomUUID().slice(0, 8)}`;
   const assignment = input.key ?? questionKey(input.instructions);
+  const adoption: { adopt?: string } = {};
+  if (input.adopt !== undefined) adoption.adopt = input.adopt;
   return {
     trackerKey,
     assignments: [
@@ -209,6 +220,7 @@ export function oneOffPlan(input: {
         intent: input.intent,
         profile: input.profile,
         dependencies: [],
+        ...adoption,
       },
     ],
   };

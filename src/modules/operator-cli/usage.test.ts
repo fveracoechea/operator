@@ -57,7 +57,7 @@ function usageText(text: string | undefined) {
   expect(usage).toContain("       operator pr associate [--json]");
   expect(String(text)).not.toContain("operator handoff");
   expect(usage).toContain(
-    "       operator dispatch --kind kind --brief path|- [--intent-file path|-] [--profile name] [--tracker-key key] [--json]",
+    "       operator dispatch --kind kind --brief path|- [--intent-file path|-] [--profile name] [--tracker-key key] [--adopt pr-number|pr-url|branch] [--json]",
   );
   expect(usage).toContain("       operator ask --file path|- [--profile name] [--json]");
   expect(String(text)).not.toContain("--question");
