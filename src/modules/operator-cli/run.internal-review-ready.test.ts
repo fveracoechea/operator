@@ -677,7 +677,7 @@ test.each(["worker", "supervisor"] as const)(
           : ["pr", "merge"];
       expect(
         await run(command, caller === "supervisor" ? checkout : worker.worktreePath),
-      ).toMatchObject({ code: 4, output: { reason: "state_corrupt" } });
+      ).toMatchObject({ code: 3, output: { reason: "state_corrupt" } });
       expect(await calls("gh-calls.jsonl", "graphql")).toBe(reads);
       expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
       expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
