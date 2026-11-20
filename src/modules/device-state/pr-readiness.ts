@@ -7,7 +7,7 @@ import { recordKindHandoff } from "./kind-handoff-record.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 const place = { round: z.number().int().positive(), finding: z.number().int().positive() };
-const readiness = z.object({
+export const prReadinessSchema = z.object({
   head: z.string().min(1),
   at: z.string().min(1),
   note: z.string().min(1).nullable(),
@@ -18,18 +18,21 @@ const readiness = z.object({
     ]),
   ),
 });
-export const prReadinessSchema = z.union([
-  readiness.extend({ origin: z.literal("migration-0026"), head: z.string().min(1).nullable() }),
-  readiness,
+const persistedReadiness = z.union([
+  prReadinessSchema.extend({
+    origin: z.literal("migration-0026"),
+    head: z.string().min(1).nullable(),
+  }),
+  prReadinessSchema,
 ]);
-export type PrReadiness = z.infer<typeof prReadinessSchema>;
+export type PrReadiness = z.infer<typeof persistedReadiness>;
 
 /** The storage decoder shared by coordination snapshots and PR owner reads. */
 export const storedPrReadinessSchema = z
   .string()
   .nullable()
   .default(null)
-  .transform((text) => (text === null ? null : prReadinessSchema.parse(JSON.parse(text))));
+  .transform((text) => (text === null ? null : persistedReadiness.parse(JSON.parse(text))));
 
 /** Readiness and its fresh next launch are one write, under the caller's active-owner check. */
 export function recordPrReady(

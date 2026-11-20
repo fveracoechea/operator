@@ -24,6 +24,28 @@ import {
   migrateKinds,
 } from "./kind-migration-fixture.ts";
 
+test.each([null, "historical-head"])(
+  "owner reads preserve migration readiness and historical head %s",
+  (head) => {
+    using client = beforeKindsMigration();
+    historicalAssignment(client, { key: "old", review: "ready" });
+    client.query("UPDATE internal_reviews SET ready_head = ?, handoff_state = 'done'").run(head);
+    client.exec("UPDATE launches SET worktree_path = '/synthetic/old'");
+    migrateKinds(client);
+    const before = client.serialize();
+    expect(worktreeOwners(client)).toMatchObject({
+      tag: "Ok",
+      value: [
+        {
+          launchId: "launch-old",
+          readiness: { origin: "migration-0026", head, at: "then", note: null, dispositions: [] },
+        },
+      ],
+    });
+    expect(client.serialize()).toEqual(before);
+  },
+);
+
 test("a migration marker with an unknown head does not authorize merge ownership; the current known head and idle owner are required", () => {
   using client = beforeKindsMigration();
   historicalAssignment(client, { key: "old" });
