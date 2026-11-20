@@ -11,7 +11,7 @@ This repository and its personal agentic tooling, not an agent role.
 
 **SuperAgent**:
 The supervising agent that manages WorkerAgents and is the person's point of contact.
-It delegates detailed work, reads short reports, and opens details only when a coordination decision needs them.
+It answers a code base question itself within 3 read-only calls, delegates everything past that, reads short reports, and opens details only when a coordination decision needs them.
 _Avoid_: Operator as a role, Super Agent
 
 **WorkerAgent**:
@@ -22,6 +22,8 @@ _Avoid_: Operative, Crew member, Agent as a role
 
 **Rules of the person**:
 The five rules that require delegation by SuperAgents, the PR merge gate, preservation of unlanded work, reporting to the supervising SuperAgent through recorded Operator state rather than text typed into its pane, and minimum SuperAgent context usage.
+The delegation rule permits a code base question's quick look within 3 read-only calls, counting reads, searches, and status calls together.
+Beyond that budget, the SuperAgent delegates with `operator ask`, never a native subagent.
 They permit coordination commands and communication between SuperAgents through Herdr without transferring the workers' tasks to a supervisor.
 
 **SuperAgent decision**:
@@ -191,6 +193,7 @@ The worker resumes the assignment with those instructions and the prior reports 
 
 **Next actions**:
 The CLI's applicable actions and waits derived from recorded workflow state and observed facts.
+Each row carries `next`, naming its command, decision, or reason nothing remains.
 They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
 Each source also lists its open obligations beside its actions.
 Parked PRs wait until recorded feedback, failing CI, new merge eligibility, or a merged parent produces `resume_pr_feedback`.

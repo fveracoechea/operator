@@ -7,6 +7,7 @@ Decided in #233.
 Implemented for submission, return, resume, acceptance, and cleanup in #248.
 Reset and prune are implemented in #252.
 Amended 2026-11-04: acceptance can promote a report into a new PR assignment that keeps the worker and its worktree (ADR-0023).
+Amended 2026-11-20 in #373: a worker kind is an assignment field, while the model keeps two completion types.
 
 ## Context
 
@@ -17,6 +18,8 @@ Planning questions needed a clear distinction between delegated authority and a 
 ## Decision
 
 One assignment model has explicit PR and report completion types rather than a record for every task kind.
+A worker kind is a field on that assignment, not another record model.
+The kind fixes one of those two completion types.
 Report assignments move through ready, running, reported, and completed, or end as abandoned.
 A WorkerAgent submits a durable report through the CLI with a short conclusion, evidence references, unresolved points, and supporting files available by reference.
 Herdr activity or a completion event proves neither submission nor acceptance.

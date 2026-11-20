@@ -38,7 +38,7 @@ Empty text names no session, and a bad value never stops the CLI from starting.
 
 A coordination command for a source refuses with `source_supervised_elsewhere` when another session supervises the source.
 The detail names the supervising session and its pane, says that nothing changed, and names the take-over.
-The commands are `dispatch`, `abandon`, `next --wait --source`, `report accept` and `return`, `question escalate` and `answer`, `message send`, `ring` and `close`, `cleanup`, and `pr merge --source`.
+The commands are plan and one-off `dispatch`, `abandon`, `next --wait --source`, `report accept` and `return`, `question escalate` and `answer`, `message send`, `ring` and `close`, `cleanup`, and supervised `pr merge --source`.
 One check in front of the command handlers decides for all of them, so a new coordination command joins one list.
 Reads, worker commands, and a wait without a source are not checked.
 A command that carries `--person-instructed` is not checked, because the person ordered it.

@@ -148,7 +148,7 @@ if (args[1] === "post") {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(`${root}/home/.agents/skills`, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${root}/home/.agents/skills/code-review`);
-  await writeGuideSkills(`${root}/home/.agents/skills`);
+  await writeGuideSkills(`${root}/home/.agents/skills`, skills);
   await writeOpenCodePlugin(`${root}/config`);
 
   expect((await run(["project", "register"])).code).toBe(0);
