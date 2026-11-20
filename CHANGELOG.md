@@ -1,5 +1,66 @@
 # @fveracoechea/operator
 
+## 3.0.0
+
+### Major Changes
+
+- 82cec32: Replace the Slack review transport with manual review requests that apply the author policy and keep optional thread links for SuperAgent status replies.
+  This breaks the previous transport commands, channel setting, and bundled Slack workflow skill contract.
+  Previously valid channel-bearing configuration remains readable without rewriting managed files.
+  Installation removes unchanged managed copies of the retired workflow and preserves unowned or modified copies.
+- ccbc684: Read worker questions and messages as text, and reports as Markdown, through files or stdin. Move question and message keys to flags. Remove inline text flags for answers and messages.
+- f98e8f0: Require a worker kind in new assignment plans instead of an explicit completion type.
+  Resolve kind defaults, preserve launch snapshots, and link the six installed kind guides in worker briefs.
+  Existing assignments retain a null kind and their current behavior.
+
+### Minor Changes
+
+- 9e7732f: Hand draft PRs to the recorded next worker kind without an implementer note. Recover failed handoffs through dispatch instead of a separate handoff command.
+- f6a2399: Map in-flight PR assignments to worker kinds from recorded facts and allow registered dispatch to fill remaining null kinds.
+- ef43879: Render compact worker briefs from record facts and kind data, with the task and quoted intent.
+  Leave workflow commands and authority rules in the worker guide, and omit empty sections.
+- 6a74b6c: Add next-step and checked-state result fields, compact migrated refusal output, and next steps on coordination and review rows.
+- 7b8ec7f: Read PR review rounds and ready summaries as markdown, with line-numbered input errors.
+  Read obligation summaries as plain text, with identifiers in flags.
+  All three commands accept stdin through `--file -` and reject JSON input.
+- d25ace3: Add one-off dispatch with a kind and a brief, without a plan file.
+  Keep ask as the answer-kind preset, and support ordinary source reset, prune, and report promotion for one-off work.
+  Promoted PR launches resolve the implementation kind and review policy without changing the report's snapshot.
+  Refuse promotion before resource changes when the implementation guide is not installed for the worker's host.
+  Read optional intent from `--intent-file <path|->` and questions from `ask --file <path|->`, without inline prose aliases.
+  Refuse two stdin selectors before startup compatibility checks, input reads, or command effects.
+- f7e2c7a: Park quiet PR feedback waits after a 540-second default timeout while retaining the worktree.
+  Batch parked PR observations every 15 minutes across coordination waits.
+  Resume fresh feedback workers with durable events and park-only notes, including after interrupted launches.
+  Verify parked merges and run cleanup; preserve unlanded work when a closed PR requires abandonment.
+- 2d1dd34: Run worker kinds through one phase decision table with guarded exits and kind, phase, and next-action context on worker results.
+
+### Patch Changes
+
+- 6dca374: Resolve internal review policy for live report promotions and add explicitly authorized recovery for associated drafts missing their required review.
+- c88acb0: Allow person-defined worker kinds in device settings, including linked and read-only configuration.
+  Validate definitions, installed guide skills, and completion-compatible next kinds before registration and launch.
+- 89a10a0: Require an actionable next step on every CLI refusal, including setup, review, and merge failures.
+  Preserve each owner's recovery decision and checked state through CLI output.
+  Remove redundant refusal instructions from bundled skills without changing authority or safety rules.
+- 683f641: Keep three event-driven waits. Coordination now owns review upkeep instead of a separate review command.
+  All waits default to 540 seconds and accept longer timeouts. A question's person-escalation notice returns once.
+- 7284ff2: Narrow both hosts' turn-end guards to supervised sources with a live worker launch and no covering coordination wait. Other waits and decisions no longer keep a turn open.
+- 1ab6171: Adopt the person's own PR or pushed branch through one-off dispatch or a plan's numeric PR selector.
+  Validate entry kinds and existing ownership, retain branch-preservation refusals, and copy ended owners' facts into briefs.
+  Ready adoption records readiness without an internal review or an outgoing-worker handoff.
+- f446b6e: Limit each assignment to two report returns across replacement launches. A third return preserves work and asks the person whether to accept, abandon, or start a new assignment.
+  Preserve the original report transaction refusal or Defect when staged follow-up cleanup also fails, and report the cleanup failure separately.
+- 96f1be5: Give workflow refusals a structured next command or decision. Preserve guard-owned checked state and authority, quote linked-checkout recovery commands, and keep workflow syntax and startup errors within three lines.
+- 54da94e: Start fresh PR feedback workers at guarded readiness and retain complete reviewer dispositions and optional handoff notes.
+  Require recorded readiness and a non-draft PR before merge.
+  Record person-approved skips without eagerly marking the PR ready.
+- c573bfd: Upgrade the dependency toolchain and move application sources to src and development tools to tools before Spec #373 implementation.
+  Preserve installed CLI, plugin, migration, and built artifact paths.
+  Require explicit authorization before release publication; ordinary main merges only prepare the version PR.
+- 27dc395: Check every built-in kind guide's skill references during readiness. Report unresolved required skills as blockers and unresolved show-me links as warnings. Include absolute show-me paths in answer launch snapshots and briefs for hosts with separate owned and upstream skill directories.
+- 8fbc132: End assignments whose worker resources are gone, and add `operator abandon` to end one assignment without deleting work or closing its PR. Cleanup ignores ignored output except changed environment files. State migrations no longer block on assignment state alone.
+
 ## 2.3.2
 
 ### Patch Changes
