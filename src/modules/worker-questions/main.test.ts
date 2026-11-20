@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { Err } from "unthrown";
 // Bun has no recursive removal API.
 import { rm } from "node:fs/promises";
 import { WorkSources } from "../work-sources/main.ts";
@@ -175,6 +177,41 @@ test("concurrent waits deliver an already escalated question once and still deli
     reason: "question_answered",
     data: { answer: "No, only a.ts.", by: "person" },
   });
+});
+
+test.each(["withdrawn", "missing"])(
+  "a %s question cannot claim a stale person notice",
+  async (state) => {
+    const { sourceId } = await asked();
+    device.inPane(superPane);
+    okValue(await WorkerQuestions.escalate(selector(sourceId)));
+    mock.restore();
+    const change = DeviceState.changeQuestion;
+    spyOn(DeviceState, "changeQuestion").mockImplementationOnce((paths, target, key, decide) => {
+      using db = new Database(device.paths.database);
+      if (state === "missing") db.exec("DELETE FROM worker_questions");
+      else db.exec("UPDATE worker_questions SET state = 'withdrawn'");
+      return change(paths, target, key, decide);
+    });
+    expect(okValue(await wait()).reason).toBe("question_wait_timed_out");
+    using db = new Database(device.paths.database, { readonly: true });
+    expect(db.query("SELECT awaiting_person_seen_at FROM worker_questions").all()).toEqual(
+      state === "missing" ? [] : [{ awaiting_person_seen_at: null }],
+    );
+  },
+);
+
+test("a failed receipt write refuses without claiming the person notice", async () => {
+  const { sourceId } = await asked();
+  device.inPane(superPane);
+  okValue(await WorkerQuestions.escalate(selector(sourceId)));
+  mock.restore();
+  const receipt = spyOn(DeviceState, "changeQuestion").mockReturnValueOnce(
+    Err({ reason: "state_busy", detail: "The synthetic writer is busy." }),
+  );
+  expect(await wait()).toMatchObject({ tag: "Err", error: { reason: "state_busy" } });
+  receipt.mockRestore();
+  expect(okValue(await wait()).reason).toBe("question_awaiting_person");
 });
 
 test("a wait returns the answer that arrives while it waits, and the move to the person", async () => {

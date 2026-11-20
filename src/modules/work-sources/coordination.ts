@@ -7,7 +7,7 @@ type Row = {
   question?: { key: string };
   message?: { key: string };
 };
-type ReviewRow = { url?: string; action?: string; attention?: string; reason?: string };
+type ReviewRow = { url: string; action?: string; attention?: string; reason?: string };
 type ReviewEvent = { url: string; kind: string } & Record<string, unknown>;
 type Answer = {
   sources: { id: string; actions: Row[] }[];
@@ -53,7 +53,7 @@ export function actionKey(sourceId: string, row: Row) {
 export function actionKeys(answer: Answer) {
   return new Set([
     ...answer.sources.flatMap((source) => source.actions.map((row) => actionKey(source.id, row))),
-    ...(answer.requests ?? []).filter(actionable).map(reviewKey),
+    ...(answer.requests?.filter(actionable).map(reviewKey) ?? []),
     ...(answer.events ?? []).map(eventKey),
   ]);
 }
@@ -167,10 +167,10 @@ export function changedAnswer<
     }),
   };
   if (answer.requests !== undefined) {
-    result.events = (answer.events ?? []).filter((event) => keys.has(eventKey(event)));
+    result.events = answer.events?.filter((event) => keys.has(eventKey(event))) ?? [];
     const named = new Set(result.events.map((event) => event.url));
     result.requests = answer.requests.filter(
-      (row) => keys.has(reviewKey(row)) || named.has(row.url ?? ""),
+      (row) => keys.has(reviewKey(row)) || named.has(row.url),
     );
   }
   return result;

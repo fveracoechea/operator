@@ -112,6 +112,13 @@ test("a quiet first observation accepts own-command acknowledgements without rel
     value: "[]",
   });
   expect(rows(db)).toMatchObject([{ actions: "[]", owner_pid: process.pid, returned_at: null }]);
+  db.query("UPDATE coordination_waits SET actions = NULL").run();
+  expect(changeCoordinationWait(db, all, () => '["not-initialized"]')).toMatchObject({
+    tag: "Ok",
+    value: null,
+  });
+  expect(rows(db)).toMatchObject([{ actions: null, owner_pid: process.pid, returned_at: null }]);
+  changeCoordinationWait(db, all, () => "[]", { initialize: true });
   acknowledgeCoordinationWaits(db, "ses-pane-1", () => '["own-command"]');
   expect(readCoordinationWait(db, all)).toMatchObject({ tag: "Ok", value: '["own-command"]' });
   expect(rows(db)).toMatchObject([{ owner_pid: process.pid, returned_at: null }]);

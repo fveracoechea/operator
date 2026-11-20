@@ -143,6 +143,7 @@ test("review actions and events add distinct keys, but quiet review waits add no
         { url: "pr/7", action: "start_reviewer", reason: "review_queued" },
         { url: "pr/8", action: "wait_reviews", reason: "reviewer_move_unfinished" },
         { url: "pr/9", attention: "reviewer_work_kept" },
+        { url: "pr/10" },
       ],
       events: [{ url: "pr/7", kind: "read_failed", reason: "github_uncertain", detail: "outage" }],
     }),
@@ -158,12 +159,21 @@ test("a changed review answer retains only new events and their named or newly a
   const moved = { url: "pr/8", wait: "review_draft" };
   const unrelated = { url: "pr/9", action: "post_review", reason: "review_post_uncertain" };
   const event = { url: "pr/8", kind: "head_moved", from: "head-one", to: "head-two" };
+  const oldEvent = { url: "pr/9", kind: "head_moved", from: "head-zero", to: "head-one" };
+  expect(eventKey(event)).toBe(
+    '["review:pr/8",null,"review_event","head_moved","{\\"url\\":\\"pr/8\\",\\"kind\\":\\"head_moved\\",\\"from\\":\\"head-one\\",\\"to\\":\\"head-two\\"}"]',
+  );
   expect(
     changedAnswer(
-      { sources: [], requests: [first, moved, unrelated], events: [event] },
+      { sources: [], requests: [first, moved, unrelated], events: [oldEvent, event] },
       new Set(['["review:pr/7",null,"start_reviewer","review_queued"]', eventKey(event)]),
     ),
   ).toEqual({ sources: [], requests: [first, moved], events: [event] });
+  expect(changedAnswer({ sources: [], requests: [first] }, new Set())).toEqual({
+    sources: [],
+    requests: [],
+    events: [],
+  });
 });
 
 test("different diagnostics for the same failed review read keep its acknowledged key", () => {
