@@ -159,12 +159,28 @@ export function respond(input: {
   fallback?: number;
   defect: string;
   json: boolean;
+  compactTimeout?: boolean;
 }): void {
   const { operation, result, json } = input;
   if (result.tag === "Ok") {
     const defaults = outputContext();
     if (defaults.failure !== undefined) return contextFailure(operation, defaults.failure, json);
     const context = { ...defaults, ...result.value, next: result.value.next ?? defaults.next };
+    if (
+      !json &&
+      input.compactTimeout === true &&
+      ["next_wait_timed_out", "question_wait_timed_out"].includes(result.value.reason)
+    ) {
+      const phase =
+        context.kind === undefined ? "" : ` [kind=${context.kind} phase=${context.phase}]`;
+      console.log(
+        oneLine(
+          `operator: ${result.value.reason}${phase}; next: ${context.next === undefined ? "operator next" : nextText(context.next)}`,
+        ),
+      );
+      process.exitCode = 0;
+      return;
+    }
     console.log(
       JSON.stringify(
         {

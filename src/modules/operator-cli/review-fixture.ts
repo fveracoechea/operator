@@ -232,6 +232,8 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   expect((await run(["herdr", "install"], checkout)).code).toBe(0);
   // Fetches from the GitHub remote reach the local bare repository after registration.
   await git(checkout, "config", `url.${remote}.insteadOf`, "https://github.com/example/one.git");
+  // Keep an unrewritten identity for coordination's controlling-checkout check.
+  await git(checkout, "remote", "add", "identity", "https://github.com/example/one");
   await github({
     pulls: [{ number: 7, url, state: "OPEN", author: "author", files: ["feature.ts"] }],
   });
@@ -250,6 +252,13 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
     expect(result.code, result.stderr).toBe(0);
   }
 
+  function wait(timeout = 1, all = false) {
+    return run(
+      ["next", "--wait", "--timeout", String(timeout), ...(all ? ["--all"] : [])],
+      checkout,
+    );
+  }
+
   return {
     root,
     checkout,
@@ -257,6 +266,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
     herdrState,
     head,
     run,
+    wait,
     git,
     github,
     githubState,

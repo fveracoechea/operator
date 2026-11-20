@@ -9,6 +9,7 @@ import {
   answered,
   h1,
   h2,
+  h3,
   otherPr,
   prAnswer,
   readRequest,
@@ -18,7 +19,7 @@ import {
   url,
 } from "./home-fixture.ts";
 import type { Paths, Round, Row } from "./request.ts";
-import { rows, wait } from "./watch.ts";
+import { rows, upkeep } from "./watch.ts";
 
 type Home = Awaited<ReturnType<typeof reviewHome>>;
 let home: Home;
@@ -27,13 +28,12 @@ const environment = Environment.read();
 const week = 7 * 24 * 60 * 60 * 1000;
 const readRequests = DeviceState.readReviewRequests.bind(DeviceState);
 
-/** The controlled interfaces. A sleep moves the clock, so a wait never sleeps for real. */
+/** The controlled external interfaces for one upkeep pass. */
 function defaults() {
   spyOn(Environment, "read").mockReturnValue({ ...environment, HERDR_SOCKET_PATH: "/sock" });
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h1 })));
   spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["other", "rev"]));
   spyOn(Herdr, "prompt").mockReturnValue(OkAsync(null));
-  sleeps();
   // A wait that loops without its sleep fails fast instead of spinning.
   let reads = 0;
   spyOn(DeviceState, "readReviewRequests").mockImplementation((paths) => {
@@ -90,25 +90,15 @@ function posted(number: number, postedAt: string): Round {
   };
 }
 
-/** Moves the clock by each sleep, and runs the given step once after the first sleep. */
-function sleeps(after: () => void = () => {}) {
-  const slept: number[] = [];
-  spyOn(Bun, "sleep").mockImplementation(async (ms) => {
-    const delay = Number(ms);
-    // A wait that never ends fails fast instead of spinning.
-    if (slept.length > 20)
-      // oxlint-disable-next-line unthrown/no-throw -- A wait that never ends fails its test.
-      throw new Error("The wait does not end.");
-    if (slept.length === 0) after();
-    slept.push(delay);
-    setSystemTime(new Date(Date.now() + delay));
-  });
-  return slept;
+function observe() {
+  return upkeep({ paths: home.paths, scopes: [{ repository: target.repository }] });
 }
 
-async function waited(timeoutSeconds = 0, all = false) {
-  const result = await wait({ paths: home.paths, timeoutSeconds, all });
-  return result.tag === "Ok" ? result.value : expect.unreachable(`The wait failed: ${result.tag}`);
+async function waited() {
+  const result = await observe();
+  return result.tag === "Ok"
+    ? { data: result.value }
+    : expect.unreachable(`Upkeep failed: ${result.tag}`);
 }
 
 const running = { launchState: "running", herdrSocket: "/sock", name: "rev" } as const;
@@ -160,8 +150,8 @@ test("each request row names its action and command, its attention, or its wait"
   expect(found[3]).toMatchObject({
     action: "wait_reviews",
     reason: "reviewer_move_unfinished",
-    command: "operator review wait",
-    next: { command: "operator review wait", why: "reviewer_move_unfinished" },
+    command: "operator next --wait",
+    next: { command: "operator next --wait", why: "reviewer_move_unfinished" },
   });
   expect(found[4]).toMatchObject({
     action: "clean_reviewer",
@@ -181,8 +171,8 @@ test("each request row names its action and command, its attention, or its wait"
   expect(found[6]).toMatchObject({
     id: "r13",
     wait: "review_watching",
-    command: "operator review wait",
-    next: { command: "operator review wait", why: "review_watching" },
+    command: "operator next --wait",
+    next: { command: "operator next --wait", why: "review_watching" },
   });
   expect(found[6]).not.toHaveProperty("attention");
 });
@@ -240,7 +230,7 @@ test.each([
       );
     const found = rows(home.paths, listed(home.paths));
     expect(found[0]?.next).toMatchObject({
-      command: facts.state === "queued" ? `operator review start ${url}` : "operator review wait",
+      command: facts.state === "queued" ? `operator review start ${url}` : "operator next --wait",
       why: facts.state === "queued" ? "review_queued" : "review_watching",
     });
     expect(found[0]?.next).not.toHaveProperty("question");
@@ -265,43 +255,68 @@ test("posted reply guidance preserves an approved request's cleanup command", ()
   ]);
 });
 
-test("a wait with nothing to observe times out at its deadline", async () => {
+test("upkeep with nothing to observe reports no event", async () => {
   expect(await waited()).toEqual({
-    reason: "review_wait_timed_out",
     data: { events: [], requests: [] },
   });
 });
 
-test("a wait polls every thirty seconds until its deadline", async () => {
-  const slept = sleeps();
-  expect((await waited(45)).reason).toBe("review_wait_timed_out");
-  expect(slept).toEqual([30000, 15000]);
-});
-
-test("a failed sleep ends the wait with its failure", async () => {
-  spyOn(Bun, "sleep").mockRejectedValue(coded("EIO"));
-  expect(await wait({ paths: home.paths, timeoutSeconds: 5 })).toMatchObject({
-    tag: "Err",
-    error: { reason: "review_io_failed", detail: "Error: failed EIO" },
-  });
-  spyOn(Bun, "sleep").mockRejectedValue("stopped");
-  expect((await wait({ paths: home.paths, timeoutSeconds: 5 })).tag).toBe("Defect");
-});
-
-test("only the first pass returns for an action", async () => {
+test("upkeep returns recorded actions without its own polling loop", async () => {
   seedRequest(home.paths);
-  expect(await waited(60)).toMatchObject({
-    reason: "review_actions_ready",
+  expect(await waited()).toMatchObject({
     data: { events: [], requests: [{ action: "start_reviewer" }] },
   });
-  await home.remove();
-  home = await reviewHome();
-  const slept = sleeps(() => seedRequest(home.paths));
-  expect(await waited(45)).toMatchObject({
-    reason: "review_wait_timed_out",
-    data: { requests: [{ action: "start_reviewer" }] },
+  expect(await waited()).toMatchObject({
+    data: { events: [], requests: [{ action: "start_reviewer" }] },
   });
-  expect(slept).toEqual([30000, 15000]);
+});
+
+test("local review rows refresh without repeating external upkeep between observation polls", async () => {
+  seedRequest(home.paths, { state: "watching", ...running });
+  const github = spyOn(GithubApi, "call");
+  const herdr = spyOn(Herdr, "agentNames");
+  expect(
+    await upkeep({
+      paths: home.paths,
+      scopes: [{ repository: target.repository }],
+      observe: false,
+    }),
+  ).toMatchObject({
+    tag: "Ok",
+    value: {
+      events: [],
+      requests: [{ state: "watching", next: { command: "operator next --wait" } }],
+    },
+  });
+  expect(github).not.toHaveBeenCalled();
+  expect(herdr).not.toHaveBeenCalled();
+});
+
+test("a source scope observes only its assignment review and leaves manual requests alone", async () => {
+  seedRequest(home.paths, { sourceId: "source-one", state: "watching", ...running, head: h1 });
+  seedRequest(
+    home.paths,
+    { sourceId: "source-two", state: "watching", ...running, name: "rev8", head: h1 },
+    "r8",
+    otherPr(8),
+  );
+  seedRequest(
+    home.paths,
+    { state: "watching", ...running, name: "rev9", head: h1 },
+    "r9",
+    otherPr(9),
+  );
+  const github = spyOn(GithubApi, "call");
+  expect(
+    await upkeep({
+      paths: home.paths,
+      scopes: [{ repository: target.repository, sourceIds: ["source-one"], manual: false }],
+    }),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { events: [], requests: [{ id: "r1" }] },
+  });
+  expect(github).toHaveBeenCalledTimes(1);
 });
 
 test("a running reviewer that Herdr no longer lists in this server is interrupted", async () => {
@@ -316,7 +331,6 @@ test("a running reviewer that Herdr no longer lists in this server is interrupte
   );
   seedRequest(home.paths, { state: "watching", ...running, name: null }, "r10", otherPr(10));
   expect(await waited()).toMatchObject({
-    reason: "review_events_observed",
     data: {
       events: [
         { url, kind: "reviewer_interrupted" },
@@ -334,7 +348,7 @@ test("a running reviewer that Herdr no longer lists in this server is interrupte
 test("a reviewer check asks Herdr nothing without a running reviewer of this server", async () => {
   const agents = spyOn(Herdr, "agentNames");
   seedRequest(home.paths, { state: "watching", ...running, herdrSocket: "/other", name: "x" });
-  expect((await waited()).reason).toBe("review_wait_timed_out");
+  expect((await waited()).data.events).toEqual([]);
   expect(agents).not.toHaveBeenCalled();
 });
 
@@ -353,7 +367,7 @@ test("a failed Herdr list interrupts nobody", async () => {
     }),
   );
   seedRequest(home.paths, { state: "watching", ...running, name: "gone" });
-  expect((await waited()).reason).toBe("review_wait_timed_out");
+  expect((await waited()).data.events).toEqual([]);
   expect(readRequest(home.paths).request?.launchState).toBe("running");
 });
 
@@ -370,11 +384,10 @@ test("a reviewer that stopped running during the check keeps its recorded state"
 test("a quiet watching request is marked stale once", async () => {
   seedRequest(home.paths, { state: "watching", head: h1, activityAt: "2026-01-01T00:00:00.000Z" });
   expect(await waited()).toMatchObject({
-    reason: "review_events_observed",
     data: { events: [{ url, kind: "review_stale" }], requests: [{ stale: true }] },
   });
   expect(readRequest(home.paths).request?.staleAt).toBe(new Date(start).toISOString());
-  expect((await waited()).reason).toBe("review_wait_timed_out");
+  expect((await waited()).data.events).toEqual([]);
 });
 
 test("a request that changed during the read is not marked stale", async () => {
@@ -383,14 +396,14 @@ test("a request that changed during the read is not marked stale", async () => {
     change({ staleAt: "earlier" });
     return answered(prAnswer({ headRefOid: h1 }));
   });
-  expect((await waited()).reason).toBe("review_wait_timed_out");
+  expect((await waited()).data.events).toEqual([]);
   expect(readRequest(home.paths).request?.staleAt).toBe("earlier");
   change({ staleAt: null });
   spyOn(GithubApi, "call").mockImplementation(async () => {
     change({ state: "approved" });
     return answered(prAnswer({ headRefOid: h1 }));
   });
-  expect((await waited()).reason).toBe("review_wait_timed_out");
+  expect((await waited()).data.events).toEqual([]);
   expect(readRequest(home.paths).request?.staleAt).toBeNull();
 });
 
@@ -403,14 +416,13 @@ test("the stale clock starts at the request, its activity, or its last post", as
   DeviceState.changeReviewRequest(home.paths, target, () =>
     Ok({ round: posted(1, new Date(start - 1000).toISOString()) }),
   );
-  expect((await waited()).reason).toBe("review_wait_timed_out");
+  expect((await waited()).data.events).toEqual([]);
 });
 
 test("a merged PR ends its request and cleans up its reviewer", async () => {
   seedRequest(home.paths, { state: "watching", head: h1 });
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ state: "MERGED" })));
   expect(await waited()).toEqual({
-    reason: "review_events_observed",
     data: {
       events: [
         {
@@ -489,16 +501,16 @@ test("new commits start a round and give it to the running reviewer", async () =
   });
 });
 
-test("a wait returns only the requests that its events name, unless asked for all", async () => {
+test("upkeep returns scoped rows for the coordination wait to filter", async () => {
   seedRequest(home.paths, { state: "watching", head: h1, ...running });
   seedRequest(home.paths, { state: "closed", cleanupState: "kept" }, "r2", otherPr(8));
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h2 })));
   expect((await waited()).data).toMatchObject({
     events: [{ url, kind: "round_started" }],
-    requests: [{ id: "r1" }],
+    requests: [{ id: "r1" }, { id: "r2", attention: "reviewer_work_kept" }],
   });
-  expect((await waited()).data).toMatchObject({ events: [], requests: [] });
-  expect((await waited(0, true)).data).toMatchObject({
+  expect((await waited()).data).toMatchObject({
+    events: [],
     requests: [{ id: "r1" }, { id: "r2", attention: "reviewer_work_kept" }],
   });
 });
@@ -507,9 +519,30 @@ test("a round of a stopped reviewer names no reviewer, and is reported once", as
   seedRequest(home.paths, { state: "watching", head: h1, launchState: "interrupted" });
   spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h2 })));
   expect((await waited()).data).toHaveProperty("events", [
-    { url, kind: "round_started", trigger: "commits" },
+    { url, kind: "round_started", requestId: "r1", round: 1, head: h2, trigger: "commits" },
   ]);
   expect((await waited()).data).toHaveProperty("events", []);
+});
+
+test("round events identify their recorded request, round number and observed head", async () => {
+  seedRequest(home.paths, { state: "watching", head: h1, launchState: "interrupted" });
+  spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h2 })));
+  expect((await waited()).data.events).toEqual([
+    { url, kind: "round_started", requestId: "r1", round: 1, head: h2, trigger: "commits" },
+  ]);
+  expect(
+    DeviceState.changeReviewRequest(home.paths, target, () =>
+      Ok({
+        update: { state: "watching" },
+        round: posted(1, new Date(start).toISOString()),
+      }),
+    ).tag,
+  ).toBe("Ok");
+  spyOn(GithubApi, "call").mockResolvedValue(answered(prAnswer({ headRefOid: h3 })));
+  expect((await waited()).data.events).toEqual([
+    { url, kind: "round_started", requestId: "r1", round: 2, head: h3, trigger: "commits" },
+  ]);
+  expect((await waited()).data.events).toEqual([]);
 });
 
 test("a head move goes to the running reviewer, and a failed move is reported", async () => {
@@ -586,7 +619,6 @@ test("an unfinished sync is finished by the next wait", async () => {
     sync: JSON.stringify({ kind: "round", round: 2, trigger: "reply" }),
   });
   expect(await waited()).toMatchObject({
-    reason: "review_events_observed",
     data: { events: [{ url, kind: "reviewer_synced", reviewer: { kind: "round", mode: null } }] },
   });
   expect(readRequest(home.paths).request).toMatchObject({ sync: null, ownerPid: null });
@@ -607,7 +639,7 @@ test("a failed sync is reported once, and the move waits without an action", asy
       next: { decider: "super-agent", question: "Which remote should provide this PR?" },
     }),
   );
-  expect((await waited(60)).data).toMatchObject({
+  expect((await waited()).data).toMatchObject({
     events: [
       {
         url,
@@ -617,7 +649,6 @@ test("a failed sync is reported once, and the move waits without an action", asy
     ],
   });
   expect(await waited()).toMatchObject({
-    reason: "review_wait_timed_out",
     data: { events: [], requests: [{ action: "wait_reviews" }] },
   });
   expect(move).toHaveBeenCalledTimes(2);
@@ -641,7 +672,6 @@ test("a sync of an active owner is left to it", async () => {
 test("a pending cleanup whose process stopped is finished by the next wait", async () => {
   seedRequest(home.paths, { state: "closed", cleanupState: "pending" });
   expect(await waited()).toMatchObject({
-    reason: "review_events_observed",
     data: {
       events: [
         {
@@ -668,8 +698,7 @@ test("a pending cleanup of an approved request whose process stopped is finished
   });
   const close = spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
   spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({ state: "removed", detail: "Gone." });
-  expect(await waited()).toEqual({
-    reason: "review_events_observed",
+  expect(await waited()).toMatchObject({
     data: {
       events: [
         {
@@ -678,7 +707,7 @@ test("a pending cleanup of an approved request whose process stopped is finished
           cleanup: { state: "done", detail: "Closed pane p1. Gone." },
         },
       ],
-      requests: [expect.objectContaining({ state: "approved", wait: "review_approved" })],
+      requests: [{ state: "approved", wait: "review_approved" }],
     },
   });
   expect(close).toHaveBeenCalledWith("p1");
@@ -747,7 +776,7 @@ test("a failed pass ends the wait with its failure", async () => {
     // oxlint-disable-next-line unthrown/no-throw -- Inject a failure at the module interface.
     throw coded("ENOSPC");
   });
-  expect(await wait({ paths: home.paths, timeoutSeconds: 0 })).toMatchObject({
+  expect(await observe()).toMatchObject({
     tag: "Err",
     error: { reason: "review_io_failed", detail: "Error: failed ENOSPC" },
   });
@@ -755,13 +784,16 @@ test("a failed pass ends the wait with its failure", async () => {
     // oxlint-disable-next-line unthrown/no-throw, no-throw-literal -- A cause that is no Error.
     throw "stopped";
   });
-  expect((await wait({ paths: home.paths, timeoutSeconds: 0 })).tag).toBe("Defect");
+  expect((await observe()).tag).toBe("Defect");
 });
 
-test("an event ends the wait before an action", async () => {
+test("upkeep returns an event beside an unrelated action", async () => {
   seedRequest(home.paths, { state: "watching", ...running, name: "gone" });
   seedRequest(home.paths, {}, "r8", otherPr(8));
-  expect((await waited(60)).reason).toBe("review_events_observed");
+  expect((await waited()).data).toMatchObject({
+    events: [{ kind: "reviewer_interrupted" }],
+    requests: [{ url }, { action: "start_reviewer" }],
+  });
 });
 
 const busy = {
@@ -784,7 +816,6 @@ test("a row with no request is neither resumed nor observed", async () => {
   const rowsRead = listed(home.paths).map((row) => ({ ...row, request: null }));
   spyOn(DeviceState, "readReviewRequests").mockReturnValue(Ok(rowsRead));
   expect(await waited()).toEqual({
-    reason: "review_wait_timed_out",
     data: { events: [], requests: [] },
   });
   expect(call).not.toHaveBeenCalled();

@@ -113,15 +113,17 @@ export function decideQuestion(facts: Facts): Result<QuestionTransition, Refusal
 }
 
 /**
- * What a worker's wait returns for the question's current state. A wait that started on an
- * open question also returns when the SuperAgent moves it to the person, so the worker knows
- * that the answer can take longer. Null means that the wait continues.
+ * A person notice claims its receipt with the outcome. Subsequent waits keep waiting until
+ * the question ends, regardless of the state in which the wait started.
  */
-export function decideQuestionWait(started: QuestionState, current: QuestionState) {
-  if (current === "answered") return "question_answered" as const;
-  if (current === "withdrawn") return "question_withdrawn" as const;
-  if (current === "abandoned") return "question_abandoned" as const;
-  if (current === "awaiting_person" && started === "open")
-    return "question_awaiting_person" as const;
-  return null;
+export function decideQuestionWait(facts: {
+  state: QuestionState | null;
+  awaitingPersonSeen: boolean;
+}) {
+  if (facts.state === "answered") return { reason: "question_answered" as const, receipt: false };
+  if (facts.state === "withdrawn") return { reason: "question_withdrawn" as const, receipt: false };
+  if (facts.state === "abandoned") return { reason: "question_abandoned" as const, receipt: false };
+  if (facts.state === "awaiting_person" && !facts.awaitingPersonSeen)
+    return { reason: "question_awaiting_person" as const, receipt: true };
+  return { reason: null, receipt: false };
 }

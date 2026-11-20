@@ -46,7 +46,7 @@ async function watching(current: Device) {
 }
 
 async function wait(current: Device) {
-  const waited = await current.run(["review", "wait", "--timeout", "1"]);
+  const waited = await current.wait();
   expect(waited.code, waited.stderr).toBe(0);
   return waitSchema.parse(waited.output);
 }
@@ -60,7 +60,7 @@ for (const host of ["opencode", "claude-code"] as const)
     const current = await setup(host);
     const { request, launch } = await watching(current);
     expect(await wait(current)).toMatchObject({
-      reason: "review_wait_timed_out",
+      reason: "next_wait_timed_out",
       data: { events: [] },
     });
 
@@ -77,7 +77,7 @@ for (const host of ["opencode", "claude-code"] as const)
       ],
     });
     expect(await wait(current)).toMatchObject({
-      reason: "review_events_observed",
+      reason: "next_actions_changed",
       data: {
         events: [{ kind: "round_started", trigger: "reply", reviewer: { kind: "round" } }],
         requests: [
@@ -96,7 +96,7 @@ for (const host of ["opencode", "claude-code"] as const)
       code: 0,
       output: { data: { state: "watching", event: "COMMENT", review: { round: 2 } } },
     });
-    expect(await wait(current)).toMatchObject({ reason: "review_wait_timed_out" });
+    expect(await wait(current)).toMatchObject({ reason: "next_wait_timed_out" });
 
     // A renewed review request on GitHub.
     await current.pullRequest({ reviewRequests: [{ reviewer: "owner", createdAt: now() }] });
@@ -196,9 +196,7 @@ test("a fast-forward moves the same reviewer, a force push starts over, and the 
 
   // Move 2: a force push found by the wait resets the worktree and asks for a full review.
   const second = await current.push(base, "two.ts");
-  expect(
-    await (async () => (await current.run(["review", "wait", "--timeout", "1"])).output)(),
-  ).toMatchObject({
+  expect((await current.wait()).output).toMatchObject({
     data: {
       events: [
         {
@@ -224,8 +222,8 @@ test("a fast-forward moves the same reviewer, a force push starts over, and the 
   // Move 4: past the limit the reviewer keeps its head, and the post states the limit.
   const fourth = await current.push(third, "four.ts");
   const promptsBefore = (await current.prompts()).length;
-  expect((await current.run(["review", "wait", "--timeout", "1"])).output).toMatchObject({
-    reason: "review_wait_timed_out",
+  expect((await current.wait()).output).toMatchObject({
+    reason: "next_wait_timed_out",
   });
   expect(await current.prompts()).toHaveLength(promptsBefore);
   await current.draft(request.draft, third);
@@ -258,10 +256,7 @@ test("two simultaneous waits start one round and prompt the reviewer once", asyn
   });
   // Both waits read the request before either writes, so only the transaction guard decides.
   await current.github({ reviewReadBarrier: 2 });
-  const results = await Promise.all([
-    current.run(["review", "wait", "--timeout", "2"]),
-    current.run(["review", "wait", "--timeout", "2"]),
-  ]);
+  const results = await Promise.all([current.wait(2), current.wait(2)]);
   const events = results.flatMap((result) => waitSchema.parse(result.output).data.events);
   expect(events.filter((event) => event.kind === "round_started")).toHaveLength(1);
   expect(await current.prompts()).toHaveLength(before + 1);
@@ -275,10 +270,7 @@ test("a quiet watching request goes stale after seven days, and author activity 
   current.sql("UPDATE review_rounds SET posted_at = ?", old);
   // Two simultaneous waits that both read the request before either writes set the flag once.
   await current.github({ reviewReadBarrier: 2 });
-  const results = await Promise.all([
-    current.run(["review", "wait", "--timeout", "1"]),
-    current.run(["review", "wait", "--timeout", "1"]),
-  ]);
+  const results = await Promise.all([current.wait(), current.wait()]);
   const events = results.flatMap((result) => waitSchema.parse(result.output).data.events);
   expect(events.filter((event) => event.kind === "review_stale")).toHaveLength(1);
   await current.github({ reviewReadBarrier: 0 });
@@ -287,7 +279,7 @@ test("a quiet watching request goes stale after seven days, and author activity 
   ]);
   // The flag is visible, not a state, and a second wait does not report it again.
   expect(await wait(current)).toMatchObject({
-    reason: "review_wait_timed_out",
+    reason: "next_wait_timed_out",
     data: { events: [] },
   });
   await current.pullRequest({
@@ -428,7 +420,7 @@ test("thread outcomes post once, and a lost reply is found after a restart", asy
     ["T3", true],
   ]);
   // The reopened thread is not a new author resolution, so no round starts.
-  expect(await wait(current)).toMatchObject({ reason: "review_wait_timed_out" });
+  expect(await wait(current)).toMatchObject({ reason: "next_wait_timed_out" });
 }, 60000);
 
 test("a merged PR ends the request and keeps unlanded reviewer work until the person removes it", async () => {
@@ -445,8 +437,8 @@ test("a merged PR ends the request and keeps unlanded reviewer work until the pe
   expect(await Bun.file(`${launch.worktreePath}/notes.txt`).text()).toBe("unlanded\n");
   // A row that waits for the person does not end later waits at once.
   const started = Date.now();
-  expect(await current.run(["review", "wait", "--timeout", "2"])).toMatchObject({
-    output: { reason: "review_wait_timed_out" },
+  expect(await current.wait(2)).toMatchObject({
+    output: { reason: "next_wait_timed_out" },
   });
   expect(Date.now() - started).toBeGreaterThanOrEqual(1900);
   expect(
@@ -567,7 +559,7 @@ test("a failed reviewer move is reported once, and a later wait finishes it afte
   // The same failure is not reported again, and the wait does not return for its own row.
   const started = Date.now();
   expect(await wait(current)).toMatchObject({
-    reason: "review_wait_timed_out",
+    reason: "next_wait_timed_out",
     data: { events: [] },
   });
   expect(Date.now() - started).toBeGreaterThanOrEqual(900);
@@ -597,7 +589,7 @@ test("a renewed request that the next post answers does not reopen the request",
   expect((await current.run(["review", "post", url])).output).toMatchObject({
     data: { state: "approved" },
   });
-  expect(await wait(current)).toMatchObject({ reason: "review_wait_timed_out" });
+  expect(await wait(current)).toMatchObject({ reason: "next_wait_timed_out" });
 }, 60000);
 
 test("only author comments that mention the posting account start a round", async () => {
@@ -609,7 +601,7 @@ test("only author comments that mention the posting account start a round", asyn
       { id: "p2", author: "author", body: "Thanks @someone-else.", createdAt: now() },
     ],
   });
-  expect(await wait(current)).toMatchObject({ reason: "review_wait_timed_out" });
+  expect(await wait(current)).toMatchObject({ reason: "next_wait_timed_out" });
   await current.pullRequest({
     comments: [{ id: "p3", author: "author", body: "@owner fixed, PTAL.", createdAt: now() }],
   });
@@ -625,7 +617,7 @@ test("a skip waits while a wait prompts the reviewer, and removes nothing", asyn
   await current.pullRequest({
     comments: [{ id: "p1", author: "author", body: "@owner done.", createdAt: now() }],
   });
-  const waiting = current.run(["review", "wait", "--timeout", "1"]);
+  const waiting = current.wait();
   await Bun.sleep(2500);
   expect(await current.run(["review", "skip", url])).toMatchObject({
     code: 4,

@@ -14,6 +14,66 @@ afterEach(() => {
   process.exitCode = 0;
 });
 
+test.each(["next_wait_timed_out", "question_wait_timed_out"])(
+  "%s prints a single compact text line but retains the complete JSON result",
+  async (reason) => {
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    const next = { command: "operator question wait --key scope", why: "Wait for the answer." };
+    await withOutputContext(
+      () => ({ kind: "research", phase: "investigate" }),
+      async () => {
+        for (const json of [false, true]) {
+          log.mockClear();
+          respond({
+            operation: "question_wait",
+            result: Ok({ reason, data: { key: "scope" }, next }),
+            exitCodes: {},
+            defect: "question_defect",
+            json,
+            compactTimeout: true,
+          });
+          expect(log).toHaveBeenCalledTimes(1);
+          const line = String(log.mock.calls[0]?.[0]);
+          if (json)
+            expect(JSON.parse(line)).toEqual({
+              schemaVersion: 1,
+              operation: "question_wait",
+              outcome: "completed",
+              reason,
+              blockers: [],
+              data: { key: "scope" },
+              next,
+              kind: "research",
+              phase: "investigate",
+            });
+          else
+            expect(line).toBe(
+              `operator: ${reason} [kind=research phase=investigate]; next: operator question wait --key scope`,
+            );
+          expect(process.exitCode).toBe(0);
+        }
+      },
+    );
+  },
+);
+
+test("a compact coordination timeout without worker context repeats its own wait", () => {
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  respond({
+    operation: "next",
+    result: Ok({
+      reason: "next_wait_timed_out",
+      data: {},
+      next: { command: "operator next --wait", why: "Wait for new work." },
+    }),
+    exitCodes: {},
+    defect: "next_defect",
+    json: false,
+    compactTimeout: true,
+  });
+  expect(log.mock.calls).toEqual([["operator: next_wait_timed_out; next: operator next --wait"]]);
+});
+
 test("emits a machine-readable refusal only when JSON is selected", () => {
   const log = spyOn(console, "log").mockImplementation(() => {});
   const error = spyOn(console, "error").mockImplementation(() => {});

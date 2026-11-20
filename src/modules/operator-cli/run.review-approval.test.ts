@@ -44,7 +44,7 @@ async function renew(current: Device) {
   await current.pullRequest({
     reviewRequests: [{ reviewer: "owner", createdAt: new Date().toISOString() }],
   });
-  const waited = await current.run(["review", "wait", "--timeout", "1"]);
+  const waited = await current.wait();
   expect(waited.code, waited.stderr).toBe(0);
   return waited.output;
 }
@@ -80,8 +80,8 @@ test("an approval cleans up the reviewer, and a renewed request gets a replaceme
   // An approved request ignores new commits, and a renewed request reopens it.
   const before = (await current.prompts()).length;
   const moved = await current.push(current.head, "later.ts");
-  expect(await current.run(["review", "wait", "--timeout", "1"])).toMatchObject({
-    output: { reason: "review_wait_timed_out" },
+  expect(await current.wait()).toMatchObject({
+    output: { reason: "next_wait_timed_out" },
   });
   expect(await renew(current)).toMatchObject({
     data: {

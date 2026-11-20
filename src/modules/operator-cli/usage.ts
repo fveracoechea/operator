@@ -73,7 +73,6 @@ const usage = `Usage: operator --help | --version [--json]
        operator review post | skip | cleanup <pr-url> [--json]
        operator review start <pr-url> [--profile name] [--json]
        operator review next [--json]
-       operator review wait [--timeout seconds] [--all] [--json]
        operator claude hook
        operator opencode hook`;
 

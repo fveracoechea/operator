@@ -508,8 +508,13 @@ export const DeviceState = {
     return reading(paths, (client) => readCoordinationWait(client, target));
   },
   /** Rewrite the scope's stored set, if it has one, under the writer reservation. */
-  changeCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
-    return writing(paths, (client) => changeCoordinationWait(client, target, change));
+  changeCoordinationWait(
+    paths: Paths,
+    target: CoordinationScope,
+    change: SetChange,
+    options?: { initialize?: boolean },
+  ) {
+    return writing(paths, (client) => changeCoordinationWait(client, target, change, options));
   },
   /** Rewrite the stored set of every wait that the session ran, after a change it made. */
   acknowledgeCoordinationWaits(paths: Paths, session: string, change: SetChange) {

@@ -1,8 +1,9 @@
 import { WorkerQuestions } from "../worker-questions/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
+import { timeoutSeconds } from "../../lib/timeout-seconds.ts";
 
-const defaultTimeoutSeconds = 300;
+const defaultTimeoutSeconds = 540;
 
 // The worker's commands take no assignment selector, because its pane is the selector.
 const commands = {
@@ -61,7 +62,7 @@ function authority(value: string | undefined) {
 /** A timeout is whole seconds. An answer names its authority. */
 function shaped(command: Command, values: Record<string, string>) {
   const timeout = values["--timeout"];
-  if (timeout !== undefined && !/^\d{1,5}$/.test(timeout)) return false;
+  if (timeout !== undefined && timeoutSeconds(timeout) === null) return false;
   if (command !== "answer") return true;
   return authority(values["--by"]) !== null;
 }
@@ -111,6 +112,13 @@ export async function runQuestions(
           ? WorkerQuestions.escalate(selected)
           : WorkerQuestions.answer(selected));
   const operation = `question_${parsed.command}`;
-  respond({ operation, result, exitCodes: questionExitCodes, defect: "question_defect", json });
+  respond({
+    operation,
+    result,
+    exitCodes: questionExitCodes,
+    defect: "question_defect",
+    json,
+    compactTimeout: parsed.command === "wait",
+  });
   return true;
 }

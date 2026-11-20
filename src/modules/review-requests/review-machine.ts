@@ -86,19 +86,19 @@ const recovery = {
     why: "Choose an existing request, or add the intended PR before reviewing.",
   },
   review_start_in_progress: {
-    command: "operator review wait",
+    command: "operator next --wait",
     why: "Wait for the reviewer start to finish.",
   },
   review_post_in_progress: {
-    command: "operator review wait",
+    command: "operator next --wait",
     why: "Let the active review post finish without repeating it.",
   },
   review_cleanup_in_progress: {
-    command: "operator review wait",
+    command: "operator next --wait",
     why: "Let the reviewer cleanup finish before continuing.",
   },
   review_reviewer_moving: {
-    command: "operator review wait",
+    command: "operator next --wait",
     why: "Let the active reviewer move finish before continuing.",
   },
   reviewer_work_kept: {
@@ -107,7 +107,7 @@ const recovery = {
       "How should the retained unlanded reviewer work be preserved or removed before cleanup?",
   },
   review_reviewer_started: {
-    command: "operator review wait",
+    command: "operator next --wait",
     why: "The reviewer is already running; observe its progress.",
   },
   review_start_interrupted: {
@@ -115,7 +115,7 @@ const recovery = {
     why: "Read the stopped reviewer's replacement action.",
   },
   review_already_posted: {
-    command: "operator review wait",
+    command: "operator next --wait",
     why: "The review is already posted; wait for a new review event.",
   },
   review_post_interrupted: {
@@ -123,7 +123,7 @@ const recovery = {
     why: "Inspect the recorded review before retrying an interrupted post.",
   },
   review_lease_lost: {
-    command: "operator review wait",
+    command: "operator next --wait",
     why: "Let the process that owns this review request finish.",
   },
   // Stryker disable next-line ObjectLiteral: equivalent: Each command table ends with an unconditional matching rule. The only review_defect refusal is the no-rule fallback, whose conditional and text already have an equivalent comment. This recovery-map entry has no other call site.
@@ -250,7 +250,7 @@ const tables: Record<ReviewCommand, Rule[]> = {
       decide: () =>
         refuse(
           "review_cleanup_in_progress",
-          "The reviewer cleanup of this approved request has not finished. Add the request again after operator review wait or operator review cleanup finishes it.",
+          "The reviewer cleanup of this approved request has not finished. Add the request again after operator next --wait or operator review cleanup finishes it.",
         ),
     },
     // A renewed request reopens a watching request with its reviewer. The approval cleaned up the
@@ -279,7 +279,7 @@ const tables: Record<ReviewCommand, Rule[]> = {
       decide: () =>
         refuse(
           "review_cleanup_in_progress",
-          "The reviewer cleanup of this request has not finished. Start the reviewer after operator review wait or operator review cleanup finishes it.",
+          "The reviewer cleanup of this request has not finished. Start the reviewer after operator next --wait or operator review cleanup finishes it.",
         ),
     },
     // Unlanded work that a cleanup kept stays with the person, so no replacement reuses it.

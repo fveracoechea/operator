@@ -103,7 +103,7 @@ function fetchHead(input: ReviewerLaunch) {
             : Err<Failure>({
                 reason: "review_head_moved",
                 next: {
-                  command: "operator review wait",
+                  command: "operator next --wait",
                   why: "Observe the current PR head before starting its reviewer again.",
                 },
                 state: { expectedHead: input.head, fetchedHead: head },
@@ -339,7 +339,7 @@ export function moveReviewer(input: {
             return Err<Failure>({
               reason: "review_fetch_failed",
               next: {
-                command: "operator review wait",
+                command: "operator next --wait",
                 why: "Retry the failed PR-head fetch before moving the reviewer.",
               },
               detail: `Git could not fetch ${input.to} of PR #${input.number} from ${remote}.`,

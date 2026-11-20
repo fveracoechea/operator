@@ -717,7 +717,7 @@ test("a pending required check or an incomplete check list does not approve", as
     output: {
       reason: "review_ci_pending",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Wait for required CI before posting the approval.",
       },
       state: { pendingChecks: [{ name: "ci", state: "pending" }], checksComplete: true },
@@ -731,7 +731,7 @@ test("a pending required check or an incomplete check list does not approve", as
   expect(await run(["review", "post", url])).toMatchObject({
     output: {
       reason: "review_ci_pending",
-      next: { command: "operator review wait" },
+      next: { command: "operator next --wait" },
       state: { pendingChecks: [], checksComplete: false },
     },
   });

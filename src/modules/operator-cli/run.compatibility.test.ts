@@ -120,18 +120,18 @@ async function extendedRelease(sql = "CREATE TABLE later (value TEXT)", blocker?
   journal.entries.push({
     idx: journal.entries.length,
     version: "6",
-    when: 1795129200000,
-    tag: "0027_later",
+    when: 1795177553071,
+    tag: "0028_later",
     breakpoints: true,
   });
-  await Bun.write(`${folder}/0027_later.sql`, sql);
+  await Bun.write(`${folder}/0028_later.sql`, sql);
   await Bun.write(`${folder}/meta/_journal.json`, JSON.stringify(journal));
   const policy = `${release}/src/modules/device-state/migration-policy.ts`;
   await Bun.write(
     policy,
     (await Bun.file(policy).text()).replace(
       "[1793024341510, []],",
-      `[1793024341510, []],\n    [1795129200000, ${blocker ? JSON.stringify([blocker]) : "[]"}],`,
+      `[1793024341510, []],\n    [1795177553071, ${blocker ? JSON.stringify([blocker]) : "[]"}],`,
     ),
   );
   return `${release}/src/cli.ts`;
@@ -215,6 +215,39 @@ test("startup backfills populated historical handoffs without changing their his
   expect(await run(["--version"])).toMatchObject({ code: 0 });
   expect(db.serialize()).toEqual(beforeRepeat);
   expect(await backups()).toHaveLength(1);
+});
+
+test("the question receipt upgrade preserves the kind migration and historical questions", async () => {
+  await oldDatabase(27);
+  seedHistoricalHandoffs();
+  using db = new Database(`${root}/state/operator/operator.sqlite`);
+  db.exec("PRAGMA foreign_keys = ON");
+  db.exec(
+    "INSERT INTO worker_questions (source_id, assignment, key, launch_id, question, asked_at, state) VALUES ('history', 'done', 'scope', 'launch-done', 'Which scope?', '2026-01-01', 'awaiting_person')",
+  );
+  const history = db.query("SELECT * FROM __drizzle_migrations ORDER BY id").all();
+  const questions = db.query<Record<string, unknown>, []>("SELECT * FROM worker_questions").all();
+  const launches = db.query("SELECT * FROM launches ORDER BY id").all();
+  const assignments = db.query("SELECT * FROM assignments ORDER BY key").all();
+  expect(await run(["--version"])).toMatchObject({ code: 0 });
+  expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 27").all()).toEqual(
+    history,
+  );
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+  expect(db.query("SELECT * FROM worker_questions").all()).toEqual(
+    questions.map((row) => ({ ...row, awaiting_person_seen_at: null })),
+  );
+  expect(db.query("SELECT * FROM launches ORDER BY id").all()).toEqual(launches);
+  expect(db.query("SELECT * FROM assignments ORDER BY key").all()).toEqual(assignments);
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  const copies = await backups();
+  expect(copies).toHaveLength(1);
+  using backup = new Database(`${root}/state/operator/backups/${copies[0]}`, { readonly: true });
+  expect(backup.query("SELECT * FROM worker_questions").all()).toEqual(questions);
+  expect(backup.query("SELECT * FROM __drizzle_migrations ORDER BY id").all()).toEqual(history);
+  const beforeRepeat = db.serialize();
+  expect(await run(["--version"])).toMatchObject({ code: 0 });
+  expect(db.serialize()).toEqual(beforeRepeat);
 });
 
 test("the migration maps in-flight records to kinds from recorded facts only", async () => {
@@ -436,7 +469,7 @@ test.each(["live", "stale", "unowned"] as const)(
     expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 26").all()).toEqual(
       history,
     );
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
     const copies = await backups();
     expect(copies).toHaveLength(1);
     using backup = new Database(`${root}/state/operator/backups/${copies[0]}`, { readonly: true });
@@ -479,7 +512,7 @@ test.each(["live", "stale", "stopped", "unowned"] as const)(
     expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 24").all()).toEqual(
       history,
     );
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
     expect(db.query("SELECT id, state, data FROM stack_operations").all()).toEqual([
       { id: "effect", state: "planned", data: "{}" },
     ]);
@@ -642,7 +675,7 @@ test("skipped releases apply each fixed migration in order with one pre-migratio
   );
   expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
   expect(db.query("SELECT * FROM later").all()).toEqual([{ repository: "example/one" }]);
   expect(await backups()).toHaveLength(1);
 });

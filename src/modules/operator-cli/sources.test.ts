@@ -69,7 +69,7 @@ test("parses only the delivered source and next commands", () => {
     operation: "next_wait",
     sourceId: undefined,
     personInstructed: false,
-    timeoutSeconds: 300,
+    timeoutSeconds: 540,
     all: false,
   });
   expect(sourceArgs(["next", "--timeout", "0", "--all", "--source", "id", "--wait"])).toEqual({
@@ -122,7 +122,7 @@ test.each(
     ["next", "--wait", "--timeout", "--json"],
     ["next", "--wait", "--timeout", "-1"],
     ["next", "--wait", "--timeout", "1.5"],
-    ["next", "--wait", "--timeout", "100000"],
+    ["next", "--wait", "--timeout", "9007199254740992"],
     ["next", "--wait", "--timeout", "1", "--timeout", "2"],
     ["source", "show", "--source", "id", "--wait"],
     ["source", "prune", "--timeout", "1"],
@@ -230,6 +230,7 @@ test("passes a wait to the coordination wait, which names its own result", async
     timeoutSeconds: 12,
     all: false,
     observeParked: expect.any(Function) as unknown,
+    reviewUpkeep: expect.any(Function) as unknown,
   });
   const observeParked =
     called.wait.mock.calls[0]?.[0].observeParked ??
@@ -244,7 +245,10 @@ test("passes a wait to the coordination wait, which names its own result", async
     reason: "next_wait_timed_out",
     blockers: [],
     data: { sources: [] },
-    next: { why: "No next actions to report." },
+    next: {
+      command: "operator next --wait --source 's4' --timeout 12",
+      why: "Nothing changed. Continue the same coordination wait.",
+    },
   });
   called.wait.mockReturnValue(
     ErrAsync({
@@ -261,9 +265,10 @@ test("passes a wait to the coordination wait, which names its own result", async
     paths,
     cwd,
     sourceId: undefined,
-    timeoutSeconds: 300,
+    timeoutSeconds: 540,
     all: true,
     observeParked: expect.any(Function) as unknown,
+    reviewUpkeep: expect.any(Function) as unknown,
   });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "next_wait",

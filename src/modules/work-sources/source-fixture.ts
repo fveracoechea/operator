@@ -223,6 +223,7 @@ export function storedQuestion(
     launchId: `l-${assignment}`,
     question: `Is ${assignment} in scope?`,
     askedAt: "2026-01-03T00:00:00.000Z",
+    awaitingPersonSeenAt: null,
     state: "open",
     answer: null,
     answeredBy: null,

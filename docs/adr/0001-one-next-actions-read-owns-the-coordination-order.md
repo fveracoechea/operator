@@ -7,6 +7,7 @@ Decided in #199, #231, and #233.
 Implemented in #244, and later slices add their actions and waits to the same read.
 Amended 2026-11-11: the same read lists each source's open obligations beside its actions, without counting them as actions (ADR-0026).
 Amended 2026-11-20: assignment rows keep ten actions independent of worker kinds, and every row names its next step (ADR-0031). Decided in #373 and #393.
+Amended 2026-11-20: the coordination wait owns review upkeep and review events, replacing the separate review wait. Decided in #373 and #394.
 
 ## Context
 
@@ -19,7 +20,8 @@ PR ownership and report acceptance needed one answer about what could run next.
 One read of next actions owns the coordination order.
 The same recorded state and observed facts give the same applicable actions and waits.
 The CLI reports ready assignments, questions, reports awaiting acceptance, parked PR changes, interrupted workers, worker attention, cleanup, person decisions, waits, and ended assignments.
-Review waits also report the applicable review actions.
+The coordination wait also runs review upkeep and reports new review actions and events with their next steps.
+Operator has no Slack transport.
 Agents invoke the named CLI operations rather than keep a separate schedule or perform the CLI's mechanical steps themselves.
 
 Assignment rows keep these ten actions because worker kinds govern work inside a launch, not the SuperAgent's decisions:
@@ -64,4 +66,4 @@ The SuperAgent supplies the coordination judgment and obtains the person's decis
 - Treating a host completion event as accepted work was rejected because it proves neither a durable report nor a verified merge.
 - Per-kind coordination actions were rejected because they make the SuperAgent reconstruct each worker's phases.
 
-Related: ADR-0003, declarative machines provide the workflow states; ADR-0010, PR owners follow the feedback loop; ADR-0013, report acceptance is distinct from worker activity; ADR-0015, review waits own review operations; ADR-0006, next actions apply a plan's running cap; ADR-0022, the SuperAgent's coordination wait returns this read; ADR-0028, the wait returns only its new actions.
+Related: ADR-0003, declarative machines provide the workflow states; ADR-0010, PR owners follow the feedback loop; ADR-0013, report acceptance is distinct from worker activity; ADR-0015, review requests own review operations; ADR-0006, next actions apply a plan's running cap; ADR-0022, the SuperAgent's coordination wait returns this read; ADR-0028, the wait returns only its new actions.

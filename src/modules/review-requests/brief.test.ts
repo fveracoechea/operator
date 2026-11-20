@@ -101,5 +101,5 @@ test("each trigger has its words, and a request names its origin", () => {
 test("the brief never tells the reviewer to message its SuperAgent, which reads the recorded post", () => {
   const brief = renderReviewerBrief(input);
   expect(superAgentMessages(brief)).toEqual([]);
-  expect(brief).toContain("`operator review wait` returns it");
+  expect(brief).toContain("`operator next --wait` returns it");
 });
