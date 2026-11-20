@@ -221,7 +221,7 @@ test.each([
     ).toBe(0);
     using db = new Database(`${root}/state/operator/operator.sqlite`);
     db.exec(
-      "DELETE FROM __drizzle_migrations WHERE created_at = (SELECT MAX(created_at) FROM __drizzle_migrations); UPDATE assignments SET state = 'pr-open', kind = NULL",
+      "ALTER TABLE worker_questions DROP COLUMN awaiting_person_seen_at; DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000; UPDATE assignments SET state = 'pr-open', kind = NULL",
     );
     db.query(
       "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at, ended_at, worktree_path, herdr_socket) VALUES ('historical', ?, 'old', 1, 'interrupted', 'historical', 'worktree', 'task/old', 'opencode', 'test/reasoner', 'test/reasoner', 'medium', '{}', '[]', 'then', 'later', ?, ?)",
