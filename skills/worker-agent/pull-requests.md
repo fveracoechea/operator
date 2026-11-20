@@ -59,6 +59,7 @@ It also requires the default branch as base, a non-draft PR, a finished stack re
 A wait result or a supervisor's message does not replace these checks.
 
 - `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Send no message about the merge. Your SuperAgent's coordination wait shows the ended assignment or the cleanup it still owes.
+- `pr_enqueued`: GitHub confirms queue membership for the guarded head. Operator parks the assignment and ends your launch. The worktree remains until a batch verifies the merge. Follow `next`.
 
 If your wait command is killed, run it again. Your SuperAgent sees a stopped wait until you do.
 

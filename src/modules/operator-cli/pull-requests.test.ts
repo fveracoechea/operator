@@ -47,6 +47,12 @@ function spies() {
 test("parses owner and cleanup commands", () => {
   expect(pullRequestArgs(["pr", "associate", "--json"])).toEqual({ operation: "pr_associate" });
   expect(pullRequestArgs(["pr", "merge"])).toEqual({ operation: "pr_merge" });
+  expect(pullRequestArgs(["pr", "merge", "--json"])).toEqual({ operation: "pr_merge" });
+  expect(pullRequestArgs(["pr", "merge", "--source", "s", "--assignment", "a"])).toEqual({
+    operation: "pr_merge",
+    sourceId: "s",
+    assignment: "a",
+  });
   expect(pullRequestArgs(["pr", "wait"])).toEqual({ operation: "pr_wait", timeoutSeconds: 540 });
   expect(pullRequestArgs(["pr", "wait", "--note", "-"])).toEqual({
     operation: "pr_wait",
@@ -81,6 +87,7 @@ test.each([
   [["pr", "close"]],
   [["pr", "merge", "--json", "--json"]],
   [["pr", "associate", "--timeout", "5"]],
+  [["pr", "associate", "--source", "s", "--assignment", "a"]],
   [["pr", "wait", "--timeout"]],
   [["pr", "wait", "--timeout", "x5"]],
   [["pr", "wait", "--timeout", "5x"]],
@@ -90,6 +97,11 @@ test.each([
   [["pr", "wait", "--note", "--json"]],
   [["pr", "wait", "--note", "one", "--note", "two"]],
   [["pr", "merge", "--note", "one"]],
+  [["pr", "merge", "--other"]],
+  [["pr", "merge", "--source", "s"]],
+  [["pr", "merge", "--assignment", "a"]],
+  [["pr", "merge", "--source", "s", "--assignment", "a", "--person-instructed"]],
+  [["pr", "merge", "--source", "s", "--assignment", "a", "--source", "t"]],
   [["pr", "wait", "--source", "s"]],
   [["cleanup"]],
   [["cleanup", "--source", "s"]],
@@ -142,13 +154,24 @@ test("passes each command to the matching pull request operation", async () => {
     personInstructed: true,
   });
   await runPullRequests(["pr", "merge"], paths, true);
-  expect(called.merge).toHaveBeenCalledWith({ paths, cwd });
+  expect(called.merge.mock.calls).toStrictEqual([[{ paths, cwd }]]);
   await runPullRequests(["pr", "associate"], paths, true);
   expect(called.associate).toHaveBeenCalledWith({ paths, cwd });
   await runPullRequests(["pr", "wait", "--timeout", "12"], paths, true);
   expect(called.wait).toHaveBeenCalledWith({ paths, cwd, timeoutSeconds: 12 });
   for (const spy of [called.cleanup, called.merge, called.associate, called.wait])
     expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test("a scoped merge passes both selectors to the same guarded operation", async () => {
+  const called = spies();
+  quiet();
+  await runPullRequests(["pr", "merge", "--source", "s", "--assignment", "a"], paths, true);
+  expect(called.merge.mock.calls).toStrictEqual([
+    [{ paths, cwd: process.cwd(), sourceId: "s", assignment: "a" }],
+  ]);
+  expect(called.associate).not.toHaveBeenCalled();
+  expect(called.wait).not.toHaveBeenCalled();
 });
 
 test("routes an authorized internal review skip without invoking recovery or PR operations", async () => {

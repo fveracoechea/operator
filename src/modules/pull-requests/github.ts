@@ -30,7 +30,7 @@ const comment = z.object({
 });
 
 const pullRequestFields = `
-      state isDraft baseRefName headRefName headRefOid reviewDecision
+      state isDraft baseRefName headRefName headRefOid reviewDecision mergeQueueEntry { id }
       mergeCommit { oid }
       reviews(first: 100) { pageInfo { hasNextPage endCursor } nodes { id state body url updatedAt author { login } } }
       comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { id body url updatedAt author { login } } }
@@ -68,6 +68,7 @@ const pullRequestAnswer = z.object({
         isDraft: z.boolean(),
         reviewDecision: z.string().nullable(),
         mergeCommit: z.object({ oid: z.string() }).nullable(),
+        mergeQueueEntry: z.object({ id: z.string() }).nullable(),
         reviews: z.object({
           pageInfo: pageInfo.optional(),
           nodes: z.array(comment.extend({ state: z.string() })),
@@ -197,6 +198,7 @@ export type Check = {
   generation?: string;
 };
 export type Observation = {
+  queueEntry?: string | null;
   state: "OPEN" | "MERGED" | "CLOSED";
   head: string;
   mergeCommit: string | null;
@@ -363,7 +365,7 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
   const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts ?? null;
   const contexts = rollup?.nodes ?? [];
   const threads = pr.reviewThreads;
-  return {
+  const observed: Observation = {
     state: pr.state,
     head: pr.headRefOid,
     mergeCommit: pr.mergeCommit?.oid ?? null,
@@ -414,6 +416,8 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
       return check;
     }),
   };
+  observed.queueEntry = pr.mergeQueueEntry === null ? null : pr.mergeQueueEntry.id;
+  return observed;
 }
 
 export function observePullRequest(repository: string, number: number) {
@@ -994,6 +998,92 @@ export function markReady(id: string) {
         detail: errors.map((error) => error.message).join(" ") || "The PR stayed a draft.",
         next: effectRecovery,
         state: { readyConfirmed: false },
+      });
+    return Ok(undefined);
+  });
+}
+
+const mergeQueueQuery = `query MergeQueueFacts($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { id state headRefOid isMergeQueueEnabled mergeQueueEntry { id } }
+  }
+}`;
+const mergeQueueAnswer = z.object({
+  data: z.object({
+    repository: z.object({
+      pullRequest: z.object({
+        id: z.string(),
+        state: z.enum(["OPEN", "MERGED", "CLOSED"]),
+        headRefOid: z.string(),
+        isMergeQueueEnabled: z.boolean(),
+        mergeQueueEntry: z.object({ id: z.string() }).nullable(),
+      }),
+    }),
+  }),
+});
+
+/** Queue policy and membership are observed independently of any earlier enqueue response. */
+export function readMergeQueue(repository: string, number: number) {
+  return query(
+    ["-f", `query=${mergeQueueQuery}`, ...repositoryFields(repository), "-F", `number=${number}`],
+    mergeQueueAnswer,
+  ).map(({ data }) => ({
+    id: data.repository.pullRequest.id,
+    state: data.repository.pullRequest.state,
+    head: data.repository.pullRequest.headRefOid,
+    enabled: data.repository.pullRequest.isMergeQueueEnabled,
+    entry: data.repository.pullRequest.mergeQueueEntry?.id ?? null,
+  }));
+}
+
+const enqueueMutation = `mutation EnqueuePR($id: ID!, $head: GitObjectID!) {
+  enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) { mergeQueueEntry { id } }
+}`;
+const enqueueAnswer = z.object({
+  data: z
+    .object({ enqueuePullRequest: z.object({ mergeQueueEntry: z.object({ id: z.string() }) }) })
+    .nullable(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+type EnqueueFailure = ResultContext & {
+  reason: "github_failed" | "github_uncertain" | "pr_enqueue_refused";
+  detail: string;
+};
+
+/** Pin the enqueue to the same head that passed the merge gate. The caller verifies membership. */
+export function enqueuePullRequest(id: string, head: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["graphql", "-f", `query=${enqueueMutation}`, "-f", `id=${id}`, "-f", `head=${head}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, EnqueueFailure> => {
+    if (answer.status !== "succeeded")
+      return Err({
+        reason: answer.status === "failed" ? "github_failed" : "github_uncertain",
+        detail: answer.detail,
+        next: effectRecovery,
+      });
+    const parsed = enqueueAnswer.safeParse(answer.value.body);
+    if (!parsed.success)
+      return Err({
+        reason: "github_uncertain",
+        detail:
+          "GitHub did not describe the enqueue response. Read queue membership before another request.",
+        next: effectRecovery,
+      });
+    if (parsed.data.data === null || (parsed.data.errors?.length ?? 0) > 0)
+      return Err({
+        reason: "pr_enqueue_refused",
+        detail:
+          parsed.data.errors?.map((error) => error.message).join(" ") ??
+          "GitHub refused the enqueue.",
+        next: {
+          decider: "person",
+          question: "Which GitHub queue restriction must be resolved before this PR can enqueue?",
+        },
       });
     return Ok(undefined);
   });
