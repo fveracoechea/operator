@@ -199,6 +199,22 @@ test("bundled skills use result next steps and retain their authority limits", a
   expect(reviews).toContain("Operator schedules no Slack reads.");
   expect(reviews).not.toContain("slack-drop");
   expect(reviews).not.toContain("## Refusals");
+  const prs = await Bun.file(path.join(repository, "skills/super-agent/pull-requests.md")).text();
+  expect(prs).toContain("`clean_up` with `pr_closed`: run the row's `operator abandon` command.");
+  const delegation = await Bun.file(
+    path.join(repository, "skills/super-agent/delegation.md"),
+  ).text();
+  expect(delegation).not.toContain("- A closed PR,");
+  expect(delegation).toContain(
+    "For the assignment's own closed PR, follow `clean_up` with `pr_closed` to `operator abandon` without a person stop.",
+  );
+  expect(delegation).toContain("Abandon deletes no worktree or branch.");
+  expect(delegation).toContain(
+    "- A missing PR worktree, and a parent PR that closed or merged outside the default branch.",
+  );
+  expect(delegation).toContain(
+    "`person_decision` with `cleanup_unlanded_work`, and its deletion with `cleanup --person-instructed`. Only the person can delete work that did not land.",
+  );
   const draft = await Bun.file(path.join(repository, "skills/pr-review/draft.md")).text();
   expect(draft).toContain("An approval waits until every required check has finished.");
   expect(draft).not.toContain("review_ci_pending");
