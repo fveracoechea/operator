@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, notInArray } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import {
   projects,
   pullRequests,
   sources,
+  stackOperations,
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
@@ -24,6 +25,7 @@ export type PullRequestFailure =
   | (RefusalContext & {
       reason:
         | "pr_owner_inactive"
+        | "stack_incomplete"
         | "pr_already_associated"
         | "pr_owned_elsewhere"
         | "pr_not_associated"
@@ -97,7 +99,7 @@ export function worktreeOwners(client: Database) {
  * Every PR write checks again that this launch is the running latest start of an open PR
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
-export function activeOwner(db: Db, launchId: string) {
+export function activeOwner(db: Db, launchId: string, allowStack = false, allowStarting = false) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
     .from(launches)
@@ -123,7 +125,8 @@ export function activeOwner(db: Db, launchId: string) {
           )
           .get();
   if (
-    owner?.launch.state !== "running" ||
+    owner === undefined ||
+    !(allowStarting ? ["starting", "running"] : ["running"]).includes(owner.launch.state) ||
     newer !== undefined ||
     owner.source.state !== "open" ||
     owner.assignment.completion !== "pr" ||
@@ -135,6 +138,28 @@ export function activeOwner(db: Db, launchId: string) {
       detail:
         "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
     });
+  if (!allowStack) {
+    const operation = db
+      .select()
+      .from(stackOperations)
+      .where(
+        and(
+          eq(stackOperations.sourceId, owner.source.id),
+          eq(stackOperations.assignment, owner.assignment.key),
+          notInArray(stackOperations.state, ["complete", "cancelled"]),
+        ),
+      )
+      .get();
+    if (operation !== undefined)
+      return Err<PullRequestFailure>({
+        reason: "stack_incomplete",
+        detail: `Stack operation ${operation.id} must finish before another PR operation.`,
+        next: {
+          command: `operator pr stack apply --plan ${operation.id}`,
+          why: "Resume the pinned stack operation before review, relay, or merge.",
+        },
+      });
+  }
   return Ok(owner);
 }
 

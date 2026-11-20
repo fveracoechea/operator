@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, or, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
@@ -11,6 +11,7 @@ import {
   projects,
   pullRequests,
   sources,
+  stackOperations,
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { activeOwner, type PullRequestFailure } from "./pull-requests.ts";
@@ -128,6 +129,26 @@ export function claimHandoff(
           detail: `Assignment ${assignment} has no internal review. Only the association of a draft PR records one. Nothing was changed.`,
         });
       const { review, implementer } = recorded;
+      const stack = db
+        .select()
+        .from(stackOperations)
+        .where(
+          and(
+            eq(stackOperations.sourceId, sourceId),
+            eq(stackOperations.assignment, assignment),
+            notInArray(stackOperations.state, ["complete", "cancelled"]),
+          ),
+        )
+        .get();
+      if (stack !== undefined)
+        return Err({
+          reason: "handoff_running",
+          detail: "The stack must finish before a fresh reviewer can start.",
+          next: {
+            command: `operator pr stack apply --plan ${stack.id}`,
+            why: "Complete the pinned integration before handing off its review.",
+          },
+        });
       const facts = { implementer, latest, checkout: project.checkout };
       if (review.handoffState === "done") return Ok({ review, ...facts });
       // The association holds the handoff until it records the process that it started, and
@@ -170,7 +191,7 @@ export function startHandoff(client: Database, sourceId: string, assignment: str
         .where(
           and(
             key(sourceId, assignment),
-            eq(internalReviews.ownerPid, process.pid),
+            or(eq(internalReviews.ownerPid, process.pid), isNull(internalReviews.ownerPid)),
             eq(internalReviews.handoffState, "pending"),
           ),
         )

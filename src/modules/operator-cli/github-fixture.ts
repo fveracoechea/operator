@@ -219,6 +219,12 @@ if (args.includes("PATCH")) {
   (state.updated ??= []).push({ id: comment.id, body: comment.body });
   await save();
   answer({ data: { updateIssueComment: { issueComment: { id: comment.id } } } });
+} else if (query.includes("convertPullRequestToDraft")) {
+  const pr = state.pulls.find((row) => "PR_" + row.number === field("id"));
+  pr.isDraft = true;
+  (state.drafted ??= []).push(pr.number);
+  await save();
+  answer({ data: { convertPullRequestToDraft: { pullRequest: { isDraft: true } } } });
 } else if (query.includes("markPullRequestReadyForReview")) {
   const pr = state.pulls.find((row) => "PR_" + row.number === field("id"));
   (state.readied ??= []).push(pr.number);
@@ -233,7 +239,7 @@ if (args.includes("PATCH")) {
   if (change) state.pulls[index] = { ...state.pulls[index], ...change };
   await save();
   const pr = state.pulls[index];
-  answer({ data: { repository: { pullRequest: { state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefOid: headOf(pr) } } } });
+  answer({ data: { repository: { pullRequest: { state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefOid: headOf(pr), headRefName: pr.headRefName, headRepository: { nameWithOwner: pr.headRepository } } } } });
 } else {
   const number = Number(field("number"));
   const index = state.pulls.findIndex((pr) => pr.number === number);

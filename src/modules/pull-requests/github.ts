@@ -667,6 +667,47 @@ const readyMutation = `mutation($id: ID!) {
   markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } }
 }`;
 
+/** A stack rewrite cannot leave a ready PR advertised with evidence for its old ancestry. */
+export function markDraft(id: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: [
+          "graphql",
+          "-f",
+          "query=mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { isDraft } } }",
+          "-f",
+          `id=${id}`,
+        ],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<void, GithubReadFailure> => {
+    if (answer.status !== "succeeded")
+      return Err({
+        reason: "github_uncertain",
+        detail: "The PR draft transition is unconfirmed. Inspect the PR before changing its head.",
+        next: effectRecovery,
+      });
+    const parsed = z
+      .object({
+        data: z.object({
+          convertPullRequestToDraft: z.object({
+            pullRequest: z.object({ isDraft: z.literal(true) }),
+          }),
+        }),
+      })
+      .safeParse(answer.value.body);
+    return parsed.success
+      ? Ok(undefined)
+      : Err({
+          reason: "github_uncertain",
+          detail: "GitHub did not confirm the PR as a draft.",
+          next: effectRecovery,
+        });
+  });
+}
+
 const readyMutationAnswer = z.object({
   data: z
     .object({

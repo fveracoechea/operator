@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PrStacks } from "../pr-stacks/main.ts";
 import type { DeviceState } from "../device-state/main.ts";
 import { storedPlanSchema } from "./plan.ts";
 import { assignmentStateSchema, type AssignmentState } from "./assignment-machine.ts";
@@ -10,6 +11,12 @@ type StoredSource = Extract<
   ReturnType<typeof DeviceState.readSources>,
   { tag: "Ok" }
 >["value"][number];
+type StackOperation = Omit<NonNullable<StoredSource["stackOperations"]>[number], "data"> & {
+  data: ReturnType<typeof PrStacks.operation>;
+};
+type StackBase = Omit<NonNullable<StoredSource["stackBases"]>[number], "data"> & {
+  data: ReturnType<typeof PrStacks.decode>;
+};
 
 const launchSchema = z.object({
   id: z.string(),
@@ -399,6 +406,87 @@ function promotionsValid(
   );
 }
 
+function stackIdentity(row: StackOperation, source: { id: string; repository: string }) {
+  const plan = row.data;
+  const state =
+    plan.step === "complete" || plan.step === "cancelled"
+      ? plan.step
+      : plan.blocker === null
+        ? "planned"
+        : "blocked";
+  return (
+    row.state === state &&
+    Number.isInteger(row.revision) &&
+    row.revision > 0 &&
+    row.sourceId === source.id &&
+    plan.sourceId === source.id &&
+    plan.repository === source.repository &&
+    row.id === plan.id &&
+    row.assignment === plan.assignment &&
+    row.launchId === plan.launchId
+  );
+}
+
+function stackRecordsValid(source: {
+  id: string;
+  repository: string;
+  launches: Launch[];
+  pullRequests: PullRequest[];
+  stackOperations: StackOperation[];
+  stackBases: StackBase[];
+}) {
+  const launches = new Map(source.launches.map((row) => [row.id, row]));
+  const pulls = new Map(source.pullRequests.map((row) => [row.assignment, row]));
+  function owned(row: { sourceId: string; assignment: string; launchId: string; branch?: string }) {
+    const launch = launches.get(row.launchId);
+    return (
+      row.sourceId === source.id &&
+      launch?.assignment === row.assignment &&
+      (row.branch === undefined || launch.branch === row.branch)
+    );
+  }
+  function parentsValid(parents: ReturnType<typeof PrStacks.decode>["parents"]) {
+    return parents.every((parent) => {
+      const pr = pulls.get(parent.assignment);
+      return pr?.number === parent.number && pr.branch === parent.branch;
+    });
+  }
+  return (
+    source.stackBases.every((row) => owned(row) && parentsValid(row.data.parents)) &&
+    source.stackOperations.every((row) => {
+      const pr = pulls.get(row.assignment);
+      return (
+        stackIdentity(row, source) &&
+        owned({ ...row, branch: row.data.branch }) &&
+        pr?.number === row.data.number &&
+        parentsValid(row.data.parents)
+      );
+    })
+  );
+}
+
+function decodeStacks(input: StoredSource) {
+  return {
+    stackOperations: (input.stackOperations ?? []).map((row) => ({
+      ...row,
+      data: PrStacks.operation(row.data),
+    })),
+    stackBases: (input.stackBases ?? []).map((row) => ({
+      ...row,
+      data: PrStacks.decode(row.data),
+    })),
+  };
+}
+
+function sourceStateValid(source: { state: string; assignments: AssignmentState[] }) {
+  const expected = decideSource({ state: "open", assignments: source.assignments });
+  return source.state === "reset"
+    ? source.assignments.every((assignment) =>
+        ["merged", "completed", "abandoned"].includes(assignment.state),
+      )
+    : source.state === expected;
+}
+
 export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
@@ -414,6 +502,7 @@ export function decodeSource(input: StoredSource) {
     questions: z.array(questionSchema).parse(input.questions),
     messages: z.array(messageSchema).parse(input.messages),
     obligations: z.array(obligationSchema).parse(input.obligations),
+    ...decodeStacks(input),
   };
   const promotions = z.array(promotionSchema).parse(input.promotions);
   const assignments = withPromotions(source.plan, promotions);
@@ -421,13 +510,7 @@ export function decodeSource(input: StoredSource) {
     source.trackerKey === source.plan.trackerKey &&
     sameAssignments(source.assignments, assignments);
   const validPromotions = promotionsValid(source, promotions);
-  const expected = decideSource({ state: "open", assignments: source.assignments });
-  const validState =
-    source.state === "reset"
-      ? source.assignments.every((assignment) =>
-          ["merged", "completed", "abandoned"].includes(assignment.state),
-        )
-      : source.state === expected;
+  const validState = sourceStateValid(source);
   // A launch always belongs to an assignment that left the ready state.
   const validLaunches = source.launches.every((launch) =>
     source.assignments.some((row) => row.key === launch.assignment && row.state !== "ready"),
@@ -465,6 +548,7 @@ export function decodeSource(input: StoredSource) {
     validLaunches &&
     validPullRequests &&
     validRecords(source) &&
+    stackRecordsValid(source) &&
     validMerges &&
     validState &&
     (source.state === "open" ? source.endedAt === null : source.endedAt !== null);

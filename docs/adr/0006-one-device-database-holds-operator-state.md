@@ -2,6 +2,8 @@
 
 ## Status
 
+Amended 2026-11-17 in #422: stack effects keep durable pinned progress and refuse uncertain cross-system recovery.
+
 Accepted - 2026-10-24.
 Decided in #204, #208, #231, and #232.
 Implemented in #240, with automatic compatibility in #245.
@@ -25,6 +27,10 @@ Briefs and larger supporting content remain device-state files, not separate wor
 Each mutation uses one immediate transaction, and reads use a consistent snapshot.
 Writes across projects serialize, but no external tool or network call runs while a state transaction holds the write lock.
 A busy timeout produces a definite failure rather than a partial write.
+Git, GitHub, and SQLite do not form one transaction.
+Stack operations claim their owned resources and record progress around each external effect.
+Exact-head branch leases prevent stale pushes; PR-base changes require revalidation and read-back without a claim of cross-system atomicity.
+An uncertain effect remains incomplete until observation establishes its outcome.
 SQLite uses full synchronization explicitly.
 
 A damaged database is never silently repaired or replaced.

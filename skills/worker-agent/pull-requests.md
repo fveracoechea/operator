@@ -27,6 +27,8 @@ A PR merged elsewhere still needs verification through the guarded merge.
 
 ## Stacked PRs
 
+For changed OPEN prerequisites, rewritten parents, or an implemented sibling prerequisite, read [managed-stacks.md](managed-stacks.md).
+
 Operator owns a stack of PRs. The relay rebases, pushes, and changes the base after a parent merges, and `operator pr merge` merges.
 Use `gh stack view --json` only to read a stack. Run no other `gh stack` command, also when the `gh-stack` skill loads.
 

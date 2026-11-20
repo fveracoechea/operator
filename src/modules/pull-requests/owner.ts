@@ -171,12 +171,17 @@ async function find(paths: Paths, cwd: string, owners: Owners): Promise<Owner | 
       };
 }
 
-export function resolveOwner(input: { paths: Paths; cwd: string }) {
+export function resolveOwner(input: { paths: Paths; cwd: string; stackOperation?: boolean }) {
   return DeviceState.worktreeOwners(input.paths)
     .toAsync()
     .flatMap((owners) =>
       fromPromise(() => find(input.paths, input.cwd, owners), qualify).flatMap((found) =>
         "reason" in found ? Err(found) : Ok(found),
       ),
+    )
+    .flatMap((owner) =>
+      input.stackOperation === true
+        ? Ok(owner)
+        : DeviceState.stackIdle(input.paths, owner.launchId).as(owner),
     );
 }
