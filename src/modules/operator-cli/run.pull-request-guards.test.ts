@@ -107,7 +107,7 @@ test.each([
     file: "pull-requests/wait-machine.ts",
     replacements: [
       [
-        'check.state === "failing" &&\n      !progress.failures.includes(failureKey(observed.head, check)) &&\n      !progress.failures.includes(`${observed.head}:${check.name}`)',
+        `check.state === "failing" &&\n      !progress.failures.includes(failureKey(observed.head, check)) &&\n      !progress.failures.includes(\`\${observed.head}:\${check.name}\`)`,
         'check.state === "failing"',
       ],
     ],

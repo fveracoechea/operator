@@ -229,7 +229,7 @@ test("passes a wait to the coordination wait, which names its own result", async
     sourceId: "s4",
     timeoutSeconds: 12,
     all: false,
-    observeParked: expect.any(Function),
+    observeParked: expect.any(Function) as unknown,
   });
   const observeParked =
     called.wait.mock.calls[0]?.[0].observeParked ??
@@ -263,7 +263,7 @@ test("passes a wait to the coordination wait, which names its own result", async
     sourceId: undefined,
     timeoutSeconds: 300,
     all: true,
-    observeParked: expect.any(Function),
+    observeParked: expect.any(Function) as unknown,
   });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "next_wait",
