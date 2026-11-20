@@ -149,7 +149,13 @@ test.each(["implementation", "review", "pr-feedback"])(
           reason,
         })),
     ).toEqual([{ kind: null, action: "ready_assignment", reason: "assignment_ready" }]);
-    const filled = await WorkerDispatch.dispatch({ ...device.request, kind: "implementation" });
+    const filled = await WorkerDispatch.dispatch({
+      paths: device.paths,
+      cwd: device.checkout,
+      sourceId: device.request.sourceId,
+      assignment: "adopted",
+      kind: "implementation",
+    });
     expect(filled).toMatchObject({
       tag: "Ok",
       value: { branch, kind: { name: "implementation" } },
