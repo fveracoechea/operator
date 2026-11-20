@@ -1,4 +1,5 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { OkAsync } from "unthrown";
 import { GithubApi } from "../github-api/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -123,6 +124,44 @@ test("an adopted ready PR starts on its own branch at the PR head, with no inter
   expect(brief).not.toContain("Open one PR");
   expect(brief).toContain("Internal review: `off`");
 });
+
+test.each(["implementation", "review", "pr-feedback"])(
+  "a null-kind unassociated adoption fills implementation despite its historical %s plan kind",
+  async (kind) => {
+    await using device = await adoptionDevice();
+    using db = new Database(device.paths.database);
+    db.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(device.request.sourceId);
+    db.query(
+      "UPDATE sources SET plan = json_set(plan, '$.assignments[0].kind', ?) WHERE id = ?",
+    ).run(kind, device.request.sourceId);
+    const plan = db.query("SELECT plan FROM sources WHERE id = ?").get(device.request.sourceId);
+    expect(db.query("SELECT * FROM pull_requests").all()).toEqual([]);
+    const next = await WorkSources.next(device.request);
+    expect(next.tag).toBe("Ok");
+    if (next.tag !== "Ok") expect.unreachable("The null adoption must be readable.");
+    expect(
+      next.value.sources
+        .flatMap((row) => row.actions)
+        .filter((row) => "assignment" in row && row.assignment === "adopted")
+        .map(({ action, reason, ...row }) => ({
+          kind: "kind" in row ? row.kind : undefined,
+          action,
+          reason,
+        })),
+    ).toEqual([{ kind: null, action: "ready_assignment", reason: "assignment_ready" }]);
+    const filled = await WorkerDispatch.dispatch({ ...device.request, kind: "implementation" });
+    expect(filled).toMatchObject({
+      tag: "Ok",
+      value: { branch, kind: { name: "implementation" } },
+    });
+    expect(await device.launches()).toMatchObject([
+      { kind: { name: "implementation" }, internalReview: false },
+    ]);
+    expect(db.query("SELECT plan FROM sources WHERE id = ?").get(device.request.sourceId)).toEqual(
+      plan,
+    );
+  },
+);
 
 test("an adopted draft keeps internal review, so its owner associates the draft for a reviewer", async () => {
   await using device = await adoptionDevice({ draft: true });
