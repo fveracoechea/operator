@@ -294,7 +294,12 @@ test.each(["both", "local", "remote"])(
       }).tag,
     ).toBe("Ok");
     if (change !== "remote") git(worktree, "commit", "--allow-empty", "-qm", "Changed head");
-    const remote = change === "local" ? head : "new-remote-head";
+    const remote =
+      change === "local"
+        ? head
+        : change === "both"
+          ? git(worktree, "rev-parse", "HEAD")
+          : "new-remote-head";
     device.answer(() => succeeded(pullRequestBody({ head: remote, queueEnabled: true })));
     const before = device.pullRequestRow("other");
     expect(
