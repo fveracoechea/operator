@@ -76,9 +76,10 @@ export function printRefusal(
   reason: string,
   detail: string,
   context: ResultContext | ResultContext[],
+  resolvedWorker: Partial<ResultContext> = outputContext(),
 ) {
   const grouped = Array.isArray(context);
-  const worker = grouped ? outputContext() : { ...outputContext(), ...context };
+  const worker = grouped ? resolvedWorker : { ...resolvedWorker, ...context };
   printResolvedRefusal(reason, detail, context, worker);
 }
 

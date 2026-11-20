@@ -78,6 +78,7 @@ function reportReadiness(
         )
         .join("; "),
       value.blockers,
+      worker,
     );
   process.exitCode = ready ? 0 : 3;
 }
