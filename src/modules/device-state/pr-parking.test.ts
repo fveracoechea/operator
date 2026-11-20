@@ -125,7 +125,7 @@ test("a committed waking event survives resume and stale batch commits cannot er
   if (row === undefined) return;
   const update = {
     ...target,
-    previous: JSON.stringify(row.parking),
+    previous: row.parkingRaw,
     progress: '{"seen":["C1"],"failures":[],"eligibleHead":null}',
     parking: { ...row.parking, events: ['{"kind":"feedback","id":"C1"}'] },
   };
@@ -163,7 +163,7 @@ test("a raced batch receipt refuses the whole cursor commit without acknowledgin
     finishParkedRead(db, claim?.at ?? "", [
       {
         ...target,
-        previous: JSON.stringify(row.parking),
+        previous: row.parkingRaw,
         progress: "new cursor",
         parking: row.parking,
       },
@@ -176,6 +176,56 @@ test("a raced batch receipt refuses the whole cursor commit without acknowledgin
     progress: '{"seen":[],"failures":[],"eligibleHead":null}',
   });
 });
+
+test.each([false, true])(
+  "a noncanonical parking receipt commits only while its exact raw bytes are unchanged: race %s",
+  (race) => {
+    using db = fixture();
+    const raw =
+      '{\n  "state": "parked", "head": "h", "launchId": "l", "at": "then",\n  "events": [], "note": null\n}';
+    db.query("UPDATE pull_requests SET parking = ?").run(raw);
+    const claim = claimParkedRead(db, Date.now()).getOr(null);
+    const row = claim?.rows[0] ?? expect.unreachable("Missing batch row");
+    expect(row.parkingRaw).toBe(raw);
+    expect(row.parking).toEqual({
+      launchId: "l",
+      head: "h",
+      at: "then",
+      note: null,
+      state: "parked",
+      events: [],
+      parentSeen: false,
+    });
+    const racingRaw = `${raw}\n`;
+    if (race) db.query("UPDATE pull_requests SET parking = ?").run(racingRaw);
+    const before = db.serialize();
+    const progress = '{"seen":["C1"],"failures":[],"eligibleHead":null}';
+    const parking = { ...row.parking, events: ['{"kind":"feedback","id":"C1"}'] };
+    expect(
+      finishParkedRead(db, claim?.at ?? "", [
+        { sourceId: "s", assignment: "a", previous: row.parkingRaw, progress, parking },
+      ]),
+    ).toEqual({ tag: "Ok", value: !race });
+    if (race) {
+      expect(db.serialize()).toEqual(before);
+      expect(db.query("SELECT parking, progress FROM pull_requests").get()).toEqual({
+        parking: racingRaw,
+        progress: '{"seen":[],"failures":[],"eligibleHead":null}',
+      });
+      expect(db.query("SELECT last_read_at FROM parked_pr_reads").get()).toEqual({
+        last_read_at: null,
+      });
+    } else {
+      expect(db.query("SELECT parking, progress FROM pull_requests").get()).toEqual({
+        parking: JSON.stringify(parking),
+        progress,
+      });
+      expect(
+        db.query("SELECT last_read_at, owner_pid, lease_at FROM parked_pr_reads").get(),
+      ).toEqual({ last_read_at: claim?.at, owner_pid: null, lease_at: null });
+    }
+  },
+);
 
 test.each([
   "UPDATE sources SET state = 'reset'",

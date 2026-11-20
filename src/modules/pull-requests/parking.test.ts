@@ -29,7 +29,7 @@ const row: Parameters<typeof parkedObservation>[0] = {
   mergedAt: null,
   relay: null,
   parkingRaw:
-    '{"launchId":"l","head":"h","at":"then","note":null,"state":"parked","events":[],"parentSeen":false}',
+    '{\n  "state": "parked", "head": "h", "launchId": "l", "at": "then",\n  "events": [], "note": null\n}',
   parking: {
     launchId: "l",
     head: "h",
@@ -106,6 +106,23 @@ test("a complete empty batch acknowledges once and releases its lease", async ()
   expect(await observeParked({ paths })).toMatchObject({ tag: "Ok" });
   expect(finish.mock.calls.map((call) => call[2])).toEqual([[], null]);
   expect(github).not.toHaveBeenCalled();
+});
+
+test("a parked observation forwards the exact persisted JSON bytes as its comparison witness", async () => {
+  const update = parkedObservation(row, { observed, parent: null });
+  expect(update.previous).toBe(row.parkingRaw);
+  expect(update.parking).toEqual(row.parking);
+  spyOn(DeviceState, "claimParkedRead").mockReturnValue(Ok({ at: "claim", rows: [row] }));
+  const body = pullRequestBody({ head: "h" });
+  spyOn(GithubApi, "call").mockResolvedValue(
+    succeeded({ data: { viewer: body.data.viewer, r0: body.data.repository } }),
+  );
+  const finish = spyOn(DeviceState, "finishParkedRead").mockReturnValue(Ok(true));
+  expect(await observeParked({ paths })).toMatchObject({ tag: "Ok" });
+  expect(finish).toHaveBeenNthCalledWith(1, paths, "claim", [
+    expect.objectContaining({ sourceId: "s", assignment: "a", previous: row.parkingRaw }),
+  ]);
+  expect(finish).toHaveBeenLastCalledWith(paths, "claim", null);
 });
 
 test.each([true, false])(
