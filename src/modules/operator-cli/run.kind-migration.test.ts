@@ -38,7 +38,7 @@ test.each([false, true])(
     const head = (await device.exec(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
     using db = new Database(`${root}/state/operator/operator.sqlite`);
     db.exec(
-      "DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000; UPDATE assignments SET state = 'pr-open', kind = NULL",
+      "ALTER TABLE worker_questions DROP COLUMN awaiting_person_seen_at; DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000; UPDATE assignments SET state = 'pr-open', kind = NULL",
     );
     expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
       shippedHistory.filter((migration) => migration.created_at < 1795125600000),
