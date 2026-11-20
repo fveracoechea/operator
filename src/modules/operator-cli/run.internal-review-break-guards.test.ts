@@ -252,7 +252,7 @@ test.each([
     file: "pull-requests/internal-review-machine.ts",
     replacements: [["when: (facts) => !facts.personInstructed,", "when: () => false,"]],
     testFile: ready,
-    pattern: "person-instructed skip",
+    pattern: "an internal review skip runs at pr ready",
   },
   {
     name: "merge waits for the ready transition",
