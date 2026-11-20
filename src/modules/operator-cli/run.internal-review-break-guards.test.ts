@@ -42,6 +42,10 @@ test.each([
   },
   {
     name: "clean worktree",
+    phaseBypass: [
+      'worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),',
+      "worktree_clean: true,",
+    ],
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
       [
@@ -62,6 +66,10 @@ test.each([
   },
   {
     name: "handed-off launch refused",
+    phaseBypass: [
+      'event !== undefined &&\n    refusesPrGuard({ guard: "ownership", handedOff: facts.handedOff === true })',
+      'false &&\n    refusesPrGuard({ guard: "ownership", handedOff: facts.handedOff === true })',
+    ],
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
       [
@@ -101,6 +109,7 @@ test.each([
   },
   {
     name: "two rounds",
+    phaseBypass: ['event === "round" &&', 'event === "round" && false &&'],
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
       [
@@ -158,6 +167,10 @@ test.each([
   },
   {
     name: "a ready step refuses an unclean worktree",
+    phaseBypass: [
+      'worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),',
+      "worktree_clean: true,",
+    ],
     file: "pull-requests/internal-review-machine.ts",
     replacements: [
       [
@@ -242,14 +255,16 @@ test.each([
   async (change) => {
     const file = `${root}/src/modules/${change.file}`;
     const original = await Bun.file(file).text();
+    const phaseFile = `${root}/src/modules/worker-kinds/phase-machine.ts`;
+    const phaseOriginal = change.phaseBypass ? await Bun.file(phaseFile).text() : undefined;
     let changed = original;
     for (const [before, after] of change.replacements) {
       expect(original).toContain(before);
-      if (change.behaviorFailure) expect(original.split(before)).toHaveLength(2);
+      if (change.behaviorFailure || change.phaseBypass)
+        expect(original.split(before)).toHaveLength(2);
       changed = changed.replace(before, after);
     }
-    try {
-      await Bun.write(file, changed);
+    async function story() {
       const child = Bun.spawn(
         [
           process.execPath,
@@ -271,6 +286,27 @@ test.each([
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
       ]);
+      return { code, stdout, stderr };
+    }
+    try {
+      if (change.phaseBypass && phaseOriginal !== undefined) {
+        const [before, after] = change.phaseBypass;
+        expect(phaseOriginal.split(before)).toHaveLength(2);
+        await Bun.write(phaseFile, phaseOriginal.replace(before, after));
+        const intact = await story();
+        const output = `${intact.stdout}${intact.stderr}`;
+        console.info(`${change.name} with intact consumer:\n${output}`);
+        expect(intact.code, output).toBe(0);
+        expect(output).toContain(change.pattern);
+        expect(output).toContain(`src/modules/${change.testFile}`);
+        expect(output).toContain("1 pass");
+        expect(output).toContain("0 fail");
+        expect(output).toContain("Ran 1 test across 1 file.");
+        expect(output).not.toContain("(fail)");
+        expect(output).not.toContain("Unhandled error");
+      }
+      await Bun.write(file, changed);
+      const { code, stdout, stderr } = await story();
       expect(code, `${stdout}${stderr}`).toBe(1);
       expect(`${stdout}${stderr}`).toContain("(fail)");
       expect(`${stdout}${stderr}`).toContain(change.pattern);
@@ -298,7 +334,10 @@ test.each([
         expect(output).not.toContain("Unhandled error");
       }
     } finally {
-      await Bun.write(file, original);
+      await Promise.all([
+        Bun.write(file, original),
+        ...(phaseOriginal === undefined ? [] : [Bun.write(phaseFile, phaseOriginal)]),
+      ]);
     }
   },
   180000,
