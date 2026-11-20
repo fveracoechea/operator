@@ -141,7 +141,8 @@ test.each(["published", "timeout", "refused"] as const)(
     const read = spyOn(DeviceState, "readHandoffContinuation").mockImplementation(() => {
       reads++;
       // A second refusal makes a mutant that omits the deadline fail, rather than wait forever.
-      if (outcome === "refused" || (outcome === "timeout" && reads > 1)) return Err(refusal);
+      if (outcome === "refused" || (outcome === "timeout" && reads > 1) || reads > 2)
+        return Err(refusal);
       return Ok({ identity, published: outcome === "published" && reads > 1 });
     });
     const now = spyOn(Date, "now");
@@ -185,6 +186,81 @@ test.each(["published", "timeout", "refused"] as const)(
     expect(claim).not.toHaveBeenCalled();
     expect(close).not.toHaveBeenCalled();
     expect(launch).not.toHaveBeenCalled();
+  },
+);
+
+test.each([false, true])(
+  "a successful dispatch retains its successor with internal continuation=%s",
+  async (internal) => {
+    await using device = await prDevice();
+    const socket = `${device.root}/herdr.sock`;
+    const owner = device.start("parent", { socket });
+    expect(
+      DeviceState.associatePullRequest(
+        device.paths,
+        owner.launchId,
+        {
+          number: 7,
+          url: `https://github.com/${repository}/pull/7`,
+          branch: "task/parent",
+          relay: null,
+        },
+        false,
+        true,
+      ).tag,
+    ).toBe("Ok");
+    expect(DeviceState.startHandoff(device.paths, device.sourceId, "parent", process.pid).tag).toBe(
+      "Ok",
+    );
+    spyOn(Environment, "read").mockReturnValue({
+      ...Environment.read(),
+      HERDR_PANE_ID: "p1",
+      HERDR_SOCKET_PATH: socket,
+    });
+    spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
+    spyOn(WorkerDispatch, "checkHandoff").mockReturnValue(OkAsync(undefined));
+    const close = spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+    // The dispatcher's public result is opaque to this orchestrator. Preserve its identity.
+    const successor = { paneId: "reviewer", assignment: "parent" };
+    const launched = spyOn(WorkerDispatch, "dispatch").mockReturnValue(OkAsync(successor) as never);
+    const exited = Bun.spawn([process.execPath, "-e", ""], { stdout: "ignore", stderr: "ignore" });
+    expect(await exited.exited).toBe(0);
+    const input = {
+      paths: device.paths,
+      cwd: device.checkout,
+      sourceId: device.sourceId,
+      assignment: "parent",
+      ...(internal ? { afterPid: exited.pid } : {}),
+    };
+    expect(await dispatch(input)).toMatchObject({ tag: "Ok", value: successor });
+    expect(close.mock.calls).toEqual([["p1"]]);
+    expect<unknown>(launched.mock.calls).toEqual([
+      [
+        {
+          paths: device.paths,
+          cwd: device.checkout,
+          sourceId: device.sourceId,
+          assignment: "parent",
+          handoff: true,
+          continuation: internal
+            ? {
+                repository,
+                sourceId: device.sourceId,
+                assignment: "parent",
+                outgoingLaunchId: owner.launchId,
+                startedAt: expect.any(String) as unknown,
+                nextKind: "review",
+                pane: "p1",
+                socket,
+              }
+            : undefined,
+        },
+      ],
+    ]);
+    expect(DeviceState.readSources(device.paths, repository, device.sourceId)).toMatchObject({
+      tag: "Ok",
+      value: [{ launches: [{ state: "finished" }] }],
+    });
   },
 );
 

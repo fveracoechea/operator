@@ -16,6 +16,7 @@ import {
   worktreeOwners,
 } from "./pull-requests.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -159,9 +160,36 @@ test("an association holds its handoff, so next never shows it stopped before th
   using db = fixture();
   start(db, "l1", "change", "p1");
   expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
+  expect(db.query("SELECT handoff_state, owner_pid, lease_at FROM internal_reviews").get()).toEqual(
+    {
+      handoff_state: "done",
+      owner_pid: null,
+      lease_at: null,
+    },
+  );
   expect(readSources(db, "owner/one")).toMatchObject({
     tag: "Ok",
     value: [{ internalReviews: [{ handoffState: "pending", handoffRunning: true }] }],
+  });
+});
+
+test("association records the outgoing snapshot's custom successor rather than the legacy review default", () => {
+  using db = fixture();
+  start(
+    db,
+    "l1",
+    "change",
+    "p1",
+    JSON.stringify({ ...WorkerKinds.resolve("implementation"), nextKind: "custom-review" }),
+  );
+  expect(associatePullRequest(db, "l1", pr, false, true).tag).toBe("Ok");
+  expect(readSources(db, "owner/one")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        handoffs: [{ outgoingLaunchId: "l1", nextKind: "custom-review", handoffState: "pending" }],
+      },
+    ],
   });
 });
 
