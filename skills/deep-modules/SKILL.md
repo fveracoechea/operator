@@ -55,6 +55,6 @@ The entry files differ, and [module-shape.md](module-shape.md) lists the set for
 - **Reading environment variables, storing shared data, or owning request, transient or listener-lifecycle state**: [server-state.md](server-state.md).
 - **Designing or reviewing an interface, or deciding whether a module earns its place**: [interface-design.md](interface-design.md).
 - **Writing a test for a module, or for code that uses one**: [module-tests.md](module-tests.md).
-- **Returning a failure as a Result, folding it for the client, or matching its error tags**: [errors-as-values.md](errors-as-values.md).
+- **Defining expected failures, converting dependency failures, or handling failures at a caller or framework boundary**: [errors-as-values.md](errors-as-values.md).
 
 A TanStack Start server function inside a module, with its `$` name, its validator and its envelope, is in the `tanstack-tools` skill, topic `start-server-functions.md`.
