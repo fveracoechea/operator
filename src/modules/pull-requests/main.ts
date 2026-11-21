@@ -1,7 +1,9 @@
 import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import {
   observeParent,
   observePullRequest,
@@ -22,20 +24,20 @@ import {
 import { decideWait, mergeConditions, progressSchema } from "./wait-machine.ts";
 import { merge } from "./merge.ts";
 import { cleanup } from "./cleanup.ts";
-import { decideInternalReview } from "./internal-review-machine.ts";
 import {
-  handoff,
+  dispatch,
+  dispatchPermission,
   owned,
   reviewEnded,
   round,
   startHandoff,
-  worktreeFacts,
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
-import { validate } from "./validation.ts";
+import { recoverReview } from "./internal-review-recovery.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
+import { parkQuietWait, readParkNote, observeParked } from "./parking.ts";
 
-type Request = { paths: Paths; cwd: string };
+type Request = { paths: Paths; cwd: string; parkNote?: string | null };
 type Failure = Refusal;
 
 // GitHub limits API reads, so a wait observes the PR at most twice a minute.
@@ -110,52 +112,27 @@ function stackOf(
 }
 
 /**
- * With internal review on, only a draft whose head the worktree holds, with nothing uncommitted,
- * starts a review. Off, any open PR is recorded as before. ADR-0020.
- */
-function reviewGate(owner: Owner, pr: { draft: boolean; head: string }) {
-  const internalReview = owner.internalReview === true;
-  const facts = internalReview
-    ? worktreeFacts(owner.worktreePath)
-    : OkAsync({ changed: false, localHead: pr.head });
-  return facts.flatMap(({ changed, localHead }) => {
-    const decision = decideInternalReview({
-      event: "associate",
-      internalReview,
-      draft: pr.draft,
-      changed,
-      localHead,
-      prHead: pr.head,
-    });
-    return decision.result === "associate"
-      ? OkAsync(decision.review)
-      : ErrAsync<Failure>(
-          decision.result === "refused"
-            ? decision
-            : // Stryker disable next-line ObjectLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-              {
-                // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                reason: "pr_defect",
-                // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                detail: "The associate event decided no association.",
-                // Stryker disable next-line ObjectLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                next: {
-                  // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                  decider: "super-agent",
-                  // Stryker disable next-line StringLiteral: equivalent: reviewGate calls the pure machine with fixed associate event. It returns associate or refused for all typed facts, so the unexpected-event fallback cannot occur. Ordinary associate refusals remain reachable and require owning tests.
-                  question: "How should the unexpected association decision be investigated?",
-                },
-              },
-        );
-  });
-}
-
-/**
  * The owner opens the PR with its own tools and closing keywords. The CLI only records it.
  * When device settings enable assignment reviews, the same write queues a review request, unless
  * an internal review starts, whose ready transition queues it instead. A new internal review
  * starts its handoff, which ends the implementer's session.
  */
+function associationRecord(
+  owner: Owner,
+  pr: { number: number; url: string; head: string; draft: boolean },
+  relay: Relay | null,
+  readiness: Parameters<typeof DeviceState.associatePullRequest>[2]["readiness"] | null,
+) {
+  const row: Parameters<typeof DeviceState.associatePullRequest>[2] = {
+    number: pr.number,
+    url: pr.url,
+    branch: owner.branch,
+    relay: relay === null ? null : JSON.stringify(relay),
+  };
+  if (readiness !== null) row.readiness = readiness;
+  return row;
+}
+
 function associate(input: Request) {
   return resolveOwner(input).flatMap((owner) =>
     openPullRequests(owner.repository, owner.branch).flatMap((found) => {
@@ -170,7 +147,12 @@ function associate(input: Request) {
           },
           state: { branch: owner.branch, repository: owner.repository, matches: found.length },
         });
-      return reviewGate(owner, pr).flatMap((review) =>
+      return PrEntry.prepare({
+        worktree: owner.worktreePath,
+        internalReview: owner.internalReview === true,
+        draft: pr.draft,
+        head: pr.head,
+      }).flatMap(({ review, readiness }) =>
         DeviceSettings.show(input.paths).flatMap((settings) =>
           parents(input, owner).flatMap((candidates) =>
             stackOf(pr, candidates)
@@ -179,31 +161,27 @@ function associate(input: Request) {
                 DeviceState.associatePullRequest(
                   input.paths,
                   owner.launchId,
-                  {
-                    number: pr.number,
-                    url: pr.url,
-                    branch: owner.branch,
-                    relay: relay === null ? null : JSON.stringify(relay),
-                  },
+                  associationRecord(owner, pr, relay, readiness),
                   settings.data.config.review?.assignments === true && !review,
                   review,
                 )
                   .toAsync()
                   .flatMap(({ changed, row }) =>
-                    (changed && review ? startHandoff(input.paths, owner) : OkAsync(null)).map(
-                      (started) => ({
-                        reason: changed ? "pr_associated" : "pr_unchanged",
-                        data: {
-                          ...summary(owner, pr),
-                          state: "pr-open",
-                          base: pr.base,
-                          stack: stackSummary(row.relay),
-                          internalReview: review
-                            ? { state: "reviewing", handoff: started ?? "recorded" }
-                            : null,
-                        },
-                      }),
-                    ),
+                    (changed && (review || !pr.draft)
+                      ? startHandoff(input.paths, owner)
+                      : OkAsync(null)
+                    ).map((started) => ({
+                      reason: changed ? "pr_associated" : "pr_unchanged",
+                      data: {
+                        ...summary(owner, pr),
+                        state: "pr-open",
+                        base: pr.base,
+                        stack: stackSummary(row.relay),
+                        internalReview: review
+                          ? { state: "reviewing", handoff: started ?? "recorded" }
+                          : null,
+                      },
+                    })),
                   ),
               ),
           ),
@@ -384,34 +362,45 @@ function poll(
   pr: Recorded,
   deadline: number,
 ): AsyncResult<Outcome, Failure> {
-  return observePullRequest(owner.repository, pr.number).flatMap((observed) =>
-    relayStep(input, owner, pr, observed).flatMap((relayed): AsyncResult<Outcome, Failure> => {
-      if (relayed?.kind === "blocked") return ErrAsync(relayed.blocker);
-      if (relayed?.kind === "relayed")
-        return OkAsync({
-          reason: "pr_events_observed",
-          data: {
-            ...summary(owner, pr),
-            head: relayed.head,
-            // The relay pushed a new head on a new base, so no check has reported for it yet,
-            // and the relay counts from the next wait.
-            mergeConditions: mergeConditions(
-              { ...observed, base: relayed.base, checks: [] },
-              { stackRelayed: false, reviewEnded: reviewEnded(owner) },
-            ),
-            events: [
-              {
-                kind: "parent_relayed",
-                parent: relayed.relay.parent,
-                base: relayed.base,
-                head: relayed.head,
-              },
-            ],
-          },
-        });
-      return decideOnce(input, owner, pr, observed, deadline);
-    }),
-  );
+  return observePullRequest(owner.repository, pr.number).flatMap((observed) => {
+    if (!observed.checksComplete)
+      return ErrAsync<Failure>({
+        reason: "pr_checks_unknown",
+        detail: "The complete check set could not be verified. No observation cursors changed.",
+        next: {
+          command: "operator pr wait",
+          why: "Read complete checks before acknowledging this observation.",
+        },
+      });
+    return relayStep(input, owner, pr, observed).flatMap(
+      (relayed): AsyncResult<Outcome, Failure> => {
+        if (relayed?.kind === "blocked") return ErrAsync(relayed.blocker);
+        if (relayed?.kind === "relayed")
+          return OkAsync({
+            reason: "pr_events_observed",
+            data: {
+              ...summary(owner, pr),
+              head: relayed.head,
+              // The relay pushed a new head on a new base, so no check has reported for it yet,
+              // and the relay counts from the next wait.
+              mergeConditions: mergeConditions(
+                { ...observed, base: relayed.base, checks: [] },
+                { stackRelayed: false, reviewEnded: reviewEnded(owner) },
+              ),
+              events: [
+                {
+                  kind: "parent_relayed",
+                  parent: relayed.relay.parent,
+                  base: relayed.base,
+                  head: relayed.head,
+                },
+              ],
+            },
+          });
+        return decideOnce(input, owner, pr, observed, deadline);
+      },
+    );
+  });
 }
 
 function decideOnce(
@@ -440,7 +429,9 @@ function decideOnce(
       const decision = decideWait({ progress: progress(row.progress), observed, ...gates });
       outcome.decision = decision;
       return decision.result === "none"
-        ? null
+        ? decision.progress === undefined
+          ? null
+          : { progress: JSON.stringify(decision.progress), waitState: row.waitState }
         : { progress: JSON.stringify(decision.progress), waitState: decision.result };
     })
       .toAsync()
@@ -452,6 +443,21 @@ function decideOnce(
             data: { ...data, events: reported.events },
           });
         // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
+        if (
+          Date.now() >= deadline &&
+          owner.kind !== null &&
+          WorkerKinds.snapshotSchema().parse(JSON.parse(owner.kind)).name === "pr-feedback"
+        )
+          return parkQuietWait(input, owner, observed).map((parked) => ({
+            reason: parked ? "pr_parked" : "pr_checks_running",
+            data: { ...data, events: [] },
+            next: parked
+              ? {
+                  command: "operator next --wait",
+                  why: "The assignment is parked until a recorded PR change.",
+                }
+              : { command: "operator pr wait", why: "Wait for checks on the pushed head." },
+          }));
         if (Date.now() >= deadline)
           return DeviceState.recordPullRequestWait(input.paths, owner.launchId, (row) => ({
             progress: row.progress,
@@ -473,7 +479,11 @@ function decideOnce(
  * The recorded start clears an earlier timeout, so the SuperAgent sees a timeout only while
  * the owner does not wait again.
  */
-function wait(input: Request & { timeoutSeconds: number }) {
+function wait(input: Request & { timeoutSeconds: number; note?: string }) {
+  return readParkNote(input.note).flatMap((parkNote) => waitWithNote({ ...input, parkNote }));
+}
+
+function waitWithNote(input: Request & { timeoutSeconds: number }) {
   return resolveOwner(input)
     .flatMap(owned)
     .flatMap((owner) =>
@@ -519,15 +529,24 @@ function wait(input: Request & { timeoutSeconds: number }) {
 }
 
 /**
- * PR operations of the owner WorkerAgent, whose worktree is the only assignment selector, and
- * the cleanup that follows a verified merge, which the SuperAgent can repeat after a failure.
+ * Worker-owned PR operations and supervised parked merges share one gate. Cleanup follows a
+ * verified merge, and the SuperAgent can repeat it after a failure.
  */
 export const PullRequests = {
+  /** The canonical validated PR command target, shared with worker-phase guards. */
+  workerTarget(input: Request) {
+    return resolveOwner(input).map(({ repository, sourceId, assignment, launchId }) => ({
+      repository,
+      sourceId,
+      assignment,
+      launchId,
+    }));
+  },
+  recoverReview(input: Parameters<typeof recoverReview>[0]) {
+    return recoverReview(input);
+  },
   merge(input: Parameters<typeof merge>[0]) {
     return merge(input);
-  },
-  validate(input: Parameters<typeof validate>[0]) {
-    return validate(input);
   },
   cleanup(input: Parameters<typeof cleanup>[0]) {
     return cleanup(input);
@@ -535,19 +554,25 @@ export const PullRequests = {
   associate(input: Request) {
     return associate(input);
   },
-  wait(input: Request & { timeoutSeconds: number }) {
+  wait(input: Request & { timeoutSeconds: number; note?: string }) {
     return wait(input);
   },
-  /** The detached handoff of a new internal review, which the SuperAgent can repeat after a failure. */
-  handoff(input: Parameters<typeof handoff>[0]) {
-    return handoff(input);
+  observeParked(input: { paths: Paths }) {
+    return observeParked(input);
+  },
+  /** Starts a worker or resumes the recorded kind handoff without a separate recovery command. */
+  dispatch(input: Parameters<typeof dispatch>[0]) {
+    return dispatch(input);
+  },
+  dispatchPermission(input: Parameters<typeof dispatchPermission>[0]) {
+    return dispatchPermission(input);
   },
   /** Records one internal review round's findings at the reviewer's worktree head. */
   round(input: Request & { file: string }) {
     return round(input);
   },
   /** The reviewer's guarded ready step: one summary comment, the ready mutation, the ready record. */
-  ready(input: Request & { file: string }) {
+  ready(input: Request & { file?: string; note?: string }) {
     return ready(input);
   },
   /** Ends a running internal review on the person's instruction, from the controlling checkout. */

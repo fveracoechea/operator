@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { z } from "zod";
 import { invalidArguments, runUsage, workflowArguments } from "./usage.ts";
+import { withOutputContext } from "./output.ts";
 
 const release = { version: "9.9.9", commit: "abc", artifactIdentity: "sha256:1" };
 
@@ -8,6 +9,31 @@ afterEach(() => {
   mock.restore();
   process.exitCode = 0;
 });
+
+test.each(["--help", "--version"])(
+  "plain worker %s retains text and appends phase recovery",
+  async (flag) => {
+    const output = capture();
+    await withOutputContext(
+      () => ({
+        kind: "research",
+        phase: "investigate",
+        next: { command: "operator report submit --file <file>", why: "Submit." },
+      }),
+      async () => {
+        expect(runUsage([flag], release, false)).toBe(true);
+      },
+    );
+    if (flag === "--help") usageText(output.log.mock.calls[0]?.[0] as string | undefined);
+    else expect(output.log.mock.calls[0]).toEqual(["operator 9.9.9"]);
+    expect(output.log.mock.calls.slice(1)).toEqual([
+      ["kind: research; phase: investigate"],
+      ["next: operator report submit --file <file>"],
+    ]);
+    expect(output.error).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(0);
+  },
+);
 
 function capture() {
   process.exitCode = 9;
@@ -21,11 +47,23 @@ function usageText(text: string | undefined) {
   const usage = String(text).split("\n");
   expect(usage[0]).toBe("Usage: operator --help | --version [--json]");
   expect(usage).toHaveLength(55);
-  expect(usage).toContain("       operator pr merge [--source id --assignment key] [--json]");
-  expect(usage).toContain("       operator pr validate --file path|- [--json]");
   expect(usage).toContain(
-    "       operator web open --url http-or-https-url --person-requested [--json]",
+    "       operator internal-review recover --source id --assignment key --launch id --pr number --head sha --person-instructed [--json]",
   );
+  expect(usage).toContain("       operator abandon --source id --assignment key [--json]");
+  expect(usage).toContain(
+    "       operator dispatch --source id --assignment key [--kind kind] [--json]",
+  );
+  expect(usage).toContain("       operator pr associate [--json]");
+  expect(usage).toContain("       operator pr merge --source <id> --assignment <key> [--json]");
+  expect(String(text)).not.toContain("operator review wait");
+  expect(String(text)).not.toContain("operator handoff");
+  expect(usage).toContain(
+    "       operator dispatch --kind kind --brief path|- [--intent-file path|-] [--profile name] [--tracker-key key] [--adopt pr-number|pr-url|branch] [--json]",
+  );
+  expect(usage).toContain("       operator ask --file path|- [--profile name] [--json]");
+  expect(String(text)).not.toContain("--question");
+  expect(String(text)).not.toContain("--intent text");
 }
 
 test.each([
@@ -107,6 +145,38 @@ test.each([true, false])("invalid arguments print the usage, json %p", (json) =>
   );
   expect(output.error.mock.calls.map(([line]) => String(line))).toEqual([
     "operator: invalid_arguments: The command arguments are not supported.",
+    "next: operator --help",
+  ]);
+  expect(process.exitCode).toBe(2);
+});
+
+test("version and argument refusals preserve a worker's phase and next action", async () => {
+  const output = capture();
+  await withOutputContext(
+    () => ({
+      kind: "research",
+      phase: "investigate",
+      next: { command: "operator report submit --file <file>", why: "Submit." },
+    }),
+    async () => {
+      runUsage(["--version", "--json"], release, true);
+      invalidArguments(true);
+    },
+  );
+  expect(JSON.parse(String(output.log.mock.calls[0]?.[0]))).toMatchObject({
+    kind: "research",
+    phase: "investigate",
+    next: { command: "operator report submit --file <file>", why: "Submit." },
+  });
+  expect(JSON.parse(String(output.log.mock.calls[1]?.[0]))).toMatchObject({
+    operation: "parse_arguments",
+    kind: "research",
+    phase: "investigate",
+    next: { command: "operator --help", why: "Read the supported command syntax." },
+  });
+  expect(output.log).toHaveBeenCalledTimes(2);
+  expect(output.error.mock.calls.map((call) => String(call[0]))).toEqual([
+    "operator: invalid_arguments: The command arguments are not supported. [kind=research phase=investigate]",
     "next: operator --help",
   ]);
   expect(process.exitCode).toBe(2);

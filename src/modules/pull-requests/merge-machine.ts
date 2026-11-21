@@ -2,8 +2,7 @@ import type { MergeRequest, Observation } from "./github.ts";
 import { mergeConditions, type MergeConditions } from "./wait-machine.ts";
 import type { RefusalContext, Refusal as Failure } from "../../lib/cli-result.ts";
 
-// A stacked PR merges only after its parent merged and its relay finished, and a PR with an
-// internal review only after that review ended ready or skipped.
+// A stacked PR requires its finished relay; every PR requires its recorded ready transition.
 type Facts = {
   observed: Observation;
   localHead: string | null;
@@ -31,7 +30,7 @@ function blocked(conditions: MergeConditions) {
     conditions.defaultBase ? null : "the default branch as base",
     conditions.notDraft ? null : "the ready-for-review state",
     conditions.stackRelayed ? null : "a finished parent-merge relay",
-    conditions.reviewEnded ? null : "an internal review that ended ready or skipped",
+    conditions.reviewEnded ? null : "a recorded ready transition (pr_ready)",
   ].filter((text) => text !== null);
   return `The PR needs ${missing.join(", ")}. ${nothing}`;
 }
@@ -87,7 +86,7 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
 /**
  * The PR merge gate over a fresh observation. A wait result or a supervisor's claim is never an
  * input, so only GitHub's current approval, checks, threads, base, and draft state, with the
- * recorded end of any internal review, permit the merge.
+ * recorded ready transition, permit the merge.
  */
 export function decideMerge(facts: Facts): Decision {
   return (

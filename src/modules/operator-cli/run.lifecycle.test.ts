@@ -33,8 +33,11 @@ test("activity reaches next at once, and an idle flip does not wake next --wait 
     function wait() {
       return device.run(["next", "--source", source, "--wait", "--timeout", "0"]);
     }
-    // The first wait of the scope returns every action, and the next one has nothing new.
-    expect(await wait()).toMatchObject({ code: 0, output: { reason: "next_actions_changed" } });
+    // An active worker has no action to return, so its initial wait also stays quiet.
+    expect(await wait()).toMatchObject({
+      code: 0,
+      output: { reason: "next_wait_timed_out", data: { sources: [], events: [], requests: [] } },
+    });
     for (const state of ["idle", "working", "done", "working"]) {
       await activity(state);
       const idle = state !== "working";

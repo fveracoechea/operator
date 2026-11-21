@@ -1,5 +1,6 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { ErrAsync } from "unthrown";
+import { ErrAsync, OkAsync, fromPromise } from "unthrown";
+import { PullRequests } from "../pull-requests/main.ts";
 import { coordinatedSource, refuseUnsupervised } from "./supervision.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -10,6 +11,75 @@ import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 afterEach(() => {
   mock.restore();
   process.exitCode = 0;
+});
+
+test.each(["authorized", "refused", "defect"] as const)(
+  "an internal dispatch uses its continuation permission when %s, never supervisor fallback",
+  async (outcome) => {
+    process.exitCode = 0;
+    const paths = OperatorHome.resolve(Environment.parse({ HOME: "/isolated", NODE_ENV: "test" }));
+    const refusal = {
+      reason: "handoff_continuation_refused",
+      detail: "The exact continuation no longer owns its hold.",
+      next: { command: "operator next", why: "Recover the recorded handoff." },
+      state: { continuationAuthorized: false },
+    };
+    const permission = spyOn(PullRequests, "dispatchPermission").mockReturnValue(
+      outcome === "authorized"
+        ? OkAsync({ continuation: null })
+        : outcome === "refused"
+          ? ErrAsync(refusal)
+          : fromPromise(Promise.reject(new Error("read defect")), (cause, defect) => defect(cause)),
+    );
+    const supervisor = spyOn(WorkSources, "checkSupervisor");
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    spyOn(console, "error").mockImplementation(() => {});
+    expect(
+      await refuseUnsupervised(
+        ["dispatch", "--source", "s1", "--assignment", "build", "--after-pid", "123"],
+        paths,
+        true,
+      ),
+    ).toBe(outcome === "refused");
+    expect<unknown>(permission.mock.calls).toEqual([
+      [
+        {
+          paths,
+          cwd: process.cwd(),
+          operation: "dispatch",
+          sourceId: "s1",
+          assignment: "build",
+          afterPid: 123,
+        },
+      ],
+    ]);
+    expect(supervisor).not.toHaveBeenCalled();
+    if (outcome === "refused") {
+      expect(workflowOutputSchema.parse(JSON.parse(String(log.mock.lastCall?.[0])))).toMatchObject({
+        operation: "dispatch",
+        outcome: "refused",
+        reason: refusal.reason,
+        next: refusal.next,
+        state: refusal.state,
+        blockers: [{ reason: refusal.reason, detail: refusal.detail }],
+      });
+      expect(process.exitCode).toBe(4);
+    } else {
+      expect(log).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(0);
+    }
+  },
+);
+
+test("malformed internal arguments remain with the command parser", async () => {
+  const paths = OperatorHome.resolve(Environment.parse({ HOME: "/isolated", NODE_ENV: "test" }));
+  const permission = spyOn(PullRequests, "dispatchPermission");
+  const checked = spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
+  expect(
+    await refuseUnsupervised(["dispatch", "--source", "s1", "--after-pid", "0"], paths, true),
+  ).toBe(false);
+  expect(permission).not.toHaveBeenCalled();
+  expect(checked).toHaveBeenCalledTimes(1);
 });
 
 test("a different supervisor's refusal preserves authority and checked identities before continuation", async () => {
@@ -61,6 +131,7 @@ test("a different supervisor's refusal preserves authority and checked identitie
 test("the SuperAgent commands that coordinate a source name their operation and source", () => {
   for (const [args, operation] of [
     [["dispatch", "--source", "s1", "--assignment", "a"], "dispatch"],
+    [["abandon", "--source", "s1", "--assignment", "a"], "abandon"],
     [["next", "--wait", "--source", "s1"], "next_wait"],
     [["report", "accept", "--source", "s1", "--assignment", "a"], "report_accept"],
     [["report", "return", "--source", "s1"], "report_return"],
@@ -70,10 +141,7 @@ test("the SuperAgent commands that coordinate a source name their operation and 
     [["message", "ring", "--source", "s1"], "message_ring"],
     [["message", "close", "--source", "s1"], "message_close"],
     [["cleanup", "--source", "s1", "--assignment", "a"], "cleanup"],
-    [["handoff", "--source", "s1", "--assignment", "a"], "handoff"],
     [["pr", "merge", "--source", "s1", "--assignment", "a"], "pr_merge"],
-    [["obligation", "add", "--source", "s1"], "obligation_add"],
-    [["obligation", "close", "--source", "s1"], "obligation_close"],
   ] as const)
     expect(coordinatedSource([...args, "--json"])).toEqual({ operation, sourceId: "s1" });
 });
@@ -82,9 +150,11 @@ test("reads, worker commands, unscoped waits, and the person's instructions are 
   for (const args of [
     [],
     ["next", "--source", "s1"],
-    ["next", "--wait"],
+    ["pr", "merge"],
+    ["pr", "wait"],
     ["pr", "wait", "--source", "s1"],
-    ["obligation", "list", "--source", "s1"],
+    ["pr", "associate", "--source", "s1"],
+    ["next", "--wait"],
     ["source", "show", "--source", "s1"],
     ["source", "reset", "--source", "s1", "--person-instructed"],
     ["source", "take-over", "--source", "s1", "--person-instructed"],

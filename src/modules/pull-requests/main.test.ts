@@ -14,8 +14,11 @@ import {
 } from "./device-fixture.ts";
 import { PullRequests } from "./main.ts";
 import { WorkSources } from "../work-sources/main.ts";
-import { Err, OkAsync } from "unthrown";
+import { WorkerDispatch } from "../worker-dispatch/main.ts";
+import { Environment } from "../environment/main.ts";
+import { Err, ErrAsync, OkAsync } from "unthrown";
 import { stacked } from "./relay.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 afterEach(() => {
   mock.restore();
@@ -23,18 +26,6 @@ afterEach(() => {
 
 type Device = Awaited<ReturnType<typeof prDevice>>;
 const parent = { assignment: "parent", number: 6, branch: "task/parent" };
-
-test("the public correction validation operation refuses a non-owner before GitHub reads", async () => {
-  await using device = await prDevice();
-  expect<unknown>(
-    await PullRequests.validate({
-      paths: device.paths,
-      cwd: device.checkout,
-      file: "missing-evidence.txt",
-    }),
-  ).toMatchObject({ tag: "Err", error: { reason: "pr_worktree_unrecorded" } });
-  expect(device.calls).toEqual([]);
-});
 function url(number: number) {
   return `https://github.com/${repository}/pull/${number}`;
 }
@@ -59,10 +50,109 @@ const allMet = {
   reviewEnded: true,
 };
 
+test("worker phase selection uses the same validated worktree owner as PR effects", async () => {
+  await using device = await prDevice();
+  const { worktree, launchId } = device.start("other");
+  expect<unknown>(await PullRequests.workerTarget({ paths: device.paths, cwd: worktree })).toEqual({
+    tag: "Ok",
+    value: { repository, sourceId: device.sourceId, assignment: "other", launchId },
+  });
+  expect<unknown>(
+    await PullRequests.workerTarget({ paths: device.paths, cwd: device.checkout }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_worktree_unrecorded" } });
+});
+
+test("the public recovery action refuses missing person authorization before external reads", async () => {
+  await using device = await prDevice();
+  expect(
+    await PullRequests.recoverReview({
+      paths: device.paths,
+      cwd: device.checkout,
+      sourceId: device.sourceId,
+      assignment: "parent",
+      launchId: "launch",
+      number: 415,
+      head: "a".repeat(40),
+      personInstructed: false,
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "person_instruction_required" } });
+  expect(device.calls).toEqual([]);
+});
+
+test("the dispatch facade forwards ordinary supervisor dispatch and preserves its refusal", async () => {
+  await using device = await prDevice();
+  spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
+  const input = {
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+  };
+  const failure = {
+    reason: "assignment_not_dispatchable",
+    detail: "The assignment cannot start.",
+    next: { command: "operator next", why: "Read its recorded action." },
+  };
+  const launch = spyOn(WorkerDispatch, "dispatch").mockReturnValue(ErrAsync(failure));
+  expect(await PullRequests.dispatch(input)).toMatchObject({ tag: "Err", error: failure });
+  expect(launch.mock.calls).toEqual([[input]]);
+  expect(await PullRequests.dispatchPermission(input)).toMatchObject({
+    tag: "Ok",
+    value: { continuation: null },
+  });
+  expect(launch).toHaveBeenCalledTimes(1);
+  expect(device.calls).toEqual([]);
+});
+
+test("the continuation facade retains target and host context and refuses before dispatch effects", async () => {
+  await using device = await prDevice();
+  spyOn(WorkSources, "checkSupervisor").mockReturnValue(OkAsync(undefined));
+  spyOn(Environment, "read").mockReturnValue({
+    ...Environment.read(),
+    HERDR_PANE_ID: "worker",
+    HERDR_SOCKET_PATH: "/fixture.sock",
+  });
+  const refusal = {
+    reason: "handoff_continuation_refused" as const,
+    detail: "The publication belongs to another owner.",
+    next: { command: "operator next", why: "Recover." },
+    state: { continuationAuthorized: false },
+  };
+  const read = spyOn(DeviceState, "readHandoffContinuation").mockReturnValue(Err(refusal));
+  const launch = spyOn(WorkerDispatch, "dispatch");
+  const input = {
+    paths: device.paths,
+    cwd: device.checkout,
+    sourceId: device.sourceId,
+    assignment: "parent",
+    afterPid: 123,
+  };
+  expect(await PullRequests.dispatchPermission(input)).toMatchObject({
+    tag: "Err",
+    error: refusal,
+  });
+  expect(await PullRequests.dispatch(input)).toMatchObject({ tag: "Err", error: refusal });
+  expect(read.mock.calls).toEqual(
+    Array.from({ length: 2 }, () => [
+      device.paths,
+      { repository, sourceId: device.sourceId, assignment: "parent" },
+      { pane: "worker", socket: "/fixture.sock" },
+      123,
+    ]),
+  );
+  expect(launch).not.toHaveBeenCalled();
+  expect(device.calls).toEqual([]);
+});
+
 test("the owner associates its one open PR, and a repeat changes nothing", async () => {
   await using device = await prDevice();
   const { worktree } = device.start("other");
-  device.answer(() => succeeded(associationBody([{ number: 7, base: "main" }])));
+  spyOn(ToolInvocation, "detach").mockReturnValue(process.pid);
+  device.answer(() =>
+    succeeded(
+      associationBody([{ number: 7, base: "main", oid: git(worktree, "rev-parse", "HEAD") }]),
+    ),
+  );
   const input = { paths: device.paths, cwd: worktree };
   // A launch that recorded no internal review value associates as before ADR-0020.
   const data = {
@@ -92,7 +182,12 @@ test("an enabled assignment reviewer is queued with the association", async () =
     createPath: true,
   });
   const { worktree } = device.start("other");
-  device.answer(() => succeeded(associationBody([{ number: 7, base: "main" }])));
+  spyOn(ToolInvocation, "detach").mockReturnValue(process.pid);
+  device.answer(() =>
+    succeeded(
+      associationBody([{ number: 7, base: "main", oid: git(worktree, "rev-parse", "HEAD") }]),
+    ),
+  );
   expect<unknown>(
     await PullRequests.associate({ paths: device.paths, cwd: worktree }),
   ).toMatchObject({ tag: "Ok", value: { reason: "pr_associated" } });
@@ -156,7 +251,16 @@ test("an open dependency refuses a default-branch base and names the dependency 
   await using device = await prDevice();
   const { child } = stack(device);
   device.answer(() =>
-    succeeded(associationBody([{ number: 7, base: "main", head: "task/child" }])),
+    succeeded(
+      associationBody([
+        {
+          number: 7,
+          base: "main",
+          head: "task/child",
+          oid: git(child.worktree, "rev-parse", "HEAD"),
+        },
+      ]),
+    ),
   );
   const before = await Bun.file(device.paths.database).arrayBuffer();
   expect(await PullRequests.associate({ paths: device.paths, cwd: child.worktree })).toMatchObject({
@@ -177,8 +281,18 @@ test("an open dependency refuses a default-branch base and names the dependency 
 test("a PR on a dependency's PR branch is recorded as stacked", async () => {
   await using device = await prDevice();
   const { child } = stack(device);
+  spyOn(ToolInvocation, "detach").mockReturnValue(process.pid);
   device.answer(() =>
-    succeeded(associationBody([{ number: 7, base: "task/parent", head: "task/child" }])),
+    succeeded(
+      associationBody([
+        {
+          number: 7,
+          base: "task/parent",
+          head: "task/child",
+          oid: git(child.worktree, "rev-parse", "HEAD"),
+        },
+      ]),
+    ),
   );
   expect<unknown>(
     await PullRequests.associate({ paths: device.paths, cwd: child.worktree }),
@@ -202,7 +316,16 @@ test("a PR base that is neither the default branch nor a dependency's branch is 
   await using device = await prDevice();
   const { child, parent: parentStart } = stack(device);
   device.answer(() =>
-    succeeded(associationBody([{ number: 7, base: "task/other", head: "task/child" }])),
+    succeeded(
+      associationBody([
+        {
+          number: 7,
+          base: "task/other",
+          head: "task/child",
+          oid: git(child.worktree, "rev-parse", "HEAD"),
+        },
+      ]),
+    ),
   );
   expect<unknown>(
     await PullRequests.associate({ paths: device.paths, cwd: child.worktree }),
@@ -221,7 +344,16 @@ test("a PR base that is neither the default branch nor a dependency's branch is 
   });
   // The parent has no dependencies, so no branch but the default one is a valid base.
   device.answer(() =>
-    succeeded(associationBody([{ number: 6, base: "task/other", head: "task/parent" }])),
+    succeeded(
+      associationBody([
+        {
+          number: 6,
+          base: "task/other",
+          head: "task/parent",
+          oid: git(parentStart.worktree, "rev-parse", "HEAD"),
+        },
+      ]),
+    ),
   );
   expect<unknown>(
     await PullRequests.associate({ paths: device.paths, cwd: parentStart.worktree }),
@@ -243,8 +375,15 @@ test("a PR base that is neither the default branch nor a dependency's branch is 
 
 /** A running owner of `other` with PR #7 recorded. */
 function waiting(device: Device, relay: string | null = null) {
-  const started = device.start("other");
-  device.associate(started.launchId, 7, "task/other", relay);
+  const outgoing = device.start("other");
+  device.associate(outgoing.launchId, 7, "task/other", relay, {
+    head: git(outgoing.worktree, "rev-parse", "HEAD"),
+    at: new Date().toISOString(),
+    note: null,
+    dispositions: [],
+  });
+  expect(DeviceState.finishImplementer(device.paths, outgoing.launchId).tag).toBe("Ok");
+  const started = device.start("other", { worktree: outgoing.worktree, add: false });
   return { ...started, input: { paths: device.paths, cwd: started.worktree, timeoutSeconds: 0 } };
 }
 
@@ -276,6 +415,33 @@ test("a wait reports an eligible head once and records each result", async () =>
   expect(device.pullRequestRow("other")).toMatchObject({ waitState: "timed_out" });
   expect(device.calls.map(requestKind)).toEqual(["pull_request", "pull_request"]);
 });
+
+test.each(["null", "incomplete"] as const)(
+  "a live %s check read preserves prior eligibility and all cursors",
+  async (kind) => {
+    await using device = await prDevice();
+    const { input } = waiting(device);
+    device.answer(() => succeeded(pullRequestBody()));
+    expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
+    const before = device.pullRequestRow("other")?.progress;
+    const body = pullRequestBody({ approved: false });
+    const commit = body.data.repository.pullRequest.commits.nodes[0]?.commit;
+    if (commit === undefined) return expect.unreachable("Missing fixture commit");
+    if (kind === "null") Object.assign(commit, { statusCheckRollup: null });
+    else commit.statusCheckRollup.contexts.totalCount = 101;
+    device.answer(() => succeeded(body));
+    expect(await PullRequests.wait(input)).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_checks_unknown" },
+    });
+    expect(device.pullRequestRow("other")?.progress).toBe(before);
+    device.answer(() => succeeded(pullRequestBody()));
+    expect(await PullRequests.wait(input)).toMatchObject({
+      tag: "Ok",
+      value: { reason: "pr_wait_timed_out", data: { events: [] } },
+    });
+  },
+);
 
 test("a merged or closed PR ends the wait", async () => {
   await using device = await prDevice();
@@ -442,11 +608,18 @@ async function relayScenario(device: Device) {
   const parentHead = await commit(parentStart.worktree, "parent.txt", "parent\n");
   git(parentStart.worktree, "push", "-q", "-u", "local", "task/parent");
   device.associate(parentStart.launchId, 6, "task/parent");
-  const child = device.start("child");
-  git(child.worktree, "reset", "-q", "--hard", "task/parent");
-  const childHead = await commit(child.worktree, "child.txt", "child\n");
-  git(child.worktree, "push", "-q", "-u", "local", "task/child");
-  device.associate(child.launchId, 7, "task/child", JSON.stringify(stacked(parent)));
+  const outgoing = device.start("child");
+  git(outgoing.worktree, "reset", "-q", "--hard", "task/parent");
+  const childHead = await commit(outgoing.worktree, "child.txt", "child\n");
+  git(outgoing.worktree, "push", "-q", "-u", "local", "task/child");
+  device.associate(outgoing.launchId, 7, "task/child", JSON.stringify(stacked(parent)), {
+    head: childHead,
+    at: new Date().toISOString(),
+    note: null,
+    dispositions: [],
+  });
+  expect(DeviceState.finishImplementer(device.paths, outgoing.launchId).tag).toBe("Ok");
+  const child = device.start("child", { worktree: outgoing.worktree, add: false });
   git(device.checkout, "merge", "-q", "--squash", "task/parent");
   git(device.checkout, "commit", "-q", "-m", "parent (#6)");
   git(device.checkout, "push", "-q", "local", "main");
@@ -582,7 +755,16 @@ test("a missing source or plan row permits no stack parent", async () => {
   await using device = await prDevice();
   const { child } = stack(device);
   device.answer(() =>
-    succeeded(associationBody([{ number: 7, base: "task/parent", head: "task/child" }])),
+    succeeded(
+      associationBody([
+        {
+          number: 7,
+          base: "task/parent",
+          head: "task/child",
+          oid: git(child.worktree, "rev-parse", "HEAD"),
+        },
+      ]),
+    ),
   );
   const show = WorkSources.show;
   const refused = {

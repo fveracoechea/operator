@@ -4,11 +4,10 @@ import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
-const reviewCommands = ["add", "start", "post", "skip", "cleanup", "next", "wait"] as const;
-const deviceCommands: readonly string[] = ["next", "wait"];
+const reviewCommands = ["add", "start", "post", "skip", "cleanup", "next"] as const;
+const deviceCommands: readonly string[] = ["next"];
 const valueFlags = new Map([
   ["--profile", { commands: ["start"], valid: (value: string) => !value.startsWith("--") }],
-  ["--timeout", { commands: ["wait"], valid: (value: string) => /^\d{1,5}$/.test(value) }],
   [
     "--slack-thread",
     {
@@ -19,11 +18,7 @@ const valueFlags = new Map([
   ],
 ]);
 
-// `--all` makes a wait return every request rather than only the changed ones and the actions.
-const switchFlags = new Map([
-  ["--json", null],
-  ["--all", ["wait"]],
-]);
+const switchFlags = new Map<string, string[] | null>([["--json", null]]);
 
 function acceptsSwitch(command: string, flag: string, switches: Set<string>) {
   const commands = switchFlags.get(flag);
@@ -63,12 +58,9 @@ function reviewFlags(command: string, flags: string[]) {
     if (!acceptsValue(command, flag, value, values)) return null;
     values.set(flag, value);
   }
-  const timeout = values.get("--timeout");
   return {
     profile: values.get("--profile"),
-    timeout: timeout === undefined ? undefined : Number(timeout),
     slackThread: values.get("--slack-thread"),
-    all: switches.has("--all"),
   };
 }
 
@@ -86,9 +78,7 @@ export function reviewArgs(args: string[]) {
         command,
         url,
         profile: flags.profile,
-        timeout: flags.timeout ?? 300,
         slackThread: flags.slackThread,
-        all: flags.all,
       };
 }
 
@@ -137,12 +127,6 @@ export async function runReviews(
     post: () => ReviewRequests.post(input),
     skip: () => ReviewRequests.skip(input),
     cleanup: () => ReviewRequests.cleanup(input),
-    wait: () =>
-      ReviewRequests.wait({
-        paths,
-        timeoutSeconds: parsed.timeout,
-        all: parsed.all,
-      }),
     next: () => ReviewRequests.next(paths),
   };
   const result = await operations[parsed.command]();

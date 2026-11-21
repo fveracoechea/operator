@@ -49,26 +49,31 @@ export const storedPlanSchema = z
     maxRunning: z.number().int().min(1).optional(),
     assignments: z.array(
       z.union([
+        z
+          .strictObject({
+            ...shared,
+            kind: z.string().nullable().default(null),
+            completion: z.literal("pr"),
+            resources: z.enum(["worktree", "pane"]),
+            branch,
+            internalReview: z.boolean().optional(),
+            // An open PR whose branch Operator did not create. Dispatch checks the PR at each
+            // start until its owner associates it. ADR-0024.
+            adopt: z.union([z.number().int().min(1), z.string().min(1)]).optional(),
+          })
+          .refine(
+            (assignment) => assignment.adopt === undefined || assignment.resources === "worktree",
+            "Adoption requires worktree resources.",
+          ),
         z.strictObject({
           ...shared,
-          kind: z.enum(WorkerKinds.names()).nullable().default(null),
-          completion: z.literal("pr"),
-          resources: z.enum(["worktree", "pane"]),
-          branch,
-          internalReview: z.boolean().optional(),
-          // An open PR whose branch Operator did not create. Dispatch checks the PR at each
-          // start until its owner associates it. ADR-0024.
-          adopt: z.number().int().min(1).optional(),
-        }),
-        z.strictObject({
-          ...shared,
-          kind: z.enum(WorkerKinds.names()).nullable().default(null),
+          kind: z.string().nullable().default(null),
           completion: z.literal("report"),
           resources: z.literal("pane"),
         }),
         z.strictObject({
           ...shared,
-          kind: z.enum(WorkerKinds.names()).nullable().default(null),
+          kind: z.string().nullable().default(null),
           completion: z.literal("report"),
           resources: z.literal("worktree"),
           branch,
@@ -120,42 +125,54 @@ export const storedPlanSchema = z
   });
 
 /** New plans name a kind. Completion is resolved, never supplied as an override. */
-export const planSchema = z
-  .strictObject({
-    trackerKey: key,
-    intent,
-    internalReview: z.boolean().optional(),
-    maxRunning: z.number().int().min(1).optional(),
-    assignments: z.array(
-      z.strictObject({
-        ...shared,
-        kind: z.enum(WorkerKinds.names()),
-        resources: z.enum(["pane", "worktree"]).optional(),
-        branch: branch.optional(),
-        internalReview: z.boolean().optional(),
-        adopt: z.number().int().min(1).optional(),
-      }),
-    ),
-  })
-  .transform((plan, context) => {
-    const parsed = storedPlanSchema.safeParse({
-      ...plan,
-      assignments: plan.assignments.map((assignment) => {
-        const kind = WorkerKinds.resolve(assignment.kind);
-        return {
-          ...assignment,
-          completion: kind.completion,
-          resources: assignment.resources ?? kind.resources,
-          profile: assignment.profile ?? kind.profile ?? undefined,
-        };
-      }),
+export function configuredPlanSchema(
+  definitions: z.infer<ReturnType<typeof WorkerKinds.customSchema>> = {},
+  oneOff = false,
+) {
+  return z
+    .strictObject({
+      trackerKey: key,
+      intent,
+      internalReview: z.boolean().optional(),
+      maxRunning: z.number().int().min(1).optional(),
+      assignments: z.array(
+        z.strictObject({
+          ...shared,
+          kind: z.enum([...WorkerKinds.names(), ...Object.keys(definitions)]),
+          resources: z.enum(["pane", "worktree"]).optional(),
+          branch: branch.optional(),
+          internalReview: z.boolean().optional(),
+          adopt: (oneOff
+            ? z.union([z.number().int().min(1), z.string().min(1)])
+            : z.number().int().min(1)
+          ).optional(),
+        }),
+      ),
+    })
+    .transform((plan, context) => {
+      const parsed = storedPlanSchema.safeParse({
+        ...plan,
+        assignments: plan.assignments.map((assignment) => {
+          const kind = WorkerKinds.resolve(assignment.kind, definitions);
+          const resolved = {
+            ...assignment,
+            completion: kind.completion,
+            resources: assignment.resources ?? kind.resources,
+            profile: assignment.profile ?? kind.profile ?? undefined,
+          };
+          if (oneOff && (kind.resources === "worktree" || kind.completion === "pr"))
+            resolved.branch = assignment.key;
+          return resolved;
+        }),
+      });
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) context.addIssue({ ...issue });
+        return z.NEVER;
+      }
+      return parsed.data;
     });
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) context.addIssue({ ...issue });
-      return z.NEVER;
-    }
-    return parsed.data;
-  });
+}
+export const planSchema = configuredPlanSchema();
 
 /**
  * The PR assignment that the SuperAgent supplies when it promotes an accepted report. Its
@@ -178,6 +195,37 @@ function questionKey(question: string) {
   return words.slice(0, 60).replace(/-$/, "") || "question";
 }
 
+/** A one-off is a normal immutable plan with exactly one planned assignment. */
+export function oneOffPlan(input: {
+  kind: string;
+  instructions: string;
+  intent?: string;
+  profile?: string;
+  trackerKey?: string;
+  key?: string;
+  adopt?: string;
+}) {
+  const trackerKey = input.trackerKey ?? `${input.kind}:${crypto.randomUUID().slice(0, 8)}`;
+  const assignment = input.key ?? questionKey(input.instructions);
+  const adoption: { adopt?: string } = {};
+  if (input.adopt !== undefined) adoption.adopt = input.adopt;
+  return {
+    trackerKey,
+    assignments: [
+      {
+        key: assignment,
+        trackerKey,
+        kind: input.kind,
+        instructions: input.instructions,
+        intent: input.intent,
+        profile: input.profile,
+        dependencies: [],
+        ...adoption,
+      },
+    ],
+  };
+}
+
 /**
  * The plan of one research question: one read-only report assignment in its own source. Each
  * question gets a new tracker key, so asking the same question again never meets an open
@@ -190,16 +238,12 @@ export function questionPlan(question: string, profile: string | undefined) {
     .split("\n")
     .map((line) => `> ${line}`.trimEnd())
     .join("\n");
-  return {
+  return oneOffPlan({
+    key: questionKey(question),
     trackerKey,
-    assignments: [
-      {
-        key: questionKey(question),
-        trackerKey,
-        kind: "answer",
-        dependencies: [],
-        profile,
-        instructions: `Answer this question from your supervising SuperAgent.
+    kind: "answer",
+    profile,
+    instructions: `Answer this question from your supervising SuperAgent.
 
 ${quoted}
 
@@ -208,7 +252,5 @@ Answer with a short conclusion that answers the question directly.
 Give the evidence for it: file paths with line numbers, commands with their relevant output, and links.
 List the paths of any detailed supporting files in \`files\`, and the points you could not settle in \`unresolved\`.
 Ask your supervising SuperAgent when the question is unclear. Decide nothing outside the question.`,
-      },
-    ],
-  };
+  });
 }

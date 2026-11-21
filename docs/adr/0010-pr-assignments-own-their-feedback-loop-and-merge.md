@@ -7,7 +7,9 @@ Decided in #228, #231, #232, and #233.
 Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
 Amended 2026-11-04 in #305: the merge also requires that an internal review of the PR ended ready or was skipped (ADR-0020).
 Amended 2026-11-04 in #320: the guarded merge uses GitHub's asynchronous merge endpoint, because the synchronous endpoint refuses a stacked PR.
-Amended 2026-11-15 in #414: the recorded supervisor may deliver idle-owner PRs through the same guarded path, with source-wide holds and correction validation.
+Amended 2026-11-17 in #389: a fresh pr-feedback launch takes over at ready, and the merge requires the recorded ready transition.
+Amended 2026-11-18 in #390: quiet feedback waits park the assignment and changes resume a fresh launch.
+Amended 2026-11-20 in #392: the supervisor may merge parked work on the person's instruction, and a queue retains parking until observed merge.
 
 ## Context
 
@@ -24,28 +26,36 @@ Closing keywords handle GitHub issue completion, while agents use the tracker's 
 Canonical-map amendment remains an agent convention, not a tracker state machine.
 
 Each PR assignment owns one PR and follows the lifecycle ready, running, PR open, and merged, with abandoned as an incomplete end.
-Its owner WorkerAgent carries it through bot and human feedback, checks each claim, replies, and pushes fixes.
+A fresh pr-feedback launch takes over at the ready transition, checks bot and human claims, replies, and pushes fixes.
 The CLI waits for the next applicable action, including new review feedback, failing CI, merge eligibility, and a merged parent that requires rebasing.
-A wait timeout makes an idle owner visible to the SuperAgent for replacement rather than proving completion.
+A quiet wait parks the assignment and ends its launch, except while checks run on the worker's pushed head.
+Parking keeps the worktree and PR-open state, not a live worker.
+Only a note supplied to the parking wait is retained for the next launch; the reviewer's earlier note is not a park note.
+Coordination waits read all parked PRs in one batch every 15 minutes, using a durable device-wide schedule and observation cursors.
+Quiet and repeated reads wake nothing.
+New feedback, failing CI, newly observed merge eligibility, or a merged parent produces `resume_pr_feedback` and a fresh launch with durable events.
+Merge eligibility remains an observation, not permission to bypass the merge gate.
+An interrupted resume keeps those events for its replacement through the ordinary recorded handoff and launch machinery.
+A verified merge ends the assignment and runs cleanup.
+A close without merge produces `clean_up` with `pr_closed`, whose next command abandons the assignment without deleting unlanded work.
 
 A dependency with an open or merged PR permits dependent code work to start.
 The child PR stacks on the parent's branch, and the CLI coordinates the relay and rebase after the parent merges.
 A PR stacks on one parent branch, so a PR assignment with several open parent PRs waits until all but one merge. Amended in #250.
 A stacked PR is not merge eligible until its parent merged and its relay finished.
 Report dependencies instead require accepted completion.
-The PR owner or the exact recorded supervising session invokes the same guarded merge operation.
-Supervisor delivery requires an owner recorded idle and no live PR wait, relay, or delivery job.
-It delivers the recorded assignment's PR without transferring ownership or taking over substantive work.
+The PR owner invokes the CLI merge operation, or the supervising SuperAgent selects a parked assignment on the person's instruction.
 It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.
-It also requires a clean pushed local head matching the PR and an internal review that ended ready or skipped.
-A current head different from the original ready head needs bounded correction validation, as ADR-0020 defines.
-An open merge hold blocks all PR delivery in its source, as ADR-0026 defines.
-The merge claim atomically records its actor, head, and provenance, because two delivery actors must not race.
-Active waits and relays block delivery, and waits respect delivery locks.
+ADR-0020 added the draft condition, implemented in #316.
+It also requires the assignment's recorded ready transition, because an ended review or an external draft change alone cannot prove that transition.
 It merges through GitHub's asynchronous merge endpoint as a direct merge pinned to the guarded head, because the synchronous endpoint refuses a PR that GitHub keeps in a stack, also after its relay.
 That endpoint also merges a stacked PR's open PRs below it, and the default branch base rules them out.
-It is used for every PR, not only after the synchronous endpoint refuses, because GitHub does not document that refusal's text. The cost is a merge that can wait up to two minutes of status reads, and no merge queue.
-Current GitHub CI and genuine GitHub approval are gates; chat and a supervisor's claim cannot replace them.
+It is used for every non-queue PR, not only after the synchronous endpoint refuses, because GitHub does not document that refusal's text.
+The cost is a merge that can wait up to two minutes of status reads.
+When the PR's base requires a merge queue, the same passed gate enqueues the guarded head instead of requesting a direct merge.
+Observed queue membership prevents a retry from enqueueing the same PR again, including after a lost response.
+Enqueueing proves no completion. The assignment stays PR-open and parked, with its worktree retained, until a batch read verifies its merge.
+GitHub CI and GitHub reviews are the gates, not a separate local gate declaration or a supervisor's claim.
 
 After verified merge, the CLI deletes the remote branch, closes the worker pane, and removes the worktree in that order without a separate approval grant.
 Failed cleanup remains visible in next actions.
@@ -57,7 +67,7 @@ Report assignments have a separate completion contract and support planning and 
 ## Consequences
 
 - Dependent code can start before its parent merges, so the workflow must handle changed parent branches and rebases.
-- Owners retain context through feedback, but a stopped owner still needs replacement from recorded work.
+- The first feedback launch and replacements receive recorded review findings, dispositions, the summary link, and the optional reviewer note.
 - CI becomes the mechanical quality source, so a repository with weak CI receives no replacement local gate from Operator.
 - Agents retain tracker-update responsibility outside the workflow CLI.
 - Automatic cleanup follows verified completion, so failures need durable visibility instead of a second approval protocol.
@@ -65,11 +75,10 @@ Report assignments have a separate completion contract and support planning and 
 ## Alternatives considered
 
 - A source-wide integration branch and separate publication stack were rejected because agent-owned PRs already supplied the observed delivery workflow with less machinery.
-- Fresh workers for every correction were rejected because the PR owner already holds the working context and can answer feedback directly.
+- Fresh workers for every correction remain unnecessary within a live launch; parking accepts a cold start in exchange for releasing a quiet worker.
 - Waiting for parent merge before any dependent starts was rejected in favor of PR stacking and explicit rebase handling.
 - Supervisor-written scripts and ledgers were rejected because the CLI must own the repeatable feedback, merge, and cleanup steps.
 - Retaining tracker recovery, write-path scheduling, and local gates was rejected because the sessions did not need them and existing tracker tools, Git conflicts, and CI already covered the retained work.
-- A blanket ban on agent merges was rejected in favor of one guarded merge path for authorized delivery actors.
-- Requiring a fresh owner session solely for delivery was rejected because an idle owner's PR can pass the same gates without another handoff.
+- A blanket ban on agent merges was rejected in favor of a guarded merge by the owner WorkerAgent or the instructed supervisor of parked work.
 
 Related: ADR-0001 and ADR-0003, deterministic coordination; ADR-0012, reset and prune; ADR-0013, report completion and safe cleanup; ADR-0015, optional review requests; ADR-0016, mutation analysis does not join the gate; ADR-0017, worker ownership and guarded merge.

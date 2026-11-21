@@ -722,7 +722,7 @@ test("a cleanup whose request another process took records nothing", async () =>
       reason: "review_lease_lost",
       detail: "Another process took this review request. Nothing more was recorded.",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Let the current review owner finish before continuing.",
       },
     },
@@ -802,7 +802,7 @@ test("a cleanup is claimed only when work is left and no other process runs it",
     tag: "Err",
     error: {
       reason: "review_cleanup_in_progress",
-      next: { command: "operator review wait", why: "Let the current reviewer cleanup finish." },
+      next: { command: "operator next --wait", why: "Let the current reviewer cleanup finish." },
       state: { ownerActive: true },
       detail: "Another process cleans up this reviewer now. Nothing changed.",
     },

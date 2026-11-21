@@ -16,6 +16,7 @@ function question(key: string, assignment = "read"): QuestionRow {
     launchId: `l-${assignment}`,
     question: `Which ${key}?`,
     askedAt: "now",
+    awaitingPersonSeenAt: null,
     state: "open",
     answer: null,
     answeredBy: null,

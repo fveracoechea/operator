@@ -17,6 +17,7 @@ import {
   registerSource,
   readSources,
   resetSource,
+  endAssignments,
   pruneSource,
   type StoredSource,
   type Supervisor,
@@ -36,6 +37,7 @@ import {
 } from "./launches.ts";
 import {
   worktreeOwners,
+  checkParkedMergeOwner,
   associatePullRequest,
   recordPullRequestWait,
   renewPullRequestWait,
@@ -52,6 +54,19 @@ import {
   startHandoff,
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
+import { checkAdoption, type AdoptionTarget } from "./adoptions.ts";
+import { prReadinessSchema, storedPrReadinessSchema } from "./pr-readiness.ts";
+import {
+  prParkingSchema,
+  recordPullRequestQueue,
+  parkPullRequest,
+  completeParking,
+  resumeParkedPullRequest,
+  claimParkedRead,
+  finishParkedRead,
+} from "./pr-parking.ts";
+import { recoverInternalReview, readInternalReviewRecovery } from "./internal-review-recovery.ts";
+import { readContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 import {
   acknowledgeCoordinationWaits,
@@ -72,15 +87,6 @@ import { changeReport, readReport, type ReportTarget } from "./reports.ts";
 import { changeQuestion, readQuestion } from "./questions.ts";
 import { changeMessage, readMessage } from "./messages.ts";
 import { changeObligation, readObligations } from "./obligations.ts";
-import {
-  claimDelivery,
-  finishDelivery,
-  recordDeliveryValidation,
-  renewDelivery,
-  readDelivery,
-  recordDeliveryRequest,
-  suspendDelivery,
-} from "./deliveries.ts";
 import {
   changeReviewRequest,
   readReviewRequest,
@@ -153,6 +159,44 @@ function hold(renew: () => void) {
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
+  prParkingSchema() {
+    return prParkingSchema;
+  },
+  recordPullRequestQueue(paths: Paths, launchId: string, head: string) {
+    return writing(paths, (client) => recordPullRequestQueue(client, launchId, head));
+  },
+  parkPullRequest(paths: Paths, launchId: string, input: Parameters<typeof parkPullRequest>[2]) {
+    return writing(paths, (client) => parkPullRequest(client, launchId, input));
+  },
+  completeParking(
+    paths: Paths,
+    target: Parameters<typeof completeParking>[1],
+    continuation?: HandoffContinuation,
+  ) {
+    return writing(paths, (client) => completeParking(client, target, continuation));
+  },
+  resumeParkedPullRequest(
+    paths: Paths,
+    target: Parameters<typeof resumeParkedPullRequest>[1],
+    fillKind?: string,
+    supervisor?: Parameters<typeof resumeParkedPullRequest>[3],
+  ) {
+    return writing(paths, (client) =>
+      resumeParkedPullRequest(client, target, fillKind, supervisor),
+    );
+  },
+  claimParkedRead(paths: Paths) {
+    return writing(paths, (client) => claimParkedRead(client, Date.now()));
+  },
+  finishParkedRead(paths: Paths, at: string, updates: Parameters<typeof finishParkedRead>[2]) {
+    return writing(paths, (client) => finishParkedRead(client, at, updates));
+  },
+  prReadinessSchema() {
+    return prReadinessSchema;
+  },
+  storedPrReadinessSchema() {
+    return storedPrReadinessSchema;
+  },
   checkCompatibility(paths: Paths, firstRegistration = false) {
     return compatibility(paths, firstRegistration);
   },
@@ -175,10 +219,26 @@ export const DeviceState = {
     launch: LaunchReservation,
     maxRunning?: number,
     supervisor?: Supervisor,
+    continuation?: HandoffContinuation,
+    fillKind?: string,
+    adoption?: Pick<AdoptionTarget, "number">,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisor),
+      reserveLaunch(
+        client,
+        checkout,
+        repository,
+        launch,
+        maxRunning,
+        supervisor,
+        continuation,
+        fillKind,
+        adoption,
+      ),
     );
+  },
+  checkAdoption(paths: Paths, target: AdoptionTarget) {
+    return reading(paths, (client) => checkAdoption(client, target));
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
     return writing(paths, (client) => updateLaunch(client, id, change));
@@ -256,26 +316,8 @@ export const DeviceState = {
   worktreeOwners(paths: Paths) {
     return reading(paths, (client) => worktreeOwners(client));
   },
-  claimDelivery(paths: Paths, input: Parameters<typeof claimDelivery>[1]) {
-    return writing(paths, (client) => claimDelivery(client, input));
-  },
-  readDelivery(paths: Paths, launchId: string) {
-    return reading(paths, (client) => readDelivery(client, launchId));
-  },
-  recordDeliveryRequest(paths: Paths, launchId: string, uuid: string) {
-    return writing(paths, (client) => recordDeliveryRequest(client, launchId, uuid));
-  },
-  suspendDelivery(paths: Paths, launchId: string) {
-    return writing(paths, (client) => suspendDelivery(client, launchId));
-  },
-  recordDeliveryValidation(paths: Paths, input: Parameters<typeof recordDeliveryValidation>[1]) {
-    return writing(paths, (client) => recordDeliveryValidation(client, input));
-  },
-  finishDelivery(paths: Paths, launchId: string, head: string) {
-    return writing(paths, (client) => finishDelivery(client, launchId, head));
-  },
-  holdDelivery(paths: Paths, launchId: string) {
-    return hold(() => writing(paths, (client) => renewDelivery(client, launchId)));
+  checkParkedMergeOwner(paths: Paths, launchId: string, head: string) {
+    return reading(paths, (client) => checkParkedMergeOwner(client, launchId, head));
   },
   /**
    * With `review`, the association also queues the optional assignment-origin review request.
@@ -292,6 +334,37 @@ export const DeviceState = {
       associatePullRequest(client, launchId, pr, review, internalReview),
     );
   },
+  /** Adoption enters its selected kind directly, without an outgoing-worker handoff. */
+  adoptPullRequest(
+    paths: Paths,
+    launchId: string,
+    pr: Parameters<typeof associatePullRequest>[2],
+    entry: { internalReview: boolean; assignmentReview: boolean },
+  ) {
+    return writing(paths, (client) =>
+      associatePullRequest(
+        client,
+        launchId,
+        pr,
+        entry.assignmentReview && !entry.internalReview,
+        entry.internalReview,
+        true,
+      ),
+    );
+  },
+  recoverInternalReview(paths: Paths, input: Parameters<typeof recoverInternalReview>[1]) {
+    return writing(paths, (client) => recoverInternalReview(client, input));
+  },
+  readInternalReviewRecovery(
+    paths: Paths,
+    repository: string,
+    sourceId: string,
+    assignment: string,
+  ) {
+    return reading(paths, (client) =>
+      readInternalReviewRecovery(client, repository, sourceId, assignment),
+    );
+  },
   /** `afterPid` is the associating process, whose hold the handoff it started takes over. */
   claimHandoff(
     paths: Paths,
@@ -299,24 +372,54 @@ export const DeviceState = {
     sourceId: string,
     assignment: string,
     afterPid: number | null,
+    continuation?: HandoffContinuation,
   ) {
     return writing(paths, (client) =>
-      claimHandoff(client, repository, sourceId, assignment, afterPid),
+      claimHandoff(client, repository, sourceId, assignment, afterPid, continuation),
     );
   },
   startHandoff(paths: Paths, sourceId: string, assignment: string, pid: number) {
     return writing(paths, (client) => startHandoff(client, sourceId, assignment, pid));
   },
-  failHandoff(paths: Paths, sourceId: string, assignment: string, detail: string) {
-    return writing(paths, (client) => failHandoff(client, sourceId, assignment, detail));
+  failHandoff(
+    paths: Paths,
+    sourceId: string,
+    assignment: string,
+    detail: string,
+    continuation?: HandoffContinuation,
+  ) {
+    return writing(paths, (client) =>
+      failHandoff(client, sourceId, assignment, detail, continuation),
+    );
   },
   /** Renew this process's lease on a running handoff until the returned stop runs. */
-  holdHandoff(paths: Paths, sourceId: string, assignment: string) {
-    return hold(() => writing(paths, (client) => renewHandoff(client, sourceId, assignment)));
+  holdHandoff(
+    paths: Paths,
+    sourceId: string,
+    assignment: string,
+    continuation?: HandoffContinuation,
+  ) {
+    return hold(() =>
+      writing(paths, (client) => renewHandoff(client, sourceId, assignment, continuation)),
+    );
   },
   /** Ends the implementer launch whose pane the handoff closed. */
-  finishImplementer(paths: Paths, launchId: string) {
-    return writing(paths, (client) => finishImplementer(client, launchId));
+  finishImplementer(paths: Paths, launchId: string, continuation?: HandoffContinuation) {
+    return writing(paths, (client) => finishImplementer(client, launchId, continuation));
+  },
+  readHandoffContinuation(
+    paths: Paths,
+    target: Parameters<typeof readContinuation>[1],
+    context: Parameters<typeof readContinuation>[2],
+    publishingPid: number,
+  ) {
+    return reading(paths, (client) => readContinuation(client, target, context, publishingPid));
+  },
+  /** Revalidates and renews the current continuation in one write transaction before its effect. */
+  checkHandoffContinuation(paths: Paths, continuation: HandoffContinuation) {
+    return writing(paths, (client) =>
+      renewHandoff(client, continuation.sourceId, continuation.assignment, continuation),
+    );
   },
   /** Ends a running internal review ready or skipped, and queues the assignment reviewer with `queueReview`. */
   endInternalReview(
@@ -405,8 +508,13 @@ export const DeviceState = {
     return reading(paths, (client) => readCoordinationWait(client, target));
   },
   /** Rewrite the scope's stored set, if it has one, under the writer reservation. */
-  changeCoordinationWait(paths: Paths, target: CoordinationScope, change: SetChange) {
-    return writing(paths, (client) => changeCoordinationWait(client, target, change));
+  changeCoordinationWait(
+    paths: Paths,
+    target: CoordinationScope,
+    change: SetChange,
+    options?: { initialize?: boolean },
+  ) {
+    return writing(paths, (client) => changeCoordinationWait(client, target, change, options));
   },
   /** Rewrite the stored set of every wait that the session ran, after a change it made. */
   acknowledgeCoordinationWaits(paths: Paths, session: string, change: SetChange) {
@@ -445,6 +553,14 @@ export const DeviceState = {
     decide: Parameters<typeof resetSource<E>>[2],
   ) {
     return writing(paths, (client) => resetSource(client, target, decide));
+  },
+  /** End selected assignments and retain their resources under one writer reservation. */
+  endAssignments<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: Parameters<typeof endAssignments>[1],
+    decide: Parameters<typeof endAssignments<E>>[2],
+  ) {
+    return writing(paths, (client) => endAssignments(client, target, decide));
   },
   /** Delete one ended source's files and records when the caller's rule permits it. */
   pruneSource(

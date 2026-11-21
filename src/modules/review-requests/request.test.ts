@@ -400,7 +400,7 @@ test("a record writes only while this process holds the request", () => {
       reason: "review_lease_lost",
       detail: "Another process took this review request. Nothing more was recorded.",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Let the process that owns the review request finish.",
       },
     },

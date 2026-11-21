@@ -57,7 +57,8 @@ function recordMerges(db: Database) {
     INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at)
       SELECT 'launch-' || key, source_id, key, 1, 'interrupted', 'pr-' || key, 'worktree', 'task/12', 'opencode', 'm', 'm', 'medium', '{"version":"1"}', '[]', 'now'
       FROM assignments WHERE state = 'merged';
-    INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, 'h1', 'm1', 'now', NULL
+    INSERT INTO pull_requests (source_id, assignment, repository, number, url, branch, associated_at, progress, wait_state, merged_head, merge_commit, merged_at)
+      SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', 'h1', 'm1', 'now'
       FROM assignments WHERE state = 'merged';
     INSERT INTO cleanups SELECT source_id, key, 'launch-' || key, NULL, 'done', NULL, NULL, 'now', NULL, NULL
       FROM assignments WHERE state = 'merged';
@@ -594,8 +595,15 @@ test("next --wait returns a new action, also one that came between waits, and ti
     using db = new Database(database);
     db.query("UPDATE assignments SET state = ? WHERE key = 'investigate'").run(state);
   }
-  // A removed action wakes nobody, and leaves the returned set.
+  // An abandoned assignment now reports its end once, then leaves no new action.
   setState("abandoned");
+  expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
+    code: 0,
+    output: {
+      reason: "next_actions_changed",
+      data: { sources: [{ actions: [{ action: "ended", assignment: "investigate" }] }] },
+    },
+  });
   expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
     code: 0,
     output: { reason: "next_wait_timed_out", data: { sources: [] } },
@@ -613,6 +621,7 @@ test("next --wait returns a new action, also one that came between waits, and ti
   expect(actions.parse(between.output).data).toEqual(actions.parse(first.output).data);
   // A new action during a running wait ends it before its timeout.
   setState("abandoned");
+  expect((await run(cwd, ["next", "--wait", "--timeout", "0"])).code).toBe(0);
   const waiting = run(cwd, ["next", "--wait", "--timeout", "120"]);
   await Bun.sleep(3000);
   setState("ready");
@@ -625,6 +634,67 @@ test("next --wait returns a new action, also one that came between waits, and ti
   });
   expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
 }, 60000);
+
+test("renamed cleanup rows return once in project, source, and session scopes after an upgrade", async () => {
+  const cwd = await repository();
+  await prohibitExternalTools();
+  await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+  const registered = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+  const id = z.object({ data: z.object({ id: z.uuid() }) }).parse(registered.output).data.id;
+  {
+    using db = new Database(`${root}/state/operator/operator.sqlite`);
+    db.query("UPDATE assignments SET state = 'merged' WHERE key = 'implement'").run();
+    recordMerges(db);
+    db.query("UPDATE cleanups SET state = 'pending', step = 'pane'").run();
+  }
+  const scopes: { args: string[]; env: Record<string, string>; scope: string }[] = [
+    { args: [], env: {}, scope: "" },
+    { args: ["--source", id], env: {}, scope: id },
+    {
+      args: [],
+      env: { HERDR_PANE_ID: "w1:supervisor", OPENCODE_SESSION_ID: "ses_upgrade" },
+      scope: "session:ses_upgrade",
+    },
+  ];
+  for (const { args, env, scope } of scopes) {
+    expect((await run(cwd, ["next", "--wait", "--timeout", "0", ...args], env)).code).toBe(0);
+    {
+      // These are wait receipts from the old release, not assignment state needing a migration.
+      using db = new Database(`${root}/state/operator/operator.sqlite`);
+      db.query(
+        "UPDATE coordination_waits SET actions = replace(actions, 'clean_up', 'retry_cleanup') WHERE scope = ?",
+      ).run(scope);
+    }
+    expect(await run(cwd, ["next", "--wait", "--timeout", "0", ...args], env), scope).toMatchObject(
+      {
+        code: 0,
+        output: {
+          reason: "next_actions_changed",
+          data: {
+            sources: [
+              {
+                id,
+                actions: [
+                  {
+                    assignment: "implement",
+                    action: "clean_up",
+                    reason: "cleanup_stopped",
+                    next: { command: `operator cleanup --source ${id} --assignment implement` },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    );
+    expect(await run(cwd, ["next", "--wait", "--timeout", "0", ...args], env)).toMatchObject({
+      code: 0,
+      output: { reason: "next_wait_timed_out", data: { sources: [] } },
+    });
+  }
+  expect(await Bun.file(`${root}/external-called`).exists()).toBe(false);
+});
 
 test("one agent session coordinates a source, and only the person's take-over moves it", async () => {
   const cwd = await repository();
@@ -729,7 +799,7 @@ test("next uses completion-type-specific dependency facts and leaves all records
       db.exec("DELETE FROM cleanups; DELETE FROM pull_requests; DELETE FROM launches");
       if (pr === "pr-open")
         db.exec(
-          "INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM assignments WHERE key = 'implement'",
+          "INSERT INTO pull_requests (source_id, assignment, repository, number, url, branch, associated_at, progress, wait_state) SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle' FROM assignments WHERE key = 'implement'",
         );
       if (pr === "merged") recordMerges(db);
     }

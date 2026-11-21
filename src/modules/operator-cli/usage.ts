@@ -1,4 +1,4 @@
-import { failure } from "./output.ts";
+import { failure, respond, printWorkerContext } from "./output.ts";
 
 type Release = { version: string; commit: string | null; artifactIdentity: string | null };
 
@@ -11,6 +11,7 @@ const workflowGroups = new Set([
   "message",
   "obligation",
   "cleanup",
+  "abandon",
 ]);
 
 export function workflowArguments(args: string[]) {
@@ -30,23 +31,23 @@ const usage = `Usage: operator --help | --version [--json]
        operator project remove owner/repository --person-instructed [--json]
        operator install --opencode | --claude | --opencode --claude [--check] [--json]
        operator install launcher [--json]
-       operator ready [--json]
+        operator ready [--json]
+        operator web open --url http(s)://... --person-requested [--json]
        operator source register --file path [--json]
        operator source show --source id [--json]
        operator source reset --source id --person-instructed [--json]
        operator source take-over --source id --person-instructed [--json]
        operator source prune [--json]
        operator next [--source id] [--wait [--timeout seconds]] [--all] [--json]
-       operator dispatch --source id --assignment key [--json]
-       operator ask --question text [--profile name] [--json]
+       operator dispatch --source id --assignment key [--kind kind] [--json]
+       operator dispatch --kind kind --brief path|- [--intent-file path|-] [--profile name] [--tracker-key key] [--adopt pr-number|pr-url|branch] [--json]
+       operator ask --file path|- [--profile name] [--json]
        operator herdr install [--json]
        operator herdr event [--json]
        operator pr associate [--json]
-       operator pr wait [--timeout seconds] [--json]
+       operator pr wait [--timeout seconds] [--note path|-] [--json]
        operator pr round --file path|- [--json]
-       operator pr ready --file path|- [--json]
-       operator pr validate --file path|- [--json]
-       operator web open --url http-or-https-url --person-requested [--json]
+       operator pr ready [--file path|-] [--note path|-] [--json]
        operator report submit --file path|- [--json]
        operator report resume [--json]
        operator report accept --source id --assignment key [--promote path] [--json]
@@ -63,15 +64,16 @@ const usage = `Usage: operator --help | --version [--json]
        operator obligation add --source id --key key --kind kind [--reference ref] --file path|- [--json]
        operator obligation close --source id --key key [--json]
        operator obligation list --source id [--json]
-       operator pr merge [--source id --assignment key] [--json]
+       operator pr merge [--json]
+       operator pr merge --source <id> --assignment <key> [--json]
        operator cleanup --source id --assignment key [--person-instructed] [--json]
-       operator handoff --source id --assignment key [--json]
+       operator abandon --source id --assignment key [--json]
        operator internal-review skip --source id --assignment key --person-instructed [--json]
+       operator internal-review recover --source id --assignment key --launch id --pr number --head sha --person-instructed [--json]
        operator review add <pr-url> [--slack-thread permalink] [--json]
        operator review post | skip | cleanup <pr-url> [--json]
        operator review start <pr-url> [--profile name] [--json]
        operator review next [--json]
-       operator review wait [--timeout seconds] [--all] [--json]
        operator claude hook
        operator opencode hook`;
 
@@ -79,7 +81,7 @@ const usage = `Usage: operator --help | --version [--json]
 export function runUsage(args: string[], release: Release, json: boolean) {
   if (args.length === 1 && args[0] === "--help") {
     console.log(usage);
-    process.exitCode = 0;
+    if (printWorkerContext()) process.exitCode = 0;
     return true;
   }
   const version =
@@ -87,24 +89,29 @@ export function runUsage(args: string[], release: Release, json: boolean) {
     (args.length === 2 && json && args.includes("--version"));
   if (!version) return false;
   const { version: operatorVersion, commit, artifactIdentity } = release;
-  console.log(
-    json
-      ? JSON.stringify({
-          schemaVersion: 1,
-          operation: "version",
-          outcome: "completed",
+  if (json)
+    respond({
+      operation: "version",
+      result: {
+        tag: "Ok",
+        value: {
           reason: "version_reported",
-          blockers: [],
           data: { operatorVersion, bunVersion: Bun.version, commit, artifactIdentity },
-        })
-      : `operator ${operatorVersion}`,
-  );
-  process.exitCode = 0;
+        },
+      },
+      exitCodes: {},
+      defect: "worker_phase_defect",
+      json,
+    });
+  else {
+    console.log(`operator ${operatorVersion}`);
+    if (printWorkerContext()) process.exitCode = 0;
+  }
   return true;
 }
 
 /** Reports arguments that no command accepts. */
-export function invalidArguments(json: boolean, _args: string[]) {
+export function invalidArguments(json: boolean, _args?: string[]) {
   failure(
     "parse_arguments",
     "invalid_arguments",

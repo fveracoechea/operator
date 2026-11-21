@@ -21,16 +21,6 @@ function found(client: Database, query: string) {
 /** Each guard applies once the migration that adds its records has run. */
 const idleGuards: { applied: number; busy: (client: Database) => boolean; detail: string }[] = [
   {
-    applied: 2,
-    busy: (client) =>
-      found(
-        client,
-        "SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1",
-      ),
-    detail:
-      "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
-  },
-  {
     applied: 3,
     busy: (client) => found(client, "SELECT 1 FROM project_removals LIMIT 1"),
     detail: "Finish pending project file cleanup before an upgrade. No handler ran.",
@@ -85,8 +75,24 @@ const idleGuards: { applied: number; busy: (client: Database) => boolean; detail
   },
   {
     applied: 23,
-    busy: (client) => found(client, "SELECT 1 FROM deliveries WHERE ended_at IS NULL LIMIT 1"),
-    detail: "Migration is waiting for an outstanding PR delivery to be reconciled. No handler ran.",
+    busy: (client) =>
+      heldBy(client, "SELECT owner_pid, lease_at FROM kind_handoffs WHERE owner_pid IS NOT NULL"),
+    detail: "Migration is waiting for a running kind handoff to finish. No handler ran.",
+  },
+  {
+    applied: 24,
+    busy: (client) =>
+      heldBy(
+        client,
+        "SELECT owner_pid, lease_at FROM stack_operations WHERE owner_pid IS NOT NULL",
+      ),
+    detail: "Migration is waiting for running stack effects to finish. No handler ran.",
+  },
+  {
+    applied: 26,
+    busy: (client) =>
+      heldBy(client, "SELECT owner_pid, lease_at FROM parked_pr_reads WHERE owner_pid IS NOT NULL"),
+    detail: "Migration is waiting for the parked PR batch read to finish. No handler ran.",
   },
 ];
 
@@ -122,7 +128,12 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
   [1794416062667, []],
   [1794606256754, []],
   [1794607188879, []],
-  [1794786731277, []],
+  [1794881346701, []],
+  [1794952800000, []],
+  [1794956400000, []],
+  [1795042800000, []],
+  [1795125600000, []],
+  [1795177553070, []],
 ]);
 
 /** Each policy names queries that find records the migration must not run past. */

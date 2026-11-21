@@ -1,7 +1,17 @@
 import { realPathOrNull } from "../../lib/real-path.ts";
-import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise, type AsyncOkOf } from "unthrown";
+import {
+  DoAsync,
+  Err,
+  ErrAsync,
+  Ok,
+  OkAsync,
+  fromPromise,
+  fromSafePromise,
+  type AsyncOkOf,
+} from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { PrEntry } from "../pr-entry/main.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
@@ -9,15 +19,17 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
 import { renderBrief } from "./brief.ts";
+import { briefPhase } from "./brief-phase.ts";
 import { internalReview } from "./internal-review.ts";
 import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts";
 import { cleanWorktree } from "./worktree-cleanup.ts";
 import { handOver } from "./handover.ts";
 import { ensureWorkspace, launchSettings, preparedAgain } from "./launch-checks.ts";
-import { chooseNames, launchBase } from "./names.ts";
+import { adoptedNames, chooseNames, launchBase } from "./names.ts";
 import { installPlugin, observe } from "./hooks.ts";
 import {
   gitBranches,
@@ -30,9 +42,17 @@ import {
   type Paths,
 } from "./observations.ts";
 
-type Request = { paths: Paths; cwd: string; sourceId: string; assignment: string };
+type HandoffContinuation = Parameters<typeof DeviceState.checkHandoffContinuation>[1];
+type Request = {
+  paths: Paths;
+  cwd: string;
+  sourceId: string;
+  assignment: string;
+  continuation?: HandoffContinuation;
+  kind?: string;
+};
 type WorkerKind = ReturnType<typeof WorkerKinds.resolve>;
-/** The internal review handoff starts the reviewer while next shows the handoff as a wait. */
+/** A kind handoff starts its next worker while next shows the handoff as a wait. */
 type DispatchRequest = Request & { handoff?: boolean };
 type Facts = AsyncOkOf<ReturnType<typeof assignmentFacts>>;
 type Settings = Facts & AsyncOkOf<ReturnType<typeof launchSettings>> & { kind: WorkerKind | null };
@@ -59,7 +79,7 @@ function notDispatchable(assignment: string, state: ResultContext["state"]) {
 }
 
 /** Dispatch starts an assignment that next lists as ready or as needing a replacement. */
-const dispatchActions = ["ready_assignment", "replace_worker"];
+const dispatchActions = ["ready_assignment", "replace_worker", "resume_pr_feedback"];
 
 function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
   return (
@@ -77,11 +97,33 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         const planned = source.planned.find((row) => row.key === input.assignment);
         if (planned === undefined)
           return notDispatchable(input.assignment, { assignmentPlanned: false });
-        const kind = planned.kind;
+        if (input.kind !== undefined && planned.kind !== null)
+          return Err<Failure>({
+            reason: "assignment_kind_set",
+            detail: "The assignment already has a kind. Nothing changed.",
+            next: { command: "operator next", why: "Use the recorded assignment kind." },
+            state: { kind: planned.kind },
+          });
+        const kind = input.kind ?? planned.kind;
+        if (kind === null)
+          return Err<Failure>({
+            reason: "assignment_kind_required",
+            detail:
+              "This assignment needs an explicit worker kind before its next launch. Nothing changed.",
+            next: {
+              command: `operator dispatch --source ${input.sourceId} --assignment ${input.assignment} --kind <kind>`,
+              why: "Name a kind with the registered completion type.",
+            },
+            state: { kind: null },
+          });
         const rows = next.sources
           .flatMap((row) => [...row.actions, ...row.waits])
           .filter((row) => "assignment" in row && row.assignment === input.assignment);
-        if (rows.some((row) => row.reason === "kind_not_dispatchable"))
+        if (
+          !WorkerKinds.dispatchable(kind) &&
+          (!("adopt" in planned) || planned.adopt === undefined) &&
+          source.assignments.some((row) => row.key === input.assignment && row.state === "ready")
+        )
           return Err<Failure>({
             reason: "kind_not_dispatchable",
             detail: `The ${kind} kind starts through a handoff or adoption, not plain dispatch.`,
@@ -107,7 +149,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         const action = rows.find(
           (row) =>
             actions.includes(row.action) ||
-            (input.handoff === true && row.reason === "internal_review_handoff"),
+            (input.handoff === true && row.reason === "kind_handoff"),
         );
         return action === undefined
           ? notDispatchable(input.assignment, {
@@ -116,6 +158,7 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
             })
           : Ok({
               ...planned,
+              kind,
               intent: planned.intent ?? source.plan.intent ?? null,
               sourceTrackerKey: source.trackerKey,
               maxRunning: source.plan.maxRunning,
@@ -127,18 +170,40 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         ({ source }) =>
           source.pullRequests.find((row) => row.assignment === input.assignment) ?? null,
       )
-      .let("review", ({ source }) => {
+      .let("review", ({ source, pullRequest }) => {
         const review = source.internalReviews.find((row) => row.assignment === input.assignment);
+        const dispositions = new Map(
+          (pullRequest?.readiness?.dispositions ?? []).map((item) => [
+            `${item.round}.${item.finding}`,
+            item,
+          ]),
+        );
         return review === undefined
           ? null
           : {
               state: review.state,
-              rounds: source.internalReviewRounds.filter(
-                (round) => round.assignment === input.assignment,
-              ),
+              rounds: source.internalReviewRounds
+                .filter((round) => round.assignment === input.assignment)
+                .map((round) => ({
+                  ...round,
+                  findings: round.findings.map((finding, index) => {
+                    const disposition = dispositions.get(`${round.number}.${index + 1}`);
+                    return disposition === undefined
+                      ? finding
+                      : {
+                          ...finding,
+                          disposition:
+                            disposition.disposition === "declined"
+                              ? `declined: ${disposition.reason}`
+                              : "applied",
+                        };
+                  }),
+                })),
               readyHead: review.readyHead,
+              comment: review.commentUrl,
             };
       })
+      .let("events", ({ pullRequest }) => pullRequest?.parking?.events ?? [])
       // An adopted PR is read at each start until its owner associates it. ADR-0024.
       .bind("adoption", ({ source, planned, pullRequest }) =>
         !("adopt" in planned) || planned.adopt === undefined || pullRequest !== null
@@ -147,24 +212,54 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
               repository: source.repository,
               number: planned.adopt,
               branch: planned.branch,
+              kind: planned.kind,
+              completion: planned.completion,
             }),
       )
+      .flatTap(({ source, adoption }) =>
+        adoption === null
+          ? OkAsync(undefined)
+          : DeviceState.checkAdoption(input.paths, {
+              repository: source.repository,
+              sourceId: input.sourceId,
+              assignment: input.assignment,
+              number: adoption.number,
+              branch: adoption.branch,
+            }),
+      )
+      .bind("adoptionHistory", ({ adoption, pullRequest, planned }) => {
+        const number = adoption?.number ?? pullRequest?.number;
+        return !("adopt" in planned) || planned.adopt === undefined || number === undefined
+          ? OkAsync([])
+          : WorkSources.adoptionHistory({
+              paths: input.paths,
+              cwd: input.cwd,
+              number,
+            });
+      })
       // Only a start before the PR exists resolves internal review. After that, the recorded
       // review decides, so a settings change cannot drop a review that already started.
       // An adopted PR that is ready for review is already in front of people. ADR-0024.
       .bind("internalReview", ({ source, planned, pullRequest, review, adoption }) =>
-        pullRequest !== null || adoption?.draft === false
-          ? OkAsync(review !== null)
-          : DeviceSettings.show(input.paths).map(({ data }) =>
-              internalReview({
-                assignment: planned.completion === "pr" ? planned.internalReview : undefined,
-                plan: source.plan.internalReview,
-                device: data.config.review?.internal,
-              }),
-            ),
+        adoption?.draft === true && planned.kind === "review"
+          ? OkAsync(true)
+          : pullRequest !== null || adoption?.draft === false
+            ? OkAsync(review !== null)
+            : DeviceSettings.show(input.paths).map(({ data }) =>
+                internalReview({
+                  assignment: planned.completion === "pr" ? planned.internalReview : undefined,
+                  plan: source.plan.internalReview,
+                  device: data.config.review?.internal,
+                }),
+              ),
       )
-      // A PR stacks on the branch of its one open parent PR. Next waits while several are open.
-      .let("stack", ({ source, planned }) => {
+      // An associated PR keeps its recorded parent base until its relay finishes.
+      .let("stack", ({ source, planned, pullRequest }) => {
+        if (pullRequest !== null) {
+          const relay = pullRequest.relay;
+          return relay === null || relay.state === "relayed" ? null : relay.parent;
+        }
+        // Next waits while several parents are open, before a PR is associated.
         const open = source.assignments.filter(
           (row) => planned.dependencies.includes(row.key) && row.state === "pr-open",
         );
@@ -174,6 +269,23 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
         return planned.completion === "pr" && one
           ? { assignment: parent.assignment, number: parent.number, branch: parent.branch }
           : null;
+      })
+      .flatTap(({ adoption, stack, planned }) => {
+        if (adoption === null) return OkAsync(undefined);
+        if (adoption.number === null || (adoption.draft && planned.kind !== "review"))
+          return OkAsync(undefined);
+        const expected = stack?.branch ?? adoption.defaultBranch;
+        return adoption.base === expected
+          ? OkAsync(undefined)
+          : ErrAsync<Failure>({
+              reason: "adopt_pr_base_mismatch",
+              detail: `The adopted PR's base is ${adoption.base}, not ${expected}. Correct its base before direct entry. Nothing was launched.`,
+              next: {
+                decider: "super-agent",
+                question: "How should the adopted PR's base be corrected before dispatch?",
+              },
+              state: { base: adoption.base, expected },
+            });
       })
       // An open PR lives on the worktree of an earlier start, even after a later start failed.
       // A promoted assignment's first start takes over the promoted report's worktree. ADR-0023.
@@ -248,13 +360,22 @@ function chooseResources(input: Request, facts: Facts) {
         : parentBase(checkout, facts.stack.branch),
     )
     .bind("names", ({ workspace, agents, tabs, recorded, branches, reuse }) => {
-      const names = chooseNames({
-        base: launchBase(facts.planned),
-        branch:
-          facts.planned.resources === "worktree" && reuse === null ? facts.planned.branch : null,
-        takenNames: new Set([...agents, ...tabs, ...workspace.labels, ...recorded]),
-        takenBranches: branches,
-      });
+      const takenNames = new Set([...agents, ...tabs, ...workspace.labels, ...recorded]);
+      const adopted =
+        facts.adoption?.branch ??
+        ("adopt" in facts.planned && facts.planned.adopt !== undefined ? reuse?.branch : undefined);
+      const names =
+        adopted === undefined
+          ? chooseNames({
+              base: launchBase(facts.planned),
+              branch:
+                facts.planned.resources === "worktree" && reuse === null
+                  ? facts.planned.branch
+                  : null,
+              takenNames,
+              takenBranches: branches,
+            })
+          : adoptedNames(adopted, takenNames);
       return names === null
         ? Err<Failure>({
             reason: "launch_name_exhausted",
@@ -267,8 +388,7 @@ function chooseResources(input: Request, facts: Facts) {
           })
         : Ok({
             name: names.name,
-            // An adopted PR keeps its own branch, which is taken by definition.
-            branch: reuse?.branch ?? facts.adoption?.branch ?? names.branch,
+            branch: reuse?.branch ?? names.branch,
           });
     })
     .flatTap(({ reuse }) =>
@@ -280,6 +400,7 @@ function chooseResources(input: Request, facts: Facts) {
             repository: facts.project.repository,
             number: facts.adoption.number,
             branch: facts.adoption.branch,
+            expectedHead: facts.adoption.head,
           }),
     );
 }
@@ -318,11 +439,24 @@ function place(input: {
   }));
 }
 
+async function reviewerNote(settings: Pick<Settings, "kind" | "pullRequest">) {
+  if (settings.kind?.readsNote !== true) return null;
+  const pr = settings.pullRequest;
+  const file =
+    pr?.parking === null || pr?.parking === undefined
+      ? (pr?.readiness?.note ?? null)
+      : pr.parking.note;
+  return file === null ? null : Bun.file(file).text();
+}
+
 function writeBrief(
   request: Request,
   settings: Facts & { launch: { profile: string | null }; kind: WorkerKind | null },
   placement: { workingDirectory: string },
   branch: string | null,
+  directEntry:
+    | (Parameters<typeof DeviceState.adoptPullRequest>[2] & { mergedAt: null })
+    | null = null,
 ) {
   const files = OperatorHome.assignmentFiles(request.paths, {
     repository: settings.project.repository,
@@ -330,8 +464,35 @@ function writeBrief(
     assignment: settings.planned.key,
   });
   const promotion = settings.planned.promotion;
+  const phasePr = settings.pullRequest ?? directEntry;
   return fromPromise(
     async () => {
+      const questions: NonNullable<Parameters<typeof renderBrief>[0]["questions"]> = [];
+      for (const row of settings.source.questions)
+        if (
+          row.assignment === settings.planned.key &&
+          // Stryker disable next-line ConditionalExpression: equivalent: decoded source questions with nonnull answer and authority must be answered; validQuestion rejects every contrary row before dispatch or refresh
+          row.state === "answered" &&
+          // Stryker disable next-line ConditionalExpression: equivalent: validQuestion requires every decoded answered question to have a nonnull answer before dispatch or refresh
+          row.answer !== null &&
+          // Stryker disable next-line ConditionalExpression: equivalent: validQuestion requires every decoded answered question to have a nonnull answer authority before dispatch or refresh
+          row.answeredBy !== null
+        )
+          questions.push({
+            key: row.key,
+            question: row.question,
+            answer: row.answer,
+            by: row.answeredBy,
+          });
+      const commit =
+        settings.pullRequest === null && settings.adoption === null
+          ? null
+          : await ToolInvocation.run({
+              tool: "git",
+              args: ["rev-parse", "--verify", "HEAD"],
+              cwd: placement.workingDirectory,
+              timeoutMs: 10000,
+            });
       const text = renderBrief({
         sourceId: request.sourceId,
         sourceTrackerKey: settings.planned.sourceTrackerKey,
@@ -339,6 +500,20 @@ function writeBrief(
         trackerKey: settings.planned.trackerKey,
         completion: settings.planned.completion,
         kind: settings.kind,
+        phase: briefPhase({
+          kind: settings.kind,
+          report:
+            settings.source.reports.findLast((row) => row.assignment === settings.planned.key) ??
+            null,
+          pullRequest: phasePr,
+          review:
+            settings.review === null
+              ? null
+              : { state: settings.review.state, rounds: settings.review.rounds.length },
+          internalReview: settings.internalReview,
+        }),
+        head: commit?.status === "completed" && commit.exitCode === 0 ? commit.stdout.trim() : null,
+        questions,
         profile: settings.launch.profile,
         instructions: settings.planned.instructions,
         intent: settings.planned.intent,
@@ -351,9 +526,12 @@ function writeBrief(
         stack: settings.stack,
         internalReview: settings.internalReview,
         review: settings.review,
+        note: await reviewerNote(settings),
+        events: settings.events,
         promotion:
           promotion === null ? null : { report: promotion.report, number: promotion.reportNumber },
         adoption: settings.adoption,
+        adoptionHistory: settings.adoptionHistory,
       });
       await Bun.write(files.brief, text);
       return files.brief;
@@ -414,7 +592,42 @@ function launchEffects(input: {
           ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
           : preparedAgain(request.paths, placement.worktreePath);
       })
-      .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
+      .bind("adopted", ({ placement }) => {
+        const pr = settings.adoption;
+        if (
+          pr?.number === undefined ||
+          pr.number === null ||
+          (pr.draft && settings.kind?.name !== "review")
+        )
+          return OkAsync(null);
+        return PrEntry.prepare({
+          worktree: placement.workingDirectory,
+          internalReview: settings.kind?.name === "review",
+          draft: pr.draft,
+          head: pr.head,
+        }).flatMap(({ review, readiness }) => {
+          const adopted: Parameters<typeof DeviceState.adoptPullRequest>[2] & { mergedAt: null } = {
+            number: pr.number,
+            url: pr.url,
+            branch: pr.branch,
+            mergedAt: null,
+            relay:
+              settings.stack === null
+                ? null
+                : JSON.stringify({ parent: settings.stack, state: "stacked", blocker: null }),
+          };
+          if (readiness !== null) adopted.readiness = readiness;
+          return DeviceSettings.show(request.paths).flatMap(({ data }) =>
+            DeviceState.adoptPullRequest(request.paths, input.id, adopted, {
+              internalReview: review,
+              assignmentReview: data.config.review?.assignments === true,
+            }).map(() => adopted),
+          );
+        });
+      })
+      .bind("brief", ({ placement, adopted }) =>
+        writeBrief(request, settings, placement, branch, adopted),
+      )
       .flatTap(({ placement }) =>
         AgentHosts.start({
           name,
@@ -476,6 +689,13 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
     settings.planned.maxRunning,
     // The dispatching pane and session supervise the source.
     Environment.caller(),
+    request.continuation,
+    request.kind,
+    settings.adoption === null
+      ? undefined
+      : {
+          number: settings.adoption.number,
+        },
   );
 }
 
@@ -551,55 +771,77 @@ function launch(request: Request, settings: Settings, resources: Resources) {
           resources,
           id: reserved.id,
           startedAt,
-        });
+        }).map((effects) => ({
+          sourceId: request.sourceId,
+          assignment: request.assignment,
+          attempt: reserved.attempt,
+          name: resources.names.name,
+          host: settings.launch.host,
+          model: settings.launch.model,
+          reasoningEffort: settings.launch.reasoningEffort,
+          profile: settings.launch.profile,
+          release: settings.release,
+          skills: settings.skills,
+          kind: settings.kind,
+          ...effects,
+        }));
         release();
-        if (started.tag === "Ok")
-          return Ok({
-            sourceId: request.sourceId,
-            assignment: request.assignment,
-            attempt: reserved.attempt,
-            name: resources.names.name,
-            host: settings.launch.host,
-            model: settings.launch.model,
-            reasoningEffort: settings.launch.reasoningEffort,
-            profile: settings.launch.profile,
-            release: settings.release,
-            skills: settings.skills,
-            kind: settings.kind,
-            ...started.value,
+        if (started.tag === "Ok") return started;
+        if (started.tag === "Defect") {
+          const recorded = DeviceState.updateLaunch(request.paths, reserved.id, {
+            state: "failed",
+            failureReason: "launch_defect",
+            failureDetail: `Dispatch stopped: ${String(started.cause)}`,
           });
-        return recordFailure(
-          request.paths,
-          reserved.id,
-          started.tag === "Err"
-            ? started.error
-            : {
-                reason: "launch_defect",
-                detail: `Dispatch stopped: ${String(started.cause)}`,
-                // Stryker disable next-line ObjectLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
-                next: {
-                  // Stryker disable next-line StringLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
-                  decider: "super-agent",
-                  question:
-                    // Stryker disable next-line StringLiteral: equivalent: The dispatch Defect next object is passed only into recordFailure. recordFailure stores only reason/detail and optional state, then always returns its own operator next recovery for launch_failed. It never reads error.next, so these fallback-next identities have no observable output. Preserve the established outer next; do not change recovery policy to make dead metadata testable.
-                    "How should the unexpected dispatch failure be investigated before another launch?",
-                },
-              },
-        );
+          // A bookkeeping failure must not replace the original defect or its nested cause.
+          if (recorded.tag !== "Ok") return started;
+          return started;
+        }
+        return recordFailure(request.paths, reserved.id, started.error);
       }).flatMap((result) => result),
     );
 }
 
-function dispatch(request: DispatchRequest) {
-  return assignmentFacts(request).flatMap((facts) =>
-    launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
-      (settings) => {
-        const definition =
-          facts.planned.kind === null
-            ? null
-            : WorkerKinds.resolve(
-                facts.review?.state === "reviewing" ? "review" : facts.planned.kind,
-              );
+function dispatchSettings(request: Request, facts: Facts) {
+  return launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
+    (settings) => {
+      const migrationParking = facts.pullRequest?.parking;
+      const nextKind =
+        migrationParking !== undefined && migrationParking !== null && "origin" in migrationParking
+          ? undefined
+          : facts.source.handoffs.find((row) => row.assignment === request.assignment)?.nextKind;
+      const kindName = nextKind ?? facts.planned.kind;
+      return (
+        kindName === null
+          ? OkAsync(null)
+          : DeviceSettings.kind({
+              paths: request.paths,
+              name: kindName,
+              host: settings.launch.host,
+            })
+      ).flatMap((definition) => {
+        if (request.kind !== undefined && definition !== null && !definition.dispatchable)
+          return Err<Failure>({
+            reason: "kind_not_dispatchable",
+            detail: `The ${definition.name} kind starts through a handoff or adoption, not plain dispatch.`,
+            next: { command: "operator next", why: "Use the recorded handoff or adoption path." },
+            state: { kind: definition.name },
+          });
+        if (definition !== null && definition.completion !== facts.planned.completion)
+          return Err<Failure>({
+            reason: "kind_completion_changed",
+            detail: `Kind ${definition.name} no longer matches the registered completion type. Nothing was launched.`,
+            next: {
+              decider: "super-agent",
+              question:
+                "Should the kind's original completion type be restored, or should this work use a new plan?",
+            },
+            state: {
+              kind: definition.name,
+              registeredCompletion: facts.planned.completion,
+              configuredCompletion: definition.completion,
+            },
+          });
         const kind =
           definition === null
             ? null
@@ -611,16 +853,22 @@ function dispatch(request: DispatchRequest) {
                   definition.name === "implementation" && !facts.internalReview
                     ? ("pr-feedback" as const)
                     : definition.nextKind,
-                guide: `${request.paths.skillHosts[settings.launch.host]}/${definition.guide}`,
+                guide: definition.guide,
                 skillsToRead: definition.skillsToRead.map(
                   (name) =>
                     `${request.paths.upstreamSkills[settings.launch.host]}/${name}/SKILL.md`,
                 ),
               };
-        return chooseResources(request, facts).flatMap((resources) =>
-          launch(request, { ...facts, ...settings, kind }, resources),
-        );
-      },
+        return Ok({ ...facts, ...settings, kind });
+      });
+    },
+  );
+}
+
+function dispatch(request: DispatchRequest) {
+  return assignmentFacts(request).flatMap((facts) =>
+    dispatchSettings(request, facts).flatMap((settings) =>
+      chooseResources(request, facts).flatMap((resources) => launch(request, settings, resources)),
     ),
   );
 }
@@ -651,6 +899,16 @@ function refreshBrief(request: Request) {
 
 /** Launches WorkerAgents through Herdr and handles the stable plugin hooks. */
 export const WorkerDispatch = {
+  /** Reuses launch policy before a kind handoff claims state or closes its outgoing pane. */
+  checkHandoff(input: Request) {
+    return assignmentFacts({ ...input, handoff: true })
+      .flatMap((facts) => dispatchSettings(input, facts))
+      .map(() => undefined);
+  },
+  /** Resolves launch-time review policy for dispatch and a promoted worker's new PR launch. */
+  resolveInternalReview(values: Parameters<typeof internalReview>[0]) {
+    return internalReview(values);
+  },
   dispatch(input: DispatchRequest) {
     return dispatch(input);
   },

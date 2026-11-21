@@ -17,6 +17,8 @@ import { expectWorkflowRefusal } from "./worker-fixture.ts";
 
 let root = "";
 let checkout = "";
+let initialHead = "";
+const workerPanes = new Map<string, string>();
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
@@ -27,7 +29,7 @@ const gitEnv = {
   GIT_COMMITTER_EMAIL: "fixture@example.com",
 };
 
-function environment() {
+function environment(cwd = checkout) {
   return Environment.child({
     ...gitEnv,
     HOME: `${root}/home`,
@@ -35,12 +37,13 @@ function environment() {
     XDG_STATE_HOME: `${root}/state`,
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     HERDR_SOCKET_PATH: `${root}/herdr.sock`,
+    HERDR_PANE_ID: workerPanes.get(cwd) ?? "synthetic-supervisor-pane",
     PATH: `${root}/tools:${Environment.read().PATH}`,
   });
 }
 
 async function exec(args: string[], cwd = checkout) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(args, { cwd, env: environment(cwd), stdout: "pipe", stderr: "pipe" });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -113,6 +116,7 @@ async function setup(host: "opencode" | "claude-code") {
   await Bun.write(`${checkout}/README.md`, "fixture\n");
   await git(checkout, "add", ".");
   await git(checkout, "commit", "-q", "-m", "fixture");
+  initialHead = await git(checkout, "rev-parse", "HEAD");
   await tool("herdr", fakeHerdrScript(root));
   await tool("gh", fakeGithubScript(root));
   await symlink(cli, `${root}/tools/operator`);
@@ -139,7 +143,7 @@ async function setup(host: "opencode" | "claude-code") {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(upstream, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${upstream}/code-review`);
-  await writeGuideSkills(upstream);
+  await writeGuideSkills(upstream, skills);
   await writeClaudeHookSettings(`${root}/home`);
   await writeOpenCodePlugin(`${root}/config`);
   expect((await run(["project", "register"])).code).toBe(0);
@@ -150,18 +154,69 @@ async function setup(host: "opencode" | "claude-code") {
 }
 
 afterEach(async () => {
+  workerPanes.clear();
   await rm(root, { recursive: true, force: true });
 });
 
 async function dispatch(source: string, assignment = "implement") {
   const launched = await run(["dispatch", "--source", source, "--assignment", assignment]);
   expect(launched.code, launched.stderr).toBe(0);
-  return z
+  const worker = z
     .object({ data: z.object({ worktreePath: z.string(), paneId: z.string(), brief: z.string() }) })
     .parse(launched.output).data;
+  workerPanes.set(worker.worktreePath, worker.paneId);
+  return worker;
+}
+
+async function feedbackWorker(source: string, worker: { worktreePath: string; paneId: string }) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const shown = await run(["source", "show", "--source", source]);
+    const latest = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({
+              state: z.string(),
+              paneId: z.string().nullable(),
+              worktreePath: z.string().nullable(),
+              kind: z.object({ name: z.string() }).nullable(),
+            }),
+          ),
+        }),
+      })
+      .parse(shown.output)
+      .data.launches.at(-1);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      expect(latest.worktreePath).toBe(worker.worktreePath);
+      expect(latest.paneId).not.toBe(worker.paneId);
+      worker.paneId = latest.paneId;
+      workerPanes.set(worker.worktreePath, latest.paneId);
+      return;
+    }
+    expect(Date.now(), JSON.stringify(shown.output)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 }
 
 type Pull = Record<string, unknown> & { number: number };
+async function parkedWorker(source: string) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const shown = await run(["source", "show", "--source", source]);
+    const launches = z
+      .object({ data: z.object({ launches: z.array(z.object({ state: z.string() })) }) })
+      .parse(shown.output).data.launches;
+    if (launches.at(-1)?.state === "finished") return;
+    expect(Date.now(), JSON.stringify(shown.output)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
+}
+
 async function github(change: { pulls?: Pull[]; queue?: object[]; fail?: string | null }) {
   const file = Bun.file(`${root}/github.json`);
   const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
@@ -175,6 +230,7 @@ function pull(change: Record<string, unknown> = {}): Pull {
     headRefName: "task/12-implement",
     headRepository: "example/one",
     state: "OPEN",
+    head: initialHead,
     ...change,
   };
 }
@@ -236,13 +292,14 @@ function describeHosts() {
           },
         },
       });
+      await feedbackWorker(source, worker);
       expect(await run(["pr", "associate"], worker.worktreePath)).toMatchObject({
         code: 0,
         output: { reason: "pr_unchanged" },
       });
       expect(await entry(source)).toMatchObject({
         action: "wait",
-        reason: "pr_feedback_loop",
+        reason: "assignment_active",
         pullRequest: { number: 7, wait: "idle" },
       });
 
@@ -286,20 +343,24 @@ function describeHosts() {
         },
       });
       expect(await entry(source)).toMatchObject({
-        reason: "pr_feedback_loop",
+        reason: "assignment_active",
         pullRequest: { wait: "reported" },
       });
 
-      // A new process continues from recorded progress and does not repeat the feedback.
+      // A new process does not repeat feedback, and own-head running CI keeps the launch live.
       const repeated = await run(["pr", "wait", "--timeout", "0"], worker.worktreePath);
       expect(repeated).toMatchObject({
         code: 0,
-        output: { reason: "pr_wait_timed_out", data: { events: [] } },
+        output: {
+          reason: "pr_checks_running",
+          next: { command: "operator pr wait" },
+          data: { events: [] },
+        },
       });
       expect(await entry(source)).toMatchObject({
-        action: "owner_attention",
-        reason: "pr_wait_timed_out",
-        pullRequest: { wait: "timed_out" },
+        action: "wait",
+        reason: "assignment_active",
+        pullRequest: { wait: "idle" },
       });
 
       await github({
@@ -308,6 +369,7 @@ function describeHosts() {
             checks: [
               { name: "lint", conclusion: "FAILURE" },
               { name: "legacy", status: "SUCCESS" },
+              { name: "build" },
             ],
           },
         ],
@@ -319,21 +381,23 @@ function describeHosts() {
             events: [
               {
                 kind: "checks_failed",
-                head: "head-1",
+                head: initialHead,
                 checks: [{ name: "lint", state: "failing" }],
               },
             ],
           },
         },
       });
-      expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+      expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
       expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
-        output: { reason: "pr_wait_timed_out" },
+        output: { reason: "pr_checks_running", data: { events: [] } },
       });
       // The same check failing on a new head is new evidence.
-      await github({ queue: [{ head: "head-2" }] });
+      await git(worker.worktreePath, "commit", "-q", "--allow-empty", "-m", "feedback fix");
+      const newHead = await git(worker.worktreePath, "rev-parse", "HEAD");
+      await github({ queue: [{ head: newHead }] });
       expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
-        output: { data: { events: [{ kind: "checks_failed", head: "head-2" }] } },
+        output: { data: { events: [{ kind: "checks_failed", head: newHead }] } },
       });
 
       await github({
@@ -344,7 +408,13 @@ function describeHosts() {
               { id: "R1", state: "CHANGES_REQUESTED", body: "Fix the guard." },
               { id: "R3", state: "APPROVED", body: "" },
             ],
-            threads: [{ comments: [{ id: "T1", body: "Wrong branch here." }], resolved: true }],
+            threads: [
+              {
+                comments: [{ id: "T1", body: "Wrong branch here." }],
+                path: "a.ts",
+                resolved: true,
+              },
+            ],
             checks: [{ name: "lint", conclusion: "SUCCESS" }],
           },
         ],
@@ -359,25 +429,33 @@ function describeHosts() {
               defaultBase: true,
             },
             events: [
-              { kind: "feedback", items: [{ id: "R3", reviewState: "APPROVED" }] },
-              { kind: "merge_eligible", head: "head-2" },
+              {
+                kind: "feedback",
+                items: [
+                  { id: "R3", reviewState: "APPROVED" },
+                  { id: "T1", threadResolved: true, path: "a.ts" },
+                ],
+              },
+              { kind: "merge_eligible", head: newHead },
             ],
           },
         },
       });
       expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
-        output: { reason: "pr_wait_timed_out" },
+        output: { reason: "pr_parked", data: { events: [] } },
       });
+      await parkedWorker(source);
+      expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_parked" });
 
-      // A merge seen by the wait is not a verified completion. The SuperAgent decides.
-      await github({ queue: [{ state: "MERGED" }] });
-      expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
-        code: 0,
-        output: { reason: "pr_not_open", data: { events: [{ kind: "pr_merged" }] } },
-      });
+      // A merge without a merge commit is not verified completion, even in a parked batch read.
+      await github({ pulls: [pull({ head: newHead, state: "MERGED" })] });
+      const reads = await githubReads();
+      expect((await run(["next", "--wait", "--source", source, "--timeout", "0"])).code).toBe(0);
+      expect(await githubReads()).toBe(reads + 1);
+      expect(await Bun.file(`${worker.worktreePath}/README.md`).exists()).toBe(true);
       expect(await entry(source)).toMatchObject({
-        action: "owner_attention",
-        reason: "pr_not_open",
+        action: "wait",
+        reason: "pr_parked",
       });
       const shown = await run(["source", "show", "--source", source]);
       expect(shown.output).toMatchObject({
@@ -387,7 +465,14 @@ function describeHosts() {
             { key: "implement", state: "pr-open" },
             { key: "second", state: "ready" },
           ],
-          pullRequests: [{ assignment: "implement", number: 7, waitState: "not_open" }],
+          pullRequests: [
+            {
+              assignment: "implement",
+              number: 7,
+              waitState: "idle",
+              parking: { state: "parked", head: newHead },
+            },
+          ],
         },
       });
     }, 60000);
@@ -396,8 +481,9 @@ function describeHosts() {
 test("a wait polls until new feedback arrives and simultaneous waits report it once", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
-  await github({ pulls: [pull()] });
+  await github({ pulls: [pull({ checks: [{ name: "ci" }] })] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await github({ queue: [{}, { comments: [{ id: "C1", body: "Later." }] }] });
   const polled = await run(["pr", "wait", "--timeout", "1"], worker.worktreePath);
   expect(polled).toMatchObject({
@@ -422,7 +508,7 @@ test("a wait polls until new feedback arrives and simultaneous waits report it o
   ]);
   expect(
     both.map((result) => z.object({ reason: z.string() }).parse(result.output).reason).toSorted(),
-  ).toEqual(["pr_events_observed", "pr_wait_timed_out"]);
+  ).toEqual(["pr_checks_running", "pr_events_observed"]);
 }, 60000);
 
 test("PR commands resolve only the recorded worktree of the running owner and refuse without effects", async () => {
@@ -473,10 +559,12 @@ test("PR commands resolve only the recorded worktree of the running owner and re
   // A subdirectory and a linked path resolve through the real Git top level.
   await mkdir(`${worker.worktreePath}/src`);
   await symlink(worker.worktreePath, `${root}/linked`);
+  workerPanes.set(`${worker.worktreePath}/src`, worker.paneId);
   expect(await run(["pr", "associate"], `${worker.worktreePath}/src`)).toMatchObject({
     code: 0,
     output: { reason: "pr_associated" },
   });
+  await feedbackWorker(source, worker);
   expect(await run(["pr", "associate"], `${root}/linked`)).toMatchObject({
     output: { reason: "pr_unchanged" },
   });
@@ -525,8 +613,11 @@ test("PR commands resolve only the recorded worktree of the running owner and re
 test("an interrupted owner needs replacement, and the replacement keeps the PR and its progress", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
-  await github({ pulls: [pull({ comments: [{ id: "C1", body: "First." }] })] });
+  await github({
+    pulls: [pull({ comments: [{ id: "C1", body: "First." }], checks: [{ name: "ci" }] })],
+  });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await Bun.write(`${worker.worktreePath}/unlanded.txt`, "partial work\n");
   expect((await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).output).toMatchObject({
     reason: "pr_events_observed",
@@ -551,11 +642,16 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
   expect(replacement.worktreePath).toBe(worker.worktreePath);
   expect(await Bun.file(`${worker.worktreePath}/unlanded.txt`).text()).toBe("partial work\n");
   const brief = await Bun.file(replacement.brief).text();
-  expect(brief).toContain("PR #7 is already open for this assignment");
+  expect(brief).toContain("## Handoff\n\nPR #7:");
+  const head = (await exec(["git", "rev-parse", "HEAD"], worker.worktreePath)).stdout.trim();
+  expect(brief).toContain(`Head: \`${head}\`.`);
+  expect(brief).toContain("Phase: `feedback`");
+  expect(brief).toContain(`Resources: \`worktree\`, \`${worker.worktreePath}\``);
+  expect(brief).toContain("Branch: `task/12-implement`");
   expect(brief).not.toContain("operator pr associate");
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   expect(await run(["pr", "wait", "--timeout", "0"], replacement.worktreePath)).toMatchObject({
-    output: { reason: "pr_wait_timed_out" },
+    output: { reason: "pr_checks_running", data: { events: [] } },
   });
   const shown = await run(["source", "show", "--source", source]);
   expect(shown.output).toMatchObject({
@@ -565,11 +661,31 @@ test("an interrupted owner needs replacement, and the replacement keeps the PR a
         { key: "second", state: "ready" },
       ],
       launches: [
-        { attempt: 1, state: "interrupted" },
-        { attempt: 2, state: "running" },
+        { attempt: 1, state: "finished" },
+        { attempt: 2, state: "interrupted" },
+        { attempt: 3, state: "running" },
       ],
     },
   });
+  await exec(["herdr", "pane", "exit", replacement.paneId, "w1"]);
+  const realGit = Bun.which("git", { PATH: Environment.read().PATH });
+  expect(realGit).not.toBeNull();
+  await tool(
+    "git",
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args.join(" ") === "rev-parse --verify HEAD") {
+  console.log("UNOBSERVED_HEAD");
+  process.exit(1);
+}
+const child = Bun.spawnSync([${JSON.stringify(realGit)}, ...args], { stdout: "inherit", stderr: "inherit" });
+process.exit(child.exitCode);
+`,
+  );
+  const withoutHead = await dispatch(source);
+  const unobserved = await Bun.file(withoutHead.brief).text();
+  expect(unobserved).toContain("## Handoff\n\nPR #7:");
+  expect(unobserved).not.toMatch(/Head:|UNOBSERVED_HEAD/);
 }, 60000);
 
 test("an unanswered GitHub read is a visible failure and records no wait result", async () => {
@@ -577,6 +693,7 @@ test("an unanswered GitHub read is a visible failure and records no wait result"
   const worker = await dispatch(source);
   await github({ pulls: [pull()] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await github({ fail: "upstream fault" });
   expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
     code: 1,
@@ -584,8 +701,8 @@ test("an unanswered GitHub read is a visible failure and records no wait result"
   });
   // The failed wait process ended, so its loop is visible as stopped.
   expect(await entry(source)).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_wait_stopped",
+    action: "wait",
+    reason: "assignment_active",
     pullRequest: { wait: "stopped" },
   });
 }, 60000);
@@ -651,14 +768,15 @@ for (const [host, status] of [
     });
   }, 60000);
 
-test("a killed wait and an idle owner between waits need attention", async () => {
+test("a killed wait leaves its live idle owner needing worker attention", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
   await github({ pulls: [pull()] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   const child = Bun.spawn([process.execPath, cli, "pr", "wait", "--timeout", "600", "--json"], {
     cwd: worker.worktreePath,
-    env: environment(),
+    env: environment(worker.worktreePath),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -667,28 +785,27 @@ test("a killed wait and an idle owner between waits need attention", async () =>
     expect(Date.now()).toBeLessThan(deadline);
     await Bun.sleep(100);
   }
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   // A running wait is working, even when the host reports idle.
   await activity(worker.paneId, "idle");
-  expect(await entry(source)).toMatchObject({ reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ reason: "assignment_active" });
   child.kill("SIGKILL");
   await child.exited;
   expect(await entry(source)).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_wait_stopped",
+    action: "worker_attention",
+    reason: "worker_idle",
     pullRequest: { wait: "stopped" },
   });
-
   await github({ queue: [{ comments: [{ id: "C1", body: "Fix it." }] }] });
   expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
     output: { reason: "pr_events_observed" },
   });
   await activity(worker.paneId, "working");
-  expect(await entry(source)).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+  expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   await activity(worker.paneId, "done");
   expect(await entry(source)).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_owner_idle",
+    action: "worker_attention",
+    reason: "worker_idle",
   });
 }, 60000);
 
@@ -701,8 +818,9 @@ async function setHerdr(change: Record<string, unknown>) {
 test("a replacement after a failed replacement start continues on the PR worktree", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);
-  await github({ pulls: [pull()] });
+  await github({ pulls: [pull({ checks: [{ name: "ci" }] })] });
   expect((await run(["pr", "associate"], worker.worktreePath)).code).toBe(0);
+  await feedbackWorker(source, worker);
   await Bun.write(`${worker.worktreePath}/unlanded.txt`, "partial work\n");
   await exec(["herdr", "pane", "exit", worker.paneId, "w1"]);
   await setHerdr({ fail: { "worktree open": "herdr refused" } });
@@ -719,16 +837,24 @@ test("a replacement after a failed replacement start continues on the PR worktre
   expect(await git(checkout, "branch", "--list", "task/12-implement-*")).toBe("");
   expect(await run(["pr", "wait", "--timeout", "0"], third.worktreePath)).toMatchObject({
     code: 0,
-    output: { reason: "pr_wait_timed_out", data: { number: 7, branch: "task/12-implement" } },
+    output: {
+      reason: "pr_checks_running",
+      data: { number: 7, branch: "task/12-implement", events: [] },
+    },
   });
 
-  // A missing PR worktree refuses dispatch instead of starting a new branch.
+  // A stopped worker with a missing worktree ends; a later dispatch changes nothing.
   await exec(["herdr", "pane", "exit", third.paneId, "w1"]);
   await rm(third.worktreePath, { recursive: true, force: true });
+  expect(await entry(source)).toMatchObject({
+    action: "ended",
+    reason: "assignment_ended",
+    pullRequest: { number: 7 },
+  });
   const before = await Bun.file(database()).arrayBuffer();
   expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
-    code: 3,
-    output: { reason: "pr_worktree_missing" },
+    code: 4,
+    output: { reason: "assignment_not_dispatchable" },
   });
   expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
   expect(await git(checkout, "branch", "--list", "task/12-implement-*")).toBe("");

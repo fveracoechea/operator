@@ -6,7 +6,12 @@ export type NextStep =
   | { why: string; command?: never; decider?: never; question?: never };
 
 /** State contains only facts checked by the operation. Success may use Partial<ResultContext>. */
-export type ResultContext = { next: NextStep; state?: Record<string, unknown> };
+export type ResultContext = {
+  next: NextStep;
+  state?: Record<string, unknown>;
+  kind?: string;
+  phase?: string;
+};
 
 /** Every refusal supplies recovery at the owner of the checked facts. */
 export type RefusalContext = ResultContext;

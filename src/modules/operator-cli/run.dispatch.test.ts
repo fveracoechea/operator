@@ -6,7 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
-import { expectWorkflowRefusal } from "./worker-fixture.ts";
+import { expectWorkflowRefusal, workerDevice } from "./worker-fixture.ts";
 import { writeOpenCodePlugin, writeGuideSkills } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 import { Database } from "bun:sqlite";
@@ -148,7 +148,7 @@ if (args[1] === "post") {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(`${root}/home/.agents/skills`, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${root}/home/.agents/skills/code-review`);
-  await writeGuideSkills(`${root}/home/.agents/skills`);
+  await writeGuideSkills(`${root}/home/.agents/skills`, skills);
   await writeOpenCodePlugin(`${root}/config`);
 
   expect((await run(["project", "register"])).code).toBe(0);
@@ -163,6 +163,129 @@ async function register() {
   expect(registered.code, registered.stderr).toBe(0);
   return z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
 }
+
+test("a valid person-defined kind in linked device settings can be named in a plan", async () => {
+  const configFile = `${root}/config/operator/config.json`;
+  const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+  const definition = {
+    completion: "report",
+    resources: "pane",
+    guide: "audit/SKILL.md",
+    workPhases: [
+      { name: "inspect", goal: "Inspect the assigned evidence.", guard: "worktree_clean" },
+    ],
+  };
+  await Bun.write(
+    `${root}/home/.agents/skills/audit/SKILL.md`,
+    "# Audit\nInspect the evidence.\n",
+    { createPath: true },
+  );
+  const text = JSON.stringify({ ...config, kinds: { audit: definition } });
+  await Bun.write(`${root}/managed.json`, text);
+  await rm(configFile);
+  await symlink(`${root}/managed.json`, configFile);
+  await chmod(`${root}/managed.json`, 0o444);
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({
+      ...plan,
+      assignments: [{ ...plan.assignments[0], kind: "audit" }],
+    }),
+  );
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const dispatched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(dispatched.code, dispatched.stderr).toBe(0);
+  const launch = z
+    .object({
+      data: z.object({
+        kind: z.looseObject({ name: z.string(), guide: z.string() }),
+        brief: z.string(),
+      }),
+    })
+    .parse(dispatched.output).data;
+  expect(launch.kind).toMatchObject({
+    name: "audit",
+    completion: "report",
+    resources: "pane",
+    profile: null,
+    nextKind: null,
+    readsNote: false,
+    skillsToRead: [],
+    dispatchable: true,
+    workPhases: definition.workPhases,
+    guide: `${root}/home/.agents/skills/audit/SKILL.md`,
+  });
+  expect(await Bun.file(launch.brief).text()).toContain("audit");
+  expect(await Bun.file(`${root}/managed.json`).text()).toBe(text);
+  await chmod(`${root}/managed.json`, 0o644);
+  await Bun.write(
+    `${root}/managed.json`,
+    JSON.stringify({
+      ...config,
+      kinds: { audit: { ...definition, workPhases: [{ name: "changed", goal: "Changed work." }] } },
+    }),
+  );
+  expect((await run(["source", "show", "--source", source])).output).toMatchObject({
+    data: { launches: [{ kind: launch.kind }] },
+  });
+});
+
+test.each([
+  { rule: "built-in name reuse", name: "research", change: {} },
+  { rule: "invalid completion", name: "audit", change: { completion: "task" } },
+  { rule: "no work phase", name: "audit", change: { workPhases: [] } },
+  { rule: "no installed guide", name: "audit", change: { guide: "missing/SKILL.md" } },
+  {
+    rule: "unknown guard",
+    name: "audit",
+    change: { workPhases: [{ name: "inspect", goal: "Inspect.", guard: "shell_command" }] },
+  },
+  { rule: "cross-completion next kind", name: "audit", change: { nextKind: "implementation" } },
+])(
+  "registration and dispatch revalidate person-defined kinds without side effects: $rule",
+  async ({ name, change }) => {
+    const source = await register();
+    await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", {
+      createPath: true,
+    });
+    const configFile = `${root}/config/operator/config.json`;
+    const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+    await Bun.write(
+      configFile,
+      JSON.stringify({
+        ...config,
+        kinds: {
+          [name]: {
+            completion: "report",
+            resources: "pane",
+            guide: "audit/SKILL.md",
+            workPhases: [{ name: "inspect", goal: "Inspect." }],
+            ...change,
+          },
+        },
+      }),
+    );
+    const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+    const calls = await herdrCalls();
+    for (const command of [
+      ["source", "register", "--file", `${root}/plan.json`],
+      ["dispatch", "--source", source, "--assignment", "investigate"],
+    ]) {
+      const result = await run(command);
+      expect(result.code, JSON.stringify(result)).toBe(3);
+      expect(result.output).toMatchObject({
+        reason: "invalid_settings",
+        next: expect.any(Object) as unknown,
+        state: { settingsValid: false },
+      });
+      expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+        before,
+      );
+      expect(await herdrCalls()).toEqual(calls);
+    }
+  },
+);
 
 async function herdrState() {
   return z
@@ -181,6 +304,93 @@ async function herdrState() {
     })
     .parse(await Bun.file(`${root}/herdr-state.json`).json());
 }
+
+test("a person-defined kind needs its guide on the selected launch host", async () => {
+  const configFile = `${root}/config/operator/config.json`;
+  const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+  await Bun.write(`${root}/home/.claude/skills/audit/SKILL.md`, "# Audit\n", { createPath: true });
+  await Bun.write(
+    configFile,
+    JSON.stringify({
+      ...config,
+      kinds: {
+        audit: {
+          completion: "report",
+          resources: "pane",
+          guide: "audit/SKILL.md",
+          workPhases: [{ name: "inspect", goal: "Inspect." }],
+        },
+      },
+    }),
+  );
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({ ...plan, assignments: [{ ...plan.assignments[0], kind: "audit" }] }),
+  );
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const result = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(result.code, result.stderr).toBe(3);
+  expect(result.output).toMatchObject({
+    reason: "invalid_settings",
+    state: { settingsValid: false },
+  });
+  expect(result.stderr).toContain("No installed guide skill for opencode");
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect((await herdrState()).agents).toEqual([]);
+});
+
+test("a person-defined kind cannot change a registered assignment's completion type", async () => {
+  const configFile = `${root}/config/operator/config.json`;
+  const config = z.looseObject({}).parse(await Bun.file(configFile).json());
+  await Bun.write(`${root}/home/.agents/skills/audit/SKILL.md`, "# Audit\n", { createPath: true });
+  const definition = {
+    completion: "report",
+    resources: "pane",
+    guide: "audit/SKILL.md",
+    workPhases: [{ name: "inspect", goal: "Inspect." }],
+  };
+  await Bun.write(configFile, JSON.stringify({ ...config, kinds: { audit: definition } }));
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({ ...plan, assignments: [{ ...plan.assignments[0], kind: "audit" }] }),
+  );
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  await Bun.write(
+    configFile,
+    JSON.stringify({ ...config, kinds: { audit: { ...definition, completion: "pr" } } }),
+  );
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const result = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(result.code, result.stderr).toBe(3);
+  expect(result.output).toMatchObject({
+    reason: "kind_completion_changed",
+    next: { decider: "super-agent" },
+    state: { kind: "audit", registeredCompletion: "report", configuredCompletion: "pr" },
+  });
+  expect(result.stderr).toContain("Kind audit no longer matches the registered completion type");
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect((await herdrState()).agents).toEqual([]);
+});
+
+test("a plan refuses a person-defined kind absent from device settings", async () => {
+  await Bun.write(
+    `${root}/plan.json`,
+    JSON.stringify({ ...plan, assignments: [{ ...plan.assignments[0], kind: "missing-kind" }] }),
+  );
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  const result = await run(["source", "register", "--file", `${root}/plan.json`]);
+  expect(result.code).toBe(2);
+  expect(result.output).toMatchObject({
+    reason: "invalid_source_plan",
+    next: { decider: "super-agent" },
+  });
+  expect(result.stderr).toContain('"kind"');
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  expect(await herdrCalls()).toEqual([]);
+});
 
 async function herdrCalls() {
   const file = Bun.file(`${root}/herdr-calls.jsonl`);
@@ -244,6 +454,64 @@ test("dispatch with a kind fixes the completion type and refuses a completion ov
   });
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
   expect(await herdrCalls()).toEqual(callsBefore);
+});
+
+test("dispatch with a kind fixes built-in defaults on Claude Code without person-defined settings", async () => {
+  const device = await workerDevice();
+  try {
+    const settings = await device.run(["config", "show"]);
+    const config = z
+      .object({ data: z.object({ config: z.looseObject({}) }) })
+      .parse(settings.output).data.config;
+    expect(Object.hasOwn(config, "kinds")).toBe(false);
+    const source = await device.register({
+      trackerKey: "APP-builtins",
+      assignments: ["research", "blocked"].map((key) => ({
+        key,
+        trackerKey: `APP-${key}`,
+        instructions: "Investigate the assigned question.",
+        kind: "research",
+        profile: "claude",
+        dependencies: [],
+      })),
+    });
+    await device.dispatch(source, "research");
+    const shown = await device.run(["source", "show", "--source", source]);
+    expect(shown.output).toMatchObject({
+      data: {
+        launches: [
+          {
+            kind: {
+              name: "research",
+              completion: "report",
+              resources: "pane",
+              profile: "claude",
+              nextKind: null,
+              readsNote: false,
+              guide: `${device.root}/home/.claude/skills/worker-agent/kinds/research.md`,
+              skillsToRead: [],
+              dispatchable: true,
+              workPhases: [{ name: "investigate", goal: "Investigate the assigned question." }],
+            },
+          },
+        ],
+      },
+    });
+    await rm(`${device.root}/claude-skills/worker-agent/kinds/research.md`);
+    const before = await Bun.file(`${device.root}/state/operator/operator.sqlite`).arrayBuffer();
+    const blocked = await device.run(["dispatch", "--source", source, "--assignment", "blocked"]);
+    expect(blocked.code, blocked.stderr).toBe(3);
+    expect(blocked.output).toMatchObject({
+      reason: "worker_not_ready",
+      next: { command: "operator ready" },
+      state: { ready: false },
+    });
+    expect(await Bun.file(`${device.root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      before,
+    );
+  } finally {
+    await rm(device.root, { recursive: true, force: true });
+  }
 });
 
 test("a plan assignment without a kind is refused at registration", async () => {
@@ -310,11 +578,13 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
   expect(launched.output).toMatchObject({ data: { kind: expected } });
   const brief = await Bun.file(data.brief).text();
   expect(brief).toContain(`Worker kind: \`answer\``);
-  expect(brief).toContain(`Read \`${expected.guide}\``);
+  expect(brief).toContain(`Guide: \`${expected.guide}\``);
+  expect(brief).toContain("Phase: `investigate`");
+  expect(brief).not.toMatch(/operator |Grilling authority|Native subagents/);
   expect(await Bun.file(expected.guide).exists()).toBe(true);
   expect(await Bun.file(`${root}/config/opencode/skills/show-me/SKILL.md`).exists()).toBe(false);
   expect(brief).toContain(
-    `When the guide calls for it and the file exists, read skill by path: \`${root}/home/.agents/skills/show-me/SKILL.md\``,
+    `Skill: \`${root}/home/.agents/skills/show-me/SKILL.md\`. Read when the guide calls for it and the file exists.`,
   );
   await Bun.write(
     `${root}/config/operator/config.json`,
@@ -329,7 +599,7 @@ test("a launch keeps its kind snapshot after a settings edit", async () => {
   expect(await Bun.file(data.brief).text()).toBe(brief);
 });
 
-test("an existing assignment and its new launch keep a null kind and their old behavior", async () => {
+test("an existing null-kind assignment requires an explicit kind for its next launch", async () => {
   const source = await register();
   const legacy = {
     trackerKey: plan.trackerKey,
@@ -352,16 +622,40 @@ test("an existing assignment and its new launch keep a null kind and their old b
   database.query("UPDATE assignments SET kind = NULL WHERE source_id = ?").run(source);
   database.close();
   expect((await run(["herdr", "install"])).code).toBe(0);
-  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).bytes();
+  expect(await run(["dispatch", "--source", source, "--assignment", "investigate"])).toMatchObject({
+    code: 4,
+    output: { reason: "assignment_kind_required", state: { kind: null } },
+  });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).bytes()).toEqual(before);
+  const launched = await run([
+    "dispatch",
+    "--source",
+    source,
+    "--assignment",
+    "investigate",
+    "--kind",
+    "research",
+  ]);
   expect(launched).toMatchObject({
     code: 0,
-    output: { data: { kind: null, branch: null, worktreePath: null } },
+    output: { data: { kind: { name: "research" }, branch: null, worktreePath: null } },
   });
-  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).not.toContain(
-    "Worker kind:",
+  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
+    "Worker kind: `research`",
+  );
+  expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
+    "Phase: `investigate`",
   );
   expect((await run(["source", "show", "--source", source])).output).toMatchObject({
-    data: { planned: [{ kind: null, completion: "report" }], launches: [{ kind: null }] },
+    data: {
+      planned: [{ kind: "research", completion: "report" }],
+      launches: [{ kind: { name: "research" } }],
+    },
+  });
+  using recorded = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
+  expect(recorded.query("SELECT plan FROM sources WHERE id = ?").get(source)).toEqual({
+    plan: JSON.stringify(legacy),
   });
 });
 
@@ -390,12 +684,13 @@ test.each(["review", "pr-feedback"])("%s cannot be plainly dispatched", async (k
       data: {
         sources: [
           {
-            actions: [
+            actions: [],
+            waits: [
               {
                 assignment: "implement",
-                action: "owner_attention",
-                reason: "kind_not_dispatchable",
-                next: { decider: "super-agent" },
+                action: "wait",
+                reason: "kind_handoff",
+                next: { command: `operator next --source ${source} --wait` },
               },
             ],
           },
@@ -453,7 +748,7 @@ test.each([
     });
     expect(await Bun.file(guide).exists()).toBe(true);
     expect(await Bun.file(launchOutput.parse(launched.output).data.brief).text()).toContain(
-      `Read \`${guide}\``,
+      `Guide: \`${guide}\``,
     );
   },
 );
@@ -534,7 +829,12 @@ test("herdr install writes one stable manifest in device state and links it once
 });
 
 test("herdr install never replaces an unrecorded plugin with the same id", async () => {
-  await setHerdr({ plugins: [{ id: "operator", root: `${root}/someone-else` }] });
+  await setHerdr({
+    workspaces: [],
+    agents: [],
+    tabs: [],
+    plugins: [{ id: "operator", root: `${root}/someone-else` }],
+  });
   expect(await run(["herdr", "install"])).toMatchObject({
     code: 3,
     output: { reason: "herdr_plugin_conflict" },
@@ -583,7 +883,9 @@ test("read-only report work gets a tab in the project workspace and a device-sta
   expect(data.brief.startsWith(`${root}/state/operator/projects/example/one/`)).toBe(true);
   const brief = await Bun.file(data.brief).text();
   expect(brief).toContain("Read the module and report the gaps.");
-  expect(brief).toContain(`controlling checkout \`${checkout}\``);
+  expect(brief).toContain(
+    `Resources: \`pane\`, \`${checkout}\`. Read-only; change no project files.`,
+  );
   expect(brief).not.toContain(data.name);
   expect(brief).not.toContain(data.paneId);
   const state = await herdrState();
@@ -627,6 +929,36 @@ test("read-only report work gets a tab in the project workspace and a device-sta
       },
     },
   });
+});
+
+test("a pane worker starts when Git becomes unspawnable after its tab is created", async () => {
+  const source = await register();
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  await tool("herdr-backend", fakeHerdrScript(root));
+  const unusableGit = `#!${root}/missing-interpreter\n`;
+  await tool(
+    "herdr",
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+const child = Bun.spawnSync([process.execPath, ${JSON.stringify(`${root}/tools/herdr-backend`)}, ...args], { stdout: "inherit", stderr: "inherit" });
+if (child.exitCode === 0 && args[0] === "tab" && args[1] === "create") {
+  await Bun.write(${JSON.stringify(`${root}/tools/git`)}, ${JSON.stringify(unusableGit)});
+  const { chmod } = await import("node:fs/promises");
+  await chmod(${JSON.stringify(`${root}/tools/git`)}, 0o755);
+}
+process.exit(child.exitCode);
+`,
+  );
+  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  expect(launched.output).toMatchObject({ reason: "worker_launched" });
+  const data = launchOutput.parse(launched.output).data;
+  expect(await Bun.file(`${root}/tools/git`).text()).toBe(unusableGit);
+  expect((await herdrState()).agents).toMatchObject([
+    { name: data.name, paneId: data.paneId, kind: "opencode" },
+  ]);
+  expect(await Bun.file(data.brief).text()).toContain("Phase: `investigate`");
+  expect(await herdrCalls()).toContain("agent prompt");
 });
 
 test("a workspace that Herdr gives no checkout is the project workspace when its panes are in the checkout", async () => {
@@ -697,7 +1029,7 @@ test("worktree work prepares the new Herdr worktree before the agent starts", as
   expect(await Bun.file(`${worktree}/.env.local.backup`).exists()).toBe(false);
   expect(await Bun.file(`${worktree}/node_modules`).exists()).toBe(false);
   expect(data.brief.startsWith(worktree)).toBe(false);
-  expect(await Bun.file(data.brief).text()).toContain(`branch \`task/12-implement\``);
+  expect(await Bun.file(data.brief).text()).toContain(`Branch: \`task/12-implement\``);
   const calls = await herdrCalls();
   expect(calls.indexOf("worktree create")).toBeLessThan(calls.indexOf("agent start"));
   expect((await herdrState()).workspaces.map((row) => row.label)).toEqual([

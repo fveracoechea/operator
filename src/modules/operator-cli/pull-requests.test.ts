@@ -35,13 +35,30 @@ function spies() {
     merge: spyOn(PullRequests, "merge").mockReturnValue(completed("pr_merged")),
     associate: spyOn(PullRequests, "associate").mockReturnValue(completed("pr_associated")),
     wait: spyOn(PullRequests, "wait").mockReturnValue(completed("pr_feedback")),
+    recover: spyOn(PullRequests, "recoverReview").mockReturnValue(
+      completed("internal_review_recovered"),
+    ),
+    skip: spyOn(PullRequests, "skipReview").mockReturnValue(completed("internal_review_skipped")),
+    round: spyOn(PullRequests, "round").mockReturnValue(completed("pr_round_recorded")),
+    ready: spyOn(PullRequests, "ready").mockReturnValue(completed("pr_ready")),
   };
 }
 
 test("parses owner and cleanup commands", () => {
   expect(pullRequestArgs(["pr", "associate", "--json"])).toEqual({ operation: "pr_associate" });
   expect(pullRequestArgs(["pr", "merge"])).toEqual({ operation: "pr_merge" });
-  expect(pullRequestArgs(["pr", "wait"])).toEqual({ operation: "pr_wait", timeoutSeconds: 300 });
+  expect(pullRequestArgs(["pr", "merge", "--json"])).toEqual({ operation: "pr_merge" });
+  expect(pullRequestArgs(["pr", "merge", "--source", "s", "--assignment", "a"])).toEqual({
+    operation: "pr_merge",
+    sourceId: "s",
+    assignment: "a",
+  });
+  expect(pullRequestArgs(["pr", "wait"])).toEqual({ operation: "pr_wait", timeoutSeconds: 540 });
+  expect(pullRequestArgs(["pr", "wait", "--note", "-"])).toEqual({
+    operation: "pr_wait",
+    timeoutSeconds: 540,
+    note: "-",
+  });
   expect(pullRequestArgs(["pr", "wait", "--timeout", "0", "--json"])).toEqual({
     operation: "pr_wait",
     timeoutSeconds: 0,
@@ -61,29 +78,6 @@ test("parses owner and cleanup commands", () => {
   ).toEqual({ operation: "cleanup", sourceId: "s", assignment: "a", personInstructed: true });
 });
 
-test("a supervisor selects delivery by source and assignment through the same merge operation", async () => {
-  const called = spies();
-  quiet();
-  const args = ["pr", "merge", "--source", "s", "--assignment", "a", "--json"];
-  expect(pullRequestArgs(args)).toEqual({ operation: "pr_merge", sourceId: "s", assignment: "a" });
-  expect(await runPullRequests(args, paths, true)).toBe(true);
-  expect(called.merge).toHaveBeenCalledWith({
-    paths,
-    cwd: process.cwd(),
-    sourceId: "s",
-    assignment: "a",
-  });
-});
-
-test("the owner records bounded correction validation from a plain-text file", async () => {
-  const validate = spyOn(PullRequests, "validate").mockReturnValue(completed("pr_validated"));
-  quiet();
-  const args = ["pr", "validate", "--file", "evidence.txt", "--json"];
-  expect(pullRequestArgs(args)).toEqual({ operation: "pr_validate", file: "evidence.txt" });
-  expect(await runPullRequests(args, paths, true)).toBe(true);
-  expect(validate).toHaveBeenCalledWith({ paths, cwd: process.cwd(), file: "evidence.txt" });
-});
-
 test.each([
   [["other"]],
   [["other", "merge"]],
@@ -93,15 +87,22 @@ test.each([
   [["pr", "close"]],
   [["pr", "merge", "--json", "--json"]],
   [["pr", "associate", "--timeout", "5"]],
+  [["pr", "associate", "--source", "s", "--assignment", "a"]],
   [["pr", "wait", "--timeout"]],
   [["pr", "wait", "--timeout", "x5"]],
   [["pr", "wait", "--timeout", "5x"]],
-  [["pr", "wait", "--timeout", "123456"]],
+  [["pr", "wait", "--timeout", "9007199254740992"]],
   [["pr", "wait", "--timeout", "5", "--timeout", "6"]],
-  [["pr", "wait", "--source", "s"]],
+  [["pr", "wait", "--note"]],
+  [["pr", "wait", "--note", "--json"]],
+  [["pr", "wait", "--note", "one", "--note", "two"]],
+  [["pr", "merge", "--note", "one"]],
+  [["pr", "merge", "--other"]],
   [["pr", "merge", "--source", "s"]],
   [["pr", "merge", "--assignment", "a"]],
   [["pr", "merge", "--source", "s", "--assignment", "a", "--person-instructed"]],
+  [["pr", "merge", "--source", "s", "--assignment", "a", "--source", "t"]],
+  [["pr", "wait", "--source", "s"]],
   [["cleanup"]],
   [["cleanup", "--source", "s"]],
   [["cleanup", "--assignment", "a"]],
@@ -110,11 +111,29 @@ test.each([
   [["cleanup", "--source", "s", "--assignment"]],
   [["cleanup", "--source", "--json", "--assignment", "a"]],
   [["cleanup", "--source", "s", "--assignment", "a", "--other"]],
+  [["internal-review"]],
+  [["internal-review", "unknown", "--source", "s", "--assignment", "a"]],
+  [["internal-review", "skip", "--source", "s", "--assignment"]],
 ])("refuses %j before any pull request operation", async (args) => {
   const called = spies();
   expect(pullRequestArgs(args)).toBeNull();
   expect(await runPullRequests(args, paths, true)).toBe(false);
   for (const spy of Object.values(called)) expect(spy).not.toHaveBeenCalled();
+});
+
+test("ready accepts a note file or stdin without allowing two stdin consumers", () => {
+  expect(pullRequestArgs(["pr", "ready", "--note", "-"])).toEqual({
+    operation: "pr_ready",
+    note: "-",
+  });
+  expect(pullRequestArgs(["pr", "ready", "--file", "summary.md", "--note", "note.md"])).toEqual({
+    operation: "pr_ready",
+    file: "summary.md",
+    note: "note.md",
+  });
+  for (const flags of [["--file", "-", "--note", "-"], ["--note"], ["--note", "x", "--note", "y"]])
+    expect(pullRequestArgs(["pr", "ready", ...flags])).toBeNull();
+  expect(pullRequestArgs(["pr", "round", "--note", "x"])).toBeNull();
 });
 
 test("passes each command to the matching pull request operation", async () => {
@@ -135,29 +154,122 @@ test("passes each command to the matching pull request operation", async () => {
     personInstructed: true,
   });
   await runPullRequests(["pr", "merge"], paths, true);
-  expect(called.merge).toHaveBeenCalledWith({ paths, cwd });
-  expect(called.merge.mock.calls[0]?.[0]).toStrictEqual({ paths, cwd });
+  expect(called.merge.mock.calls).toStrictEqual([[{ paths, cwd }]]);
   await runPullRequests(["pr", "associate"], paths, true);
   expect(called.associate).toHaveBeenCalledWith({ paths, cwd });
   await runPullRequests(["pr", "wait", "--timeout", "12"], paths, true);
   expect(called.wait).toHaveBeenCalledWith({ paths, cwd, timeoutSeconds: 12 });
-  for (const spy of Object.values(called)) expect(spy).toHaveBeenCalledTimes(1);
+  for (const spy of [called.cleanup, called.merge, called.associate, called.wait])
+    expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test("a scoped merge passes both selectors to the same guarded operation", async () => {
+  const called = spies();
+  quiet();
+  await runPullRequests(["pr", "merge", "--source", "s", "--assignment", "a"], paths, true);
+  expect(called.merge.mock.calls).toStrictEqual([
+    [{ paths, cwd: process.cwd(), sourceId: "s", assignment: "a" }],
+  ]);
+  expect(called.associate).not.toHaveBeenCalled();
+  expect(called.wait).not.toHaveBeenCalled();
+});
+
+test("routes an authorized internal review skip without invoking recovery or PR operations", async () => {
+  const called = spies();
+  const { log } = quiet();
+  const args = [
+    "internal-review",
+    "skip",
+    "--source",
+    "s",
+    "--assignment",
+    "a",
+    "--person-instructed",
+    "--json",
+  ];
+  const expected = {
+    operation: "internal_review_skip" as const,
+    sourceId: "s",
+    assignment: "a",
+    personInstructed: true,
+  };
+  expect(pullRequestArgs(args)).toEqual(expected);
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(called.skip).toHaveBeenCalledTimes(1);
+  expect(called.skip).toHaveBeenCalledWith({ paths, cwd: process.cwd(), ...expected });
+  for (const [name, spy] of Object.entries(called))
+    if (name !== "skip") expect(spy).not.toHaveBeenCalled();
+  expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+    operation: "internal_review_skip",
+    outcome: "completed",
+  });
 });
 
 test.each([
-  ["round", "pr_round"],
-  ["ready", "pr_ready"],
-] as const)(
-  "routes %s findings and summary files to their owner operation",
-  async (command, operation) => {
-    const called = spyOn(PullRequests, command).mockReturnValue(completed(operation));
-    quiet();
-    const args = ["pr", command, "--file", "findings.md", "--json"];
-    expect(pullRequestArgs(args)).toEqual({ operation, file: "findings.md" });
-    expect(await runPullRequests(args, paths, true)).toBe(true);
-    expect(called).toHaveBeenCalledWith({ paths, cwd: process.cwd(), file: "findings.md" });
-  },
-);
+  ["round", "pr_round", "findings.json"],
+  ["ready", "pr_ready", "summary.md"],
+] as const)("routes pr %s with its supplied file", async (command, operation, file) => {
+  const called = spies();
+  const { log } = quiet();
+  const args = ["pr", command, "--file", file, "--json"];
+  expect(pullRequestArgs(args)).toEqual({ operation, file });
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(called[command]).toHaveBeenCalledTimes(1);
+  expect(called[command]).toHaveBeenCalledWith({ paths, cwd: process.cwd(), file });
+  for (const [name, spy] of Object.entries(called))
+    if (name !== command) expect(spy).not.toHaveBeenCalled();
+  expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+    operation,
+    outcome: "completed",
+  });
+});
+
+test("the removed handoff command invokes no pull request operation", async () => {
+  const called = spies();
+  quiet();
+  expect(
+    await runPullRequests(
+      ["handoff", "--source", "s", "--assignment", "a", "--after-pid", "123"],
+      paths,
+      true,
+    ),
+  ).toBe(false);
+  for (const spy of Object.values(called)) expect(spy).not.toHaveBeenCalled();
+});
+
+test("routes recovery with pinned provenance and authorization", async () => {
+  quiet();
+  const recover = spyOn(PullRequests, "recoverReview").mockReturnValue(
+    completed("internal_review_recovered"),
+  );
+  const args = [
+    "internal-review",
+    "recover",
+    "--source",
+    "s",
+    "--assignment",
+    "a",
+    "--launch",
+    "l",
+    "--pr",
+    "415",
+    "--head",
+    "a".repeat(40),
+    "--person-instructed",
+  ];
+  expect(await runPullRequests(args, paths, true)).toBe(true);
+  expect(recover).toHaveBeenCalledWith({
+    paths,
+    cwd: process.cwd(),
+    operation: "internal_review_recover",
+    sourceId: "s",
+    assignment: "a",
+    launchId: "l",
+    number: 415,
+    head: "a".repeat(40),
+    personInstructed: true,
+  });
+});
 
 test("prints a completed operation as compact JSON or as indented text", async () => {
   spies();

@@ -1,9 +1,9 @@
-# Answer
+# answer
 
-Answer the SuperAgent's question in the brief.
-Change no project files.
-For a visual explanation, read [show-me](../../show-me/SKILL.md), or its absolute path in the brief.
-Give a short conclusion, evidence, unresolved points, and supporting file paths.
-Store supporting files in the assignment's reports directory.
-Submit the report with `operator report submit --file <report.json> --json`.
-Follow the router's report return and acceptance workflow.
+Phases: investigate, report.
+
+- The person asked a question about this code base. Answer that question, not a wider one.
+- Cite each claim as `path:line` or a command and its output.
+- Write the answer as markdown outside the checkout. Open it with `glow -p <file>` in a sibling Herdr pane, without focus.
+- For a big review, a diagram, or when the brief asks, make a local HTML page instead. Read [show-me](../../show-me/SKILL.md) by path first. Publish nothing.
+- The report's conclusion is what the person reads first. List the answer file under supporting files.

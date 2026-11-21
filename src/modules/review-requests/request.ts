@@ -239,7 +239,7 @@ export function record(paths: Paths, target: Target, id: string, change: Payload
       : Err<Failure>({
           reason: "review_lease_lost",
           next: {
-            command: "operator review wait",
+            command: "operator next --wait",
             why: "Let the process that owns the review request finish.",
           },
           detail: "Another process took this review request. Nothing more was recorded.",

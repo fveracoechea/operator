@@ -1,33 +1,12 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { migrationsFolder } from "./database.ts";
 import { idleForMigration, migrationBlockers } from "./migration-policy.ts";
 
-test("a delivery's live external request blocks future migration after its tables exist", () => {
-  using db = new Database(":memory:");
-  db.exec(
-    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE internal_reviews (owner_pid INTEGER, lease_at TEXT); CREATE TABLE deliveries (owner_pid INTEGER, lease_at TEXT, ended_at TEXT)",
-  );
-  db.query("INSERT INTO deliveries VALUES (?, ?, NULL)").run(process.pid, new Date().toISOString());
-  expect(idleForMigration(db, 22).tag).toBe("Ok");
-  expect(idleForMigration(db, 23)).toMatchObject({
-    tag: "Err",
-    error: {
-      detail:
-        "Migration is waiting for an outstanding PR delivery to be reconciled. No handler ran.",
-    },
-  });
-  db.exec("UPDATE deliveries SET owner_pid = NULL, lease_at = NULL");
-  expect(idleForMigration(db, 23)).toMatchObject({
-    tag: "Err",
-    error: { reason: "state_migration_blocked" },
-  });
-  db.exec("UPDATE deliveries SET ended_at = 'now'");
-  expect(idleForMigration(db, 23).tag).toBe("Ok");
-});
-
-test("idle guards cover active assignments on the whole device, not ready or ended work", () => {
+test("migration runs with running, pr-open, or reported assignments without live processes", () => {
   using db = new Database(":memory:");
   expect(idleForMigration(db, 1).tag).toBe("Ok");
   db.exec("CREATE TABLE assignments (state TEXT)");
@@ -42,9 +21,7 @@ test("idle guards cover active assignments on the whole device, not ready or end
   ]) {
     db.exec("DELETE FROM assignments");
     db.query("INSERT INTO assignments VALUES (?)").run(state);
-    expect(idleForMigration(db, 2).tag).toBe(
-      ["running", "pr-open", "reported"].includes(state) ? "Err" : "Ok",
-    );
+    expect(idleForMigration(db, 2).tag).toBe("Ok");
   }
 });
 
@@ -91,11 +68,6 @@ test("each idle guard starts at the migration that adds its records and names wh
   );
   const lease = new Date().toISOString();
   const cases: [number, string, string][] = [
-    [
-      2,
-      "INSERT INTO assignments VALUES ('running')",
-      "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
-    ],
     [
       3,
       "INSERT INTO project_removals VALUES ('owner/removed')",
@@ -291,4 +263,54 @@ test("a live internal review handoff blocks an upgrade once its records exist", 
         "Migration is waiting for a running internal review handoff to finish. No handler ran.",
     },
   });
+});
+
+test("a kind handoff holds migrations only after its table exists and while its owner is live", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE internal_reviews (owner_pid INTEGER, lease_at TEXT)",
+  );
+  expect(idleForMigration(db, 22)).toMatchObject({ tag: "Ok", value: undefined });
+  db.exec("CREATE TABLE kind_handoffs (owner_pid INTEGER, lease_at TEXT)");
+  const stopped = Bun.spawnSync([process.execPath, "--version"]).pid;
+  for (const [pid, lease, blocked] of [
+    [process.pid, new Date().toISOString(), true],
+    [process.pid, "2000-01-01", false],
+    [stopped, new Date().toISOString(), false],
+    [null, new Date().toISOString(), false],
+  ] as const) {
+    db.exec("DELETE FROM kind_handoffs");
+    db.query("INSERT INTO kind_handoffs VALUES (?, ?)").run(pid, lease);
+    const before = db.serialize();
+    expect(idleForMigration(db, 22)).toMatchObject({ tag: "Ok", value: undefined });
+    expect(idleForMigration(db, 23)).toMatchObject(
+      blocked
+        ? {
+            tag: "Err",
+            error: {
+              reason: "state_migration_blocked",
+              detail: "Migration is waiting for a running kind handoff to finish. No handler ran.",
+              state: { idle: false },
+              next: { decider: "super-agent" },
+            },
+          }
+        : { tag: "Ok", value: undefined },
+    );
+    expect(db.serialize()).toEqual(before);
+  }
+});
+
+test("future upgrades wait for live stack effects once managed-stack records exist", () => {
+  using db = new Database(":memory:");
+  migrate(drizzle(db), { migrationsFolder });
+  db.query(
+    "INSERT INTO stack_operations VALUES ('operation', 'source', 'child', 'launch', 1, 'planned', '{}', NULL, ?, ?)",
+  ).run(process.pid, new Date().toISOString());
+  expect(idleForMigration(db, 23)).toMatchObject({ tag: "Ok" });
+  expect(idleForMigration(db, 24)).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_migration_blocked" },
+  });
+  db.exec("UPDATE stack_operations SET owner_pid = NULL");
+  expect(idleForMigration(db, 24)).toMatchObject({ tag: "Ok" });
 });

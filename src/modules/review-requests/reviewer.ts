@@ -332,7 +332,7 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
         : Err<Failure>({
             reason: "review_lease_lost",
             next: {
-              command: "operator review wait",
+              command: "operator next --wait",
               why: "Let the current review owner finish before continuing.",
             },
             detail: "Another process took this review request. Nothing more was recorded.",
@@ -363,7 +363,7 @@ export function claimCleanup(paths: Paths, target: Target, id: string) {
     if (current.ownerActive)
       return Err<Failure>({
         reason: "review_cleanup_in_progress",
-        next: { command: "operator review wait", why: "Let the current reviewer cleanup finish." },
+        next: { command: "operator next --wait", why: "Let the current reviewer cleanup finish." },
         state: { ownerActive: true },
         detail: "Another process cleans up this reviewer now. Nothing changed.",
       });

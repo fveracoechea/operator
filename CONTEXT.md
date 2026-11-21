@@ -11,8 +11,7 @@ This repository and its personal agentic tooling, not an agent role.
 
 **SuperAgent**:
 The supervising agent that manages WorkerAgents and is the person's point of contact.
-It delegates detailed work, reads short reports, and opens details only when a coordination decision needs them.
-Its own reads are bounded by that decision, not by a status-call count.
+It answers a code base question itself within 3 read-only calls, delegates everything past that, reads short reports, and opens details only when a coordination decision needs them.
 _Avoid_: Operator as a role, Super Agent
 
 **WorkerAgent**:
@@ -23,8 +22,9 @@ _Avoid_: Operative, Crew member, Agent as a role
 
 **Rules of the person**:
 The five rules that require delegation by SuperAgents, the PR merge gate, preservation of unlanded work, reporting to the supervising SuperAgent through recorded Operator state rather than text typed into its pane, and minimum SuperAgent context usage.
+The delegation rule permits a code base question's quick look within 3 read-only calls, counting reads, searches, and status calls together.
+Beyond that budget, the SuperAgent delegates with `operator ask`, never a native subagent.
 They permit coordination commands and communication between SuperAgents through Herdr without transferring the workers' tasks to a supervisor.
-Substantive code work, detailed investigation, review, and browser QA remain delegated.
 
 **SuperAgent decision**:
 A decision within the authority that the assignment instructions delegate to a SuperAgent.
@@ -124,20 +124,27 @@ A running worker keeps that selection, while a replacement uses the settings res
 ## Delegated work
 
 **Work source**:
-A registered plan of assignments, dependencies, and tracker keys supplied by a SuperAgent, not read from a tracker by the CLI, plus any PR assignments that promotion adds.
+A registered plan or one-off source supplied by a SuperAgent, plus any PR assignments that promotion adds.
+The CLI does not read its assignments or dependencies from a tracker, and a one-off source's tracker key is optional at dispatch.
 Each registration has a new identity, and a source is ended when it is finished or reset.
 
-**Question source**:
-A work source that `operator ask` registers from one research question, with one read-only report assignment that it dispatches at once.
+**One-off source**:
+A work source with exactly one planned assignment that one-off dispatch or `operator ask` creates.
+It never gains a second planned assignment, but report promotion can add a PR assignment.
 
 **Assignment**:
 One independently scheduled unit of delegated work with a worker kind, a brief, dependencies, a start profile, and resource needs.
+It ends when its worker and worktree are gone, or its pane is gone for pane resources.
+`operator abandon` ends one assignment without deleting resources or closing its PR.
+An ended PR-open assignment keeps its open PR reference for adoption.
 Native subagents remain within their parent WorkerAgent's assignment unless their work needs independent scheduling or acceptance.
 
 **Worker kind**:
 A named set of work phases, one kind guide, one completion type, default resources, a default start profile, and the next kind that a WorkerAgent follows.
 The built-in kinds are research, answer, prototype, implementation, review, and pr-feedback.
-An assignment from before kinds has a null kind and keeps its existing behavior.
+The person can define more kinds in device settings.
+The release maps in-flight PR assignments from recorded facts only.
+An assignment that still has a null kind names one at its next dispatch.
 _Avoid_: role, task type, general kind
 
 **Completion type**:
@@ -146,9 +153,11 @@ Resources and the start profile can be overridden, but completion cannot.
 It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent may do.
 
 **PR assignment**:
-An assignment whose owner WorkerAgent carries one pull request through review, feedback, CI, and merge.
+An assignment whose implementation, review, and pr-feedback launches carry one pull request through review, feedback, CI, and merge.
+The ready transition ends the reviewer launch and starts a fresh pr-feedback launch in the same worktree.
 A dependent can start when the dependency's PR is open or merged.
 It stacks on the branch of one open parent PR, and it waits while more than one parent PR is open.
+A parked PR assignment keeps its worktree and PR-open state without a live launch.
 
 **Report assignment**:
 An assignment that completes through SuperAgent acceptance of a durable report rather than a PR.
@@ -159,8 +168,7 @@ Assignments whose recorded state and completion-type-specific dependency rules p
 _Avoid_: Crew frontier
 
 **Brief**:
-The device-state task instructions supplied to a WorkerAgent by an absolute reference at launch.
-It identifies the assignment's task, skills, resources, result locations, and reporting contract, with earlier reports and follow-up instructions for a replacement.
+The task instructions that the CLI renders for a WorkerAgent from record facts and kind data, with the SuperAgent's Task and the person's intent.
 
 **Intent**:
 The person's own words for a plan or an assignment, copied verbatim by the SuperAgent and kept apart from its instructions.
@@ -185,13 +193,19 @@ The worker resumes the assignment with those instructions and the prior reports 
 
 **Next actions**:
 The CLI's applicable actions and waits derived from recorded workflow state and observed facts.
+Each row carries `next`, naming its command, decision, or reason nothing remains.
 They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
 Each source also lists its open obligations beside its actions.
+Parked PRs wait until recorded feedback, failing CI, new merge eligibility, or a merged parent produces `resume_pr_feedback`.
+A PR closed without merge produces `clean_up` with `pr_closed`, whose next command abandons the assignment.
 
 **Coordination wait**:
 The SuperAgent's blocking read of next actions, which returns only the actions that its scope has not returned yet, or nothing when its timeout ends.
 A wait without a source from an agent session covers every source that the session supervises, and a change that the session made itself does not end it.
 The SuperAgent runs it in the background, so its host delivers the result as a notification rather than as typed input.
+It reads all parked PRs in one batch every 15 minutes, with one recorded schedule across waits.
+It also runs review upkeep, including rounds, reviewer moves, stale flags, and closed PRs.
+Quiet and repeated observations wake nothing.
 _Avoid_: poll, watcher, worker ping
 
 **Supervising session**:
@@ -212,10 +226,6 @@ _Avoid_: blocker message, grilling message
 A keyed record of what the SuperAgent owes the person in one work source: a PR to share for review, a review reply, a merge hold, a standing rule, or a person decision that no question or brief records yet.
 Next actions list each open obligation beside the actions until the SuperAgent closes it, and its addition or close changes no action set.
 _Avoid_: promise, todo, commitment in chat
-
-**Merge hold**:
-An open obligation that blocks owner and supervisor PR delivery throughout its source until the person releases it.
-A hold cannot be added during an in-flight delivery or retroactively stop a merge request.
 
 **Steering message**:
 A recorded instruction from a SuperAgent, or from an operation that it runs, to a running WorkerAgent, which stays pending until the worker acknowledges it.
@@ -241,56 +251,45 @@ The report keeps its completion type, and the PR assignment is a new record.
 _Avoid_: conversion, report upgrade
 
 **Adoption**:
-A PR assignment's start on an open PR that Operator did not create, named by its number in the plan.
-Dispatch puts the PR's own branch in a new worktree, and the owner reads the PR and its threads, associates it, and runs the PR feedback loop.
-A ready PR gets no internal review, and a draft keeps the resolved setting.
+A PR assignment's start on the person's own open PR or remote branch, from a plan or one-off dispatch.
+A branch without a PR enters implementation, a draft enters implementation or review, and a ready PR enters implementation or pr-feedback.
+A ready PR gets no internal review, and a live assignment or review request keeps its ownership.
+An ended PR-open owner's facts accompany the new brief without transferring its authority.
 _Avoid_: takeover, import
 
 **PR feedback loop**:
-The owner WorkerAgent's repeated response to new reviews, comments, failing CI, or a merged parent PR through the CLI's wait operation.
-It retains the owner's working context rather than requiring a fresh writer for every correction.
+The pr-feedback launches that handle new reviews, comments, failing CI, or a merged parent through the CLI's wait operation.
+A quiet wait parks the assignment and ends its launch, except while checks run on the worker's pushed head.
+A change starts a fresh launch with durable waking events and the optional note from the parking wait.
+That note is distinct from the reviewer's note at ready, and the CLI retains it only when the wait parks.
+A verified merge ends the assignment and runs cleanup.
 
 **PR merge gate**:
 The conditions that the CLI checks before it merges a PR.
-They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and an internal review that ended ready or was skipped.
-They also require a finished stack relay, a clean pushed local head matching the PR, and no open source-wide merge hold.
-Approval is a fresh genuine GitHub approval, never an inference from chat.
-After internal review, a head different from the original ready head requires bounded correction validation at the current head.
+They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and a recorded ready transition.
+The PR owner and the instructed supervisor of a parked assignment use the same gate.
+A passed gate enqueues a PR whose base requires a merge queue, but completion still requires an observed merge.
 _Avoid_: project gate
-
-**PR delivery**:
-The SHA-pinned, audited merge of an assignment's recorded PR, invoked by its owner or its exact recorded supervising session.
-Supervisor delivery requires the owner recorded idle and no live PR wait, relay, or delivery job.
-An atomic claim records the actor, head, and provenance; delivery locks exclude competing waits and relays.
-Both actors use the same merge gate and guarded cleanup, without transferring ownership.
 
 **Internal review**:
 The unpublished review of a draft PR by a fresh WorkerAgent that takes over the PR assignment from its implementer.
-The reviewer applies the valid findings, moves the PR to ready with one summary comment, and then owns the PR to its merge.
+The reviewer applies the valid findings and moves the PR to ready with one summary comment.
+The CLI retains every finding's disposition, including each declined reason, for the next pr-feedback launch.
+The reviewer may leave a note for that launch, but a reviewer reads no implementer note.
 It is on by default, and an assignment, a plan, or the device setting can turn it off.
-On the person's instruction, the SuperAgent can skip a running internal review, which marks the PR ready without a comment.
+On the person's instruction, the SuperAgent can record a skip of a running internal review.
+The reviewer's guarded ready transition then needs no rounds or summary comment and starts pr-feedback.
+A skip is one-way; a second review uses a review request.
 _Avoid_: self-review, pre-PR review, internal review request
 
-**Internal review handoff**:
-The CLI's end of the implementer's session after it associates a draft PR, and the start of the reviewer as the next launch in the same worktree.
-The reviewer is a step of the review, not a worker role: a launch after the handoff of a running review is its reviewer.
+**Handoff**:
+The CLI's transition from one kind to the next inside one assignment, started by the outgoing worker's closing command.
+It links only kinds with the same completion type, and the CLI writes the record facts into the next brief.
 _Avoid_: reviewer role, manual handoff
 
 **Internal review round**:
 One review of the whole PR diff against its base at a recorded head, followed by the fixes for its valid findings.
 An internal review has at most two rounds, and a second round needs a newer head than the first.
-
-**Bounded correction validation**:
-The PR owner's recorded evidence for bounded corrections after internal review ends.
-It requires a clean pushed current open PR, passing current CI, and the original ready head as an ancestor.
-The validated head and correction summary are separate from the established rounds and original ready head.
-Each round's head records what it actually reviewed; the ready head can include that round's later fixes.
-It neither reopens internal review nor replaces genuine GitHub approval.
-
-**Requested URL opening**:
-The local operating system opener's acceptance of an HTTP or HTTPS URL explicitly requested by the person.
-It proves no page loaded and grants no page-reading, navigation, forms, authentication, or browser QA authority.
-Unsupported environments return a capability refusal and a manual next step, rather than a browser automation service.
 
 **Source reset**:
 The end of one work source on the person's instruction, with merged PR assignments and completed reports preserved and incomplete assignments abandoned.
@@ -302,10 +301,12 @@ It creates no archive and removes no retained worktree or branch.
 
 **Unlanded work**:
 Project work whose safe disposal the CLI cannot establish through completion evidence and inspection.
+Ignored entries do not count, except environment files changed from the controlling checkout's copy.
 Only the person can authorize its deletion.
 
 **Cleanup**:
 The CLI's disposal of resources after verified completion, with failures kept visible in next actions.
+It ignores ignored entries except changed environment files.
 PR merge permits remote-branch deletion, pane closure, and worktree removal, while report acceptance permits pane closure but not deletion of unlanded work, and a promotion keeps both the pane and the worktree.
 
 **Canonical map**:

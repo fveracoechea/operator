@@ -128,16 +128,18 @@ export function readCoordinationWait(client: Database, target: CoordinationScope
   );
 }
 
-/** Rewrite the stored set of a scope that returned one. A scope without a set stays without. */
+/** Rewrite an acknowledged set. Only a live wait initializes its first quiet observation. */
 export function changeCoordinationWait(
   client: Database,
   target: CoordinationScope,
   change: SetChange,
+  options: { initialize?: boolean } = {},
 ) {
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
-      const stored = db.select().from(coordinationWaits).where(key(target)).get()?.actions ?? null;
-      if (stored === null) return null;
+      const row = db.select().from(coordinationWaits).where(key(target)).get();
+      const stored = row?.actions ?? null;
+      if (stored === null && (options.initialize !== true || row === undefined)) return null;
       const changed = change(stored);
       if (changed !== stored)
         db.update(coordinationWaits).set({ actions: changed }).where(key(target)).run();

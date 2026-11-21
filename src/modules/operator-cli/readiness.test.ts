@@ -6,6 +6,7 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Readiness } from "../readiness/main.ts";
 import { runReadiness } from "./readiness.ts";
+import { withOutputContext } from "./output.ts";
 
 const paths = OperatorHome.resolve(
   Environment.parse({ HOME: `${tmpdir()}/unused-ready-parser`, NODE_ENV: "test" }),
@@ -165,3 +166,137 @@ test("reports a readiness refusal and a defect with exit code 1", async () => {
   expect(error).toHaveBeenCalledWith("operator: readiness_defect: Error: boom");
   expect(process.exitCode).toBe(1);
 });
+
+test.each([
+  { json: true, later: "phase" },
+  { json: false, later: "phase" },
+  { json: true, later: "Err" },
+  { json: false, later: "Err" },
+  { json: true, later: "Defect" },
+  { json: false, later: "Defect" },
+] as const)(
+  "blocked readiness shares one checked snapshot before later $later (json=$json)",
+  async ({ json, later }) => {
+    const blockers = [
+      {
+        reason: "host_unconfigured" as const,
+        detail: "Choose a host.",
+        next: { decider: "person" as const, question: "Which host?" },
+      },
+      {
+        reason: "executable_missing" as const,
+        tool: "herdr" as const,
+        detail: "Install herdr.",
+        next: { command: "operator config show", why: "Inspect configuration." },
+        state: { tool: "herdr", executable: null },
+      },
+    ];
+    spyOn(Readiness, "check").mockReturnValue(OkAsync({ blockers, warnings: [] }));
+    const { log, error } = quiet();
+    const read = mock<Parameters<typeof withOutputContext>[0]>(() =>
+      later === "phase"
+        ? { kind: "research", phase: "report" }
+        : {
+            failure:
+              later === "Err"
+                ? {
+                    tag: "Err",
+                    error: {
+                      reason: "state_busy",
+                      detail: "Later read lock.",
+                      next: { why: "Retry later." },
+                    },
+                  }
+                : { tag: "Defect", cause: new Error("later readiness context defect") },
+          },
+    );
+    read.mockReturnValueOnce({
+      kind: "research",
+      phase: "investigate",
+      next: { why: "Worker default must not replace readiness recovery." },
+      state: { unchecked: true },
+    });
+    await withOutputContext(read, async () => {
+      expect(await runReadiness(json ? ["ready", "--json"] : ["ready"], paths, json)).toBe(true);
+    });
+    expect(log.mock.calls).toEqual(
+      json
+        ? [
+            [
+              JSON.stringify({
+                schemaVersion: 1,
+                operation: "ready",
+                outcome: "blocked",
+                reason: "not_ready",
+                blockers,
+                warnings: [],
+                data: { staticOnly: true },
+                kind: "research",
+                phase: "investigate",
+                next: {
+                  decider: "super-agent",
+                  question:
+                    "Which readiness blockers should be resolved next, and which named person decisions must be requested?",
+                },
+                state: { blockers: ["host_unconfigured", "executable_missing"] },
+              }),
+            ],
+          ]
+        : [],
+    );
+    expect(error.mock.calls).toEqual([
+      [
+        "operator: not_ready: [1] host_unconfigured: Choose a host.; [2] executable_missing (herdr): Install herdr. [kind=research phase=investigate]",
+      ],
+      ["next: [1] person decides: Which host?; [2] operator config show"],
+      ['state: [2]={"tool":"herdr","executable":null}'],
+    ]);
+    expect(process.exitCode).toBe(3);
+    expect(read).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each([true, false])(
+  "readiness preserves worker phase context when ready is %p",
+  async (ready) => {
+    spyOn(Readiness, "check").mockReturnValue(
+      OkAsync({
+        blockers: ready
+          ? []
+          : [
+              {
+                reason: "executable_missing",
+                tool: "herdr",
+                detail: "missing",
+                next: { decider: "person", question: "Install herdr?" },
+              },
+            ],
+        warnings: [],
+      }) as never,
+    );
+    const { log } = quiet();
+    await withOutputContext(
+      () => {
+        return {
+          kind: "prototype",
+          phase: "react",
+          next: { command: "operator report submit --file <file>", why: "Submit." },
+        };
+      },
+      async () => {
+        await runReadiness(["ready"], paths, true);
+      },
+    );
+    expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+      kind: "prototype",
+      phase: "react",
+      next: ready
+        ? { command: "operator report submit --file <file>", why: "Submit." }
+        : {
+            decider: "super-agent",
+            question:
+              "Which readiness blockers should be resolved next, and which named person decisions must be requested?",
+          },
+    });
+  },
+);

@@ -8,107 +8,159 @@ import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { DeviceState } from "./main.ts";
-import { insertRow } from "./state-fixture.ts";
+import { continuation, handoffWriteFixture } from "./handoff-write-fixture.ts";
 
 // Root ignores file modes, so a test of a denied access cannot run as root.
 const asRoot = process.getuid?.() === 0;
 
-test("delivery methods retain provenance, renew the claim, and release it", async () => {
-  const paths = await registered("delivery-methods");
-  expect(
-    DeviceState.reserveLaunch(paths, one.checkout, "owner/one", launchRow("l1", "change")).tag,
-  ).toBe("Ok");
-  expect(DeviceState.updateLaunch(paths, "l1", { state: "running", worktreePath: "/w" }).tag).toBe(
-    "Ok",
-  );
-  expect(
-    DeviceState.associatePullRequest(paths, "l1", {
-      number: 7,
-      url: "u",
-      branch: "task/change",
-      relay: null,
-    }).tag,
-  ).toBe("Ok");
-  using db = new Database(paths.database);
-  insertRow(db, "internal_reviews", {
-    source_id: "s1",
-    assignment: "change",
-    state: "ready",
-    ready_head: "reviewed",
-    implementer_launch_id: "l1",
-  });
-  expect(
-    DeviceState.recordDeliveryValidation(paths, {
-      launchId: "l1",
-      head: "h1",
-      readyHead: "reviewed",
-      summary: "Bounded correction passed current CI.",
-    }).tag,
-  ).toBe("Ok");
-  expect(
-    DeviceState.claimDelivery(paths, {
-      launchId: "l1",
-      head: "h1",
-      session: null,
-      selected: false,
-    }),
-  ).toMatchObject({ tag: "Ok", value: { head: "h1", readyHead: "reviewed" } });
-  db.exec("UPDATE deliveries SET lease_at = '2000'");
-  jest.useFakeTimers();
-  try {
-    const stop = DeviceState.holdDelivery(paths, "l1");
-    jest.advanceTimersByTime(15000);
-    expect(db.query("SELECT lease_at > '2001' AS fresh FROM deliveries").get()).toEqual({
-      fresh: 1,
-    });
-    stop();
-    db.exec("UPDATE deliveries SET lease_at = '2000'");
-    jest.advanceTimersByTime(30000);
-    expect(db.query("SELECT lease_at FROM deliveries").get()).toEqual({ lease_at: "2000" });
-  } finally {
-    jest.useRealTimers();
-  }
-  expect(DeviceState.recordDeliveryRequest(paths, "l1", "remote-request").tag).toBe("Ok");
-  expect(DeviceState.suspendDelivery(paths, "l1").tag).toBe("Ok");
-  expect<unknown>(DeviceState.readDelivery(paths, "l1")).toMatchObject({
-    tag: "Ok",
-    value: {
-      requestUuid: "remote-request",
-      ownerPid: null,
-      head: "h1",
-      readyHead: "reviewed",
-      endedAt: null,
-    },
-  });
-  expect<unknown>(
-    DeviceState.claimDelivery(paths, {
-      launchId: "l1",
-      head: "h1",
-      session: null,
-      selected: false,
-    }),
-  ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
-  expect(
-    DeviceState.claimDelivery(paths, {
-      launchId: "l1",
-      head: "h1",
-      session: null,
-      selected: false,
-      reconcile: true,
-    }).tag,
-  ).toBe("Ok");
-  expect(DeviceState.finishDelivery(paths, "l1", "h1").tag).toBe("Ok");
-  expect<unknown>(DeviceState.readDelivery(paths, "l1")).toMatchObject({ tag: "Ok", value: null });
-  expect(db.query("SELECT owner_pid, head, ready_head FROM deliveries").get()).toEqual({
-    owner_pid: null,
-    head: "h1",
-    ready_head: "reviewed",
-  });
-});
-
 const root = await mkdtemp(path.join(tmpdir(), "operator-state-"));
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
+});
+
+test("the continuation facade reads, renews, finishes, and fails only its authorized handoff", async () => {
+  const paths = await home("continuation");
+  using fixture = handoffWriteFixture();
+  await Bun.write(paths.database, fixture.serialize(), { createPath: true });
+  const target = { repository: "owner/repo", sourceId: "s1", assignment: "build" };
+  const context = { pane: "worker", socket: "/fixture.sock" };
+  expect(DeviceState.readHandoffContinuation(paths, target, context, process.ppid)).toMatchObject({
+    tag: "Ok",
+    value: { identity: continuation, published: true },
+  });
+  using db = new Database(paths.database);
+  const old = "2000-01-01T00:00:00.000Z";
+  function read() {
+    return db
+      .query<{ lease: string | null; state: string; detail: string | null }, []>(
+        "SELECT lease_at AS lease, handoff_state AS state, handoff_detail AS detail FROM kind_handoffs",
+      )
+      .get();
+  }
+  expect(DeviceState.checkHandoffContinuation(paths, continuation)).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(read()).toMatchObject({
+    lease: expect.stringMatching(/^20/) as unknown,
+    state: "pending",
+    detail: null,
+  });
+  const before = db.serialize();
+  expect(
+    DeviceState.finishImplementer(paths, "implementer", { ...continuation, pane: "foreign" }).tag,
+  ).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+  expect(DeviceState.finishImplementer(paths, "implementer", continuation)).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(db.query("SELECT state FROM launches").get()).toEqual({ state: "finished" });
+  jest.useFakeTimers();
+  const stop = DeviceState.holdHandoff(paths, "s1", "build", continuation);
+  try {
+    db.query("UPDATE kind_handoffs SET lease_at = ?").run(
+      new Date(Date.now() - 1000).toISOString(),
+    );
+    const earlier = read();
+    jest.advanceTimersByTime(15000);
+    expect(read()).not.toEqual(earlier);
+    stop();
+    db.query("UPDATE kind_handoffs SET lease_at = ?").run(old);
+    jest.advanceTimersByTime(15000);
+    expect(read()).toMatchObject({ lease: old });
+  } finally {
+    stop();
+    jest.useRealTimers();
+  }
+  db.query("UPDATE kind_handoffs SET lease_at = ?").run(new Date(Date.now() - 1000).toISOString());
+  expect(
+    DeviceState.failHandoff(paths, "s1", "build", "successor refused", continuation),
+  ).toMatchObject({ tag: "Ok", value: undefined });
+  expect(read()).toMatchObject({ state: "failed", detail: "successor refused", lease: null });
+});
+
+test("the public recovery interface reads an empty audit and preserves authorization refusal", () => {
+  const paths = OperatorHome.resolve(
+    Environment.parse({ HOME: `${root}/recovery`, NODE_ENV: "test" }),
+  );
+  expect(
+    DeviceState.registerProject(paths, {
+      repository: "example/one",
+      checkout: "/isolated/recovery",
+      registeredAt: "now",
+    }).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.readInternalReviewRecovery(paths, "example/one", "source", "build"),
+  ).toMatchObject({ tag: "Ok", value: null });
+  expect(
+    DeviceState.recoverInternalReview(paths, {
+      repository: "example/one",
+      sourceId: "source",
+      assignment: "build",
+      launchId: "launch",
+      number: 415,
+      url: "https://github.com/example/one/pull/415",
+      branch: "task/build",
+      worktreePath: "/isolated/recovery",
+      head: "a".repeat(40),
+      personInstructed: false,
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "person_instruction_required" } });
+});
+
+test("selected assignment ending runs through the device writer and persists only its selected end", () => {
+  const paths = OperatorHome.resolve(
+    Environment.parse({ HOME: `${root}/assignment-ending`, NODE_ENV: "test" }),
+  );
+  expect(
+    DeviceState.registerProject(paths, {
+      repository: "owner/one",
+      checkout: "/isolated/one",
+      registeredAt: "now",
+    }).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.registerSource(
+      paths,
+      "/isolated/one",
+      {
+        id: "one",
+        repository: "owner/one",
+        trackerKey: "APP-1",
+        state: "open",
+        registeredAt: "now",
+        endedAt: null,
+        plan: "{}",
+      },
+      [
+        { sourceId: "one", key: "read", completion: "report", state: "ready" },
+        { sourceId: "one", key: "other", completion: "report", state: "ready" },
+      ],
+    ).tag,
+  ).toBe("Ok");
+  expect(
+    DeviceState.endAssignments(
+      paths,
+      { repository: "owner/one", checkout: "/isolated/one", sourceId: "one" },
+      (facts) => {
+        expect(facts.assignments.map((row) => row.key).toSorted()).toEqual(["other", "read"]);
+        return Ok({ abandon: ["read"], interrupted: [] });
+      },
+    ),
+  ).toMatchObject({ tag: "Ok", value: { ended: ["read"], retained: [] } });
+  expect(DeviceState.readSources(paths, "owner/one", "one")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        assignments: [
+          { key: "other", state: "ready" },
+          { key: "read", state: "abandoned" },
+        ],
+      },
+    ],
+  });
 });
 
 test("only registration creates state and lookup remains project-scoped", async () => {
@@ -404,6 +456,10 @@ test("each interface operation reaches its state owner on the registered databas
   expect(DeviceState.worktreeOwners(paths)).toMatchObject({
     tag: "Ok",
     value: [{ launchId: "l1" }],
+  });
+  expect(DeviceState.checkParkedMergeOwner(paths, "l1", "h")).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_inactive" },
   });
   expect(
     DeviceState.observePane(paths, {

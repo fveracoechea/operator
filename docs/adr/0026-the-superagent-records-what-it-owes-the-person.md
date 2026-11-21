@@ -4,7 +4,6 @@
 
 Accepted - 2026-11-11.
 Decided in the SuperAgent retro of 2026-11-11, finding 3.
-Amended 2026-11-15 in #414: open merge holds block source-wide owner and supervisor delivery; an in-flight delivery refuses new holds.
 
 ## Context
 
@@ -27,20 +26,13 @@ An ended source takes no new obligation, but its open obligations stay closable.
 An obligation is not an action, so the coordination wait ignores it.
 The SuperAgent adds and closes obligations itself, and counting them as actions would wake its own wait for its own write, which the retro found to be most of its wasted wakes.
 
-An open merge hold blocks every owner and supervisor PR delivery in its source, even when its reference names one PR.
-Only the person's release permits the SuperAgent to close the hold.
-Adding a hold during an in-flight delivery refuses without recording it.
-A hold cannot retroactively stop a GitHub merge request that already started, so refusal must state that limit honestly.
-Hold creation and delivery claims exclude each other atomically, because an advisory-only hold cannot protect the person's instruction.
-
 A person's answer to a worker question is recorded with `operator question answer --by person` as soon as the SuperAgent has it, not as an obligation.
 `person-decision` covers a decision that has no question to answer yet, such as a choice for an assignment that is not dispatched.
 
 ## Consequences
 
 - The SuperAgent's skill tells it to record an obligation as it takes one on and to read `owed` on each wake, because Operator cannot observe a promise made in chat.
-- Most obligations record owed external effects rather than performing them; the SuperAgent closes a share or reply after it acts.
-- Merge holds also constrain delivery, so an obligation's kind can affect merge eligibility without becoming a coordination action.
+- The ledger is a record, not a state machine of external effects. Operator does not post a share or a reply, so the SuperAgent closes the obligation after it acts.
 - An ended source can keep showing an obligation until the SuperAgent closes it or the source is pruned.
 
 ## Alternatives considered
@@ -48,6 +40,5 @@ A person's answer to a worker question is recorded with `operator question answe
 - Next actions rows for obligations were rejected because they would change the action set on every addition and close, and wake the SuperAgent for its own writes.
 - A ledger per assignment was rejected because a standing rule or a PR share can outlive the assignment that raised it, and rules apply to the whole source.
 - A free-form notes file in device state was rejected because next actions could not show it as structured records and a key could not prevent duplicates.
-- Advisory-only merge holds were rejected because a delivery actor could otherwise merge despite the person's recorded instruction.
 
 Related: ADR-0001, next actions own the coordination order; ADR-0003, explicit lifecycle decisions; ADR-0022, the coordination wait and worker questions.

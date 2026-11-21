@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { Err } from "unthrown";
 // Bun has no recursive removal API.
 import { rm } from "node:fs/promises";
 import { WorkSources } from "../work-sources/main.ts";
@@ -43,6 +45,16 @@ function wait(key = "scope", timeoutSeconds = 0) {
   device.inPane(workerPane);
   return WorkerQuestions.wait({ paths: device.paths, key, timeoutSeconds });
 }
+
+test("an answered question resumes worker work rather than instructing another immediate wait", async () => {
+  const { sourceId } = await asked();
+  okValue(await answer(sourceId, "person", "Only a.ts."));
+  for (let i = 0; i < 3; i++) {
+    const result = okValue(await wait("scope", 540));
+    expect(result).toMatchObject({ reason: "question_answered", data: { answer: "Only a.ts." } });
+    expect(result.next?.command).not.toBe("operator question wait --key scope");
+  }
+});
 
 test("a pane reread retargeted to another assignment refuses the missing question with its recovery", async () => {
   const sourceId = await device.source();
@@ -92,6 +104,7 @@ test("an asked question replaces the idle worker in next actions until the Super
   expect(askedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   expect(okValue(result)).toEqual({
     reason: "question_asked",
+    next: { command: "operator question wait --key scope", why: "Wait for the recorded answer." },
     data: {
       sourceId,
       assignment: "read",
@@ -156,6 +169,68 @@ test("a question that needs the person shows as a person decision and records a 
   expect((await device.actions()).map((row) => row.action)).toEqual(["ready_assignment"]);
 });
 
+test("concurrent waits deliver an already escalated question once and still deliver its answer", async () => {
+  const { sourceId } = await asked();
+  device.inPane(superPane);
+  okValue(await WorkerQuestions.escalate(selector(sourceId)));
+  mock.restore();
+  const notices = await Promise.all([wait(), wait()]);
+  expect(notices.map((notice) => okValue(notice).reason).toSorted()).toEqual([
+    "question_awaiting_person",
+    "question_wait_timed_out",
+  ]);
+  for (const notice of notices)
+    expect(okValue(notice).next).toMatchObject({ command: "operator question wait --key scope" });
+  expect(okValue(await wait()).reason).toBe("question_wait_timed_out");
+  okValue(await answer(sourceId, "person"));
+  expect(okValue(await wait())).toMatchObject({
+    reason: "question_answered",
+    data: { answer: "No, only a.ts.", by: "person" },
+  });
+});
+
+test.each(["withdrawn", "missing"])(
+  "a %s question cannot claim a stale person notice",
+  async (state) => {
+    const { sourceId } = await asked();
+    device.inPane(superPane);
+    okValue(await WorkerQuestions.escalate(selector(sourceId)));
+    mock.restore();
+    const change = DeviceState.changeQuestion;
+    spyOn(DeviceState, "changeQuestion").mockImplementationOnce((paths, target, key, decide) => {
+      using db = new Database(device.paths.database);
+      if (state === "missing") db.exec("DELETE FROM worker_questions");
+      else db.exec("UPDATE worker_questions SET state = 'withdrawn'");
+      return change(paths, target, key, decide);
+    });
+    const result = await wait();
+    if (state === "missing")
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "question_not_found" } });
+    else
+      expect(okValue(result)).toMatchObject({
+        reason: "question_withdrawn",
+        data: { state: "withdrawn" },
+      });
+    using db = new Database(device.paths.database, { readonly: true });
+    expect(db.query("SELECT awaiting_person_seen_at FROM worker_questions").all()).toEqual(
+      state === "missing" ? [] : [{ awaiting_person_seen_at: null }],
+    );
+  },
+);
+
+test("a failed receipt write refuses without claiming the person notice", async () => {
+  const { sourceId } = await asked();
+  device.inPane(superPane);
+  okValue(await WorkerQuestions.escalate(selector(sourceId)));
+  mock.restore();
+  const receipt = spyOn(DeviceState, "changeQuestion").mockReturnValueOnce(
+    Err({ reason: "state_busy", detail: "The synthetic writer is busy." }),
+  );
+  expect(await wait()).toMatchObject({ tag: "Err", error: { reason: "state_busy" } });
+  receipt.mockRestore();
+  expect(okValue(await wait()).reason).toBe("question_awaiting_person");
+});
+
 test("a wait returns the answer that arrives while it waits, and the move to the person", async () => {
   const { sourceId } = await asked();
   const waiting = wait("scope", 10);
@@ -180,6 +255,7 @@ test("a wait times out with the question's current state and records nothing", a
   const started = Date.now();
   expect(okValue(await wait("scope", 1))).toMatchObject({
     reason: "question_wait_timed_out",
+    next: { command: "operator question wait --key scope", why: "Wait for the recorded answer." },
     data: { key: "scope", state: "open", answer: null },
   });
   expect(Date.now() - started).toBeGreaterThanOrEqual(1000);
@@ -205,6 +281,7 @@ test("the worker withdraws its question, which then takes no answer", async () =
     okValue(await WorkerQuestions.withdraw({ paths: device.paths, key: "scope" })),
   ).toMatchObject({ reason: "question_withdrawn", data: { state: "withdrawn" } });
   expect(okValue(await wait())).toMatchObject({ reason: "question_withdrawn" });
+  expect(okValue(await wait()).next).toBeUndefined();
   mock.restore();
   expect((await device.actions()).map((row) => row.action)).toEqual(["ready_assignment"]);
   expect(await answer(sourceId, "super-agent")).toMatchObject({

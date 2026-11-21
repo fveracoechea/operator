@@ -22,8 +22,8 @@ function current() {
 }
 
 /** Review commands run from the device root, which is no checkout, unless a test says otherwise. */
-async function run(args: string[], cwd = root) {
-  return current().run(args, cwd);
+async function run(args: string[], cwd = root, pane?: string) {
+  return current().run(args, cwd, pane);
 }
 
 async function git(cwd: string, ...args: string[]) {
@@ -525,6 +525,7 @@ test("an enabled assignment reviewer is queued at PR association and always comm
   const worktree = z
     .object({ data: z.object({ worktreePath: z.string() }) })
     .parse(dispatched.output).data.worktreePath;
+  head = await git(worktree, "rev-parse", "HEAD");
   const assigned = { headRefName: "task/12-implement", headRepository: "example/one" };
   await github({ pulls: [pull(assigned)], viewer: "owner" });
 
@@ -542,11 +543,14 @@ test("an enabled assignment reviewer is queued at PR association and always comm
   const again = await run(["source", "register", "--file", `${root}/plan.json`], checkout);
   const second = z.object({ data: z.object({ id: z.string() }) }).parse(again.output).data.id;
   const owner = await run(["dispatch", "--source", second, "--assignment", "implement"], checkout);
-  const ownerTree = z.object({ data: z.object({ worktreePath: z.string() }) }).parse(owner.output)
-    .data.worktreePath;
+  const ownerLaunch = z
+    .object({ data: z.object({ worktreePath: z.string(), paneId: z.string() }) })
+    .parse(owner.output).data;
+  const ownerTree = ownerLaunch.worktreePath;
+  head = await git(ownerTree, "rev-parse", "HEAD");
   // The owner's account opened the PR, so the review posts with the author's own account.
   await github({ pulls: [pull({ ...assigned, author: "owner" })], viewer: "owner" });
-  expect(await run(["pr", "associate"], ownerTree)).toMatchObject({ code: 0 });
+  expect(await run(["pr", "associate"], ownerTree, ownerLaunch.paneId)).toMatchObject({ code: 0 });
   const [queued] = await next();
   expect(queued).toMatchObject({
     origin: "assignment",
@@ -561,8 +565,36 @@ test("an enabled assignment reviewer is queued at PR association and always comm
   const [review] = await posted();
   expect(review?.body).toContain("**No blockers**");
   expect(review?.body).toContain("No blockers.");
-  // The owner's own account posted it, and the owner's PR wait still reports it.
-  expect(await run(["pr", "wait", "--timeout", "1"], ownerTree)).toMatchObject({
+  const deadline = Date.now() + 30000;
+  let feedbackPane = "";
+  for (;;) {
+    const latest = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({
+              state: z.string(),
+              paneId: z.string().nullable(),
+              kind: z.object({ name: z.string() }).nullable(),
+            }),
+          ),
+        }),
+      })
+      .parse((await run(["source", "show", "--source", second], checkout)).output)
+      .data.launches.at(-1);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      feedbackPane = latest.paneId;
+      break;
+    }
+    expect(Date.now()).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
+  // The owner's account posted it, and the fresh feedback owner's wait still reports it.
+  expect(await run(["pr", "wait", "--timeout", "1"], ownerTree, feedbackPane)).toMatchObject({
     code: 0,
     output: {
       reason: "pr_events_observed",
@@ -685,7 +717,7 @@ test("a pending required check or an incomplete check list does not approve", as
     output: {
       reason: "review_ci_pending",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Wait for required CI before posting the approval.",
       },
       state: { pendingChecks: [{ name: "ci", state: "pending" }], checksComplete: true },
@@ -699,7 +731,7 @@ test("a pending required check or an incomplete check list does not approve", as
   expect(await run(["review", "post", url])).toMatchObject({
     output: {
       reason: "review_ci_pending",
-      next: { command: "operator review wait" },
+      next: { command: "operator next --wait" },
       state: { pendingChecks: [], checksComplete: false },
     },
   });

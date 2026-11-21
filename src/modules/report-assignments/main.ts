@@ -4,6 +4,7 @@ import path from "node:path";
 import { Err, Ok, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -62,6 +63,7 @@ function decide(facts: Facts, command: Command, promote?: string) {
     assignments: facts.assignments,
     launch: facts.launch,
     latest: facts.reports.at(-1) ?? null,
+    reports: facts.reports,
     caller: caller(),
     promotion:
       promote === undefined ? undefined : { sourceState: facts.source.state, key: promote },
@@ -322,7 +324,12 @@ function returnReport(input: {
         update: { decision: "returned", decidedAt: new Date().toISOString(), followUp: text },
       }));
       if (recorded.tag !== "Ok") {
-        await rm(staged);
+        const cleanup = await fromPromise(
+          () => rm(staged),
+          (cause, defect) => defect(cause),
+        );
+        if (cleanup.tag === "Defect")
+          console.error("Report follow-up cleanup failed:", String(cleanup.cause));
         return stop(recorded);
       }
       await publish(staged, followUp);
@@ -336,7 +343,7 @@ function returnReport(input: {
           report: number,
           followUp,
           // A live worker resumes with the follow-up. A stopped worker needs a replacement.
-          next: running ? "resume_worker" : "replace_worker",
+          next: running ? "worker_attention" : "replace_worker",
         },
       });
     },
@@ -486,7 +493,14 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
 /** The PR assignment's launch that takes over the running report worker's pane and worktree. */
 function handoverLaunch(
   launch: NonNullable<Facts["launch"]>,
-  change: { key: string; name: string; branch: string; at: string },
+  change: {
+    key: string;
+    name: string;
+    branch: string;
+    at: string;
+    internalReview: boolean;
+    kind: string;
+  },
 ) {
   return {
     ...launch,
@@ -497,6 +511,8 @@ function handoverLaunch(
     name: change.name,
     resources: "worktree",
     branch: change.branch,
+    internalReview: change.internalReview,
+    kind: change.kind,
     startedAt: change.at,
     endedAt: null,
     failureReason: null,
@@ -598,6 +614,30 @@ function promote(input: PromoteInput) {
       const prepared = await promotionFacts(input);
       if (prepared.tag !== "Ok") return stop(prepared);
       const { checkout, planned, decision, facts, decided, launch } = prepared.value;
+      const settings = await DeviceSettings.show(input.paths);
+      if (settings.tag !== "Ok") return stop(settings);
+      const internalReview = WorkerDispatch.resolveInternalReview({
+        assignment: planned.internalReview,
+        plan: z
+          .object({ internalReview: z.boolean().optional() })
+          .parse(JSON.parse(facts.source.plan)).internalReview,
+        device: settings.value.data.config.review?.internal,
+      });
+      const host = z.enum(["opencode", "claude-code"]).parse(launch.host);
+      const definition = await DeviceSettings.kind({
+        paths: input.paths,
+        name: "implementation",
+        host,
+      });
+      if (definition.tag !== "Ok") return stop(definition);
+      const kind = JSON.stringify({
+        ...definition.value,
+        profile: launch.profile,
+        nextKind: internalReview ? definition.value.nextKind : "pr-feedback",
+        skillsToRead: definition.value.skillsToRead.map(
+          (name) => `${input.paths.upstreamSkills[host]}/${name}/SKILL.md`,
+        ),
+      });
       const handover = await WorkerDispatch.handOver({
         paths: input.paths,
         checkout,
@@ -609,7 +649,9 @@ function promote(input: PromoteInput) {
       const { name, branch } = handover.value;
       const at = new Date().toISOString();
       const taken =
-        name === null ? null : handoverLaunch(launch, { key: planned.key, name, branch, at });
+        name === null
+          ? null
+          : handoverLaunch(launch, { key: planned.key, name, branch, at, internalReview, kind });
       const state = taken === null ? "ready" : "running";
       const recorded = record(decision, decided, (current) => ({
         update: {
@@ -623,6 +665,7 @@ function promote(input: PromoteInput) {
             sourceId: current.source.id,
             key: planned.key,
             completion: "pr",
+            kind: "implementation",
             state,
           },
           promotion: {

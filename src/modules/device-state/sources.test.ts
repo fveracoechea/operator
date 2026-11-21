@@ -11,7 +11,13 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { migrationsFolder } from "./database.ts";
 import { registerProject } from "./projects.ts";
-import { registerSource, readSources, resetSource, pruneSource } from "./sources.ts";
+import {
+  registerSource,
+  readSources,
+  resetSource,
+  pruneSource,
+  endAssignments,
+} from "./sources.ts";
 import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
 
 // Root ignores file modes, so a test of a denied access cannot run as root.
@@ -90,49 +96,261 @@ function endedDatabase() {
 }
 const target = { repository: project.repository, checkout: project.checkout, sourceId: "one" };
 
-test("reset and retention never discard an unresolved delivery after its process exits", async () => {
+test.each([
+  ["pending", true],
+  ["pending", false],
+  ["failed", true],
+  ["done", true],
+] as const)(
+  "source reads project %s handoffs with live owner=%s without borrowing another source",
+  (state, live) => {
+    using db = endedDatabase();
+    expect(
+      registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, [
+        { sourceId: "two", key: "open", completion: "pr", state: "pr-open" },
+      ]).tag,
+    ).toBe("Ok");
+    for (const sourceId of ["one", "two"]) {
+      insertRow(db, "launches", {
+        id: `l-${sourceId}`,
+        source_id: sourceId,
+        assignment: "open",
+        attempt: 1,
+      });
+      insertRow(db, "kind_handoffs", {
+        source_id: sourceId,
+        assignment: "open",
+        outgoing_launch_id: `l-${sourceId}`,
+        next_kind: sourceId === "one" ? "review" : "pr-feedback",
+        handoff_state: state,
+        handoff_detail: `${sourceId} detail`,
+        owner_pid: live ? process.pid : null,
+        lease_at: new Date().toISOString(),
+        started_at: "before",
+        updated_at: "now",
+      });
+      insertRow(db, "internal_reviews", {
+        source_id: sourceId,
+        assignment: "open",
+        implementer_launch_id: `l-${sourceId}`,
+        state: "reviewing",
+        handoff_state: "done",
+        handoff_detail: "obsolete",
+      });
+    }
+    insertRow(db, "launches", { id: "legacy", source_id: "one", assignment: "done", attempt: 1 });
+    insertRow(db, "internal_reviews", {
+      source_id: "one",
+      assignment: "done",
+      implementer_launch_id: "legacy",
+      state: "ready",
+      handoff_state: "done",
+      handoff_detail: "old detail",
+    });
+    const read = readSources(db, project.repository, "one");
+    expect(read).toMatchObject({
+      tag: "Ok",
+      value: [
+        {
+          handoffs: [
+            {
+              sourceId: "one",
+              assignment: "open",
+              outgoingLaunchId: "l-one",
+              nextKind: "review",
+              handoffState: state,
+              handoffDetail: "one detail",
+              handoffRunning: state === "pending" && live,
+            },
+          ],
+          internalReviews: expect.arrayContaining([
+            expect.objectContaining({
+              assignment: "open",
+              handoffState: state,
+              handoffDetail: "one detail",
+              handoffRunning: state === "pending" && live,
+            }),
+            expect.objectContaining({
+              assignment: "done",
+              handoffState: "done",
+              handoffDetail: null,
+              handoffRunning: false,
+            }),
+          ]) as unknown,
+        },
+      ],
+    });
+    expect(read.tag === "Ok" ? read.value[0]?.handoffs.length : -1).toBe(1);
+  },
+);
+
+test("ending selected assignments checks ownership, scopes every write, and preserves source and PR records", () => {
+  using db = endedDatabase();
+  expect(
+    registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, [
+      { sourceId: "two", key: "open", completion: "pr", state: "running" },
+    ]).tag,
+  ).toBe("Ok");
+  for (const [id, sourceId, state, attempt] of [
+    ["missing", "one", "running", 1],
+    ["other", "one", "running", 2],
+    ["starting", "one", "starting", 3],
+    ["foreign", "two", "running", 1],
+  ] as const)
+    insertRow(db, "launches", { id, source_id: sourceId, assignment: "open", state, attempt });
+  insertRow(db, "pull_requests", {
+    source_id: "one",
+    assignment: "open",
+    number: 7,
+    url: "https://github.com/owner/one/pull/7",
+    branch: "task/open",
+    associated_at: "now",
+  });
+  const before = db.serialize();
+  for (const [selection, reason] of [
+    [{ ...target, checkout: "/other" }, "controller_mismatch"],
+    [{ ...target, sourceId: "missing" }, "source_not_found"],
+    [{ ...target, repository: "owner/two" }, "controller_mismatch"],
+  ] as const) {
+    expect(
+      endAssignments(db, selection, () => Ok({ abandon: ["open"], interrupted: ["missing"] })),
+    ).toMatchObject({ tag: "Err", error: { reason } });
+    expect(db.serialize()).toEqual(before);
+  }
+  expect(endAssignments(db, target, () => Err({ reason: "refused", detail: "no" }))).toMatchObject({
+    tag: "Err",
+    error: { reason: "refused" },
+  });
+  expect(db.serialize()).toEqual(before);
+  expect(
+    endAssignments(db, target, () =>
+      Ok({ abandon: ["open"], interrupted: ["missing", "starting", "foreign"] }),
+    ),
+  ).toMatchObject({
+    tag: "Ok",
+    value: {
+      ended: ["open"],
+      retained: [
+        {
+          assignment: "open",
+          pullRequest: "https://github.com/owner/one/pull/7",
+          worktreePath: null,
+        },
+      ],
+    },
+  });
+  expect(
+    db.query("SELECT source_id, key, state FROM assignments ORDER BY source_id, key").all(),
+  ).toEqual([
+    { source_id: "one", key: "done", state: "completed" },
+    { source_id: "one", key: "open", state: "abandoned" },
+    { source_id: "two", key: "open", state: "running" },
+  ]);
+  expect(db.query("SELECT id, state FROM launches ORDER BY id").all()).toEqual([
+    { id: "foreign", state: "running" },
+    { id: "missing", state: "interrupted" },
+    { id: "other", state: "running" },
+    { id: "starting", state: "starting" },
+  ]);
+  expect(db.query("SELECT state, ended_at FROM sources WHERE id='one'").get()).toEqual({
+    state: "open",
+    ended_at: null,
+  });
+  expect(db.query("SELECT url, merged_at FROM pull_requests").all()).toEqual([
+    { url: "https://github.com/owner/one/pull/7", merged_at: null },
+  ]);
+});
+
+test("a failed assignment end rolls back its preceding worker interruption", () => {
   using db = endedDatabase();
   insertRow(db, "launches", {
-    id: "delivery-launch",
+    id: "missing",
     source_id: "one",
     assignment: "open",
     attempt: 1,
-    state: "interrupted",
+    state: "running",
   });
-  insertRow(db, "deliveries", {
-    id: "outstanding",
-    launch_id: "delivery-launch",
-    head: "h1",
-    selected: 0,
-    owner_pid: null,
-    lease_at: null,
-    ended_at: null,
-  });
+  db.exec(
+    "CREATE TRIGGER refuse_end BEFORE UPDATE ON assignments BEGIN SELECT RAISE(ABORT, 'end refused'); END",
+  );
   const before = db.serialize();
-  expect(resetSource(db, target, () => Ok({ abandon: ["open"] }))).toMatchObject({
-    tag: "Err",
-    error: {
-      reason: "pr_delivery_unresolved",
-      detail: expect.stringMatching(/\S/) as unknown,
-      next: { decider: "super-agent", question: expect.stringMatching(/\S/) as unknown },
+  expect(
+    endAssignments(db, target, () => Ok({ abandon: ["open"], interrupted: ["missing"] })).tag,
+  ).not.toBe("Ok");
+  expect(db.serialize()).toEqual(before);
+});
+
+test("assignment ending reserves the writer before running even a refusing decision", () => {
+  using db = endedDatabase();
+  using held = reservedCopy(db);
+  let decided = false;
+  expect(
+    endAssignments(held.subject, target, () => {
+      decided = true;
+      return Err({ reason: "refused", detail: "No." });
+    }),
+  ).toMatchObject(busy);
+  expect(decided).toBe(false);
+});
+
+test("ending one assignment abandons its open conversations but retains an unselected PR separately", () => {
+  using db = endedDatabase();
+  db.exec(
+    "INSERT INTO assignments (source_id, key, completion, state) VALUES ('one', 'keep', 'pr', 'pr-open')",
+  );
+  insertRow(db, "launches", {
+    id: "l1",
+    source_id: "one",
+    assignment: "open",
+    attempt: 1,
+    state: "running",
+  });
+  insertRow(db, "worker_questions", {
+    source_id: "one",
+    assignment: "open",
+    key: "scope",
+    launch_id: "l1",
+    state: "open",
+  });
+  insertRow(db, "worker_messages", {
+    source_id: "one",
+    assignment: "open",
+    key: "steer",
+    launch_id: "l1",
+    state: "pending",
+  });
+  for (const [key, number] of [
+    ["open", 7],
+    ["keep", 8],
+  ] as const)
+    insertRow(db, "pull_requests", {
+      source_id: "one",
+      assignment: key,
+      number,
+      url: `https://github.com/owner/one/pull/${number}`,
+      branch: `task/${key}`,
+      associated_at: "now",
+    });
+  expect(
+    endAssignments(db, target, () => Ok({ abandon: ["open"], interrupted: [] })),
+  ).toMatchObject({
+    tag: "Ok",
+    value: {
+      retained: [
+        {
+          assignment: "open",
+          worktreePath: null,
+          branch: "task/open",
+          pullRequest: "https://github.com/owner/one/pull/7",
+        },
+      ],
     },
   });
-  expect(db.serialize()).toEqual(before);
-  root = await mkdtemp(path.join(tmpdir(), "operator-retain-delivery-"));
-  const paths = OperatorHome.resolve(Environment.parse({ HOME: root }));
-  const directory = OperatorHome.sourceDirectory(paths, {
-    repository: project.repository,
-    sourceId: "one",
+  expect(db.query("SELECT state FROM worker_questions").get()).toEqual({ state: "abandoned" });
+  expect(db.query("SELECT state FROM worker_messages").get()).toEqual({ state: "abandoned" });
+  expect(db.query("SELECT state FROM assignments WHERE key='keep'").get()).toEqual({
+    state: "pr-open",
   });
-  await Bun.write(`${directory}/keep.txt`, "retained coordination evidence\n", {
-    createPath: true,
-  });
-  expect(pruneSource(db, paths, target, () => true)).toMatchObject({
-    tag: "Err",
-    error: { reason: "pr_delivery_unresolved" },
-  });
-  expect(db.serialize()).toEqual(before);
-  expect(await Bun.file(`${directory}/keep.txt`).text()).toBe("retained coordination evidence\n");
 });
 
 test("reset checks source ownership inside its transaction", () => {
@@ -308,6 +526,14 @@ test("prune deletes files and records together, and a refused path keeps both", 
   });
   await Bun.write(`${directory}/assignments/open/brief.md`, "brief", { createPath: true });
   await Bun.write(`${sibling}/keep`, "keep", { createPath: true });
+  insertRow(db, "kind_handoffs", {
+    source_id: "one",
+    assignment: "open",
+    outgoing_launch_id: "l1",
+    next_kind: "review",
+    handoff_state: "failed",
+    handoff_detail: "kept until prune",
+  });
   const unchanged = db.serialize();
   expect(pruneSource(db, paths, target, () => false)).toEqual(Ok(null));
   expect(db.serialize()).toEqual(unchanged);
@@ -346,6 +572,7 @@ test("prune deletes files and records together, and a refused path keeps both", 
     "reports",
     "cleanups",
     "pull_requests",
+    "kind_handoffs",
   ])
     expect(db.query(`SELECT * FROM ${table}`).all()).toEqual([]);
   expect(await Bun.file(`${directory}/assignments/open/brief.md`).exists()).toBe(false);

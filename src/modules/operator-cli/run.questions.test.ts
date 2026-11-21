@@ -33,7 +33,10 @@ async function answerFile(text: string) {
 }
 
 test("a worker question stays in next actions until the SuperAgent answers it on the record", async () => {
-  const source = await device.register(plan);
+  const source = await device.register({
+    ...plan,
+    assignments: [...plan.assignments, { ...plan.assignments[0], key: "other" }],
+  });
   const worker = await device.dispatch(source, "investigate");
   const selector = ["--source", source, "--assignment", "investigate"];
   const pane = { pane: worker.paneId };
@@ -80,6 +83,16 @@ test("a worker question stays in next actions until the SuperAgent answers it on
       next: { decider: "person", question: "Is b.ts in scope?" },
     },
   ]);
+  const notices = await Promise.all([
+    device.run(["question", "wait", "--key", "scope", "--timeout", "0"], pane),
+    device.run(["question", "wait", "--key", "scope", "--timeout", "0"], pane),
+  ]);
+  expect(notices.map((notice) => notice.output.reason).toSorted()).toEqual([
+    "question_awaiting_person",
+    "question_wait_timed_out",
+  ]);
+  for (const notice of notices)
+    expect(notice.output.next).toMatchObject({ command: "operator question wait --key scope" });
   expect(
     await device.run(["question", "wait", "--key", "scope", "--timeout", "0"], pane),
   ).toMatchObject({
@@ -114,9 +127,59 @@ test("a worker question stays in next actions until the SuperAgent answers it on
       operation: "question_wait",
       reason: "question_answered",
       data: { answer: "No, only a.ts.", by: "person" },
+      next: { command: "operator report submit --file <file>" },
     },
   });
+  expect(
+    await device.run(["question", "wait", "--key", "scope", "--timeout", "1000000"], pane),
+  ).toMatchObject({
+    code: 0,
+    output: { reason: "question_answered", data: { by: "person" } },
+  });
   expect(await device.herdrCalls()).not.toContain("pane send");
+  for (const key of ["still-open", "withdrawn"]) {
+    expect(
+      (await device.run(["question", "ask", "--key", key, "--file", await answerFile(key)], pane))
+        .code,
+    ).toBe(0);
+  }
+  expect((await device.run(["question", "withdraw", "--key", "withdrawn"], pane)).code).toBe(0);
+  const other = await device.dispatch(source, "other");
+  expect(
+    (
+      await device.run(
+        ["question", "ask", "--key", "other-scope", "--file", await answerFile("Other scope?")],
+        { pane: other.paneId },
+      )
+    ).code,
+  ).toBe(0);
+  expect(
+    (
+      await device.run([
+        "question",
+        "answer",
+        "--source",
+        source,
+        "--assignment",
+        "other",
+        "--key",
+        "other-scope",
+        "--by",
+        "super-agent",
+        "--file",
+        await answerFile("Other answer."),
+      ])
+    ).code,
+  ).toBe(0);
+  await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main);
+  const replacement = await device.dispatch(source, "investigate");
+  const brief = await Bun.file(replacement.brief).text();
+  expect(brief).toContain(
+    "## Questions answered for this assignment\n\n### `scope`\n\nBy: `person`",
+  );
+  expect(brief).toContain("> Is b.ts in scope?\n\nAnswer:\n\n> No, only a.ts.");
+  expect(brief).toContain("Phase: `investigate`");
+  expect(brief).not.toMatch(/still-open|withdrawn|other-scope|Other answer/);
 }, 120000);
 
 test("a SuperAgent answer needs its authority, and only the asking pane withdraws", async () => {
@@ -148,6 +211,13 @@ test("a SuperAgent answer needs its authority, and only the asking pane withdraw
   expect(await device.run(["question", "withdraw", "--key", "name"], pane)).toMatchObject({
     code: 0,
     output: { reason: "question_withdrawn", data: { state: "withdrawn" } },
+  });
+  expect(await device.run(["question", "wait", "--key", "name"], pane)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "question_withdrawn",
+      next: { command: "operator report submit --file <file>" },
+    },
   });
   expect(
     await device.run(["question", "answer", ...selector, "--by", "super-agent", "--file", text]),

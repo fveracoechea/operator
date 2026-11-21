@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chooseNames, launchBase } from "./names.ts";
+import { adoptedNames, chooseNames, launchBase } from "./names.ts";
 
 test("names show the task type, tracker key, and assignment within Herdr's name limit", () => {
   expect(
@@ -54,4 +54,29 @@ test("collisions in names or branches take the next shared suffix", () => {
   expect(
     chooseNames({ base: "r", branch: null, takenNames: all, takenBranches: new Set() }),
   ).toBeNull();
+});
+
+test("adopted names avoid taken launch labels without renaming the adopted branch", () => {
+  expect(adoptedNames("feature/own", new Set())).toEqual({
+    name: "adopt-feature-own",
+    branch: "feature/own",
+  });
+  expect(
+    adoptedNames("feature/own", new Set(["adopt-feature-own", "adopt-feature-own-2"])),
+  ).toEqual({ name: "adopt-feature-own-3", branch: "feature/own" });
+  const all = new Set(
+    Array.from({ length: 999 }, (_, index) =>
+      index === 0 ? "adopt-feature-own" : `adopt-feature-own-${index + 1}`,
+    ),
+  );
+  expect(adoptedNames("feature/own", all)).toBeNull();
+  expect(adoptedNames("!", new Set())).toEqual({ name: "adopt", branch: "!" });
+  const base = `adopt-${"x".repeat(22)}`;
+  const occupied = new Set(
+    Array.from({ length: 998 }, (_, index) => (index === 0 ? base : `${base}-${index + 1}`)),
+  );
+  expect(adoptedNames("x".repeat(100), occupied)).toEqual({
+    name: `${base}-999`,
+    branch: "x".repeat(100),
+  });
 });

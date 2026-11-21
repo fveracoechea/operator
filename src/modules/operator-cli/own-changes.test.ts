@@ -10,10 +10,21 @@ afterEach(() => {
 });
 
 test("a SuperAgent command names the source and assignment that it changes", () => {
-  expect(ownChangeSelector(["pr", "merge", "--source", "s1", "--assignment", "a"])).toEqual({
+  expect(ownChangeSelector(["abandon", "--source", "s1", "--assignment", "a"])).toEqual({
     sourceId: "s1",
     assignment: "a",
   });
+  expect(
+    ownChangeSelector([
+      "internal-review",
+      "recover",
+      "--source",
+      "s1",
+      "--assignment",
+      "a",
+      "--person-instructed",
+    ]),
+  ).toEqual({ sourceId: "s1", assignment: "a" });
   expect(
     ownChangeSelector(["message", "close", "--source", "s1", "--assignment", "a", "--key", "k"]),
   ).toEqual({ sourceId: "s1", assignment: "a" });
@@ -42,9 +53,6 @@ test("waits, reads, and worker commands are not SuperAgent changes", () => {
     ["question", "ask", "--file", "q.json"],
     ["message", "ack", "--key", "k"],
     ["pr", "wait"],
-    ["pr", "merge"],
-    ["pr", "wait", "--source", "s1"],
-    ["report", "merge", "--source", "s1"],
     ["review", "wait"],
     [],
   ])

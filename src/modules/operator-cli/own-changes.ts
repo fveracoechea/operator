@@ -6,8 +6,8 @@ import type { OperatorHome } from "../operator-home/main.ts";
 // returns for their changes. A worker's commands and the waits themselves are not here.
 const supervisorCommands = new Set([
   "dispatch",
+  "abandon",
   "cleanup",
-  "handoff",
   "source register",
   "source reset",
   "message send",
@@ -18,6 +18,7 @@ const supervisorCommands = new Set([
   "report accept",
   "report return",
   "internal-review skip",
+  "internal-review recover",
 ]);
 
 function flagValue(args: string[], flag: string) {
@@ -29,8 +30,6 @@ function flagValue(args: string[], flag: string) {
 /** The source and assignment that a SuperAgent command changes, or null for another command. */
 export function ownChangeSelector(args: string[]) {
   const [group, name] = args;
-  if (group === "pr" && name === "merge" && args.includes("--source"))
-    return { sourceId: flagValue(args, "--source"), assignment: flagValue(args, "--assignment") };
   const command = supervisorCommands.has(String(group))
     ? String(group)
     : `${String(group)} ${String(name)}`;

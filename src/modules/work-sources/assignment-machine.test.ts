@@ -20,6 +20,137 @@ test("PR and report states remain closed and completion-specific", () => {
   ).toBe(false);
 });
 const child: AssignmentState = { key: "child", completion: "pr", state: "ready" };
+test("parking waits, durable events resume, and a closed PR names safe cleanup", () => {
+  const facts = {
+    assignment: { key: "a", completion: "pr" as const, state: "pr-open" as const },
+    dependencies: [],
+    launch: "finished" as const,
+    parked: true,
+  };
+  expect(decideAssignment(facts)).toEqual({ action: "wait", reason: "pr_parked", blockers: [] });
+  for (const waking of ["pr_feedback", "ci_failed", "pr_relay_blocked"] as const) {
+    expect(decideAssignment({ ...facts, waking })).toEqual({
+      action: "resume_pr_feedback",
+      reason: waking,
+      blockers: [],
+    });
+  }
+  expect(decideAssignment({ ...facts, prClosed: true })).toEqual({
+    action: "clean_up",
+    reason: "pr_closed",
+    blockers: [],
+  });
+  expect(decideAssignment({ ...facts, handoff: "running", waking: "pr_feedback" })).toEqual({
+    action: "wait",
+    reason: "kind_handoff",
+    blockers: [],
+  });
+  expect(
+    decideAssignment({ ...facts, parked: false, launch: "failed", waking: "pr_feedback" }),
+  ).toEqual({ action: "replace_worker", reason: "launch_failed", blockers: [] });
+});
+test("resource facts end work only when its required resources are gone, and retain abandoned work for the person", () => {
+  const assignment: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
+  for (const workerGone of [false, true]) {
+    for (const worktreeGone of [false, true]) {
+      expect(
+        decideAssignment({
+          assignment,
+          dependencies: [],
+          resources: {
+            kind: "worktree",
+            workerGone,
+            worktreeGone,
+            paneGone: true,
+            retained: false,
+          },
+        }).action,
+      ).toBe(workerGone && worktreeGone ? "ended" : "wait");
+    }
+  }
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      resources: {
+        kind: "pane",
+        workerGone: true,
+        paneGone: false,
+        worktreeGone: true,
+        retained: false,
+      },
+    }).action,
+  ).toBe("wait");
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      resources: {
+        kind: "pane",
+        workerGone: false,
+        paneGone: true,
+        worktreeGone: false,
+        retained: false,
+      },
+    }),
+  ).toMatchObject({ action: "ended", reason: "assignment_ended" });
+  expect(
+    decideAssignment({
+      assignment: { ...assignment, state: "abandoned" },
+      dependencies: [],
+      resources: {
+        kind: "worktree",
+        workerGone: false,
+        paneGone: false,
+        worktreeGone: false,
+        retained: true,
+      },
+    }),
+  ).toMatchObject({ action: "person_decision", reason: "cleanup_unlanded_work" });
+  expect(
+    decideAssignment({
+      assignment: { ...assignment, state: "ready" },
+      dependencies: [],
+      resources: {
+        kind: "worktree",
+        workerGone: true,
+        paneGone: true,
+        worktreeGone: true,
+        retained: false,
+      },
+    }).action,
+  ).toBe("ready_assignment");
+});
+
+test("resource decisions keep active retained work running and expose complete end and person decisions", () => {
+  const assignment: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
+  const resources = {
+    kind: "worktree" as const,
+    workerGone: false,
+    worktreeGone: false,
+    paneGone: false,
+    retained: true,
+  };
+  expect(decideAssignment({ assignment, dependencies: [], resources })).toEqual({
+    action: "wait",
+    reason: "assignment_active",
+    blockers: [],
+  });
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      resources: { ...resources, workerGone: true, worktreeGone: true },
+    }),
+  ).toEqual({ action: "ended", reason: "assignment_ended", blockers: [] });
+  expect(
+    decideAssignment({
+      assignment: { ...assignment, state: "abandoned" },
+      dependencies: [],
+      resources,
+    }),
+  ).toEqual({ action: "person_decision", reason: "cleanup_unlanded_work", blockers: [] });
+});
 test("only open or merged PRs and accepted reports satisfy dependencies", () => {
   for (const state of prStates)
     expect(dependencyBlockers(child, [{ key: "parent", completion: "pr", state }]).length).toBe(
@@ -52,7 +183,7 @@ test("a PR stacks on one open parent, so several open parents wait for all but o
     decideAssignment({ assignment: child, dependencies: [open("a"), open("b")] }),
   ).toMatchObject({ action: "wait", reason: "dependencies_pending" });
 });
-test("a blocked relay needs owner attention, and a stopped owner is still replaced first", () => {
+test("a blocked relay stays with its live worker, and an interrupted worker is replaced", () => {
   const owner: AssignmentState = { key: "child", completion: "pr", state: "pr-open" };
   expect(
     decideAssignment({
@@ -62,7 +193,7 @@ test("a blocked relay needs owner attention, and a stopped owner is still replac
       launch: "running",
       pullRequest: "reported",
     }),
-  ).toMatchObject({ action: "owner_attention", reason: "pr_relay_blocked" });
+  ).toMatchObject({ action: "wait", reason: "assignment_active" });
   expect(
     decideAssignment({
       assignment: owner,
@@ -80,7 +211,7 @@ test("a blocked relay needs owner attention, and a stopped owner is still replac
         launch: "running",
         pullRequest: "waiting",
       }),
-    ).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
+    ).toMatchObject({ action: "wait", reason: "assignment_active" });
 });
 test("the ordered assignment table exposes only ready work, preserving active and ended states", () => {
   const states: AssignmentState[] = [
@@ -141,8 +272,8 @@ test("a reached running cap holds only ready work whose dependencies are met", (
 
 test("a transition-only kind blocks its plain start without blocking a later handoff or replacement", () => {
   expect(decideAssignment({ assignment: child, dependencies: [], dispatchable: false })).toEqual({
-    action: "owner_attention",
-    reason: "kind_not_dispatchable",
+    action: "wait",
+    reason: "kind_handoff",
     blockers: [],
   });
   for (const dispatchable of [true, undefined])
@@ -158,7 +289,7 @@ test("a transition-only kind blocks its plain start without blocking a later han
       dispatchable: false,
       handoff: "running",
     }),
-  ).toMatchObject({ action: "wait", reason: "internal_review_handoff" });
+  ).toMatchObject({ action: "wait", reason: "kind_handoff" });
   expect(
     decideAssignment({
       assignment: open,
@@ -203,12 +334,12 @@ test("a failed or interrupted launch offers a replacement, and activity never pr
   ).toMatchObject({ action: "wait", reason: "assignment_active" });
 });
 
-test("a PR open owner stays in its feedback loop until a timeout or a closed PR needs attention", () => {
+test("legacy PR wait results leave a live owner active without proving completion", () => {
   const open: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
   for (const pullRequest of ["idle", "waiting", "reported"] as const)
     expect(
       decideAssignment({ assignment: open, dependencies: [], launch: "running", pullRequest }),
-    ).toEqual({ action: "wait", reason: "pr_feedback_loop", blockers: [] });
+    ).toEqual({ action: "wait", reason: "assignment_active", blockers: [] });
   expect(
     decideAssignment({
       assignment: open,
@@ -216,7 +347,7 @@ test("a PR open owner stays in its feedback loop until a timeout or a closed PR 
       launch: "running",
       pullRequest: "timed_out",
     }),
-  ).toEqual({ action: "owner_attention", reason: "pr_wait_timed_out", blockers: [] });
+  ).toEqual({ action: "wait", reason: "assignment_active", blockers: [] });
   expect(
     decideAssignment({
       assignment: open,
@@ -224,7 +355,7 @@ test("a PR open owner stays in its feedback loop until a timeout or a closed PR 
       launch: "running",
       pullRequest: "not_open",
     }),
-  ).toEqual({ action: "owner_attention", reason: "pr_not_open", blockers: [] });
+  ).toEqual({ action: "wait", reason: "assignment_active", blockers: [] });
   // A stopped owner is replaced before its last wait result matters.
   for (const [launch, reason] of [
     ["interrupted", "worker_interrupted"],
@@ -254,27 +385,27 @@ test("a PR open owner stays in its feedback loop until a timeout or a closed PR 
   ).toMatchObject({ action: "ended" });
 });
 
-test("a stopped wait or an idle PR owner needs attention, but a running wait does not", () => {
+test("a stopped wait leaves its live owner active, and an idle owner needs worker attention", () => {
   const open: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
   const facts = { assignment: open, dependencies: [], launch: "running" as const };
   expect(decideAssignment({ ...facts, pullRequest: "stopped" })).toEqual({
-    action: "owner_attention",
-    reason: "pr_wait_stopped",
+    action: "wait",
+    reason: "assignment_active",
     blockers: [],
   });
   for (const pullRequest of ["idle", "reported"] as const)
     for (const activity of ["idle", "done"])
       expect(decideAssignment({ ...facts, pullRequest, activity })).toEqual({
-        action: "owner_attention",
-        reason: "pr_owner_idle",
+        action: "worker_attention",
+        reason: "worker_idle",
         blockers: [],
       });
   for (const activity of ["working", "blocked", null, undefined])
     expect(decideAssignment({ ...facts, pullRequest: "reported", activity })).toMatchObject({
-      reason: "pr_feedback_loop",
+      reason: "assignment_active",
     });
   expect(decideAssignment({ ...facts, pullRequest: "waiting", activity: "idle" })).toMatchObject({
-    reason: "pr_feedback_loop",
+    reason: "assignment_active",
   });
   // Before a PR exists, an idle worker gets worker attention, not owner attention.
   expect(
@@ -349,7 +480,7 @@ test("reports await review, returned work needs its worker, and unfinished clean
       launch: "running",
       report: returned,
     }),
-  ).toMatchObject({ action: "resume_worker", reason: "follow_up_returned" });
+  ).toMatchObject({ action: "worker_attention", reason: "follow_up_returned" });
   for (const [launch, reason] of [
     ["interrupted", "worker_interrupted"],
     ["failed", "launch_failed"],
@@ -361,7 +492,7 @@ test("reports await review, returned work needs its worker, and unfinished clean
   const completed: AssignmentState = { key: "one", completion: "report", state: "completed" };
   for (const [cleanup, reason] of [
     ["failed", "cleanup_failed"],
-    ["pending", "cleanup_unfinished"],
+    ["pending", "cleanup_stopped"],
   ] as const)
     expect(
       decideAssignment({
@@ -370,7 +501,7 @@ test("reports await review, returned work needs its worker, and unfinished clean
         launch: "finished",
         report: { decision: "accepted", cleanup },
       }),
-    ).toMatchObject({ action: "retry_cleanup", reason });
+    ).toMatchObject({ action: "clean_up", reason });
   expect(
     decideAssignment({
       assignment: completed,
@@ -388,8 +519,8 @@ test("a merged assignment shows its open cleanup until every resource is dispose
     ["running", "wait", "cleanup_running"],
     ["unlanded_work", "person_decision", "cleanup_unlanded_work"],
     ["resource_mismatch", "person_decision", "cleanup_resource_mismatch"],
-    ["failed", "retry_cleanup", "cleanup_failed"],
-    ["pending", "retry_cleanup", "cleanup_stopped"],
+    ["failed", "clean_up", "cleanup_failed"],
+    ["pending", "clean_up", "cleanup_stopped"],
     ["done", "ended", "assignment_ended"],
     [undefined, "ended", "assignment_ended"],
   ] as const;

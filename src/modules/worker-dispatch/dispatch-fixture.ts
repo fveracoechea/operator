@@ -117,6 +117,15 @@ async function prepareDevice() {
   });
   expect(registered).toMatchObject({ tag: "Ok" });
   await Bun.write(`${paths.herdrPlugin}/herdr-plugin.toml`, Bun.file(pluginManifestFile));
+  // The readiness double below promises that each selected host has the shipped guides.
+  for (const hostRoot of Object.values(paths.skillHosts)) {
+    await mkdir(hostRoot, { recursive: true });
+    await cp(
+      Bun.fileURLToPath(new URL("../../../skills/worker-agent", import.meta.url)),
+      `${hostRoot}/worker-agent`,
+      { recursive: true },
+    );
+  }
   await cp(root, template, { recursive: true });
   sourceId = registered.tag === "Ok" ? registered.value.id : "";
   return sourceId;
@@ -150,6 +159,7 @@ export async function dispatchDevice(options: { deferPreparation?: boolean } = {
       OkAsync([{ workspaceId: "w1", label: "one", checkout, linked: false }]),
     ),
     panes: spyOn(Herdr, "panes").mockReturnValue(OkAsync([])),
+    pane: spyOn(Herdr, "pane").mockReturnValue(OkAsync({ tabId: "t2", workspaceId: "w2" })),
     renameTab: spyOn(Herdr, "renameTab").mockReturnValue(OkAsync(undefined)),
     agentNames: spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([])),
     tabLabels: spyOn(Herdr, "tabLabels").mockReturnValue(OkAsync([])),

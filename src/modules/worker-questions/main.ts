@@ -21,7 +21,6 @@ import {
   decideQuestionWait,
   type AnswerAuthority,
   type QuestionCommand,
-  type QuestionState,
 } from "./question-machine.ts";
 
 type AnswerText = { file: string };
@@ -32,6 +31,10 @@ type Row = NonNullable<Facts["question"]>;
 // The wait reads only device state, so it can look often without an external limit.
 const pollMs = 1000;
 const stateSchema = z.enum(["open", "awaiting_person", "answered", "withdrawn", "abandoned"]);
+
+function waitNext(key: string) {
+  return { command: `operator question wait --key ${key}`, why: "Wait for the recorded answer." };
+}
 
 function decide(facts: Facts, command: QuestionCommand) {
   return decideQuestion({
@@ -112,6 +115,7 @@ function ask(input: { paths: Paths; key: string; file: string }) {
             launchId: facts.launch?.id ?? "",
             question: asked.question,
             askedAt: now(),
+            awaitingPersonSeenAt: null,
             state,
             answer: null,
             answeredBy: null,
@@ -122,7 +126,7 @@ function ask(input: { paths: Paths; key: string; file: string }) {
       )
         .flatMap(() => DeviceState.readQuestion(input.paths, target.value, asked.key))
         .flatMap(recordedSummary)
-        .map((data) => ({ reason: "question_asked", data }));
+        .map((data) => ({ reason: "question_asked", data, next: waitNext(data.key) }));
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
@@ -197,26 +201,60 @@ function read(paths: Paths, target: Target, key: string) {
   );
 }
 
-async function poll(
-  input: { paths: Paths; target: Target; key: string },
-  started: QuestionState,
-  deadline: number,
-) {
+type WaitOutcome = {
+  reason: NonNullable<ReturnType<typeof decideQuestionWait>["reason"]> | "question_wait_timed_out";
+  data: ReturnType<typeof summary>;
+  next?: ReturnType<typeof waitNext>;
+};
+
+function waitDecision(question: Facts["question"]) {
+  return decideQuestionWait({
+    state: question === null ? null : stateSchema.parse(question.state),
+    awaitingPersonSeen: question !== null && question.awaitingPersonSeenAt !== null,
+  });
+}
+
+async function poll(input: { paths: Paths; target: Target; key: string }, deadline: number) {
   for (;;) {
     const current = read(input.paths, input.target, input.key);
     if (current.tag !== "Ok") return stop(current);
-    const { facts, row, state } = current.value;
-    const reason = decideQuestionWait(started, state);
+    let { facts, row } = current.value;
+    let decision = waitDecision(row);
+    if (decision.receipt) {
+      const seenAt = now();
+      const notified = DeviceState.changeQuestion(
+        input.paths,
+        input.target,
+        input.key,
+        (current) => {
+          decision = waitDecision(current.question);
+          return Ok(decision.receipt ? { update: { awaitingPersonSeenAt: seenAt } } : {});
+        },
+      );
+      if (notified.tag !== "Ok") return stop(notified);
+      facts = notified.value.facts;
+      if (facts.question === null) continue;
+      row = facts.question;
+    }
+    const { reason } = decision;
     if (reason === "question_answered") {
       // Reading the answer acknowledges the steering message that delivered it.
       const read = acknowledge(input.paths, input.target, answerKey(input.key), null);
       if (read.tag === "Defect" || (read.tag === "Err" && read.error.reason !== "message_not_open"))
         return stop(read);
     }
-    if (reason !== null) return Ok({ reason, data: summary(facts, row) });
+    if (reason !== null) {
+      const outcome: WaitOutcome = { reason, data: summary(facts, row) };
+      if (reason === "question_awaiting_person") outcome.next = waitNext(row.key);
+      return Ok(outcome);
+    }
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
     if (Date.now() >= deadline)
-      return Ok({ reason: "question_wait_timed_out", data: summary(facts, row) });
+      return Ok<WaitOutcome>({
+        reason: "question_wait_timed_out",
+        data: summary(facts, row),
+        next: waitNext(row.key),
+      });
     await Bun.sleep(Math.min(pollMs, deadline - Date.now()));
   }
 }
@@ -231,7 +269,6 @@ function wait(input: { paths: Paths; key: string; timeoutSeconds: number }) {
       if (first.tag !== "Ok") return stop(first);
       return poll(
         { paths: input.paths, target: target.value, key: input.key },
-        first.value.state,
         Date.now() + input.timeoutSeconds * 1000,
       );
     },

@@ -268,12 +268,12 @@ test("the turn-end guard fires only with a live worker launch", async () => {
   expect(await run(["claude", "hook"], stop(true))).toEqual(allowed);
   expect((await run(["next", "--wait", "--timeout", "0", "--json"], "", waitEnv)).code).toBe(0);
   const otherEnv = { ...waitEnv, CLAUDE_CODE_SESSION_ID: "ses-2" };
-  // A session's first wait returns its initial set, even when it supervises no sources.
+  // An empty initial scope stays quiet, even when this session shares its supervisor's pane.
   const initial = await run(["next", "--wait", "--timeout", "0", "--json"], "", otherEnv);
   expect(initial.code, initial.stderr).toBe(0);
   expect(JSON.parse(initial.stdout)).toMatchObject({
-    reason: "next_actions_changed",
-    data: { sources: [] },
+    reason: "next_wait_timed_out",
+    data: { sources: [], events: [], requests: [] },
   });
   // A wait from the session covers the source while it runs, and another session's wait does not.
   const other = spawn(["next", "--wait", "--timeout", "60", "--json"], "", otherEnv);

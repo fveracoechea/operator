@@ -18,7 +18,7 @@ export type MergeConditions = {
   notDraft: boolean;
   /** A stacked PR's parent merged and the relay finished, so no parent commit rides along. */
   stackRelayed: boolean;
-  /** The internal review ended ready or skipped, or the assignment has none. ADR-0020. */
+  /** Compatibility wire name for the explicit pr_ready transition, not the review's end. */
   reviewEnded: boolean;
 };
 type WaitEvent =
@@ -32,7 +32,7 @@ type Facts = Gates & { progress: Progress; observed: Observation };
 type Decision =
   | { result: "not_open"; events: WaitEvent[]; progress: Progress }
   | { result: "reported"; events: WaitEvent[]; progress: Progress }
-  | { result: "none" };
+  | { result: "none"; progress?: Progress };
 
 /** The seven conditions that the later merge gate checks again before it merges. */
 export function mergeConditions(
@@ -63,6 +63,7 @@ function eligible(facts: Facts) {
 function unseenFeedback({ progress, observed }: Facts) {
   return observed.feedback.filter(
     (item) =>
+      !progress.seen.includes(feedbackKey(item)) &&
       !progress.seen.includes(item.id) &&
       // Only a review carries a review state, so this keeps every comment.
       (item.body.trim() !== "" || item.reviewState !== "COMMENTED"),
@@ -72,8 +73,35 @@ function unseenFeedback({ progress, observed }: Facts) {
 function unseenFailures({ progress, observed }: Facts) {
   return observed.checks.filter(
     (check) =>
-      check.state === "failing" && !progress.failures.includes(`${observed.head}:${check.name}`),
+      check.state === "failing" &&
+      !progress.failures.includes(failureKey(observed.head, check)) &&
+      !progress.failures.includes(`${observed.head}:${check.name}`),
   );
+}
+
+function feedbackKey(item: FeedbackItem) {
+  return item.version === undefined ? item.id : JSON.stringify([item.id, item.version]);
+}
+function failureKey(head: string, check: Check) {
+  return check.generation === undefined
+    ? `${head}:${check.name}`
+    : JSON.stringify([head, check.name, check.generation]);
+}
+
+function upgradedProgress(facts: Facts): Progress {
+  const feedback = new Map(facts.observed.feedback.map((item) => [item.id, feedbackKey(item)]));
+  const failures = new Map(
+    facts.observed.checks.map((check) => [
+      `${facts.observed.head}:${check.name}`,
+      failureKey(facts.observed.head, check),
+    ]),
+  );
+  return {
+    ...facts.progress,
+    eligibleHead: eligible(facts) ? facts.progress.eligibleHead : null,
+    seen: facts.progress.seen.map((key) => feedback.get(key) ?? key),
+    failures: facts.progress.failures.map((key) => failures.get(key) ?? key),
+  };
 }
 
 function newlyEligible(facts: Facts) {
@@ -81,7 +109,7 @@ function newlyEligible(facts: Facts) {
 }
 
 function report(facts: Facts): Decision {
-  const { progress, observed } = facts;
+  const { observed } = facts;
   const items = unseenFeedback(facts);
   const failing = unseenFailures(facts);
   const events: WaitEvent[] = [];
@@ -93,9 +121,12 @@ function report(facts: Facts): Decision {
     result: "reported",
     events,
     progress: {
-      seen: [...progress.seen, ...items.map((item) => item.id)],
-      failures: [...progress.failures, ...failing.map((check) => `${observed.head}:${check.name}`)],
-      eligibleHead: eligible(facts) ? observed.head : progress.eligibleHead,
+      seen: [...upgradedProgress(facts).seen, ...items.map(feedbackKey)],
+      failures: [
+        ...upgradedProgress(facts).failures,
+        ...failing.map((check) => failureKey(observed.head, check)),
+      ],
+      eligibleHead: eligible(facts) ? observed.head : null,
     },
   };
 }
@@ -125,5 +156,10 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
  * head, and eligible head is reported once, so a repeated or restarted wait does not repeat it.
  */
 export function decideWait(facts: Facts): Decision {
-  return rules.find((rule) => rule.when(facts))?.decide(facts) ?? { result: "none" };
+  const decision = rules.find((rule) => rule.when(facts))?.decide(facts);
+  if (decision !== undefined) return decision;
+  const progress = upgradedProgress(facts);
+  return JSON.stringify(progress) === JSON.stringify(facts.progress)
+    ? { result: "none" }
+    : { result: "none", progress };
 }

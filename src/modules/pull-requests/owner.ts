@@ -4,10 +4,11 @@ import { realPathOrNull } from "../../lib/real-path.ts";
 import { realpath } from "node:fs/promises";
 import { Err, ErrAsync, Ok, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
-import { Environment } from "../environment/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import { WorkSources } from "../work-sources/main.ts";
 import type { Refusal, RefusalContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
@@ -21,7 +22,20 @@ type OwnerFailure = RefusalContext & {
 };
 type Owners = Extract<ReturnType<typeof DeviceState.worktreeOwners>, { tag: "Ok" }>["value"];
 type Recorded = Owners[number] & { worktreePath: string };
-export type Owner = Recorded & { branch: string };
+export type Owner = Recorded & { branch: string; parkedHead?: string };
+
+/** A directly adopted draft starts its reviewer without an outgoing implementer launch. */
+export function isImplementer(owner: {
+  implementerLaunchId: string | null;
+  launchId: string;
+  kind: string | null;
+}) {
+  return (
+    owner.implementerLaunchId === owner.launchId &&
+    (owner.kind === null ||
+      WorkerKinds.snapshotSchema().parse(JSON.parse(owner.kind)).name !== "review")
+  );
+}
 
 export function qualify<C, T>(cause: C, defect: (cause: C) => T) {
   if (
@@ -48,7 +62,7 @@ async function git(cwd: string, args: string[]) {
 
 const nothing = "Nothing was read from GitHub or changed.";
 
-/** The caller's real Git top level must be a recorded worktree. A running owner wins a reused path. */
+/** The caller's real Git top level must have at most one running recorded owner. */
 async function recorded(cwd: string, owners: Owners): Promise<Recorded | OwnerFailure> {
   const top = await git(cwd, ["rev-parse", "--show-toplevel"]);
   if (top === null)
@@ -67,8 +81,23 @@ async function recorded(cwd: string, owners: Owners): Promise<Recorded | OwnerFa
     // Stryker disable next-line ConditionalExpression: equivalent: a null path has no real path, so it never equals the caller's top level
     if (row.worktreePath !== null && (await realPathOrNull(row.worktreePath)) === real)
       matches.push({ ...row, worktreePath: row.worktreePath });
+  const runningOwners = matches.filter((row) => row.launchState === "running");
+  if (runningOwners.length > 1)
+    return {
+      reason: "pr_worktree_unrecorded",
+      detail: `${real} has multiple running recorded owners. Resolve the ambiguous worktree ownership before running a PR command. ${nothing}`,
+      next: {
+        decider: "super-agent",
+        question: "Which recorded assignment should own this worktree?",
+      },
+      state: {
+        worktree: real,
+        ambiguous: true,
+        launchIds: runningOwners.map((row) => row.launchId),
+      },
+    };
   return (
-    matches.find((row) => row.launchState === "running") ??
+    runningOwners[0] ??
     matches[0] ?? {
       reason: "pr_worktree_unrecorded",
       detail: `${real} is not the recorded worktree of an assignment. ${nothing}`,
@@ -157,74 +186,7 @@ async function find(paths: Paths, cwd: string, owners: Owners): Promise<Owner | 
       };
 }
 
-type Selector = { sourceId: string; assignment: string };
-
-/** A selector never changes ownership; only the recorded supervising session may use it. */
-function selectedOwner(input: { paths: Paths; cwd: string } & Selector) {
-  return Projects.current(input).flatMap(({ data: project }) =>
-    DeviceState.readSupervisor(input.paths, project.repository, input.sourceId)
-      .toAsync()
-      .flatMap((supervisor) => {
-        const caller = Environment.caller();
-        return supervisor.session !== null && supervisor.session === caller.session
-          ? Ok(project)
-          : Err<Refusal>({
-              reason: "source_supervised_elsewhere",
-              detail: `Only the recorded supervising session may select delivery for source ${input.sourceId}. ${nothing}`,
-              next: {
-                decider: "super-agent" as const,
-                question: "Which recorded supervising session owns delivery for this source?",
-              },
-            });
-      })
-      .flatMap((project) =>
-        DeviceState.worktreeOwners(input.paths)
-          .toAsync()
-          .flatMap((owners) => {
-            const owner = owners.find(
-              (row) =>
-                row.repository === project.repository &&
-                row.sourceId === input.sourceId &&
-                row.assignment === input.assignment,
-            );
-            if (owner?.worktreePath === null || owner === undefined)
-              return Err<Refusal>({
-                reason: "pr_worktree_unrecorded",
-                detail: `Assignment ${input.assignment} has no recorded PR worktree. ${nothing}`,
-                next: {
-                  decider: "super-agent" as const,
-                  question:
-                    "How should this assignment's recorded worktree be recovered without discarding work?",
-                },
-              });
-            const worktree = owner.worktreePath;
-            return fromPromise(() => find(input.paths, worktree, [owner]), qualify).flatMap(
-              (found) => ("reason" in found ? Err(found) : Ok(found)),
-            );
-          }),
-      ),
-  );
-}
-
-function invalidSelection() {
-  return ErrAsync<Refusal>({
-    reason: "pr_selector_invalid",
-    detail: `Supply both source and assignment for selected delivery. ${nothing}`,
-    next: {
-      decider: "super-agent" as const,
-      question: "Which source and assignment should this delivery select?",
-    },
-  });
-}
-
-export function resolveOwner(
-  input: { paths: Paths; cwd: string } & Partial<Selector>,
-): AsyncResult<Owner, Refusal> {
-  if (input.sourceId !== undefined)
-    return input.assignment === undefined
-      ? invalidSelection()
-      : selectedOwner({ ...input, sourceId: input.sourceId, assignment: input.assignment });
-  if (input.assignment !== undefined) return invalidSelection();
+export function resolveOwner(input: { paths: Paths; cwd: string }) {
   return DeviceState.worktreeOwners(input.paths)
     .toAsync()
     .flatMap((owners) =>
@@ -232,4 +194,121 @@ export function resolveOwner(
         "reason" in found ? Err(found) : Ok(found),
       ),
     );
+}
+
+/** A supervisor selects only a parked assignment, never a live worker's PR. */
+export function resolveParkedOwner(input: {
+  paths: Paths;
+  cwd: string;
+  sourceId: string;
+  assignment: string;
+}): AsyncResult<Owner, Refusal> {
+  return WorkSources.checkSupervisor(input).flatMap(() =>
+    WorkSources.show(input).flatMap((source): AsyncResult<Owner, Refusal> => {
+      const parking = source?.pullRequests.find(
+        (row) => row.assignment === input.assignment,
+      )?.parking;
+      if (parking?.state !== "parked" || parking.head === null)
+        return ErrAsync(inactiveParked(input.sourceId, parking?.state, undefined));
+      const head = parking.head;
+      return DeviceState.worktreeOwners(input.paths)
+        .toAsync()
+        .flatMap((owners) =>
+          fromPromise(async () => {
+            const owner = owners.find(
+              (row) =>
+                row.sourceId === input.sourceId &&
+                row.assignment === input.assignment &&
+                row.repository === source?.repository,
+            );
+            if (!parkedOwnerRecord(owner, parking.launchId))
+              return inactiveParked(input.sourceId, parking.state, owner?.launchState);
+            return findParkedRepository(input.paths, owner, owners);
+          }, qualify).flatMap((found): AsyncResult<Owner, Refusal> =>
+            "reason" in found
+              ? ErrAsync(found)
+              : DeviceState.checkParkedMergeOwner(input.paths, found.launchId, head)
+                  .toAsync()
+                  .map(() => ({ ...found, parkedHead: head })),
+          ),
+        );
+    }),
+  );
+}
+
+function parkedOwnerRecord(
+  owner: Owners[number] | undefined,
+  launchId: string | null,
+): owner is Owner {
+  return (
+    owner?.launchId === launchId &&
+    owner.sourceState === "open" &&
+    owner.assignmentState === "pr-open" &&
+    owner.completion === "pr" &&
+    owner.branch !== null &&
+    owner.worktreePath !== null
+  );
+}
+
+function inactiveParked(sourceId: string, state: string | undefined, launch: string | undefined) {
+  return {
+    reason: "pr_owner_inactive" as const,
+    detail:
+      "The selected assignment has no eligible parked PR owner. Nothing was read from GitHub or changed.",
+    next: {
+      command: `operator next --source ${sourceId}`,
+      why: "Read the selected assignment's current action.",
+    },
+    state: { parked: state === "parked", launch: launch ?? null },
+  };
+}
+
+async function findParkedRepository(
+  paths: Paths,
+  owner: Owner,
+  owners: Owners,
+): Promise<Owner | OwnerFailure> {
+  const retained = await realPathOrNull(owner.worktreePath);
+  for (const other of owners) {
+    if (
+      other.launchId === owner.launchId ||
+      !["starting", "running"].includes(other.launchState) ||
+      other.worktreePath === null
+    )
+      continue;
+    if (retained !== null && (await realPathOrNull(other.worktreePath)) === retained)
+      return {
+        reason: "pr_worktree_unrecorded",
+        detail:
+          "A live launch now owns the retained worktree. Nothing was read from GitHub or changed.",
+        next: {
+          decider: "super-agent",
+          question: "Which assignment should own the retained worktree before merging?",
+        },
+        state: { worktree: retained, launchId: other.launchId },
+      };
+  }
+  if (!(await sameRepository(paths, owner)))
+    return {
+      reason: "pr_repository_mismatch",
+      detail:
+        "The parked worktree no longer belongs to the registered repository. Nothing changed.",
+      next: {
+        decider: "super-agent",
+        question: "How should the parked worktree's repository be restored without losing work?",
+      },
+      state: { repository: owner.repository, matches: false },
+    };
+  const head = await git(owner.worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  return head === owner.branch
+    ? owner
+    : {
+        reason: "pr_branch_mismatch",
+        detail: "The parked worktree is not on its recorded branch. Nothing changed.",
+        next: {
+          decider: "super-agent",
+          question: "How should the parked worktree's branch be restored without losing work?",
+        },
+        state: { expected: owner.branch, actual: head },
+      };
 }

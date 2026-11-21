@@ -8,10 +8,12 @@ import { workerDevice } from "./worker-fixture.ts";
 
 type Device = Awaited<ReturnType<typeof workerDevice>>;
 let device: Device | undefined;
+const workerPanes = new Map<string, string>();
 
 afterEach(async () => {
   if (device !== undefined) await rm(device.root, { recursive: true, force: true });
   device = undefined;
+  workerPanes.clear();
 });
 
 // Each test starts about fifty processes in a row: the public CLI, Git, and the controlled tools.
@@ -54,6 +56,41 @@ async function git(cwd: string, ...args: string[]) {
 
 async function gitFails(cwd: string, ...args: string[]) {
   return (await (device as Device).exec(["git", ...args], cwd)).code !== 0;
+}
+
+function run(args: string[], cwd: string) {
+  return (device as Device).run(args, { cwd, pane: workerPanes.get(cwd) });
+}
+
+async function feedbackOwner(source: string, worktree: string) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const state = z
+      .object({
+        data: z.object({
+          launches: z.array(
+            z.object({
+              state: z.string(),
+              paneId: z.string().nullable(),
+              worktreePath: z.string().nullable(),
+              kind: z.object({ name: z.string() }).nullable(),
+            }),
+          ),
+        }),
+      })
+      .parse((await (device as Device).run(["source", "show", "--source", source])).output);
+    const latest = state.data.launches.findLast((launch) => launch.worktreePath === worktree);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      workerPanes.set(worktree, latest.paneId);
+      return latest.paneId;
+    }
+    expect(Date.now(), JSON.stringify(state)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 }
 
 type Pull = Record<string, unknown> & { number: number };
@@ -103,6 +140,7 @@ async function stackedDevice() {
 async function openParent(source: string) {
   const owner = await (device as Device).dispatch(source, "parent");
   const worktree = owner.worktreePath ?? "";
+  workerPanes.set(worktree, owner.paneId);
   await Bun.write(`${worktree}/shared.txt`, "base\n");
   await git(worktree, "add", ".");
   await git(worktree, "commit", "-q", "-m", "parent");
@@ -116,15 +154,24 @@ async function openParent(source: string) {
       state: "OPEN",
     });
   });
-  const associated = await (device as Device).run(["pr", "associate"], { cwd: worktree });
+  const associated = await run(["pr", "associate"], worktree);
   expect(associated.code, associated.stderr).toBe(0);
+  await feedbackOwner(source, worktree);
   return { worktree, head: await git(worktree, "rev-parse", "HEAD") };
+}
+
+async function passingChildChecks() {
+  await github((state) => {
+    const child = state.pulls.find((row) => row.number === 8);
+    if (child !== undefined) child.checks = [{ name: "ci", conclusion: "SUCCESS" }];
+  });
 }
 
 /** The child owner commits its change, pushes, opens PR #8 on the parent branch, and associates. */
 async function openChild(source: string, content = "child\n") {
   const owner = await (device as Device).dispatch(source, "child");
   const worktree = owner.worktreePath ?? "";
+  workerPanes.set(worktree, owner.paneId);
   await Bun.write(`${worktree}/child.txt`, "child\n");
   await Bun.write(`${worktree}/shared.txt`, content);
   await git(worktree, "add", ".");
@@ -139,12 +186,14 @@ async function openChild(source: string, content = "child\n") {
       baseRefName: "task/21-parent",
       state: "OPEN",
       reviewDecision: "APPROVED",
-      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      // Running checks keep this owner active while the story exercises repeated relay reads.
+      checks: [{ name: "ci" }],
     });
   });
-  const associated = await (device as Device).run(["pr", "associate"], { cwd: worktree });
+  const associated = await run(["pr", "associate"], worktree);
   expect(associated.code, associated.stderr).toBe(0);
-  return { worktree, brief: owner.brief };
+  const paneId = await feedbackOwner(source, worktree);
+  return { worktree, brief: owner.brief, paneId };
 }
 
 /** GitHub squash-merges the parent into main, deletes its branch, and main moves on. */
@@ -161,14 +210,71 @@ async function mergeParent(
   await git(clone, "add", ".");
   await git(clone, "commit", "-q", "-m", "later");
   await git(clone, "push", "-q", "origin", "main", ":task/21-parent");
+  const mergeCommit = await git(clone, "rev-parse", "HEAD~1");
   await github((state) => {
     const parent = state.pulls.find((row) => row.number === 6);
-    if (parent !== undefined) Object.assign(parent, { state: "MERGED", head: parentHead });
+    if (parent !== undefined)
+      Object.assign(parent, { state: "MERGED", head: parentHead, mergeCommit });
   });
 }
 
 function wait(cwd: string) {
-  return (device as Device).run(["pr", "wait", "--timeout", "0"], { cwd });
+  return run(["pr", "wait", "--timeout", "0"], cwd);
+}
+
+async function replaceChild(source: string, paneId: string) {
+  const current = device as Device;
+  expect((await current.exec(["herdr", "pane", "exit", paneId, "w1"], current.main)).code).toBe(0);
+  const replacement = await current.dispatch(source, "child");
+  workerPanes.set(replacement.worktreePath ?? "", replacement.paneId);
+  return { paneId: replacement.paneId, brief: await Bun.file(replacement.brief).text() };
+}
+
+for (const conflict of [false, true]) {
+  test(`a replacement preserves the recorded ${conflict ? "blocked" : "pending"} relay base until retargeting succeeds`, async () => {
+    const { remote, source } = await stackedDevice();
+    const parent = await openParent(source);
+    const child = await openChild(source, conflict ? "child edit\n" : "child\n");
+    await mergeParent(
+      remote,
+      parent.head,
+      conflict ? { file: "shared.txt", text: "main edit\n" } : undefined,
+    );
+    const merged = await run(["pr", "merge"], parent.worktree);
+    expect(merged.code, merged.stderr).toBe(0);
+    expect(merged.output).toMatchObject({ reason: "pr_merged", data: { state: "merged" } });
+    if (conflict)
+      expect((await wait(child.worktree)).output).toMatchObject({ reason: "relay_conflict" });
+    const replacement = await replaceChild(source, child.paneId);
+    expect(replacement.brief).toContain("Base: `task/21-parent`");
+    expect(replacement.brief).toContain(
+      "## Stack\n\nParent: `parent`, PR #6, branch `task/21-parent`.",
+    );
+    expect(await pull(8)).toMatchObject({ baseRefName: "task/21-parent" });
+    expect(await baseChanges()).toBe(0);
+    if (conflict) {
+      await git(child.worktree, "fetch", "-q", "origin", "main");
+      await git(
+        child.worktree,
+        "rebase",
+        "-q",
+        "-X",
+        "theirs",
+        "--onto",
+        "FETCH_HEAD",
+        parent.head,
+      );
+      await git(child.worktree, "push", "-q", "--force", "origin", "HEAD:task/22-child");
+    }
+    expect((await wait(child.worktree)).output).toMatchObject({
+      reason: "pr_events_observed",
+      data: { events: [{ kind: "parent_relayed" }] },
+    });
+    const relayed = await replaceChild(source, replacement.paneId);
+    expect(relayed.brief).toContain("Base: `default branch`");
+    expect(relayed.brief).not.toContain("## Stack");
+    expect(await pull(8)).toMatchObject({ baseRefName: "main" });
+  });
 }
 
 async function stack(assignment: string) {
@@ -201,20 +307,20 @@ test("a child starts on the open parent's branch and is relayed onto main after 
     "refs/heads/task/22-child",
   );
   expect(await Bun.file(child.brief).text()).toContain(
-    "Your branch starts on `task/21-parent`, the branch of PR #6 of assignment `parent`. Target that branch as the PR base.",
+    "Parent: `parent`, PR #6, branch `task/21-parent`.",
   );
   expect(await stack("child")).toMatchObject({
-    reason: "pr_feedback_loop",
+    reason: "assignment_active",
     pullRequest: {
       stack: { parent: { assignment: "parent", number: 6 }, state: "stacked", blocker: null },
     },
   });
 
-  // Approved with passing checks, the stacked PR is still not eligible while it targets the parent.
+  // Approval cannot make the stacked PR eligible while it targets the parent and checks run.
   const stacked = await wait(child.worktree);
   expect(data(stacked.output)).toMatchObject({
-    reason: "pr_wait_timed_out",
-    data: { mergeConditions: { approved: true, checksPassing: true, defaultBase: false } },
+    reason: "pr_checks_running",
+    data: { mergeConditions: { approved: true, checksPassing: false, defaultBase: false } },
   });
 
   const controller = await git((device as Device).main, "rev-parse", "HEAD");
@@ -242,11 +348,26 @@ test("a child starts on the open parent's branch and is relayed onto main after 
   expect(await git(parent.worktree, "rev-parse", "HEAD")).toBe(parent.head);
   expect(await git((device as Device).main, "rev-parse", "HEAD")).toBe(controller);
   expect(await stack("child")).toMatchObject({
-    reason: "pr_feedback_loop",
+    reason: "assignment_active",
     pullRequest: { stack: { state: "relayed" } },
   });
 
+  // Relay completion precedes the parent's own merge reconciliation.
+  const shown = await (device as Device).run(["source", "show", "--source", source]);
+  const assignments = z
+    .object({
+      data: z.object({
+        assignments: z.array(z.looseObject({ key: z.string(), state: z.string() })),
+      }),
+    })
+    .parse(shown.output).data.assignments;
+  expect(assignments.find((row) => row.key === "parent")).toMatchObject({ state: "pr-open" });
+  const replacement = await replaceChild(source, child.paneId);
+  expect(replacement.brief).toContain("Base: `default branch`");
+  expect(replacement.brief).not.toContain("## Stack");
+
   // A repeated wait does not relay again. With the default branch as base, the PR is eligible.
+  await passingChildChecks();
   const again = await wait(child.worktree);
   expect(data(again.output)).toMatchObject({
     reason: "pr_events_observed",
@@ -274,8 +395,8 @@ test("a conflict aborts the relay, keeps the branch, and needs attention until t
   expect(await git(remote, "rev-parse", "refs/heads/task/22-child")).toBe(before);
   expect(await baseChanges()).toBe(0);
   expect(await stack("child")).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_relay_blocked",
+    action: "wait",
+    reason: "assignment_active",
     pullRequest: { stack: { state: "blocked", blocker: { reason: "relay_conflict" } } },
   });
 
@@ -291,7 +412,7 @@ test("a conflict aborts the relay, keeps the branch, and needs attention until t
   });
   expect(await git(remote, "rev-parse", "refs/heads/task/22-child")).toBe(resolved);
   expect(await baseChanges()).toBe(1);
-  expect(await stack("child")).toMatchObject({ reason: "pr_feedback_loop" });
+  expect(await stack("child")).toMatchObject({ reason: "assignment_active" });
 });
 
 test("a failed base change stays a blocker, and the next wait continues without a second push", async () => {
@@ -310,8 +431,8 @@ test("a failed base change stays a blocker, and the next wait continues without 
   expect(await git(remote, "rev-parse", "refs/heads/task/22-child")).toBe(pushed);
   expect(await pull(8)).toMatchObject({ baseRefName: "task/21-parent" });
   expect(await stack("child")).toMatchObject({
-    action: "owner_attention",
-    reason: "pr_relay_blocked",
+    action: "wait",
+    reason: "assignment_active",
   });
 
   await github((state) => {
@@ -342,7 +463,7 @@ test("a live relay claim holds other waits, a stopped one is taken over, and sim
   // This test process stands for another live relay of the same PR.
   claim(process.pid);
   const held = await wait(child.worktree);
-  expect(data(held.output)).toMatchObject({ reason: "pr_wait_timed_out" });
+  expect(data(held.output)).toMatchObject({ reason: "pr_checks_running" });
   expect(await git(child.worktree, "rev-parse", "HEAD")).toBe(before);
   expect(await baseChanges()).toBe(0);
 
@@ -374,11 +495,11 @@ test("a stacked PR moved to main by hand stays ineligible until its relay finish
   // The parent is still open, so its commits would ride along into main.
   const early = await wait(child.worktree);
   expect(data(early.output)).toMatchObject({
-    reason: "pr_wait_timed_out",
+    reason: "pr_checks_running",
     data: { mergeConditions: { defaultBase: true, stackRelayed: false } },
   });
   // The guarded merge reads the same condition, so it refuses before any merge request.
-  const merge = await (device as Device).run(["pr", "merge"], { cwd: child.worktree });
+  const merge = await run(["pr", "merge"], child.worktree);
   expect(merge.output).toMatchObject({ reason: "pr_merge_blocked" });
   expect(JSON.stringify(merge.output)).toContain("a finished parent-merge relay");
   expect(await pull(8)).toMatchObject({ state: "OPEN" });
@@ -389,6 +510,7 @@ test("a stacked PR moved to main by hand stays ineligible until its relay finish
   });
   // The base was already main, so the relay rebased and pushed without a base change.
   expect(await baseChanges()).toBe(0);
+  await passingChildChecks();
   const eligible = await wait(child.worktree);
   expect(data(eligible.output)).toMatchObject({
     data: {

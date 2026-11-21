@@ -127,47 +127,6 @@ function projectDb() {
   return db;
 }
 
-test("project removal and movement preserve an outstanding delivery after its process exits", () => {
-  using db = projectDb();
-  insertRow(db, "sources", {
-    id: "s1",
-    repository: "owner/one",
-    state: "finished",
-    ended_at: "now",
-  });
-  insertRow(db, "assignments", { source_id: "s1", key: "a", completion: "pr", state: "merged" });
-  insertRow(db, "launches", {
-    id: "l1",
-    source_id: "s1",
-    assignment: "a",
-    attempt: 1,
-    state: "interrupted",
-  });
-  insertRow(db, "deliveries", {
-    id: "d1",
-    launch_id: "l1",
-    head: "h1",
-    selected: 0,
-    ended_at: null,
-    owner_pid: null,
-    lease_at: null,
-  });
-  const before = db.serialize();
-  expect(removeProject(db, "owner/one")).toMatchObject({
-    tag: "Err",
-    error: { reason: "pr_delivery_unresolved" },
-  });
-  expect(moveProject(db, "owner/one", "/alternate")).toMatchObject({
-    tag: "Err",
-    error: { reason: "pr_delivery_unresolved" },
-  });
-  expect(db.serialize()).toEqual(before);
-  expect(moveProject(db, "owner/two", "/other").tag).toBe("Ok");
-  db.exec("UPDATE deliveries SET ended_at = 'settled'");
-  expect(moveProject(db, "owner/one", "/alternate").tag).toBe("Ok");
-  expect(removeProject(db, "owner/one").tag).toBe("Ok");
-});
-
 function source(db: Database, id: string, state: string, endedAt: string | null) {
   insertRow(db, "sources", { id, repository: "owner/one", state, ended_at: endedAt });
 }

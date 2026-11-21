@@ -1,4 +1,4 @@
-import { and, asc, eq, getTableColumns, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
 // Bun has no synchronous file existence API for directories.
 import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
@@ -9,9 +9,9 @@ import {
   assignments,
   cleanups,
   coordinationWaits,
-  deliveries,
   internalReviewRounds,
   internalReviews,
+  kindHandoffs,
   launches,
   obligations,
   projects,
@@ -35,33 +35,7 @@ export type Supervisor = { pane: string | null; session: string | null };
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
-  | (ResultContext & {
-      reason: "source_parent_open" | "source_not_found" | "pr_delivery_unresolved";
-      detail: string;
-    });
-
-export const unresolvedDelivery = {
-  reason: "pr_delivery_unresolved" as const,
-  detail:
-    "An outstanding delivery may still change GitHub. Reconcile it before ending, pruning, moving, or removing this work. Nothing changed.",
-  next: {
-    decider: "super-agent" as const,
-    question:
-      "How should the recorded outstanding delivery be reconciled before this lifecycle change?",
-  },
-};
-
-/** A process exit does not prove that its remote merge request ended. */
-export function hasPendingDelivery(db: Db, sourceIds: string[]) {
-  return (
-    db
-      .select({ id: deliveries.id })
-      .from(deliveries)
-      .innerJoin(launches, eq(launches.id, deliveries.launchId))
-      .where(and(inArray(launches.sourceId, sourceIds), isNull(deliveries.endedAt)))
-      .get() !== undefined
-  );
-}
+  | (ResultContext & { reason: "source_parent_open" | "source_not_found"; detail: string });
 
 export function registerSource(
   client: Database,
@@ -144,6 +118,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
           internalReviews: (typeof internalReviews.$inferSelect & { handoffRunning: boolean })[];
+          handoffs: (typeof kindHandoffs.$inferSelect & { handoffRunning: boolean })[];
           internalReviewRounds: (typeof internalReviewRounds.$inferSelect)[];
           promotions: (typeof promotions.$inferSelect)[];
           questions: (typeof workerQuestions.$inferSelect)[];
@@ -218,15 +193,32 @@ export function readSources(client: Database, repository: string, sourceId?: str
                 // A cleanup with no owner is gone, so it is not running.
                 running: !ownerGone(cleanup, now),
               })),
-            internalReviews: db
+            handoffs: db
               .select()
+              .from(kindHandoffs)
+              .where(eq(kindHandoffs.sourceId, source.id))
+              .all()
+              .map((handoff) => ({
+                ...handoff,
+                handoffRunning: handoff.handoffState === "pending" && !ownerGone(handoff, now),
+              })),
+            internalReviews: db
+              .select({ review: internalReviews, handoff: kindHandoffs })
               .from(internalReviews)
+              .leftJoin(
+                kindHandoffs,
+                and(
+                  eq(kindHandoffs.sourceId, internalReviews.sourceId),
+                  eq(kindHandoffs.assignment, internalReviews.assignment),
+                ),
+              )
               .where(eq(internalReviews.sourceId, source.id))
               .all()
-              .map((review) => ({
+              .map(({ review, handoff }) => ({
                 ...review,
-                // A handoff with no owner is gone, so it is not running.
-                handoffRunning: review.handoffState === "pending" && !ownerGone(review, now),
+                handoffState: handoff?.handoffState ?? review.handoffState,
+                handoffDetail: handoff?.handoffDetail ?? null,
+                handoffRunning: handoff?.handoffState === "pending" && !ownerGone(handoff, now),
               })),
             internalReviewRounds: db
               .select()
@@ -314,6 +306,8 @@ export type EndFacts = {
     abandoned: boolean;
     paneId: string | null;
     herdrSocket: string | null;
+    resources: string;
+    worktreePath: string | null;
   }[];
   cleanups: { state: string }[];
   reports: { decision: string | null; cleanupState: string | null }[];
@@ -328,6 +322,7 @@ function endFacts(db: Db, source: SourceRow): EndFacts {
       .select()
       .from(launches)
       .where(eq(launches.sourceId, source.id))
+      .orderBy(asc(launches.attempt))
       .all()
       .map((launch) => ({
         id: launch.id,
@@ -337,6 +332,8 @@ function endFacts(db: Db, source: SourceRow): EndFacts {
         abandoned: launch.state === "starting" && ownerGone(launch, now),
         paneId: launch.paneId,
         herdrSocket: launch.herdrSocket,
+        resources: launch.resources,
+        worktreePath: launch.worktreePath,
       })),
     cleanups: db
       .select({ state: cleanups.state })
@@ -357,6 +354,59 @@ export type RetainedResource = {
   branch: string | null;
   pullRequest: string | null;
 };
+
+function applyEnds(
+  db: Db,
+  sourceId: string,
+  change: { abandon: string[]; interrupted?: string[] },
+) {
+  const endedAt = new Date().toISOString();
+  if (change.interrupted?.length)
+    db.update(launches)
+      .set({
+        state: "interrupted",
+        endedAt,
+        failureReason: "pane_missing",
+        failureDetail: "Herdr confirmed that the worker pane and named agent no longer exist.",
+      })
+      .where(
+        and(
+          eq(launches.sourceId, sourceId),
+          eq(launches.state, "running"),
+          inArray(launches.id, change.interrupted),
+        ),
+      )
+      .run();
+  db.update(assignments)
+    .set({ state: "abandoned" })
+    .where(and(eq(assignments.sourceId, sourceId), inArray(assignments.key, change.abandon)))
+    .run();
+  abandonConversations(db, sourceId, change.abandon);
+  return endedAt;
+}
+
+/** Apply lifecycle observations under the same writer reservation as dispatch and reset. */
+export function endAssignments<E extends { reason: string; detail: string }>(
+  client: Database,
+  target: ControlledSource,
+  decide: (facts: EndFacts) => Result<{ abandon: string[]; interrupted?: string[] }, E>,
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      controlledSource(db, target).flatMap((source) =>
+        decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
+          applyEnds(db, source.id, { abandon, interrupted });
+          return {
+            ended: abandon,
+            retained: retainedResources(db, source.id).filter((row) =>
+              abandon.includes(row.assignment),
+            ),
+          };
+        }),
+      ),
+    ),
+  );
+}
 
 /**
  * The project work that ending a source leaves: each recorded worktree that still exists, and each
@@ -410,35 +460,9 @@ export function resetSource<E extends { reason: string; detail: string }>(
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
       controlledSource(db, target).flatMap(
-        (
-          source,
-        ): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> => {
-          if (hasPendingDelivery(db, [source.id])) return Err(unresolvedDelivery);
-          return decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
-            const endedAt = new Date().toISOString();
-            if (interrupted !== undefined)
-              db.update(launches)
-                .set({
-                  state: "interrupted",
-                  endedAt,
-                  failureReason: "pane_missing",
-                  failureDetail:
-                    "Herdr confirmed that the worker pane and named agent no longer exist.",
-                })
-                .where(
-                  and(
-                    eq(launches.sourceId, source.id),
-                    eq(launches.state, "running"),
-                    inArray(launches.id, interrupted),
-                  ),
-                )
-                .run();
-            // An empty list matches no assignment.
-            db.update(assignments)
-              .set({ state: "abandoned" })
-              .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
-              .run();
-            abandonConversations(db, source.id, abandon);
+        (source): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> =>
+          decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
+            const endedAt = applyEnds(db, source.id, { abandon, interrupted });
             db.update(sources)
               .set({ state: "reset", endedAt })
               .where(eq(sources.id, source.id))
@@ -449,8 +473,7 @@ export function resetSource<E extends { reason: string; detail: string }>(
                 abandon.includes(row.assignment),
               ),
             };
-          });
-        },
+          }),
       ),
     ),
   );
@@ -475,7 +498,6 @@ export function pruneSource(
           { source: SourceRow; retained: RetainedResource[] } | null,
           SourceFailure | (ResultContext & { reason: "source_prune_failed"; detail: string })
         > => {
-          if (hasPendingDelivery(db, [source.id])) return Err(unresolvedDelivery);
           const facts = endFacts(db, source);
           if (!decide(facts)) return Ok(null);
           const retained = retainedResources(db, source.id);
@@ -509,6 +531,7 @@ export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(obligations).where(inArray(obligations.sourceId, ids)).run();
   db.delete(workerMessages).where(inArray(workerMessages.sourceId, ids)).run();
   db.delete(internalReviewRounds).where(inArray(internalReviewRounds.sourceId, ids)).run();
+  db.delete(kindHandoffs).where(inArray(kindHandoffs.sourceId, ids)).run();
   db.delete(internalReviews).where(inArray(internalReviews.sourceId, ids)).run();
   db.delete(workerQuestions).where(inArray(workerQuestions.sourceId, ids)).run();
   db.delete(coordinationWaits).where(inArray(coordinationWaits.scope, ids)).run();
