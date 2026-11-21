@@ -1062,7 +1062,7 @@ type EnqueueFailure = ResultContext & {
 
 function enqueueNotApplied(answer: z.infer<typeof enqueueAnswer>) {
   return (
-    (answer.data === null || answer.data.enqueuePullRequest === null) &&
+    !answer.data?.enqueuePullRequest &&
     (answer.errors?.length ?? 0) > 0 &&
     answer.errors?.every(
       (error) =>
@@ -1097,11 +1097,7 @@ export function enqueuePullRequest(id: string, head: string) {
           "GitHub did not describe the enqueue response. Read queue membership before another request.",
         next: effectRecovery,
       });
-    if (
-      parsed.data.data === null ||
-      parsed.data.data.enqueuePullRequest === null ||
-      (parsed.data.errors?.length ?? 0) > 0
-    )
+    if (!parsed.data.data?.enqueuePullRequest || (parsed.data.errors?.length ?? 0) > 0)
       return Err({
         reason: "pr_enqueue_refused",
         detail:
