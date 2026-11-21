@@ -1,5 +1,230 @@
 # @fveracoechea/operator
 
+## 3.0.0
+
+### Major Changes
+
+- 9e7732f: Hand draft PRs to the recorded next worker kind without an implementer note. Recover failed handoffs through dispatch instead of a separate handoff command.
+  Replace the removed `operator handoff --source <id> --assignment <key>` with `operator dispatch --source <id> --assignment <key>`.
+  Use dispatch only when the recorded next step requires handoff recovery; do not start the successor through host commands.
+  The outgoing worker stops after its closing command starts the handoff.
+- 91c8eae: Require the current PR-feedback owner to record `operator pr validate --file <text|->` evidence after a changed known ready head.
+  Validation is exact-head and readiness-bound, preserves ordinary review rounds and readiness, and does not replace GitHub approval or fresh stack review.
+  Unknown migration heads retain their existing policy.
+
+  Enforce source-wide merge holds for new owner and parked-supervisor merge or enqueue effects.
+  A hold cannot cancel an accepted direct request or queue entry.
+  Persist direct request intent before submission and recover its original UUID without duplicate submissions.
+  An uncertain request without a UUID remains unresolved rather than being blindly retried.
+  Keep queue membership readback, parking, batch-owned completion, and unlanded-work cleanup protections.
+
+  Add explicitly requested local HTTP(S) opening through one fixed direct-argv opener.
+  Unsupported desktop contexts refuse with a manual next step; acceptance does not prove that a browser opened.
+
+- f6a2399: Map in-flight PR assignments to worker kinds from recorded facts and allow registered dispatch to fill remaining null kinds.
+  Do not assume every older assignment keeps a null kind.
+  For eligible null-kind PR records in open sources, the shipped migration uses these recorded facts:
+
+  - Unstarted or running work without a PR association or adoption becomes `implementation`.
+  - An active internal review or unfinished review handoff becomes `review`.
+  - Other associated PR-open work becomes `pr-feedback`, with migration-origin readiness and parking records when absent.
+
+  Reports, unassociated adopted PRs, ended assignments, and cleanup-only records remain null; registered plans and historical launch snapshots stay unchanged.
+  When `next` requests a kind, use `operator dispatch --source <id> --assignment <key> --kind <kind>`.
+  There is no general-kind fallback, and this fill cannot replace an existing kind.
+  Migration-origin unknown readiness heads remain unknown; the mapping invents no historical review or ready evidence.
+
+- 683f641: Keep three event-driven waits. Coordination now owns review upkeep instead of a separate review command.
+  Replace the removed `operator review wait` command with `operator next --wait`.
+  `operator review next` remains available for a nonblocking review read.
+  The remaining waits are `operator next --wait`, `operator pr wait`, and `operator question wait`.
+  All default to 540 seconds and accept longer whole-second `--timeout` values.
+  Set an explicit timeout if a caller depends on the previous default.
+  A quiet coordination or question timeout prints one line whose next step repeats that wait.
+  Use `--json` when a caller needs the structured timeout result.
+  A question's person-escalation notice returns once, then its wait continues until an answer or an end.
+  Coordination waits return new review actions and events, not every unchanged review request.
+  An explicit `--source` scope includes only that source's assignment review requests; `--all` changes the returned board, not wake conditions.
+- ef43879: Render compact worker briefs from record facts and kind data, with the task and quoted intent.
+  Leave workflow commands and authority rules in the worker guide, and omit empty sections.
+
+  Replace references to removed role-skill topics with the compact routers and kind guides.
+  The following paths are relative to the installed skill root:
+
+  - Under `super-agent/`, remove references to `answers.md`, `delegation.md`, `dispatch.md`, `obligations.md`, `pull-requests.md`, `questions.md`, `reports.md`, `reviews.md`, `sources.md`, and `steering.md`.
+  - Use `super-agent/SKILL.md` for coordination, questions, steering, obligations, review intake, and authority rules.
+  - Use `super-agent/plans.md` for plans, one-off dispatch, adoption, report decisions, parking, and supervised merge guidance.
+  - Keep `super-agent/setup.md` for registration, readiness, and installation boundaries.
+  - Under `worker-agent/`, remove references to `internal-review.md`, `pull-requests.md`, `responsibility.md`, and `steering.md`.
+  - Use `worker-agent/SKILL.md` for shared worker rules and the guide named by the launch's brief.
+  - The six guides are `worker-agent/kinds/research.md`, `worker-agent/kinds/answer.md`, `worker-agent/kinds/prototype.md`, `worker-agent/kinds/implementation.md`, `worker-agent/kinds/review.md`, and `worker-agent/kinds/pr-feedback.md`.
+
+  Update external links, prompt templates, and explicit skill-file inventories; the removed topic paths have no bundled aliases.
+  Load the kind guide for work methods and follow CLI `next` results for workflow steps instead of expecting command lists in each brief.
+
+- 6a74b6c: Add next-step and checked-state result fields, compact migrated refusal output, and next steps on coordination and review rows.
+  Update consumers of assignment action and reason identifiers:
+
+  - Use `worker_attention` with `worker_idle` instead of `owner_attention` with `pr_owner_idle`.
+  - Replace `resume_worker` with `worker_attention`, retaining `follow_up_returned`.
+  - Replace `retry_cleanup` with `clean_up`, retaining `cleanup_failed` or `cleanup_stopped`.
+  - Replace the cleanup reason `cleanup_unfinished` with `cleanup_stopped`.
+  - Use `replace_worker` with `handoff_failed` instead of `retry_handoff` with `internal_review_handoff_failed` or `internal_review_handoff_stopped`.
+  - Use `wait` with `kind_handoff` instead of `wait` with `internal_review_handoff`.
+  - Without a live worker, use `replace_worker` with `worker_interrupted` instead of `owner_attention` with `pr_wait_stopped`.
+
+  Assignment rows no longer emit `owner_attention`, `resume_worker`, `retry_cleanup`, or `retry_handoff`.
+  They also drop the reasons `kind_not_dispatchable`, `pr_feedback_loop`, `pr_wait_timed_out`, `pr_wait_stopped`, `pr_owner_idle`, `pr_not_open`, `cleanup_unfinished`, and `internal_review_running`.
+  The three `internal_review_handoff` reasons also leave the assignment action set.
+  Use each row's `next` instead of dispatching commands from these retired identifiers.
+  A running handoff uses `wait` with `kind_handoff`; ordinary active PR work uses `wait` with `assignment_active`.
+  Parked changes use `resume_pr_feedback` with `pr_feedback`, `ci_failed`, or `pr_relay_blocked`.
+  A PR closed without merge uses `clean_up` with `pr_closed`, whose next command is `operator abandon --source <id> --assignment <key>`.
+  Abandonment preserves the worktree and branch; deleting unlanded work still requires the person's permission.
+  Review-request, message, and source rows are outside the ten-action assignment set.
+  Each scope returns renamed rows once under their new keys, without rewriting stored wait keys.
+
+  Stop parsing the former multiline refusal text.
+  Use `--json` for structured results, read `next` for the command or decision, and treat `state` as only the facts that refusal checked.
+
+- 7b8ec7f: Replace JSON input for `operator pr round`, `operator pr ready`, and `operator obligation add`.
+  All three commands read files or stdin through `--file <path|->`; `--json` still selects output, not input.
+
+  For `pr round`, write `## Findings` followed by `- <severity>, <axis>, <location>: <claim>` bullets.
+  Severity is `blocker` or `nice-to-have`; axis is `Spec`, `Standards`, or `Skills`.
+  For `pr ready`, write a prose `## Overview`, then `## Dispositions`.
+  Disposition bullets use `- <round>.<finding> applied` or `- <round>.<finding> declined: <reason>`, with numbering starting at 1.
+  Keep the Findings or Dispositions heading without bullets when there are no findings.
+  Malformed review input reports line-numbered errors.
+
+  Use `operator obligation add --source <id> --key <key> --kind <kind> [--reference <ref>] --file <path|->`.
+  The file contains only the plain-text summary, not the former JSON envelope.
+  The trimmed summary must contain 1 to 2000 characters.
+  JSON documents, including JSON strings and scalar values, are refused.
+
+- f446b6e: Limit each assignment to two report returns across replacement launches.
+  A third `operator report return` now refuses with `report_return_limit_reached` instead of scheduling more follow-up.
+  It preserves work and asks the person whether to accept, abandon, or start a new assignment.
+  Replacing the worker does not reset the limit.
+  Preserve the original report transaction refusal or Defect when staged follow-up cleanup also fails, and report the cleanup failure separately.
+- 82cec32: Replace the Slack review transport with manual review requests that apply the author policy and keep optional thread links for SuperAgent status replies.
+  This breaks the previous transport commands, channel setting, and bundled Slack workflow skill contract.
+  Remove calls to `operator review ingest`, `operator review slack-done`, and `operator review slack-drop`.
+  Remove `review.channel` from new configuration and stop using `review wait --slack`.
+  Use `operator review add <pr-url> [--slack-thread <permalink>]` to register eligible PRs under `review.repos` and `review.authors`.
+  Replace references to the removed `slack-pr-review-workflow/SKILL.md` with `super-agent/SKILL.md` for request intake and status replies.
+  The SuperAgent reads Slack through its own tools and replies in the linked thread after each posted review round.
+  Operator no longer reads Slack or records reply acknowledgements and retries.
+  Update review-origin consumers from `slack` to `manual`; `assignment` remains the other origin.
+  Read the optional thread permalink from `slackThread`.
+  The shipped manual-review migration renames the stored origin and removes the retired Slack watch/effect tables.
+  Previously valid channel-bearing configuration remains readable without rewriting managed files.
+  Installation removes unchanged managed copies of the retired workflow and preserves unowned or modified copies.
+- ccbc684: Replace JSON question, message, and report inputs with plain text or Markdown.
+  Move identifiers out of JSON envelopes into flags:
+
+  - Use `operator question ask --key <key> --file <path|->` for plain-text questions.
+  - Use `operator question answer --source <id> --assignment <key> --key <key> --by super-agent|person --file <path|->` for plain-text answers.
+  - Use `operator message send --source <id> --assignment <key> --key <key> --file <path|->` for plain-text messages.
+  - Use `operator message ack --key <key> --file <path|->` for optional plain-text replies.
+  - Use `operator report submit --file <path|->` for Markdown reports.
+
+  The answer and message commands no longer accept `--text`.
+  `--file -` reads stdin; use a quoted heredoc to preserve literal shell punctuation.
+  JSON input is not a compatibility format.
+  The `--json` output flag remains supported.
+
+  Reports require these level-two headings: Conclusion, Evidence, Unresolved points, Supporting files, Human answers, and SuperAgent decisions.
+  Write the conclusion as prose and the other sections as bullets, using `- None.` for empty sections.
+  Use absolute supporting-file paths and `<question> Answer: <answer>` for decision bullets.
+  Keep human answers separate from SuperAgent decisions.
+  Source plans and report-promotion files remain JSON.
+
+- d25ace3: Add one-off dispatch with a kind and a brief, without a plan file.
+  Keep ask as the answer-kind preset, and support ordinary source reset, prune, and report promotion for one-off work.
+  Promoted PR launches resolve the implementation kind and review policy without changing the report's snapshot.
+  Refuse promotion before resource changes when the implementation guide is not installed for the worker's host.
+  Read optional intent from `--intent-file <path|->` and questions from `ask --file <path|->`, without inline prose aliases.
+  Replace the removed `operator ask --question <text>` form with `operator ask --file <path|->`.
+  Write the question to a file or pass quoted-heredoc stdin with `--file -`.
+  Refuse two stdin selectors before startup compatibility checks, input reads, or command effects.
+- f7e2c7a: Park quiet PR feedback waits after a 540-second default timeout while retaining the worktree.
+  Batch parked PR observations every 15 minutes across coordination waits.
+  Resume fresh feedback workers with durable events and park-only notes, including after interrupted launches.
+  Verify parked merges and run cleanup; preserve unlanded work when a closed PR requires abandonment.
+  A quiet `operator pr wait` now ends the worker launch instead of keeping that worker available indefinitely.
+  Checks running on the worker's pushed head keep the wait active.
+  Use `operator next --wait` for parked changes; do not send commands to the ended launch.
+
+  On the person's instruction, the recorded supervisor can run `operator pr merge --source <id> --assignment <key>` for a parked assignment.
+  The selector refuses a live worker and uses the same approval, checks, threads, default-base, relay, readiness, and head guards.
+  For a base that requires a merge queue, a passed gate enqueues the guarded head instead of requesting a direct merge.
+  Treat `pr_enqueued` as queue acceptance, not assignment completion.
+  The assignment remains `pr-open` and parked, with its worktree retained.
+  Retries check queue membership before another enqueue, including after a lost response.
+  Follow its `next` to `operator next --source <id> --wait`.
+  Only a parked batch read that verifies the merge completes the queued assignment and starts cleanup.
+  A merge retry that sees an already merged queued PR returns `pr_merge_awaiting_batch` until that batch records completion.
+
+- 54da94e: Start fresh PR feedback workers at guarded readiness and retain complete reviewer dispositions and optional handoff notes.
+  Require recorded readiness and a non-draft PR before merge.
+  Record person-approved skips without eagerly marking the PR ready.
+  The reviewer no longer remains the feedback owner after `operator pr ready`.
+  Ready-PR association with internal review off also hands ownership to fresh `pr-feedback`.
+  Stop issuing worker commands from the outgoing launch after either transition.
+  The successor retains the assignment and worktree, not the outgoing conversation.
+  Do not use an ended review, skipped review, or GitHub draft-state change as a substitute for recorded readiness.
+  After `operator internal-review skip --source <id> --assignment <key> --person-instructed`, the live reviewer must still run `operator pr ready`.
+  That skipped-review ready step needs no rounds, input file, or summary comment.
+- c573bfd: Upgrade the dependency toolchain and move application sources to src and development tools to tools before Spec #373 implementation.
+  Preserve installed CLI, plugin, migration, and built artifact paths.
+  For direct source execution, replace `bun cli.ts` with `bun src/cli.ts`.
+  Update direct development-script paths from `scripts/` to `tools/`, and use `tools/drizzle.config.ts` for Drizzle configuration.
+  The installed `operator` command and the package's exported `./cli` entry remain unchanged.
+  Require explicit authorization before release publication; ordinary main merges only prepare the version PR.
+- f98e8f0: Require a worker kind in new assignment plans instead of an explicit completion type.
+  Resolve kind defaults, preserve launch snapshots, and link the six installed kind guides in worker briefs.
+  Update each new plan assignment to name `kind`, such as `research` or `implementation`, and remove its explicit `completion` field.
+  The kind fixes completion; plans can still override resources and start profiles.
+  Install the matched owned guides and their required upstream skills before dispatch, then check `operator ready --json`.
+  Older assignments follow the separate in-flight kind mapping and explicit kind-fill rules.
+- 8fbc132: End assignments whose worker resources are gone, and add `operator abandon` to end one assignment without deleting work or closing its PR.
+  A worktree assignment ends when its worker and worktree are both gone; a pane assignment ends when its pane is gone.
+  Resource disappearance does not prove successful completion.
+  Cleanup no longer treats ignored output as unlanded work, except changed environment files.
+  Preserve valuable ignored output before completion removes its worktree; ignored output no longer blocks that removal.
+  State migrations no longer block on assignment state alone, but retain live-process and lease guards.
+- 2d1dd34: Run worker kinds through one phase decision table with guarded exits and kind, phase, and next-action context on worker results.
+  Worker commands now refuse when their kind's required exit facts are missing.
+  Follow the returned `next` rather than assuming any PR or report command is valid at every phase.
+  PR association and new merge requests require a clean worktree; merge also requires recorded readiness.
+  A returned report reopens submission, not acceptance of the previous report; resume it and submit a fresh report before acceptance.
+  The reported work phase names the command's current phase, not proof that the worker completed earlier reasoning.
+
+### Minor Changes
+
+- 7f3e729: Add owner-scoped open-parent refresh, audited sibling prerequisites, and dependency-only multiple-parent stacks with durable recovery and fresh-review handoff.
+  Changed integration heads or review bases archive old readiness and require a fresh reviewer, including after exhausted or skipped review.
+  Parked batches observe every required prerequisite before resuming a managed relay.
+
+### Patch Changes
+
+- 6dca374: Resolve internal review policy for live report promotions and add explicitly authorized recovery for associated drafts missing their required review.
+- c88acb0: Allow person-defined worker kinds in device settings, including linked and read-only configuration.
+  Validate definitions, installed guide skills, and completion-compatible next kinds before registration and launch.
+- 89a10a0: Require an actionable next step on every CLI refusal, including setup, review, and merge failures.
+  Preserve each owner's recovery decision and checked state through CLI output.
+  Remove redundant refusal instructions from bundled skills without changing authority or safety rules.
+- 7284ff2: Narrow both hosts' turn-end guards to supervised sources with a live worker launch and no covering coordination wait. Other waits and decisions no longer keep a turn open.
+- 5c329a4: Update owned skills to prefer functional and procedural implementations behind named application module objects, with worked examples and meaningful constant exports.
+  Clarify internal object and namespace interfaces, promotion to shared capabilities, pure selectors, and shared query/mutation-options ownership.
+  Unify guidance for function-level injection, public collaborator mocks, and shared versus transient state ownership.
+- 1ab6171: Adopt the person's own PR or pushed branch through one-off dispatch or a plan's numeric PR selector.
+  Validate entry kinds and existing ownership, retain branch-preservation refusals, and copy ended owners' facts into briefs.
+  Ready adoption records readiness without an internal review or an outgoing-worker handoff.
+- 96f1be5: Give workflow refusals a structured next command or decision. Preserve guard-owned checked state and authority, quote linked-checkout recovery commands, and keep workflow syntax and startup errors within three lines.
+- 27dc395: Check every built-in kind guide's skill references during readiness. Report unresolved required skills as blockers and unresolved show-me links as warnings. Include absolute show-me paths in answer launch snapshots and briefs for hosts with separate owned and upstream skill directories.
+
 ## 2.3.2
 
 ### Patch Changes
