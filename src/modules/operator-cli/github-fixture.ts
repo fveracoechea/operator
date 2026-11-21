@@ -90,12 +90,14 @@ if (path?.includes("/merge-async")) {
     } else {
       const uuid = "request-" + (state.mergeRequests.length + 1);
       state.mergeRequests.push({ uuid, number: pr.number, sha: field("sha"), method: field("merge_method"), action: field("merge_action"), pending: state.mergePending ?? 0 });
-      status(202, "Accepted", { status: "pending", details: { message: "Merge request enqueued.", uuid } });
+      if (state.mergeSubmitLost) status(502, "Bad Gateway", { message: "accepted request response lost" });
+      else status(202, "Accepted", { status: "pending", details: { message: "Merge request enqueued.", uuid } });
     }
   } else {
     const request = state.mergeRequests.find((row) => path.endsWith("/merge-async/" + row.uuid));
     const pr = state.pulls.find((row) => row.number === request.number);
-    if (request.pending > 0) { request.pending -= 1; status(200, "OK", { status: "pending", details: { message: "Merge request enqueued.", uuid: request.uuid } }); }
+     if (state.mergeReadLost) status(502, "Bad Gateway", { message: "request read unavailable" });
+     else if (request.pending > 0) { request.pending -= 1; status(200, "OK", { status: "pending", details: { message: "Merge request enqueued.", uuid: request.uuid } }); }
     else if (pr.state === "MERGED") status(200, "OK", merged(pr));
     else if (request.sha !== (pr.head ?? "head-1")) status(200, "OK", { status: "failed", details: { message: "Head branch was modified." } });
     else {

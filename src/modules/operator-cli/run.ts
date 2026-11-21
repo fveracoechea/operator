@@ -162,7 +162,10 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   if (pr?.operation === "pr_merge" && "sourceId" in pr) return run();
   let selection: Result<Worker | null, Refusal>;
   const event = eventOf(args);
-  if (event !== undefined && event !== "submit" && event !== "resume") {
+  if (
+    pr?.operation === "pr_validate" ||
+    (event !== undefined && event !== "submit" && event !== "resume")
+  ) {
     const target = await PullRequests.workerTarget({ paths, cwd: process.cwd() });
     if (target.tag === "Ok") {
       selection = worktreeWorker(paths, target.value);

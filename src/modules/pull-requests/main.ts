@@ -34,6 +34,7 @@ import {
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
 import { recoverReview } from "./internal-review-recovery.ts";
+import { validate } from "./validation.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 import { parkQuietWait, readParkNote, observeParked } from "./parking.ts";
 
@@ -533,6 +534,9 @@ function waitWithNote(input: Request & { timeoutSeconds: number }) {
  * verified merge, and the SuperAgent can repeat it after a failure.
  */
 export const PullRequests = {
+  validate(input: Parameters<typeof validate>[0]) {
+    return validate(input);
+  },
   /** The canonical validated PR command target, shared with worker-phase guards. */
   workerTarget(input: Request) {
     return resolveOwner(input).map(({ repository, sourceId, assignment, launchId }) => ({

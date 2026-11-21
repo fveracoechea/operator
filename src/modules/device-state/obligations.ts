@@ -1,9 +1,10 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import type { Result } from "unthrown";
+import { Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { obligations, sources } from "./schema.ts";
 import { controlledSource } from "./sources.ts";
+import { deliveryIdle } from "./delivery-guards.ts";
 
 export type ObligationRow = typeof obligations.$inferSelect;
 type Target = Parameters<typeof controlledSource>[1];
@@ -55,14 +56,21 @@ export function changeObligation<E extends { reason: string; detail: string }>(
           .where(and(eq(obligations.sourceId, source.id), eq(obligations.key, key)))
           .get();
         const facts = { source, obligation: obligation ?? null };
-        return decide(facts).map((change) => {
-          if (change.insert) db.insert(obligations).values(change.insert).run();
-          if (change.update)
-            db.update(obligations)
-              .set(change.update)
-              .where(and(eq(obligations.sourceId, source.id), eq(obligations.key, key)))
-              .run();
-          return { facts, change };
+        return decide(facts).flatMap((change) => {
+          const next = change.insert ?? { ...obligation, ...change.update };
+          return (
+            next.kind === "merge-hold" && next.state === "open"
+              ? deliveryIdle(db, source.id)
+              : Ok(undefined)
+          ).map(() => {
+            if (change.insert) db.insert(obligations).values(change.insert).run();
+            if (change.update)
+              db.update(obligations)
+                .set(change.update)
+                .where(and(eq(obligations.sourceId, source.id), eq(obligations.key, key)))
+                .run();
+            return { facts, change };
+          });
         });
       }),
     ),

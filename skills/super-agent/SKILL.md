@@ -23,7 +23,13 @@ The coordination wait handles review upkeep and parked PRs; create no watcher.
 
 Steer workers through `operator message send --source <id> --assignment <key> --key <message> --file <message.md>`.
 Record obligations with `operator obligation add`; read `owed` on every wake and close fulfilled obligations.
-A merge hold also needs a steering message to the worker; the ledger does not enforce it.
+An open `merge-hold` blocks new merges and enqueues across its source.
+Close it only after the person's release.
+An accepted request or queue entry cannot be canceled by a new hold; reconcile the pending effect first.
+
+Only on the person's explicit request, use `operator web open --url <http(s)-url> --person-requested`.
+This flag attests to that request; it supplies no new authority.
+Follow capability refusals with the manual next step.
 
 Decide only within the Task's authority.
 Escalate worker questions with `operator question escalate` when authority is unclear, exceeded, or requires human participation.

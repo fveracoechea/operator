@@ -120,18 +120,18 @@ async function extendedRelease(sql = "CREATE TABLE later (value TEXT)", blocker?
   journal.entries.push({
     idx: journal.entries.length,
     version: "6",
-    when: 1795177553071,
-    tag: "0028_later",
+    when: 1795284910303,
+    tag: "0029_later",
     breakpoints: true,
   });
-  await Bun.write(`${folder}/0028_later.sql`, sql);
+  await Bun.write(`${folder}/0029_later.sql`, sql);
   await Bun.write(`${folder}/meta/_journal.json`, JSON.stringify(journal));
   const policy = `${release}/src/modules/device-state/migration-policy.ts`;
   await Bun.write(
     policy,
     (await Bun.file(policy).text()).replace(
       "[1793024341510, []],",
-      `[1793024341510, []],\n    [1795177553071, ${blocker ? JSON.stringify([blocker]) : "[]"}],`,
+      `[1793024341510, []],\n    [1795284910303, ${blocker ? JSON.stringify([blocker]) : "[]"}],`,
     ),
   );
   return `${release}/src/cli.ts`;
@@ -233,7 +233,7 @@ test("the question receipt upgrade preserves the kind migration and historical q
   expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 27").all()).toEqual(
     history,
   );
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(28);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
   expect(db.query("SELECT * FROM worker_questions").all()).toEqual(
     questions.map((row) => ({ ...row, awaiting_person_seen_at: null })),
   );

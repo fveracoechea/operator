@@ -11,6 +11,7 @@ import { recordKindHandoff } from "./kind-handoff-record.ts";
 import { validateContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { ownerGone } from "./leases.ts";
 import { migrationParkingFacts } from "./migration-receipts.ts";
+import { deliveryAdmission } from "./deliveries.ts";
 import { decideParking, type ParkingFacts } from "./pr-parking-machine.ts";
 import {
   assignments,
@@ -94,35 +95,42 @@ function facts(state: PrParking["state"] | null): ParkingFacts {
 }
 
 /** Persist the batch-owned lifecycle before an enqueue can take effect or lose its response. */
-export function recordPullRequestQueue(client: Database, launchId: string, head: string) {
+export function recordPullRequestQueue(
+  client: Database,
+  launchId: string,
+  head: string,
+  actor = { selected: false, session: null as string | null },
+) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
-        ({ source, assignment, launch }): Result<undefined, Refusal> => {
-          const row = db
-            .select()
-            .from(pullRequests)
-            .where(key({ sourceId: source.id, assignment: assignment.key }))
-            .get();
-          if (row === undefined || assignment.state !== "pr-open" || row.branch !== launch.branch)
-            return Err(refused());
-          const previous =
-            row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
-          const parking: PrParking = previous ?? {
-            launchId,
-            head,
-            at: new Date().toISOString(),
-            note: null,
-            state: "active",
-            events: [],
-            parentSeen: false,
-          };
-          db.update(pullRequests)
-            .set({ parking: JSON.stringify({ ...parking, queueHead: head }) })
-            .where(key(row))
-            .run();
-          return Ok(undefined);
-        },
+      deliveryAdmission(db, { launchId, head, ...actor }, false).flatMap(() =>
+        activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
+          ({ source, assignment, launch }): Result<undefined, Refusal> => {
+            const row = db
+              .select()
+              .from(pullRequests)
+              .where(key({ sourceId: source.id, assignment: assignment.key }))
+              .get();
+            if (row === undefined || assignment.state !== "pr-open" || row.branch !== launch.branch)
+              return Err(refused());
+            const previous =
+              row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
+            const parking: PrParking = previous ?? {
+              launchId,
+              head,
+              at: new Date().toISOString(),
+              note: null,
+              state: "active",
+              events: [],
+              parentSeen: false,
+            };
+            db.update(pullRequests)
+              .set({ parking: JSON.stringify({ ...parking, queueHead: head }) })
+              .where(key(row))
+              .run();
+            return Ok(undefined);
+          },
+        ),
       ),
     ),
   );
@@ -158,6 +166,8 @@ export function parkPullRequest(
             db,
             { sourceId: owner.source.id, assignment: owner.assignment.key, launchId },
             "pr-feedback",
+            undefined,
+            true,
           ).map(() => {
             const parking: PrParking = {
               launchId,

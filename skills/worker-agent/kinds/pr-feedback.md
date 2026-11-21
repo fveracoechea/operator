@@ -1,9 +1,10 @@
 # PR feedback
 
 Use `resolving-merge-conflicts` for conflicts and `no-slop` for replies.
-Check the reviewer's note as open points, not evidence.
-Read current threads, reviews, and checks; fix valid defects, test, push, and reply directly once per feedback item.
-Read [handoff](../../handoff/SKILL.md) by path; keep a note within about 60 lines in assignment device-state files.
-Run `operator pr wait --note <note.md>`; the CLI retains the note only on park.
-A quiet timeout parks unless checks run on your pushed head.
-Follow each result's next step; merge only through `operator pr merge` and honor supervisor holds.
+Treat the reviewer's note as open points, not evidence.
+Read threads, reviews, and checks; fix, test, push, and reply once per item.
+For changed known ready heads, record correction scope and targeted evidence with `operator pr validate --file <evidence.md>`.
+Read [handoff](../../handoff/SKILL.md); keep a 60-line assignment device-state note.
+Run `operator pr wait --note <note.md>`; only parking retains it.
+Quiet timeout parks unless pushed-head checks run.
+Follow results; merge through `operator pr merge` and honor holds.

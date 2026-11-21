@@ -5,6 +5,24 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { migrationsFolder } from "./database.ts";
 import { idleForMigration, migrationBlockers } from "./migration-policy.ts";
+import { insertRow } from "./state-fixture.ts";
+
+test("delivery migration guards are prefix-aware and keep unresolved requests after process death", () => {
+  using db = new Database(":memory:");
+  migrate(drizzle(db), { migrationsFolder });
+  insertRow(db, "deliveries", {
+    id: "request",
+    source_id: "s",
+    assignment: "a",
+    launch_id: "l",
+    head: "h",
+    selected: 0,
+  });
+  expect(idleForMigration(db, 28).tag).toBe("Ok");
+  expect(idleForMigration(db, 29)).toMatchObject({ error: { reason: "state_migration_blocked" } });
+  db.exec("UPDATE deliveries SET ended_at = 'verified'");
+  expect(idleForMigration(db, 29).tag).toBe("Ok");
+});
 
 test("migration runs with running, pr-open, or reported assignments without live processes", () => {
   using db = new Database(":memory:");

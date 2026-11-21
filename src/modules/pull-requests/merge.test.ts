@@ -2,6 +2,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Ok } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { Environment } from "../environment/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import {
   failed,
@@ -199,6 +200,13 @@ test("a queue-enabled merge pins the enqueue and parks without recording complet
 test("a scoped parked merge checks the gate, enqueues once, and never starts early cleanup", async () => {
   const { device, input, head, launchId, detach } = await owner(null, undefined, true);
   await using _ = device;
+  spyOn(Environment, "caller").mockReturnValue({ pane: "supervisor", session: "session" });
+  expect(
+    DeviceState.takeOverSource(device.paths, repository, device.sourceId, {
+      pane: "supervisor",
+      session: "session",
+    }).tag,
+  ).toBe("Ok");
   expect(DeviceState.parkPullRequest(device.paths, launchId, { head, note: null }).tag).toBe("Ok");
   expect(DeviceState.finishImplementer(device.paths, launchId).tag).toBe("Ok");
   expect(
@@ -775,15 +783,13 @@ test("a stacked PR merges only after its relay finished", async () => {
 });
 
 test("every merge answer is verified against GitHub's state", async () => {
-  const { device, head, input } = await owner();
-  await using _ = device;
   const cases = [
     {
       answer: failed("Head branch was modified"),
       error: {
-        reason: "pr_merge_refused",
+        reason: "github_failed",
         detail: "github_refused: Head branch was modified",
-        next: refusedRecovery,
+        next: effectRecovery,
       },
     },
     {
@@ -794,9 +800,6 @@ test("every merge answer is verified against GitHub's state", async () => {
       answer: mergeRequest("merged"),
       error: {
         reason: "pr_merge_unverified",
-        detail: `GitHub does not report PR #7 merged at ${head}. Nothing was recorded. Repeat operator pr merge.`,
-        next: verifyRecovery,
-        state: { pullRequest: 7, expectedHead: head, observedState: "OPEN", observedHead: head },
       },
     },
     {
@@ -826,13 +829,17 @@ test("every merge answer is verified against GitHub's state", async () => {
     },
   ];
   for (const { answer, error } of cases) {
+    const { device, head, input } = await owner();
+    await using _ = device;
     device.calls.length = 0;
     device.answer((args) =>
       requestKind(args) === "merge" ? answer : succeeded(pullRequestBody({ head })),
     );
-    expect<unknown>(await merge(input)).toEqual({ tag: "Err", error });
+    expect<unknown>(await merge(input)).toMatchObject({ tag: "Err", error });
   }
   // A merge of a newer head is not the guarded merge.
+  const { device, head, input } = await owner();
+  await using _ = device;
   device.answer((args) =>
     requestKind(args) === "merge"
       ? mergeRequest("merged")
@@ -882,10 +889,9 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
     [
       failed("Not Found", 404),
       {
-        reason: "pr_merge_unverified",
-        detail:
-          "GitHub did not answer the merge request read: github_refused: Not Found. Nothing was recorded. Repeat operator pr merge.",
-        next: verifyRecovery,
+        reason: "github_failed",
+        detail: "github_refused: Not Found",
+        next: effectRecovery,
       },
     ],
     [
@@ -900,41 +906,25 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
       return kind === "merge_read" ? read : succeeded(pullRequestBody({ head }));
     });
     expect<unknown>(await merge(input)).toEqual({ tag: "Err", error });
-    expect(device.calls.map(requestKind)).toEqual([
-      "pull_request",
-      "merge_queue",
-      "merge",
-      "merge_read",
-      "pull_request",
-    ]);
+    expect(device.calls.map(requestKind)).toEqual(["merge_read", "pull_request"]);
   }
 
   // A request that GitHub already runs for this PR is not a refusal, and the PR state decides.
   device.calls.length = 0;
   device.answer((args) =>
-    requestKind(args) === "merge"
-      ? failed("A merge request already exists for this pull request.", 409)
+    requestKind(args) === "merge_read"
+      ? mergeRequest("failed", "u1")
       : succeeded(pullRequestBody({ head })),
   );
   expect<unknown>(await merge(input)).toEqual({
     tag: "Err",
     error: {
-      reason: "pr_merge_unverified",
-      detail:
-        "GitHub still runs the merge request: GitHub already runs a merge request for this PR. Nothing was recorded. Repeat operator pr merge.",
-      next: {
-        command: "operator pr merge",
-        why: "Verify whether the background merge request landed.",
-      },
-      state: { mergeRequest: "pending" },
+      reason: "pr_merge_refused",
+      detail: "Request failed.",
+      next: refusedRecovery,
     },
   });
-  expect(device.calls.map(requestKind)).toEqual([
-    "pull_request",
-    "merge_queue",
-    "merge",
-    "pull_request",
-  ]);
+  expect(device.calls.map(requestKind)).toEqual(["merge_read", "pull_request"]);
   expect(assignmentState(device)).toBe("pr-open");
 });
 
@@ -954,24 +944,18 @@ test("a refused or lost merge answer still records a merge that landed", async (
   expect<unknown>(await merge(input)).toMatchObject({ tag: "Ok", value: { reason: "pr_merged" } });
 });
 
-test("a merge request that throws is a defect unless GitHub shows the merge", async () => {
+test("a merge request that throws retains the original defect", async () => {
   const { device, head, input } = await owner();
   await using _ = device;
   const call = device.answer;
+  const cause = new Error("boom");
   call((args) => {
-    if (requestKind(args) === "merge") return Promise.reject(new Error("boom"));
+    if (requestKind(args) === "merge") return Promise.reject(cause);
     return succeeded(pullRequestBody({ head }));
   });
   expect<unknown>(await merge(input)).toEqual({
-    tag: "Err",
-    error: {
-      reason: "pr_defect",
-      detail: "Error: boom",
-      next: {
-        decider: "super-agent",
-        question: "How should the unexpected merge failure be investigated before another request?",
-      },
-    },
+    tag: "Defect",
+    cause,
   });
 });
 

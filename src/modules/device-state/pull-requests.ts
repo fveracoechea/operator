@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, fromThrowable, type Result } from "unthrown";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { historicalLaunchIdle } from "./migration-receipts.ts";
 import {
   assignments,
   cleanups,
+  deliveries,
   internalReviews,
   kindHandoffs,
   launches,
@@ -23,6 +24,7 @@ import { requestAssignmentReview } from "./review-requests.ts";
 import { abandonConversations } from "./sources.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
 import { adoptionOwner, type AdoptionFailure } from "./adoptions.ts";
+import { deliveryIdle } from "./delivery-guards.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
@@ -36,7 +38,8 @@ export type PullRequestFailure =
         | "pr_not_associated"
         | "pr_branch_mismatch"
         | "internal_review_not_recorded"
-        | "handoff_running";
+        | "handoff_running"
+        | "pr_delivery_running";
       detail: string;
     });
 
@@ -520,6 +523,8 @@ export function recordPullRequestWait(
               state: { launchBranch: launch.branch, prBranch: row.branch },
               detail: `This launch is on ${launch.branch ?? "no branch"}, but PR #${row.number} is on ${row.branch}. Nothing was changed.`,
             });
+          const idle = deliveryIdle(db, source.id, assignment.key);
+          if (idle.tag !== "Ok") return idle.map(() => null);
           const change = decide({ ...row, relayHeld: relayHeld(row) });
           if (change === null) return Ok(null);
           const now = new Date().toISOString();
@@ -607,6 +612,17 @@ export function recordPullRequestMerge(
               detail: `PR #${merge.number} is not the open PR of assignment ${assignment.key}. Nothing was changed.`,
             });
           const now = new Date().toISOString();
+          db.update(deliveries)
+            .set({ endedAt: now, ownerPid: null, leaseAt: null })
+            .where(
+              and(
+                eq(deliveries.sourceId, source.id),
+                eq(deliveries.assignment, assignment.key),
+                eq(deliveries.head, merge.head),
+                isNull(deliveries.endedAt),
+              ),
+            )
+            .run();
           const key = and(
             eq(pullRequests.sourceId, source.id),
             eq(pullRequests.assignment, assignment.key),

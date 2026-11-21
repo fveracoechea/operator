@@ -8,6 +8,7 @@ Amends ADR-0022.
 Amended 2026-11-17: dispatch recovers kind handoffs; there is no separate handoff command (ADR-0029).
 Amended 2026-11-17: the CLI's recorded kind continuation preserves supervision without granting its outgoing worker coordination authority (ADR-0029).
 Amended 2026-11-20 in #392: the scoped parked merge joins the checked coordination commands.
+Amended 2026-11-21 in [#414's approved scope](https://github.com/fveracoechea/operator/issues/414#issuecomment-7067082608): selected delivery requires the exact recorded supervising session at effect admission.
 
 ## Context
 
@@ -43,6 +44,8 @@ One check in front of the command handlers decides for all of them, so a new coo
 Reads, worker commands, and a wait without a source are not checked.
 A command that carries `--person-instructed` is not checked, because the person ordered it.
 A source with no recorded session passes, also when a pane holds it from before this decision, and the next wait or dispatch from a session claims it.
+Selected delivery is stricter: it requires the exact recorded supervising session, rechecked atomically with delivery admission or recovery.
+An unclaimed source or a reused pane cannot supply that authority.
 A failed read leaves the command to run and report its own refusal.
 
 ### The person moves supervision
