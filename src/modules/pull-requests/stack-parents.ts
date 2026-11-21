@@ -91,10 +91,18 @@ export function stackParents(input: {
             const planned = source.planned.find((row) => row.key === owner.assignment);
             if (planned === undefined)
               return refuse("The owned assignment is absent from this source.");
-            const bindings = stored.map((row) => ({
-              assignment: row.assignment,
-              parents: PrStacks.decode(row.data).parents,
-            }));
+            const bindings = [
+              ...stored.map((row) => ({
+                assignment: row.assignment,
+                parents: PrStacks.decode(row.data).parents,
+              })),
+              ...source.stackOperations
+                .filter((row) => row.state !== "cancelled")
+                .map((row) => ({
+                  assignment: row.assignment,
+                  parents: row.data.parents,
+                })),
+            ];
             const previous =
               bindings.find((row) => row.assignment === owner.assignment)?.parents ?? [];
             const keys = [

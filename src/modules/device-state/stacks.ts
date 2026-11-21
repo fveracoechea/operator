@@ -17,6 +17,8 @@ import { ownerGone } from "./leases.ts";
 import { storedPrReadinessSchema } from "./pr-readiness.ts";
 import { recordKindHandoff } from "./kind-handoff-record.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
+import { stackRecord } from "./stack-records.ts";
+import { stackGraph } from "./stack-graph.ts";
 
 export type StackRow = typeof stackOperations.$inferSelect;
 
@@ -51,7 +53,7 @@ function stackClaim(
     return refused("The operation owner or revision changed. No stack effect was authorized.");
   if (row.launchId !== launch.id) {
     const previous = db.select().from(launches).where(eq(launches.id, row.launchId)).get();
-    if (previous?.branch !== launch.branch || previous.worktreePath !== launch.worktreePath)
+    if (!replacementMatches(previous, launch))
       return refused(
         "A replacement can recover a stack only in the same recorded worktree and branch.",
       );
@@ -63,6 +65,21 @@ function stackClaim(
     : Ok(undefined);
 }
 
+function replacementMatches(
+  previous: typeof launches.$inferSelect | undefined,
+  launch: typeof launches.$inferSelect,
+) {
+  return (
+    previous?.sourceId === launch.sourceId &&
+    previous.assignment === launch.assignment &&
+    previous.branch === launch.branch &&
+    previous.worktreePath !== null &&
+    previous.worktreePath === launch.worktreePath &&
+    previous.attempt < launch.attempt &&
+    !["running", "starting"].includes(previous.state)
+  );
+}
+
 /** Stack bases are separate records; the registered source plan remains immutable. */
 export function recordStackBase(client: Database, launchId: string, branch: string, data: string) {
   return transaction(client, true, () =>
@@ -72,6 +89,8 @@ export function recordStackBase(client: Database, launchId: string, branch: stri
           if (launch.branch !== branch)
             return refused("The stack base does not belong to this launch's branch.");
           const row = { sourceId: source.id, assignment: assignment.key, launchId, branch, data };
+          const graph = stackGraph(db, source.id, { base: row });
+          if (graph.tag !== "Ok") return graph.as(row);
           db.insert(stackBases)
             .values(row)
             .onConflictDoUpdate({ target: [stackBases.sourceId, stackBases.assignment], set: row })
@@ -120,6 +139,8 @@ export function finishStack(
             launch.branch === null
           )
             return refused("The pinned operation lost its claim before finalization.");
+          const valid = stackRecord(db, row);
+          if (valid.tag !== "Ok") return valid.as(row);
           const next = {
             ...row,
             data: effect.data,
@@ -128,7 +149,6 @@ export function finishStack(
             ownerPid: null,
             leaseAt: null,
           };
-          db.update(stackOperations).set(next).where(eq(stackOperations.id, id)).run();
           const base = {
             sourceId: source.id,
             assignment: assignment.key,
@@ -136,6 +156,11 @@ export function finishStack(
             branch: launch.branch,
             data: effect.base,
           };
+          const checked = stackRecord(db, next).flatMap(() =>
+            stackGraph(db, source.id, { operation: next, base }),
+          );
+          if (checked.tag !== "Ok") return checked.as(next);
+          db.update(stackOperations).set(next).where(eq(stackOperations.id, id)).run();
           db.insert(stackBases)
             .values(base)
             .onConflictDoUpdate({ target: [stackBases.sourceId, stackBases.assignment], set: base })
@@ -193,7 +218,7 @@ export function readStack(client: Database, launchId: string, id: string) {
           .get();
         return row === undefined
           ? refused("No operation with that identity belongs to this assignment.")
-          : Ok(row);
+          : stackRecord(db, row).as(row);
       }),
     ),
   );
@@ -224,11 +249,32 @@ export function changeStack(
           if (handoff !== undefined && handoff.handoffState !== "done")
             return refused("A live internal-review handoff already owns this assignment.");
           const row = db.select().from(stackOperations).where(eq(stackOperations.id, id)).get();
+          if (row !== undefined) {
+            const valid = stackRecord(db, row);
+            if (valid.tag !== "Ok") return valid.as(row);
+          }
           const claim = stackClaim(db, row, launch, revision);
           if (claim.tag !== "Ok")
             return claim.flatMap(() => refused("The operation claim failed."));
-          return decide(row ?? null).map((change) => {
-            if (row !== undefined && row.launchId !== launchId && row.reviewHistory !== null) {
+          const transfer = reviewTransfer(db, row, launch);
+          if (transfer.tag !== "Ok")
+            return transfer.flatMap(() => refused("The stack review transfer failed."));
+          return decide(row ?? null).flatMap((change) => {
+            const next: StackRow = {
+              id,
+              sourceId: source.id,
+              assignment: assignment.key,
+              launchId,
+              revision: (revision ?? 0) + 1,
+              ...change,
+              reviewHistory: row?.reviewHistory ?? null,
+              leaseAt: new Date().toISOString(),
+            };
+            const valid = stackRecord(db, next).flatMap(() =>
+              stackGraph(db, source.id, { operation: next }),
+            );
+            if (valid.tag !== "Ok") return valid.as(next);
+            if (row !== undefined && row.launchId !== launchId && row.reviewHistory !== null)
               db.update(internalReviews)
                 .set({ implementerLaunchId: launchId })
                 .where(
@@ -240,20 +286,9 @@ export function changeStack(
                   ),
                 )
                 .run();
-            }
-            const next: StackRow = {
-              id,
-              sourceId: source.id,
-              assignment: assignment.key,
-              launchId,
-              revision: (revision ?? 0) + 1,
-              ...change,
-              reviewHistory: row?.reviewHistory ?? null,
-              leaseAt: new Date().toISOString(),
-            };
             if (row === undefined) db.insert(stackOperations).values(next).run();
             else db.update(stackOperations).set(next).where(eq(stackOperations.id, id)).run();
-            return next;
+            return Ok(next);
           });
         },
       ),
@@ -285,6 +320,8 @@ export function restartStackReview(
             operation.ownerPid !== process.pid
           )
             return refused("Only the exact claimed stack operation can invalidate its review.");
+          const valid = stackRecord(db, operation);
+          if (valid.tag !== "Ok") return valid.as(operation);
           if (operation.reviewHistory !== null) return Ok(operation);
           const key = and(
             eq(internalReviews.sourceId, source.id),
@@ -385,6 +422,8 @@ export function beginStackReview(client: Database, launchId: string, id: string,
           row.reviewHistory === null
         )
           return refused("Only this completed integration can start its fresh review.");
+        const valid = stackRecord(db, row);
+        if (valid.tag !== "Ok") return valid.as(false);
         const target = { sourceId: source.id, assignment: assignment.key, launchId };
         const prior = db
           .select()
@@ -394,26 +433,66 @@ export function beginStackReview(client: Database, launchId: string, id: string,
           )
           .get();
         if (prior?.outgoingLaunchId === launchId && prior.nextKind === "review") {
-          if (prior.handoffState === "done") return Ok(false);
-          if (prior.ownerPid !== process.pid && !ownerGone(prior, Date.now()))
-            return refused("The recorded stack review handoff is already running.");
-          db.update(kindHandoffs)
-            .set({
-              ownerPid: process.pid,
-              leaseAt: new Date().toISOString(),
-              handoffState: "pending",
-            })
-            .where(
-              and(
-                eq(kindHandoffs.sourceId, source.id),
-                eq(kindHandoffs.assignment, assignment.key),
-              ),
-            )
-            .run();
-          return Ok(true);
+          return resumeStackHandoff(db, prior);
         }
         return recordKindHandoff(db, target, "review").as(true);
       }),
     ),
   );
+}
+
+function resumeStackHandoff(db: Db, prior: typeof kindHandoffs.$inferSelect) {
+  if (prior.handoffState === "done") return Ok(false);
+  if (prior.ownerPid !== process.pid && !ownerGone(prior, Date.now()))
+    return refused("The recorded stack review handoff is already running.");
+  db.update(kindHandoffs)
+    .set({
+      ownerPid: process.pid,
+      leaseAt: new Date().toISOString(),
+      handoffState: "pending",
+    })
+    .where(
+      and(eq(kindHandoffs.sourceId, prior.sourceId), eq(kindHandoffs.assignment, prior.assignment)),
+    )
+    .run();
+  return Ok(true);
+}
+
+function reviewTransfer(
+  db: Db,
+  row: StackRow | undefined,
+  launch: typeof launches.$inferSelect,
+): Result<void, Refusal> {
+  if (row === undefined || row.launchId === launch.id || row.reviewHistory === null)
+    return Ok(undefined);
+  const review = db
+    .select()
+    .from(internalReviews)
+    .where(
+      and(
+        eq(internalReviews.sourceId, row.sourceId),
+        eq(internalReviews.assignment, row.assignment),
+      ),
+    )
+    .get();
+  const pr = db
+    .select()
+    .from(pullRequests)
+    .where(
+      and(eq(pullRequests.sourceId, row.sourceId), eq(pullRequests.assignment, row.assignment)),
+    )
+    .get();
+  const handoff = db
+    .select()
+    .from(kindHandoffs)
+    .where(
+      and(eq(kindHandoffs.sourceId, row.sourceId), eq(kindHandoffs.assignment, row.assignment)),
+    )
+    .get();
+  return review?.state === "reviewing" &&
+    review.implementerLaunchId === row.launchId &&
+    pr?.readiness === null &&
+    !(handoff?.outgoingLaunchId === row.launchId && handoff.nextKind === "review")
+    ? Ok(undefined)
+    : refused("The previous integration already handed off review or its authority changed.");
 }

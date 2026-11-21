@@ -81,18 +81,20 @@ function parents(input: Request, owner: Owner) {
       if (row === undefined) return candidates;
       const base = PrStacks.decode(row.data);
       const first = base.parents[0];
-      if (first !== undefined)
-        candidates.unshift({
-          parent: { ...first, branch: base.branch },
-          open: true,
-          relay: {
-            ...stacked(first),
-            prerequisites: base.parents,
-            cut: base.head,
-            base: base.branch,
-          },
-        });
-      return candidates;
+      return first === undefined
+        ? []
+        : [
+            {
+              parent: { ...first, branch: base.branch },
+              open: true,
+              relay: {
+                ...stacked(first),
+                prerequisites: base.parents,
+                cut: base.head,
+                base: base.branch,
+              },
+            },
+          ];
     });
   });
 }

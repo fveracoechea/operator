@@ -18,12 +18,50 @@ import { startHandoff } from "./internal-reviews.ts";
 import { recordPullRequestQueue } from "./pr-parking.ts";
 import { admitDelivery, recordDeliveryValidation } from "./deliveries.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { PrStacks } from "../pr-stacks/main.ts";
+
+function stackPlan(
+  launchId = "reviewer",
+  change: Partial<ReturnType<typeof PrStacks.operation>> = {},
+) {
+  return JSON.stringify({
+    id: "operation",
+    sourceId: "source",
+    repository: "owner/repo",
+    assignment: "child",
+    launchId,
+    previousOwners: launchId === "reviewer" ? [] : ["reviewer"],
+    number: 8,
+    branch: "task/child",
+    head: "head",
+    base: "task/parent",
+    cut: "cut",
+    remote: "origin",
+    parents: [],
+    target: "target",
+    targetBranch: "task/parent",
+    managed: false,
+    retargetAttempted: false,
+    pushAttempted: false,
+    relayToMain: false,
+    candidate: null,
+    step: "planned",
+    blocker: null,
+    failures: [],
+    ...change,
+  });
+}
 
 function stackDevice() {
   const client = new Database(":memory:");
   migrate(drizzle(client), { migrationsFolder });
   insertRow(client, "projects", { repository: "owner/repo", checkout: "/main" });
-  insertRow(client, "sources", { id: "source", repository: "owner/repo", state: "open" });
+  insertRow(client, "sources", {
+    id: "source",
+    repository: "owner/repo",
+    state: "open",
+    plan: JSON.stringify({ assignments: [{ key: "child", dependencies: [] }] }),
+  });
   insertRow(client, "assignments", {
     source_id: "source",
     key: "child",
@@ -41,6 +79,7 @@ function stackDevice() {
       attempt,
       state,
       branch: "task/child",
+      worktree_path: "/child",
     });
   insertRow(client, "pull_requests", {
     source_id: "source",
@@ -72,7 +111,7 @@ test("a changed stack archives an exhausted review and requires a genuinely fres
       findings: "[]",
     });
   const created = changeStack(client, "reviewer", "operation", null, () =>
-    Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+    Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
   );
   expect(created).toMatchObject({ tag: "Ok", value: { revision: 1 } });
   expect(beginStackReview(client, "reviewer", "operation", 1).tag).toBe("Err");
@@ -130,7 +169,7 @@ test.each(["known", "unknown"] as const)(
     client.query("UPDATE pull_requests SET readiness = ?, progress = ?").run(raw, progress);
     expect(
       changeStack(client, "reviewer", "operation", null, () =>
-        Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+        Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
       ).tag,
     ).toBe("Ok");
     const result = restartStackReview(client, "reviewer", "operation", 1);
@@ -161,7 +200,7 @@ test("a null handoff claim cannot publish a successor or authorize competing sta
   expect(client.query("SELECT owner_pid FROM kind_handoffs").get()).toEqual({ owner_pid: null });
   expect(
     changeStack(client, "reviewer", "operation", null, () =>
-      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+      Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
     ),
   ).toMatchObject({ tag: "Err", error: { reason: "stack_stale" } });
   expect(client.query("SELECT id FROM stack_operations").all()).toEqual([]);
@@ -171,7 +210,7 @@ test("a replacement launch can claim exact unfinished progress but the old launc
   using client = stackDevice();
   expect(
     changeStack(client, "reviewer", "operation", null, () =>
-      Ok({ state: "planned", data: "original", ownerPid: null }),
+      Ok({ state: "planned", data: stackPlan(), ownerPid: null }),
     ).tag,
   ).toBe("Ok");
   client.exec("UPDATE launches SET state = 'interrupted' WHERE id = 'reviewer'");
@@ -187,7 +226,7 @@ test("a replacement launch can claim exact unfinished progress but the old launc
   });
   expect(
     changeStack(client, "replacement", "operation", 1, () =>
-      Ok({ state: "planned", data: "replacement", ownerPid: process.pid }),
+      Ok({ state: "planned", data: stackPlan("replacement"), ownerPid: process.pid }),
     ),
   ).toMatchObject({ tag: "Ok", value: { launchId: "replacement", revision: 2 } });
   expect(
@@ -197,7 +236,7 @@ test("a replacement launch can claim exact unfinished progress but the old launc
   ).toBe("Err");
   expect(readStack(client, "replacement", "operation")).toMatchObject({
     tag: "Ok",
-    value: { data: "replacement" },
+    value: { data: stackPlan("replacement") },
   });
 });
 
@@ -208,7 +247,7 @@ test("unresolved queue and stack effects exclude one another at transactional ad
     .run(JSON.stringify({ queueHead: "guarded-head" }));
   expect(
     changeStack(client, "reviewer", "operation", null, () =>
-      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+      Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
     ),
   ).toMatchObject({
     tag: "Err",
@@ -218,7 +257,7 @@ test("unresolved queue and stack effects exclude one another at transactional ad
   client.exec("UPDATE pull_requests SET parking = NULL");
   expect(
     changeStack(client, "reviewer", "operation", null, () =>
-      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+      Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
     ).tag,
   ).toBe("Ok");
   expect(recordPullRequestQueue(client, "reviewer", "guarded-head")).toMatchObject({
@@ -234,7 +273,7 @@ test.each(["direct", "queue"] as const)(
     using client = stackDevice();
     expect(
       changeStack(client, "reviewer", "operation", null, () =>
-        Ok({ state: "planned", data: "original", ownerPid: process.pid }),
+        Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
       ).tag,
     ).toBe("Ok");
     if (effect === "direct") {
@@ -285,7 +324,7 @@ test.each(["direct", "queue"] as const)(
       client.exec(`UPDATE pull_requests SET parking = '{"state":"closed","queueHead":"original"}'`);
     expect(
       changeStack(client, "reviewer", "operation", 1, () =>
-        Ok({ state: "planned", data: "original", ownerPid: null }),
+        Ok({ state: "planned", data: stackPlan(), ownerPid: null }),
       ).tag,
     ).toBe("Ok");
   },
@@ -296,7 +335,7 @@ test("same-worktree replacement keeps archived review bytes and becomes the expl
   client.exec("UPDATE launches SET worktree_path = '/child' WHERE id = 'reviewer'");
   expect(
     changeStack(client, "reviewer", "operation", null, () =>
-      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+      Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
     ).tag,
   ).toBe("Ok");
   const invalidated = restartStackReview(client, "reviewer", "operation", 1);
@@ -315,7 +354,7 @@ test("same-worktree replacement keeps archived review bytes and becomes the expl
   });
   expect(
     changeStack(client, "replacement", "operation", 2, () =>
-      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+      Ok({ state: "planned", data: stackPlan("replacement"), ownerPid: process.pid }),
     ),
   ).toMatchObject({
     tag: "Ok",
@@ -352,7 +391,7 @@ test("a stack invalidates validation applicability without deleting evidence, ev
   expect(admitDelivery(client, input, false).tag).toBe("Ok");
   expect(
     changeStack(client, "reviewer", "operation", null, () =>
-      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+      Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
     ).tag,
   ).toBe("Ok");
   expect(restartStackReview(client, "reviewer", "operation", 1).tag).toBe("Ok");
@@ -363,7 +402,11 @@ test("a stack invalidates validation applicability without deleting evidence, ev
     error: { reason: "pr_stack_running" },
   });
   expect(
-    finishStack(client, "reviewer", "operation", 2, { data: "{}", base: "{}", relay: "{}" }).tag,
+    finishStack(client, "reviewer", "operation", 2, {
+      data: stackPlan("reviewer", { step: "complete" }),
+      base: JSON.stringify({ head: "target", branch: "task/parent", managed: false, parents: [] }),
+      relay: "{}",
+    }).tag,
   ).toBe("Ok");
   expect(
     recordDeliveryValidation(client, {
@@ -410,4 +453,146 @@ test("a stack invalidates validation applicability without deleting evidence, ev
   expect(
     client.query("SELECT readiness FROM delivery_validations ORDER BY validated_at").all(),
   ).toEqual([{ readiness }, { readiness: fresh }]);
+});
+
+test.each([
+  "worktree",
+  "branch",
+  "source",
+  "assignment",
+  "running-owner",
+  "live-claim",
+  "active-handoff",
+  "handed-off",
+] as const)(
+  "completed review recovery refuses a %s mismatch without changing history or ownership",
+  (mismatch) => {
+    using client = stackDevice();
+    expect(
+      changeStack(client, "reviewer", "operation", null, () =>
+        Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
+      ).tag,
+    ).toBe("Ok");
+    const archived = restartStackReview(client, "reviewer", "operation", 1);
+    expect(archived.tag).toBe("Ok");
+    expect(
+      finishStack(client, "reviewer", "operation", 2, {
+        data: stackPlan("reviewer", { step: "complete" }),
+        base: JSON.stringify({
+          head: "target",
+          branch: "task/parent",
+          managed: false,
+          parents: [],
+        }),
+        relay: "{}",
+      }).tag,
+    ).toBe("Ok");
+    if (mismatch !== "running-owner")
+      client.exec("UPDATE launches SET state = 'interrupted' WHERE id = 'reviewer'");
+    if (mismatch === "source") {
+      insertRow(client, "sources", { id: "other", repository: "owner/repo", state: "open" });
+      insertRow(client, "assignments", {
+        source_id: "other",
+        key: "child",
+        completion: "pr",
+        state: "pr-open",
+      });
+    }
+    if (mismatch === "assignment")
+      insertRow(client, "assignments", {
+        source_id: "source",
+        key: "other",
+        completion: "pr",
+        state: "pr-open",
+      });
+    insertRow(client, "launches", {
+      id: "replacement",
+      source_id: mismatch === "source" ? "other" : "source",
+      assignment: mismatch === "assignment" ? "other" : "child",
+      attempt: 3,
+      state: "running",
+      branch: mismatch === "branch" ? "task/other" : "task/child",
+      worktree_path: mismatch === "worktree" ? "/different" : "/child",
+    });
+    if (mismatch === "live-claim")
+      client
+        .query("UPDATE stack_operations SET owner_pid = 1, lease_at = ?")
+        .run(new Date().toISOString());
+    if (mismatch === "active-handoff" || mismatch === "handed-off")
+      insertRow(client, "kind_handoffs", {
+        source_id: "source",
+        assignment: "child",
+        outgoing_launch_id: "reviewer",
+        next_kind: "review",
+        handoff_state: mismatch === "active-handoff" ? "pending" : "done",
+        owner_pid: process.pid,
+        lease_at: new Date().toISOString(),
+      });
+    const before = client.serialize();
+    expect(
+      changeStack(client, "replacement", "operation", 3, () =>
+        Ok({
+          state: "complete",
+          data: stackPlan("replacement", { step: "complete" }),
+          ownerPid: null,
+        }),
+      ).tag,
+    ).toBe("Err");
+    expect(client.serialize()).toEqual(before);
+  },
+);
+
+test("completed but unhanded review recovery transfers the exact owner and preserves archived bytes", () => {
+  using client = stackDevice();
+  expect(
+    changeStack(client, "reviewer", "operation", null, () =>
+      Ok({ state: "planned", data: stackPlan(), ownerPid: process.pid }),
+    ).tag,
+  ).toBe("Ok");
+  const archived = restartStackReview(client, "reviewer", "operation", 1);
+  expect(archived.tag).toBe("Ok");
+  if (archived.tag !== "Ok") return;
+  expect(
+    finishStack(client, "reviewer", "operation", 2, {
+      data: stackPlan("reviewer", { step: "complete" }),
+      base: JSON.stringify({ head: "target", branch: "task/parent", managed: false, parents: [] }),
+      relay: "{}",
+    }).tag,
+  ).toBe("Ok");
+  client.exec("UPDATE launches SET state = 'interrupted' WHERE id = 'reviewer'");
+  insertRow(client, "launches", {
+    id: "replacement",
+    source_id: "source",
+    assignment: "child",
+    attempt: 3,
+    state: "running",
+    branch: "task/child",
+    worktree_path: "/child",
+  });
+  expect(
+    changeStack(client, "replacement", "operation", 3, () =>
+      Ok({
+        state: "complete",
+        data: stackPlan("replacement", { step: "complete" }),
+        ownerPid: null,
+      }),
+    ),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { launchId: "replacement", reviewHistory: archived.value.reviewHistory },
+  });
+  expect(client.query("SELECT implementer_launch_id FROM internal_reviews").get()).toEqual({
+    implementer_launch_id: "replacement",
+  });
+  expect(beginStackReview(client, "replacement", "operation", 4)).toMatchObject({
+    tag: "Ok",
+    value: true,
+  });
+  expect(client.query("SELECT outgoing_launch_id, next_kind FROM kind_handoffs").get()).toEqual({
+    outgoing_launch_id: "replacement",
+    next_kind: "review",
+  });
+  expect(client.query("SELECT review_history FROM stack_operations").get()).toEqual({
+    review_history: archived.value.reviewHistory,
+  });
 });

@@ -714,11 +714,16 @@ function apply(input: Input, owner: Owner, id: string): AsyncResult<Outcome, Ref
           : [...previous.previousOwners, previous.launchId],
       blocker: null,
     };
-    if (plan.step === "complete")
+    if (plan.step === "complete") {
+      if (previous.launchId !== owner.launchId) {
+        const recovered = save(input, owner, plan, read.value.revision, false);
+        if (recovered.tag !== "Ok") return stop(recovered);
+      }
       return (await refreshBrief(input, owner)).map(() => ({
         reason: "stack_unchanged",
         data: plan,
       }));
+    }
     if (plan.step === "cancelled")
       return refuse("stack_cancelled", "This operation was cancelled. Create a new pinned plan.");
     const claimed = save(input, owner, plan, read.value.revision, true);
