@@ -1107,14 +1107,37 @@ const enqueueMutation = `mutation EnqueuePR($id: ID!, $head: GitObjectID!) {
 }`;
 const enqueueAnswer = z.object({
   data: z
-    .object({ enqueuePullRequest: z.object({ mergeQueueEntry: z.object({ id: z.string() }) }) })
+    .object({
+      enqueuePullRequest: z.object({ mergeQueueEntry: z.object({ id: z.string() }) }).nullable(),
+    })
     .nullable(),
-  errors: z.array(z.object({ message: z.string() })).optional(),
+  errors: z
+    .array(
+      z.object({
+        message: z.string(),
+        type: z.string().optional(),
+        path: z.array(z.union([z.string(), z.number()])).optional(),
+      }),
+    )
+    .optional(),
 });
 type EnqueueFailure = ResultContext & {
   reason: "github_failed" | "github_uncertain" | "pr_enqueue_refused";
   detail: string;
 };
+
+function enqueueNotApplied(answer: z.infer<typeof enqueueAnswer>) {
+  return (
+    !answer.data?.enqueuePullRequest &&
+    (answer.errors?.length ?? 0) > 0 &&
+    answer.errors?.every(
+      (error) =>
+        ["UNPROCESSABLE", "FORBIDDEN", "NOT_FOUND"].includes(error.type ?? "") &&
+        error.path?.length === 1 &&
+        error.path[0] === "enqueuePullRequest",
+    ) === true
+  );
+}
 
 /** Pin the enqueue to the same head that passed the merge gate. The caller verifies membership. */
 export function enqueuePullRequest(id: string, head: string) {
@@ -1140,7 +1163,7 @@ export function enqueuePullRequest(id: string, head: string) {
           "GitHub did not describe the enqueue response. Read queue membership before another request.",
         next: effectRecovery,
       });
-    if (parsed.data.data === null || (parsed.data.errors?.length ?? 0) > 0)
+    if (!parsed.data.data?.enqueuePullRequest || (parsed.data.errors?.length ?? 0) > 0)
       return Err({
         reason: "pr_enqueue_refused",
         detail:
@@ -1149,6 +1172,9 @@ export function enqueuePullRequest(id: string, head: string) {
         next: {
           decider: "person",
           question: "Which GitHub queue restriction must be resolved before this PR can enqueue?",
+        },
+        state: {
+          notApplied: enqueueNotApplied(parsed.data),
         },
       });
     return Ok(undefined);

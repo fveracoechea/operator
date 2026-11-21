@@ -22,14 +22,10 @@ Restart after each result; leave the wait running while the person replies.
 The coordination wait handles review upkeep and parked PRs; create no watcher.
 
 Steer workers through `operator message send --source <id> --assignment <key> --key <message> --file <message.md>`.
-Record obligations with `operator obligation add`; read `owed` on every wake and close fulfilled obligations.
-An open `merge-hold` blocks new merges and enqueues across its source.
-Close it only after the person's release.
-An accepted request or queue entry cannot be canceled by a new hold; reconcile the pending effect first.
-
-Only on the person's explicit request, use `operator web open --url <http(s)-url> --person-requested`.
-This flag attests to that request; it supplies no new authority.
-Follow capability refusals with the manual next step.
+Use `operator obligation add`; read `owed` each wake and close fulfilled obligations.
+Source-wide `merge-hold` blocks new delivery until the person's release, not accepted requests.
+Reconcile pending delivery first.
+Explicitly requested pages: `operator web open --url <http(s)-url> --person-requested`; follow refusals.
 
 Decide only within the Task's authority.
 Escalate worker questions with `operator question escalate` when authority is unclear, exceeded, or requires human participation.
@@ -43,7 +39,6 @@ Run `operator review add <pr-url>` and `operator review start <pr-url>` for elig
 For Slack checks, use your own tools and pass `--slack-thread <permalink>` to add.
 Operator schedules no Slack reads.
 After a review posts, reply once per round in its linked thread with one short status line and review link.
-No draft is needed for that line.
 `operator review skip <pr-url>` needs the person's instruction.
 
 Show longer answers or tables as Markdown outside the checkout in a sibling answer pane with `glow -p`.

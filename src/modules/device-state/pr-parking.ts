@@ -35,6 +35,7 @@ const parkingReceipt = z.object({
   parentsSeen: z.array(z.string()).optional(),
   // The guarded queue attempt owns batch completion, even if its response is lost.
   queueHead: z.string().nullable().optional(),
+  queueAttempt: z.string().nullable().optional(),
 });
 export const prParkingSchema = z.union([
   parkingReceipt.extend({
@@ -105,7 +106,7 @@ export function recordPullRequestQueue(
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
       activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
-        ({ source, assignment, launch }): Result<undefined, Refusal> => {
+        ({ source, assignment, launch }): Result<string | null, Refusal> => {
           const row = db
             .select()
             .from(pullRequests)
@@ -115,8 +116,9 @@ export function recordPullRequestQueue(
             return Err(refused());
           const previous =
             row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
-          if (previous?.queueHead === head) return Ok(undefined);
+          if (previous?.queueHead === head) return Ok(null);
           return deliveryAdmission(db, { launchId, head, ...actor }, false).map(() => {
+            const queueAttempt = crypto.randomUUID();
             const parking: PrParking = previous ?? {
               launchId,
               head,
@@ -127,13 +129,44 @@ export function recordPullRequestQueue(
               parentSeen: false,
             };
             db.update(pullRequests)
-              .set({ parking: JSON.stringify({ ...parking, queueHead: head }) })
+              .set({ parking: JSON.stringify({ ...parking, queueHead: head, queueAttempt }) })
               .where(key(row))
               .run();
-            return undefined;
+            return queueAttempt;
           });
         },
       ),
+    ),
+  );
+}
+
+/** Only the exact attempt's proven refusal can release its durable queue exclusion. */
+export function refusePullRequestQueue(
+  client: Database,
+  launchId: string,
+  head: string,
+  attempt: string,
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(({ source, assignment }) => {
+        const row = db
+          .select()
+          .from(pullRequests)
+          .where(key({ sourceId: source.id, assignment: assignment.key }))
+          .get();
+        const parking =
+          row?.parking === null || row?.parking === undefined
+            ? null
+            : prParkingSchema.parse(JSON.parse(row.parking));
+        if (row === undefined || parking?.queueHead !== head || parking.queueAttempt !== attempt)
+          return Err(refused());
+        db.update(pullRequests)
+          .set({ parking: JSON.stringify({ ...parking, queueHead: null, queueAttempt: null }) })
+          .where(key(row))
+          .run();
+        return Ok(undefined);
+      }),
     ),
   );
 }
@@ -178,6 +211,7 @@ export function parkPullRequest(
               state: decision.state,
               events: [],
               queueHead: previous?.queueHead ?? null,
+              queueAttempt: previous?.queueAttempt ?? null,
               parentSeen:
                 row.parking === null
                   ? false

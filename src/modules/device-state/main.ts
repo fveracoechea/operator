@@ -77,6 +77,7 @@ import { prReadinessSchema, storedPrReadinessSchema } from "./pr-readiness.ts";
 import {
   prParkingSchema,
   recordPullRequestQueue,
+  refusePullRequestQueue,
   parkPullRequest,
   completeParking,
   resumeParkedPullRequest,
@@ -241,6 +242,10 @@ export const DeviceState = {
     actor?: Parameters<typeof recordPullRequestQueue>[3],
   ) {
     return writing(paths, (client) => recordPullRequestQueue(client, launchId, head, actor));
+  },
+
+  refusePullRequestQueue(paths: Paths, launchId: string, head: string, attempt: string) {
+    return writing(paths, (client) => refusePullRequestQueue(client, launchId, head, attempt));
   },
   parkPullRequest(paths: Paths, launchId: string, input: Parameters<typeof parkPullRequest>[2]) {
     return writing(paths, (client) => parkPullRequest(client, launchId, input));
