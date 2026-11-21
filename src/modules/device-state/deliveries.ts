@@ -282,7 +282,7 @@ export function recordDeliveryValidation(
               "pr_validation_stale",
               "The current feedback owner or readiness provenance changed. Nothing was recorded.",
             );
-          return deliveryIdle(db, source.id, assignment.key)
+          return deliveryIdle(db, source.id, assignment.key, true)
             .flatMap(() => stackIdle(db, source.id, assignment.key))
             .map(() => {
               const row = {

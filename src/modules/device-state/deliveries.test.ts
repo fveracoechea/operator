@@ -134,6 +134,39 @@ test("known changed heads need evidence; migration-unknown readiness keeps accep
   expect(admitDelivery(db, { ...input, head: "new" }, true).tag).toBe("Ok");
 });
 
+test.each(["direct", "stack"] as const)(
+  "queued evidence retains the unfinished %s effect fence",
+  (effect) => {
+    using db = fixture();
+    if (effect === "direct") expect(admitDelivery(db, input, true).tag).toBe("Ok");
+    else
+      insertRow(db, "stack_operations", {
+        id: "stack",
+        source_id: "s",
+        assignment: "a",
+        launch_id: "l",
+        revision: 1,
+        state: "uncertain",
+        data: "{}",
+      });
+    db.exec(`UPDATE pull_requests SET parking = '{"state":"active","queueHead":"h"}'`);
+    const before = db.serialize();
+    expect(
+      recordDeliveryValidation(db, {
+        launchId: "l",
+        head: "corrected",
+        readiness,
+        summary: "Bounded fix and regression.",
+      }),
+    ).toMatchObject({
+      tag: "Err",
+      error: { reason: effect === "direct" ? "pr_delivery_running" : "pr_stack_running" },
+    });
+    expect(db.serialize()).toEqual(before);
+    expect(db.query("SELECT * FROM delivery_validations").all()).toEqual([]);
+  },
+);
+
 test("validation follows readiness across replacement, but never a new ready provenance", () => {
   using db = fixture();
   const recorded = recordDeliveryValidation(db, {

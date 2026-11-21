@@ -248,6 +248,7 @@ async function github(change: {
   branches?: Record<string, string>;
   omitQueueEntry?: boolean;
   enqueueLost?: boolean;
+  mergeSubmitLost?: boolean;
   pulls?: Pull[];
   commentLost?: boolean;
   readyLost?: boolean;
@@ -777,6 +778,107 @@ test("queued feedback and its replacement retain batch-owned completion after po
   expect(await Bun.file(`${worker.worktreePath}/work.txt`).exists()).toBe(false);
   expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
   expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+}, 120000);
+
+test("a resumed queued feedback owner validates a correction, waits, reparks, and completes through its batch", async () => {
+  const { source, worker, head: readyHead } = await parkedFixture();
+  const facts = {
+    head: readyHead,
+    reviewDecision: "APPROVED",
+    checks: [{ name: "ci", conclusion: "SUCCESS" }],
+    isMergeQueueEnabled: true,
+  };
+  await github({ pulls: [pull(facts)] });
+  expect(await run(["pr", "merge", "--source", source, "--assignment", "implement"])).toMatchObject(
+    { code: 0, output: { reason: "pr_enqueued" } },
+  );
+  const now = Date.now();
+  const comment = { id: "Q1", author: "person", body: "Correct queued feedback." };
+  await github({ pulls: [pull({ ...facts, queueEntry: "QUEUE_7", comments: [comment] })] });
+  await coordination(source, now);
+  expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);
+  await feedbackLaunch(source, 3);
+  await github({
+    pulls: [
+      pull({
+        ...facts,
+        queueEntry: "QUEUE_7",
+        comments: [comment],
+        checks: [{ name: "ci", status: "IN_PROGRESS", conclusion: null }],
+      }),
+    ],
+  });
+  const reads = await calls("gh-calls.jsonl", "graphql");
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    code: 0,
+  });
+  expect(await calls("gh-calls.jsonl", "graphql")).toBeGreaterThan(reads);
+  const head = await commit(worker.worktreePath, "queued-correction.txt");
+  await github({
+    pulls: [pull({ ...facts, head, queueEntry: "QUEUE_7", comments: [comment] })],
+    branches: { "task/12-implement": head },
+  });
+  const evidence = path.join(root, "queued-evidence.md");
+  await Bun.write(evidence, "Bounded queued correction. Targeted regression passed.");
+  const readiness = (await shown(source)).pullRequests[0]?.readiness;
+  expect(await run(["pr", "validate", "--file", evidence], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_validated", data: { head, readyHead } },
+  });
+  expect((await shown(source)).pullRequests[0]?.readiness).toEqual(readiness);
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    code: 0,
+  });
+  expect(await run(["pr", "wait", "--timeout", "0"], worker.worktreePath)).toMatchObject({
+    code: 0,
+    output: { reason: "pr_parked" },
+  });
+  await latestWorker(source, worker.worktreePath, "finished", 3);
+  expect((await shown(source)).pullRequests[0]).toMatchObject({
+    mergedAt: null,
+    parking: { state: "parked", queueHead: readyHead },
+  });
+  await github({
+    pulls: [
+      pull({ ...facts, head, state: "MERGED", mergeCommit: `merge-${head}`, queueEntry: null }),
+    ],
+  });
+  await coordination(source, now + 900000);
+  expect((await shown(source)).pullRequests[0]).toMatchObject({
+    mergedHead: head,
+    mergeCommit: `merge-${head}`,
+  });
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+}, 120000);
+
+test("selected direct recovery preserves its selector in every returned merge retry", async () => {
+  const { source, head } = await parkedFixture();
+  await github({
+    pulls: [
+      pull({ head, reviewDecision: "APPROVED", checks: [{ name: "ci", conclusion: "SUCCESS" }] }),
+    ],
+    mergeSubmitLost: true,
+  });
+  const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+  expect((await run(command)).code).toBe(1);
+  await github({ mergeSubmitLost: false });
+  const puts = await calls("gh-calls.jsonl", '"PUT"');
+  const retry = await run(command);
+  expect(retry).toMatchObject({
+    code: 1,
+    output: {
+      reason: "pr_merge_unverified",
+      next: { command: `operator pr merge --source ${source} --assignment implement` },
+    },
+  });
+  const next = z.object({ next: z.object({ command: z.string() }) }).parse(retry.output)
+    .next.command;
+  expect(await run(next.split(" ").slice(1))).toMatchObject({
+    code: 1,
+    output: { reason: "pr_merge_unverified" },
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(puts);
 }, 120000);
 
 test("an omitted queue field preserves parked cursors and the batch retry schedule", async () => {

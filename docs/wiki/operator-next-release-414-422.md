@@ -26,3 +26,37 @@ Final full quality, current CI, isolated smoke, and independent review require t
 The shared fixture correction is `8198c29d3e40ef7b7132f51505722b8ee256584a`; its baseline receipts do not qualify future feature changes.
 Feature landing does not authorize runtime activation, real-device migration, tags, or publication.
 ADR-0007 still requires quality and release smoke on the merged version commit, followed by explicit publication authorization.
+
+## Independent #415 corrections on 2026-11-21
+
+Both independent reviews requested changes at `bc9ad9907151a3939302d19b0a5a540eb66920cd`, tree `567840e17ae717bfb6484b2a6f994381f56254e6`.
+Main and merge-base were `e5606a7b7168248992655dcc04ba4f45e1cd4f61`.
+The review reports are `/tmp/opencode/operator-next-release-415-standards.md` and `/tmp/opencode/operator-next-release-415-spec.md`.
+They reproduced blocked queued feedback waits, blocked queued correction validation, missing selected-recovery arguments, and unreconciled refused queue admission.
+
+The correction distinguishes queue observation and evidence from relay or delivery admission.
+Unfinished direct requests and competing stack effects still block those operations.
+Selected recovery keeps its source and assignment without resubmitting an unknown request.
+Each new queue admission has an attempt identity.
+Only a typed mutation-level refusal, with absent membership at the same open head, releases that exact attempt.
+Generic errors, partial responses, lost answers, and absent membership alone retain the receipt.
+An old refusal cannot clear a later same-head attempt.
+Queued feedback correction, validation, wait, parking, and batch-owned completion have a public CLI regression.
+
+All receipts below use `/tmp/opencode/issue373-qualification/runs/`.
+The frozen `pr415-final-qualification-quality.json` failed with 4,821 passing tests and 27 failures.
+The same-head `pr415-final-qualification-linux-flake.json` passed, but does not qualify a corrected descendant.
+The full run also found outdated synthetic migration prefixes, omitted correction evidence in installed workflows, stale guard-test selectors, and guide-budget failures.
+Their corrections retain the assertions and do not weaken production gates.
+`pr415-corrections-red.json` captures five reproduced failures, including public queued-wait and selected-recovery failures.
+`pr415-corrections-owning2.json` records 353 passing tests across 20 files, including isolated source and registry delivery.
+`pr415-corrections-static3.json` records passing static checks.
+Those dirty-tree diagnostic receipts are development evidence, not final qualification.
+Final descendant receipts are `pr415-corrected-final-quality.json`, `pr415-corrected-final-linux-flake.json`, and `pr415-corrected-final-delivery.json`.
+Their actual head, tree, outcomes, CI, and fresh review verdicts must be read from the receipts and `/tmp/opencode/operator-next-release-415-landing.md`.
+This entry does not claim those future runs or merge readiness.
+
+The earlier guard mutation diagnostic recorded 39 killed mutants and 15 survivors, with no untested or incomplete mutants.
+It was not a complete changed-production campaign and remains non-gating.
+Populated direct-intent and source/assignment exclusion assertions were added for the concrete review gap.
+No new mutation campaign or zero-survivor requirement was added.

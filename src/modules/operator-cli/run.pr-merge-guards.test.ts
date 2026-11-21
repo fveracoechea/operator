@@ -32,7 +32,7 @@ test.each([
     file: "pull-requests/wait-machine.ts",
     replacements: [["approved: observed.approved,", "approved: true,"]],
     testFile: "operator-cli/run.pr-merge.test.ts",
-    pattern: "every merge refusal",
+    pattern: "local merge refusals",
   },
   {
     name: "a draft PR is observed again before merge",
@@ -48,14 +48,14 @@ test.each([
       ["when: ({ observed, localHead }) => localHead !== observed.head,", "when: () => false,"],
     ],
     testFile: "operator-cli/run.pr-merge.test.ts",
-    pattern: "every merge refusal",
+    pattern: "local merge refusals",
   },
   {
     name: "closed PR",
     file: "pull-requests/merge-machine.ts",
     replacements: [['when: ({ observed }) => observed.state === "CLOSED",', "when: () => false,"]],
     testFile: "operator-cli/run.pr-merge.test.ts",
-    pattern: "every merge refusal",
+    pattern: "local merge refusals",
   },
   {
     name: "verified merged state",

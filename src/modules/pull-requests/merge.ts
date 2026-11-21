@@ -1,4 +1,4 @@
-import { ErrAsync, OkAsync, fromPromise, type AsyncResult } from "unthrown";
+import { ErrAsync, OkAsync, P, fromPromise, type AsyncResult } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -285,18 +285,33 @@ function queuedMerge(
     DeviceState.prParkingSchema().parse(JSON.parse(owner.parking)).queueHead === head;
   return (
     persisted
-      ? OkAsync(undefined)
+      ? OkAsync(null)
       : DeviceState.recordPullRequestQueue(input.paths, owner.launchId, head, {
           selected: input.sourceId !== undefined,
           session: Environment.caller().session,
         }).toAsync()
-  ).flatMap(() =>
-    fromPromise(async () => {
+  ).flatMap((attempt) => {
+    if (attempt === null && queue.entry === null) return awaitBatch(input, owner, number, observed);
+    return fromPromise(async () => {
       const requested = queue.entry === null ? await enqueuePullRequest(queue.id, head) : null;
       const verification = await readMergeQueue(owner.repository, number);
       if (requested?.tag === "Defect") {
         if (verification.tag !== "Ok")
           console.error("enqueue_verification", { secondary: verification });
+        return requested.map<Outcome>(() => enqueued(owner, number, head, null));
+      }
+      if (
+        attempt !== null &&
+        refusedQueueAttempt(requested, verification, head) &&
+        requested?.tag === "Err"
+      ) {
+        const released = DeviceState.refusePullRequestQueue(
+          input.paths,
+          owner.launchId,
+          head,
+          attempt,
+        );
+        if (released.tag !== "Ok") console.error("enqueue_release", { secondary: released });
         return requested.map<Outcome>(() => enqueued(owner, number, head, null));
       }
       return verification.toAsync().flatMap((confirmed): AsyncResult<Outcome, Failure> => {
@@ -321,7 +336,22 @@ function queuedMerge(
             )
           : OkAsync(enqueued(owner, number, head, confirmed.entry));
       });
-    }, qualify).flatMap((result) => result),
+    }, qualify).flatMap((result) => result);
+  });
+}
+
+function refusedQueueAttempt(
+  requested: Awaited<ReturnType<typeof enqueuePullRequest>> | null,
+  verification: Awaited<ReturnType<typeof readMergeQueue>>,
+  head: string,
+) {
+  return (
+    requested?.tag === "Err" &&
+    requested.error.state?.notApplied === true &&
+    verification.tag === "Ok" &&
+    verification.value.head === head &&
+    verification.value.entry === null &&
+    verification.value.state === "OPEN"
   );
 }
 
@@ -347,6 +377,12 @@ function mergeCommand(input: Request) {
   return input.sourceId === undefined
     ? "operator pr merge"
     : `operator pr merge --source ${input.sourceId} --assignment ${input.assignment}`;
+}
+
+function selectedFailure(input: Request, failure: Failure): Failure {
+  return input.sourceId !== undefined && failure.next.command === "operator pr merge"
+    ? { ...failure, next: { command: mergeCommand(input), why: failure.next.why } }
+    : failure;
 }
 
 /** Earlier readiness is a phase witness, not a substitute for the fresh merge decision. */
@@ -381,12 +417,12 @@ async function mergePhase(owner: Owner): Promise<Failure | null> {
  * ready or skipped, and the owner's worktree must hold the PR head. A refusal performs no merge
  * request and writes nothing.
  */
-export function merge(input: Request) {
+export function merge(input: Request): AsyncResult<Outcome, Failure> {
   const owner =
     input.sourceId !== undefined && input.assignment !== undefined
       ? resolveParkedOwner({ ...input, sourceId: input.sourceId, assignment: input.assignment })
       : resolveOwner(input).flatMap(owned);
-  return owner
+  const result: AsyncResult<Outcome, Failure> = owner
     .flatMap((owner): AsyncResult<Outcome, Failure> => {
       const number = owner.pullRequest;
       if (number === null)
@@ -437,4 +473,7 @@ export function merge(input: Request) {
             },
           },
     );
+  return result.mapErrCases((match) =>
+    match.with(P._, (failure) => selectedFailure(input, failure)),
+  );
 }

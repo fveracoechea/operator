@@ -53,6 +53,27 @@ test("the fresh review-off feedback owner records exact-head evidence without re
   expect(device.calls.map(requestKind)).toEqual(["pull_request", "branch"]);
 });
 
+test("queued correction validation retains readiness and the durable queue receipt", async () => {
+  const { device, worktree, launchId, readyHead, input } = await feedback();
+  await using _ = device;
+  expect(DeviceState.recordPullRequestQueue(device.paths, launchId, readyHead).tag).toBe("Ok");
+  git(worktree, "commit", "--allow-empty", "-qm", "queued correction");
+  const head = git(worktree, "rev-parse", "HEAD");
+  await Bun.write(input.file, "Scope: queued correction. Evidence: targeted regression passed.");
+  device.answer((args) =>
+    requestKind(args) === "branch"
+      ? succeeded({ object: { sha: head } })
+      : succeeded(pullRequestBody({ head, queueEnabled: true, queueEntry: "Q7" })),
+  );
+  const before = device.pullRequestRow("other");
+  expect(await validate(input)).toMatchObject({
+    tag: "Ok",
+    value: { reason: "pr_validated", data: { head, readyHead } },
+  });
+  expect(device.pullRequestRow("other")).toEqual(before);
+  expect(device.calls.map(requestKind)).toEqual(["pull_request", "branch"]);
+});
+
 test.each(["dirty", "remote-head", "checks", "empty", "json"])(
   "validation refuses %s with no evidence write or remote mutation",
   async (scenario) => {

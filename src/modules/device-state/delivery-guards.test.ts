@@ -43,3 +43,30 @@ test("stack exclusion retains unreconciled effects even without a live claim", (
     .run(process.pid, new Date().toISOString());
   expect(stackIdle(db, "s", "a")).toMatchObject({ error: { reason: "pr_stack_running" } });
 });
+
+test("unfinished direct intents fence their source and assignment even during queued parking", () => {
+  using client = deliveryFixture();
+  const db = drizzle(client);
+  insertRow(client, "deliveries", {
+    id: "direct",
+    source_id: "s",
+    assignment: "a",
+    launch_id: "l",
+    head: "h",
+    readiness: "{}",
+    selected: 0,
+    started_at: "then",
+  });
+  for (const parking of [false, true]) {
+    expect(deliveryIdle(db, "s", undefined, parking)).toMatchObject({
+      error: { reason: "pr_delivery_running" },
+    });
+    expect(deliveryIdle(db, "s", "a", parking)).toMatchObject({
+      error: { reason: "pr_delivery_running" },
+    });
+    expect(deliveryIdle(db, "s", "other", parking).tag).toBe("Ok");
+    expect(deliveryIdle(db, "other", "a", parking).tag).toBe("Ok");
+  }
+  client.exec("UPDATE deliveries SET ended_at = 'verified'");
+  expect(deliveryIdle(db, "s").tag).toBe("Ok");
+});

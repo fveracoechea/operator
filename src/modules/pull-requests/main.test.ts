@@ -416,6 +416,25 @@ test("a wait reports an eligible head once and records each result", async () =>
   expect(device.calls.map(requestKind)).toEqual(["pull_request", "pull_request"]);
 });
 
+test("a durable queue receipt permits feedback observation but refuses a relay claim", async () => {
+  await using device = await prDevice();
+  const { input, launchId, worktree } = waiting(device);
+  const head = git(worktree, "rev-parse", "HEAD");
+  expect(DeviceState.recordPullRequestQueue(device.paths, launchId, head).tag).toBe("Ok");
+  device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true, queueEntry: "Q7" })));
+  expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(
+    DeviceState.recordPullRequestWait(device.paths, launchId, (row) => ({
+      progress: row.progress,
+      waitState: row.waitState,
+      relay: '{"state":"relaying"}',
+    })),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+});
+
 test.each(["null", "incomplete"] as const)(
   "a live %s check read preserves prior eligibility and all cursors",
   async (kind) => {

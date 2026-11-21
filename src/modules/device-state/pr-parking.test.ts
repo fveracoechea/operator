@@ -13,6 +13,7 @@ import {
   resumeParkedPullRequest,
   prParkingSchema,
   recordPullRequestQueue,
+  refusePullRequestQueue,
   activateParking,
 } from "./pr-parking.ts";
 
@@ -81,6 +82,26 @@ test("queue disposition belongs to the PR receipt and survives parking again", (
   expect(db.serialize()).toEqual(before);
   const claim = claimParkedRead(db, Date.now()).getOr(null);
   expect(claim?.rows[0]?.parking).toMatchObject({ queueHead: "h", head: "h", state: "parked" });
+});
+
+test("a proven refusal releases only its exact queue attempt, never a later attempt at the same head", () => {
+  using db = fixture();
+  const first = recordPullRequestQueue(db, "l", "h").getOr(null);
+  expect(first).not.toBeNull();
+  if (first === null) return expect.unreachable("The first admission must own its attempt.");
+  expect(recordPullRequestQueue(db, "l", "h").getOr("unexpected")).toBeNull();
+  expect(refusePullRequestQueue(db, "l", "h", first).tag).toBe("Ok");
+  const second = recordPullRequestQueue(db, "l", "h").getOr(null);
+  expect(second).not.toBeNull();
+  expect(second).not.toBe(first);
+  const before = db.serialize();
+  expect(refusePullRequestQueue(db, "l", "h", first).tag).toBe("Err");
+  expect(refusePullRequestQueue(db, "l", "other", second ?? "").tag).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+  expect(parkPullRequest(db, "l", { head: "h", note: null })).toMatchObject({
+    tag: "Ok",
+    value: { queueHead: "h", queueAttempt: second },
+  });
 });
 
 test.each([

@@ -24,7 +24,7 @@ import { requestAssignmentReview } from "./review-requests.ts";
 import { abandonConversations } from "./sources.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
 import { adoptionOwner, type AdoptionFailure } from "./adoptions.ts";
-import { deliveryIdle } from "./delivery-guards.ts";
+import { deliveryIdle, stackIdle } from "./delivery-guards.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
@@ -39,7 +39,8 @@ export type PullRequestFailure =
         | "pr_branch_mismatch"
         | "internal_review_not_recorded"
         | "handoff_running"
-        | "pr_delivery_running";
+        | "pr_delivery_running"
+        | "pr_stack_running";
       detail: string;
     });
 
@@ -523,9 +524,12 @@ export function recordPullRequestWait(
               state: { launchBranch: launch.branch, prBranch: row.branch },
               detail: `This launch is on ${launch.branch ?? "no branch"}, but PR #${row.number} is on ${row.branch}. Nothing was changed.`,
             });
-          const idle = deliveryIdle(db, source.id, assignment.key);
-          if (idle.tag !== "Ok") return idle.map(() => null);
           const change = decide({ ...row, relayHeld: relayHeld(row) });
+          const observation = change?.relay === undefined || change.relay === row.relay;
+          const idle = deliveryIdle(db, source.id, assignment.key, observation).flatMap(() =>
+            stackIdle(db, source.id, assignment.key),
+          );
+          if (idle.tag !== "Ok") return idle.map(() => null);
           if (change === null) return Ok(null);
           const now = new Date().toISOString();
           // Only a running wait holds a lease. Its result releases it.

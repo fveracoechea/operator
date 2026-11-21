@@ -346,6 +346,73 @@ test("an enqueue refusal keeps the assignment active and names a safe retry", as
   expect(detach).not.toHaveBeenCalled();
 });
 
+test("a proven enqueue refusal releases only its attempt and permits fresh guarded admission", async () => {
+  const { device, input, head } = await owner(null, undefined, true);
+  await using _ = device;
+  let enqueues = 0;
+  device.answer((args) => {
+    if (requestKind(args) === "enqueue") {
+      enqueues += 1;
+      return enqueues === 1
+        ? succeeded({
+            data: null,
+            errors: [
+              {
+                type: "UNPROCESSABLE",
+                path: ["enqueuePullRequest"],
+                message: "Queue admission refused.",
+              },
+            ],
+          })
+        : succeeded({ data: { enqueuePullRequest: { mergeQueueEntry: { id: "Q8" } } } });
+    }
+    return succeeded(
+      pullRequestBody({ head, queueEnabled: true, queueEntry: enqueues > 1 ? "Q8" : null }),
+    );
+  });
+  expect(await merge(input)).toMatchObject({ tag: "Err", error: { reason: "pr_enqueue_refused" } });
+  expect(JSON.parse(device.pullRequestRow("other")?.parking ?? "null")).toMatchObject({
+    queueHead: null,
+  });
+  expect(await merge(input)).toMatchObject({ tag: "Ok", value: { reason: "pr_enqueued" } });
+  expect(enqueues).toBe(2);
+  expect(device.calls.filter((args) => requestKind(args) === "pull_request")).toHaveLength(2);
+  expect(device.calls.some((args) => args.includes("PUT"))).toBe(false);
+});
+
+test.each([
+  uncertain("lost response"),
+  failed("generic API failure"),
+  succeeded({ data: null, errors: [{ message: "Internal server error" }] }),
+  succeeded({
+    data: { enqueuePullRequest: { mergeQueueEntry: { id: "Q7" } } },
+    errors: [{ type: "UNPROCESSABLE", message: "Partial response failure" }],
+  }),
+])("ambiguous enqueue answers retain the receipt despite absent membership: %j", async (answer) => {
+  const { device, input, head } = await owner(null, undefined, true);
+  await using _ = device;
+  device.answer((args) =>
+    requestKind(args) === "enqueue"
+      ? answer
+      : succeeded(pullRequestBody({ head, queueEnabled: true })),
+  );
+  expect((await merge(input)).tag).toBe("Err");
+  const receipt = DeviceState.prParkingSchema().parse(
+    JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+  );
+  expect(receipt).toMatchObject({ queueHead: head });
+  expect(await merge(input)).toMatchObject({
+    tag: "Ok",
+    value: { reason: "pr_merge_awaiting_batch" },
+  });
+  expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
+  expect(
+    DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    ).queueHead,
+  ).toBe(head);
+});
+
 test.each([false, true])(
   "an enqueue Defect keeps its cause when verification fails: %s",
   async (fails) => {

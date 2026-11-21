@@ -20,11 +20,47 @@ import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { changeReviewRequest } from "./review-requests.ts";
 import { Ok } from "unthrown";
+import { deliveryFixture } from "./delivery-fixture.ts";
+import { admitDelivery } from "./deliveries.ts";
 import {
   beforeKindsMigration,
   historicalAssignment,
   migrateKinds,
 } from "./kind-migration-fixture.ts";
+
+test.each(["direct", "stack"] as const)(
+  "queued observation retains the unfinished %s fence",
+  (effect) => {
+    using client = deliveryFixture();
+    if (effect === "direct")
+      expect(
+        admitDelivery(client, { launchId: "l", head: "h", selected: false, session: null }, true)
+          .tag,
+      ).toBe("Ok");
+    else
+      insertRow(client, "stack_operations", {
+        id: "stack",
+        source_id: "s",
+        assignment: "a",
+        launch_id: "l",
+        revision: 1,
+        state: "uncertain",
+        data: "{}",
+      });
+    client.exec(`UPDATE pull_requests SET parking = '{"state":"active","queueHead":"h"}'`);
+    const before = client.serialize();
+    expect(
+      recordPullRequestWait(client, "l", (row) => ({
+        progress: row.progress,
+        waitState: "waiting",
+      })),
+    ).toMatchObject({
+      tag: "Err",
+      error: { reason: effect === "direct" ? "pr_delivery_running" : "pr_stack_running" },
+    });
+    expect(client.serialize()).toEqual(before);
+  },
+);
 
 test.each([null, "historical-head"])(
   "owner reads preserve migration readiness and historical head %s",
