@@ -107,3 +107,33 @@ Parking, live wait, batch completion ownership, and direct/stack exclusion remai
 These receipts remain under `/tmp/opencode/issue373-qualification/runs/`.
 Final qualification and both new independent reviews must name the corrected descendant, not b7c0fb9.
 No new mutation campaign, consumer note, command, migration, or release action belongs to this correction.
+
+## External membership without a local receipt
+
+The frozen `0a6e45e0dafdd352195f5e948a6d0b44886f6fa7` full-quality run finished unchanged before further edits.
+It passed 4,905 tests with 37,511 assertions across 362 files.
+Its receipt is `/tmp/opencode/issue373-qualification/runs/pr415-ordering-final-quality.json`.
+The narrow Spec review was clean, but Standards reproduced one uncovered initial-membership branch without a local queue receipt.
+The reports are `/tmp/opencode/operator-next-release-415-ordering-spec.md` and `/tmp/opencode/operator-next-release-415-ordering-standards.md`.
+All recorded-attempt ordering and prior finding dispositions remain resolved.
+
+An initial matching-head membership now creates a guarded observation receipt before another GitHub read.
+The receipt retains the actual queue-entry identity and head in `queueObservation`.
+Its `queueAttempt` is null because Operator did not submit that external enqueue.
+The existing queue-head exclusion prevents later absent or failed reads from permitting direct or queue delivery.
+First queue-facts membership without a receipt uses the same observation boundary.
+Parking preserves the observation; it does not create an attempt identity or refusal proof.
+Existing historical queue receipts remain unknown rather than acquiring an invented submission.
+
+The transactional write retains current owner, source/assignment, branch, lifecycle, readiness/validation, supervisor, hold, direct, and stack guards.
+Local and selected parked heads must match the observation.
+Corrupt, closed, changed-head, or empty membership cannot create an accepted receipt.
+Persistence Err/Defect stops before the next GitHub read or admission.
+Primary enqueue failures and recorded-attempt confirmation remain unchanged.
+
+`pr415-external-membership-red.json` records the failing module and separate-process CLI paths before production edits.
+Receipts remain under `/tmp/opencode/issue373-qualification/runs/`.
+The corrected descendant requires fresh narrow Standards and Spec applicability reviews.
+Per the revised qualification sequence, both reviews must clear before another full-quality or smoke run.
+The 0a6 full-quality pass is history, not qualification of this descendant.
+No baseline changeset, migration, new command, consumer-note import, mutation campaign, hook change, or release action was added.

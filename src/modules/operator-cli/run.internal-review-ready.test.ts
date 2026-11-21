@@ -984,6 +984,47 @@ test.each([
   120000,
 );
 
+test.each(["absent", "lost"] as const)(
+  "initial external membership without a receipt survives %s queue facts and CLI restart",
+  async (later) => {
+    const { source, head } = await parkedFixture();
+    const facts = {
+      head,
+      reviewDecision: "APPROVED",
+      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      isMergeQueueEnabled: true,
+    };
+    expect((await shown(source)).pullRequests[0]?.parking).toMatchObject({
+      queueHead: null,
+      queueAttempt: null,
+    });
+    await github({
+      pulls: [pull({ ...facts, queueEntry: "Q7" })],
+      queueMembershipReads: [later === "lost" ? "lost" : null],
+    });
+    const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+    await run(command);
+    const accepted = (await shown(source)).pullRequests[0]?.parking;
+    const immediateEnqueues = await calls("gh-calls.jsonl", "mutation EnqueuePR");
+    await github({ pulls: [pull(facts)] });
+    await run(command);
+    await run(command);
+    const after = await shown(source);
+    expect(accepted).toMatchObject({
+      queueHead: head,
+      queueAttempt: null,
+      queueConfirmed: true,
+      queueObservation: { head, entry: "Q7" },
+    });
+    expect(after.pullRequests[0]?.parking).toEqual(accepted);
+    expect(after.assignments.find((row) => row.key === "implement")?.state).toBe("pr-open");
+    expect(immediateEnqueues).toBe(0);
+    expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  },
+  120000,
+);
+
 test("an omitted queue field preserves parked cursors and the batch retry schedule", async () => {
   const { source, head } = await parkedFixture();
   const facts = pull({

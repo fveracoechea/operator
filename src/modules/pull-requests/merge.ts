@@ -1,4 +1,13 @@
-import { ErrAsync, Ok, OkAsync, P, fromPromise, type AsyncResult, type Result } from "unthrown";
+import {
+  Err,
+  ErrAsync,
+  Ok,
+  OkAsync,
+  P,
+  fromPromise,
+  type AsyncResult,
+  type Result,
+} from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -180,58 +189,61 @@ function guarded(
   if (decision.result === "verify") {
     if (queueHead !== null) return awaitBatch(input, owner, number, observed);
     if (input.sourceId === undefined) return verify(input, owner, number, null, null);
-    return readQueue(input, owner, number).flatMap((queue): AsyncResult<Outcome, Failure> =>
-      queue.enabled
-        ? OkAsync({
-            reason: "pr_merge_awaiting_batch",
-            data: {
-              sourceId: owner.sourceId,
-              assignment: owner.assignment,
-              number,
-              head: observed.head,
-              state: "pr-open",
-            },
-            next: {
-              command: `operator next --source ${owner.sourceId} --wait`,
-              why: "Only the parked batch records the queued merge and starts cleanup.",
-            },
-          })
-        : verify(input, owner, number, null, null),
+    return readQueue(input, owner, number, observed.head).flatMap(
+      (queue): AsyncResult<Outcome, Failure> =>
+        queue.enabled
+          ? OkAsync({
+              reason: "pr_merge_awaiting_batch",
+              data: {
+                sourceId: owner.sourceId,
+                assignment: owner.assignment,
+                number,
+                head: observed.head,
+                state: "pr-open",
+              },
+              next: {
+                command: `operator next --source ${owner.sourceId} --wait`,
+                why: "Only the parked batch records the queued merge and starts cleanup.",
+              },
+            })
+          : verify(input, owner, number, null, null),
     );
   }
   return fromPromise(() => mergePhase(owner), qualify).flatMap(
     (phase): AsyncResult<Outcome, Failure> => {
       if (phase !== null) return ErrAsync(phase);
-      return readQueue(input, owner, number).flatMap((queue): AsyncResult<Outcome, Failure> => {
-        if (queueHead !== null && queue.entry === null)
-          return recoverQueueRefusal(input, owner, number, observed, queue);
-        if (queue.enabled || queue.entry !== null)
-          return queuedMerge(input, owner, number, observed, decision.head, queue);
-        if (queueHead !== null) return awaitBatch(input, owner, number, observed);
-        // A refused or lost answer can follow a merge that landed, so every answer is verified.
-        return DeviceState.admitDelivery(input.paths, {
-          launchId: owner.launchId,
-          head: decision.head,
-          selected: input.sourceId !== undefined,
-          session: Environment.caller().session,
-        })
-          .toAsync()
-          .flatMap((delivery): AsyncResult<Outcome, Failure> => {
-            if (delivery === null)
-              return ErrAsync({
-                reason: "pr_delivery_running",
-                detail: "No direct intent was recorded.",
-                next: { command: mergeCommand(input), why: "Read the delivery state." },
-              });
-            return directDelivery({
-              paths: input.paths,
-              owner,
-              number,
-              delivery,
-              method: decision.method,
-            }).flatMap((merged) => record(input, owner, number, merged));
-          });
-      });
+      return readQueue(input, owner, number, decision.head).flatMap(
+        (queue): AsyncResult<Outcome, Failure> => {
+          if (queueHead !== null && queue.entry === null)
+            return recoverQueueRefusal(input, owner, number, observed, queue);
+          if (queue.enabled || queue.entry !== null)
+            return queuedMerge(input, owner, number, observed, decision.head, queue);
+          if (queueHead !== null) return awaitBatch(input, owner, number, observed);
+          // A refused or lost answer can follow a merge that landed, so every answer is verified.
+          return DeviceState.admitDelivery(input.paths, {
+            launchId: owner.launchId,
+            head: decision.head,
+            selected: input.sourceId !== undefined,
+            session: Environment.caller().session,
+          })
+            .toAsync()
+            .flatMap((delivery): AsyncResult<Outcome, Failure> => {
+              if (delivery === null)
+                return ErrAsync({
+                  reason: "pr_delivery_running",
+                  detail: "No direct intent was recorded.",
+                  next: { command: mergeCommand(input), why: "Read the delivery state." },
+                });
+              return directDelivery({
+                paths: input.paths,
+                owner,
+                number,
+                delivery,
+                method: decision.method,
+              }).flatMap((merged) => record(input, owner, number, merged));
+            });
+        },
+      );
     },
   );
 }
@@ -243,23 +255,49 @@ function rememberMembership(
   input: Request,
   owner: Owner,
   observed: { head: string; state: string; entry: string | null },
-): Result<undefined, Failure> {
-  if (observed.entry === null) return Ok(undefined);
+  local: string | null,
+): Result<Owner, Failure> {
+  if (observed.entry === null) return Ok(owner);
   const parking =
     owner.parking === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(owner.parking));
-  if (parking?.queueHead === undefined || parking.queueHead === null) return Ok(undefined);
+  if (parking?.queueHead === undefined || parking.queueHead === null) {
+    if (
+      local === null ||
+      observed.head !== local ||
+      (owner.parkedHead !== undefined && observed.head !== owner.parkedHead)
+    )
+      return Err({
+        reason: "pr_head_mismatch",
+        detail:
+          "Observed queue membership does not match the retained local head. Nothing was recorded or submitted.",
+        next: {
+          command: mergeCommand(input),
+          why: "Reconcile the current PR head before delivery.",
+        },
+      });
+    return DeviceState.recordPullRequestQueueObservation(
+      input.paths,
+      owner.launchId,
+      local,
+      observed,
+      {
+        selected: input.sourceId !== undefined,
+        session: Environment.caller().session,
+      },
+    ).map((recorded) => ({ ...owner, parking: JSON.stringify(recorded) }));
+  }
   return recordQueueObservation(
     input,
     owner,
     parking.queueHead,
     parking.queueAttempt,
     Ok(observed),
-  );
+  ).map(() => owner);
 }
 
-function readQueue(input: Request, owner: Owner, number: number) {
+function readQueue(input: Request, owner: Owner, number: number, head: string) {
   return readMergeQueue(owner.repository, number).flatMap((queue) =>
-    rememberMembership(input, owner, queue)
+    rememberMembership(input, owner, queue, head)
       .toAsync()
       .map(() => queue),
   );
@@ -394,6 +432,8 @@ function queuedMerge(
             state: { expectedHead: head, queued: confirmed.entry !== null },
           });
         }
+        if (attempt === null && (parking?.queueAttempt ?? null) === null)
+          return awaitBatch(input, owner, number, observed);
         return owner.launchState === "running"
           ? parkQuietWait(input, owner, observed).map(() =>
               enqueued(owner, number, head, confirmed.entry),
@@ -580,18 +620,21 @@ export function merge(input: Request): AsyncResult<Outcome, Failure> {
                   record(input, owner, number, merged),
                 ),
               );
-          return observePullRequest(owner.repository, number).flatMap((observed) =>
-            rememberMembership(input, owner, {
-              head: observed.head,
-              state: observed.state,
-              entry: observed.queueEntry ?? null,
-            })
-              .toAsync()
-              .flatMap(() =>
-                fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
-                  guarded(input, owner, number, observed, local),
-                ),
-              ),
+          return fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
+            observePullRequest(owner.repository, number).flatMap((observed) =>
+              rememberMembership(
+                input,
+                owner,
+                {
+                  head: observed.head,
+                  state: observed.state,
+                  entry: observed.queueEntry ?? null,
+                },
+                local,
+              )
+                .toAsync()
+                .flatMap((remembered) => guarded(input, remembered, number, observed, local)),
+            ),
           );
         });
     })

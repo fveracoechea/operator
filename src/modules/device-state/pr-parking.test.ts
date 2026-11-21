@@ -5,6 +5,7 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { migrationsFolder } from "./database.ts";
 import { insertRow } from "./state-fixture.ts";
+import { admitDelivery } from "./deliveries.ts";
 import {
   parkPullRequest,
   completeParking,
@@ -13,6 +14,7 @@ import {
   resumeParkedPullRequest,
   prParkingSchema,
   recordPullRequestQueue,
+  recordPullRequestQueueObservation,
   refusePullRequestQueue,
   recordPullRequestQueueRefusal,
   activateParking,
@@ -84,6 +86,154 @@ test("queue disposition belongs to the PR receipt and survives parking again", (
   const claim = claimParkedRead(db, Date.now()).getOr(null);
   expect(claim?.rows[0]?.parking).toMatchObject({ queueHead: "h", head: "h", state: "parked" });
 });
+
+test("observed external membership retains its resource identity without a submission attempt", () => {
+  using db = fixture();
+  const observed = { head: "h", state: "OPEN", entry: "Q_EXTERNAL" };
+  expect(recordPullRequestQueueObservation(db, "l", "h", observed)).toMatchObject({
+    tag: "Ok",
+    value: {
+      launchId: "l",
+      queueHead: "h",
+      queueAttempt: null,
+      queueConfirmed: true,
+      queueObservation: { head: "h", entry: "Q_EXTERNAL" },
+    },
+  });
+  const before = db.serialize();
+  expect(recordPullRequestQueue(db, "l", "h").getOr("unexpected")).toBeNull();
+  expect(recordPullRequestQueueRefusal(db, "l", "h", "invented", "Not ours.").tag).toBe("Err");
+  expect(
+    admitDelivery(db, { launchId: "l", head: "h", selected: false, session: null }, true),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
+  expect(db.serialize()).toEqual(before);
+  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 0 });
+  expect(db.query("SELECT source_id, assignment, number FROM pull_requests").all()).toEqual([
+    { source_id: "s", assignment: "a", number: 7 },
+  ]);
+  expect(parkPullRequest(db, "l", { head: "h", note: null })).toMatchObject({
+    tag: "Ok",
+    value: {
+      queueHead: "h",
+      queueAttempt: null,
+      queueConfirmed: true,
+      queueObservation: { head: "h", entry: "Q_EXTERNAL" },
+    },
+  });
+});
+
+test.each([
+  { head: "changed", state: "OPEN", entry: "Q_OTHER" },
+  { head: "h", state: "CLOSED", entry: "Q_EXTERNAL" },
+  { head: "h", state: "MERGED", entry: "Q_EXTERNAL" },
+  { head: "h", state: "OPEN", entry: null },
+  { head: "h", state: "OPEN", entry: "" },
+])("an invalid external observation writes no accepted receipt: %j", (observed) => {
+  using db = fixture();
+  const before = db.serialize();
+  expect(recordPullRequestQueueObservation(db, "l", "h", observed).tag).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+});
+
+test.each([
+  "UPDATE sources SET state = 'closed'",
+  "UPDATE assignments SET state = 'running'",
+  "UPDATE launches SET state = 'finished'",
+  "UPDATE pull_requests SET branch = 'foreign'",
+  "UPDATE pull_requests SET readiness = NULL",
+  'UPDATE pull_requests SET parking = \'{"launchId":"l","head":"h","at":"then","note":null,"state":"closed","events":[]}\'',
+  'UPDATE pull_requests SET parking = \'{"launchId":"l","head":"h","at":"then","note":null,"state":"active","events":[],"queueHead":"h"}\'',
+  'UPDATE pull_requests SET parking = \'{"launchId":"l","head":"h","at":"then","note":null,"state":"active","events":[],"queueAttempt":"other"}\'',
+])("external observation respects owner/lifecycle/historical guards: %s", (sql) => {
+  using db = fixture();
+  db.exec(sql);
+  const before = db.serialize();
+  expect(
+    recordPullRequestQueueObservation(db, "l", "h", {
+      head: "h",
+      state: "OPEN",
+      entry: "Q_EXTERNAL",
+    }).tag,
+  ).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+});
+
+test("a replaced launch cannot record external membership for its former assignment", () => {
+  using db = fixture();
+  insertRow(db, "launches", {
+    id: "new-owner",
+    source_id: "s",
+    assignment: "a",
+    attempt: 2,
+    state: "running",
+    branch: "task/a",
+  });
+  const before = db.serialize();
+  expect(
+    recordPullRequestQueueObservation(db, "l", "h", {
+      head: "h",
+      state: "OPEN",
+      entry: "Q_EXTERNAL",
+    }).tag,
+  ).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+});
+
+test.each(["hold", "direct", "stack", "supervisor"] as const)(
+  "external membership cannot bypass the %s fence",
+  (guard) => {
+    using db = fixture();
+    if (guard === "hold")
+      insertRow(db, "obligations", {
+        source_id: "s",
+        key: "hold",
+        kind: "merge-hold",
+        state: "open",
+      });
+    if (guard === "direct")
+      expect(
+        admitDelivery(db, { launchId: "l", head: "h", selected: false, session: null }, true).tag,
+      ).toBe("Ok");
+    if (guard === "stack")
+      insertRow(db, "stack_operations", {
+        id: "stack",
+        source_id: "s",
+        assignment: "a",
+        launch_id: "l",
+        revision: 1,
+        state: "uncertain",
+        data: "{}",
+      });
+    const before = db.serialize();
+    expect(
+      recordPullRequestQueueObservation(
+        db,
+        "l",
+        "h",
+        { head: "h", state: "OPEN", entry: "Q_EXTERNAL" },
+        { selected: guard === "supervisor", session: null },
+      ).tag,
+    ).toBe("Err");
+    expect(db.serialize()).toEqual(before);
+  },
+);
+
+test.each(["readiness", "parking"] as const)(
+  "corrupt %s cannot create an external membership receipt",
+  (column) => {
+    using db = fixture();
+    db.exec(`UPDATE pull_requests SET ${column} = 'broken'`);
+    const before = db.serialize();
+    expect(
+      recordPullRequestQueueObservation(db, "l", "h", {
+        head: "h",
+        state: "OPEN",
+        entry: "Q_EXTERNAL",
+      }).tag,
+    ).toBe("Defect");
+    expect(db.serialize()).toEqual(before);
+  },
+);
 
 test("a proven refusal releases only its exact queue attempt, never a later attempt at the same head", () => {
   using db = fixture();

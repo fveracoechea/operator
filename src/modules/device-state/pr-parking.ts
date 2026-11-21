@@ -40,6 +40,10 @@ const parkingReceipt = z.object({
     .nullable()
     .optional(),
   queueConfirmed: z.boolean().optional(),
+  queueObservation: z
+    .object({ head: z.string().min(1), entry: z.string().min(1) })
+    .nullable()
+    .optional(),
 });
 export const prParkingSchema = z.union([
   parkingReceipt.extend({
@@ -145,6 +149,85 @@ export function recordPullRequestQueue(
               .where(key(row))
               .run();
             return queueAttempt;
+          });
+        },
+      ),
+    ),
+  );
+}
+
+function queueObservationMatches(
+  head: string,
+  observed: { head: string; state: string; entry: string | null },
+) {
+  return (
+    observed.head === head && observed.state === "OPEN" && observed.entry !== "" && head !== ""
+  );
+}
+
+function noQueueDisposition(parking: PrParking | null) {
+  return (
+    parking === null ||
+    (parking.state !== "closed" &&
+      !parking.queueConfirmed &&
+      (parking.queueHead ?? null) === null &&
+      (parking.queueAttempt ?? null) === null &&
+      (parking.queueRefusal ?? null) === null &&
+      (parking.queueObservation ?? null) === null)
+  );
+}
+
+/** An external membership observation excludes delivery without claiming a local submission. */
+export function recordPullRequestQueueObservation(
+  client: Database,
+  launchId: string,
+  head: string,
+  observed: { head: string; state: string; entry: string | null },
+  actor = { selected: false, session: null as string | null },
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
+        ({ source, assignment, launch }): Result<PrParking, Refusal> => {
+          const entry = observed.entry;
+          const row = db
+            .select()
+            .from(pullRequests)
+            .where(key({ sourceId: source.id, assignment: assignment.key }))
+            .get();
+          if (
+            row === undefined ||
+            assignment.state !== "pr-open" ||
+            row.branch !== launch.branch ||
+            entry === null ||
+            !queueObservationMatches(head, observed)
+          )
+            return Err(refused());
+          const previous =
+            row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
+          if (!noQueueDisposition(previous)) return Err(refused());
+          return deliveryAdmission(db, { launchId, head, ...actor }, false).map(() => {
+            const parking: PrParking = {
+              ...(previous ?? {
+                launchId,
+                head,
+                at: new Date().toISOString(),
+                note: null,
+                state: "active",
+                events: [],
+                parentSeen: false,
+              }),
+              queueHead: head,
+              queueAttempt: null,
+              queueRefusal: null,
+              queueConfirmed: true,
+              queueObservation: { head, entry },
+            };
+            db.update(pullRequests)
+              .set({ parking: JSON.stringify(parking) })
+              .where(key(row))
+              .run();
+            return parking;
           });
         },
       ),
@@ -292,6 +375,7 @@ export function parkPullRequest(
               queueAttempt: previous?.queueAttempt ?? null,
               queueRefusal: previous?.queueRefusal ?? null,
               queueConfirmed: previous?.queueConfirmed ?? false,
+              queueObservation: previous?.queueObservation ?? null,
               parentSeen:
                 row.parking === null
                   ? false

@@ -501,6 +501,158 @@ test.each(["changed-head", "closed", "merged", "partial", "lost", "member"] as c
   },
 );
 
+test.each(["absent", "lost", "defect"] as const)(
+  "initial external membership without a local receipt survives later %s without enqueue",
+  async (later) => {
+    const { device, input, head } = await owner(null, undefined, true);
+    await using _ = device;
+    const cause = new TypeError("Queue facts failed.");
+    device.answer((args) => {
+      const kind = requestKind(args);
+      if (kind === "merge_queue") {
+        if (later === "lost") return uncertain("Queue facts lost.");
+        if (later === "defect") return Promise.reject(cause);
+      }
+      if (kind === "enqueue")
+        return succeeded({ data: { enqueuePullRequest: { mergeQueueEntry: { id: "Q_NEW" } } } });
+      return succeeded(
+        pullRequestBody({
+          head,
+          queueEnabled: true,
+          queueEntry: kind === "pull_request" ? "Q_EXTERNAL" : null,
+        }),
+      );
+    });
+    const result = await merge(input);
+    const accepted = DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    );
+    if (later === "lost")
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "github_uncertain" } });
+    if (later === "defect") {
+      expect(result.tag).toBe("Defect");
+      if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    }
+    device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true })));
+    await merge(input);
+    await merge(input);
+    expect(accepted).toMatchObject({
+      queueHead: head,
+      queueAttempt: null,
+      queueConfirmed: true,
+      queueObservation: { head, entry: "Q_EXTERNAL" },
+    });
+    expect(
+      DeviceState.prParkingSchema().parse(
+        JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+      ),
+    ).toMatchObject({
+      queueHead: head,
+      queueAttempt: null,
+      queueConfirmed: true,
+      queueObservation: { head, entry: "Q_EXTERNAL" },
+    });
+    expect(device.pullRequestRow("other")).toMatchObject({
+      sourceId: device.sourceId,
+      assignment: "other",
+    });
+    expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(0);
+    expect(device.calls.some((args) => args.includes("PUT"))).toBe(false);
+  },
+);
+
+test("external membership reports batch observation rather than a local enqueue", async () => {
+  const { device, input, head } = await owner(null, undefined, true);
+  await using _ = device;
+  device.answer(() =>
+    succeeded(pullRequestBody({ head, queueEnabled: true, queueEntry: "Q_EXTERNAL" })),
+  );
+  expect(await merge(input)).toMatchObject({
+    tag: "Ok",
+    value: { reason: "pr_merge_awaiting_batch" },
+  });
+  expect(
+    DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    ),
+  ).toMatchObject({
+    queueHead: head,
+    queueAttempt: null,
+    queueObservation: { head, entry: "Q_EXTERNAL" },
+  });
+  expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(0);
+});
+
+test.each([
+  ["pull_request", "err"],
+  ["pull_request", "defect"],
+  ["merge_queue", "err"],
+  ["merge_queue", "defect"],
+] as const)(
+  "external membership from %s persistence %s stops before another read or admission",
+  async (membershipRead, failure) => {
+    const { device, input, head } = await owner(null, undefined, true);
+    await using _ = device;
+    const before = device.pullRequestRow("other");
+    const cause = new TypeError("External membership persistence failed.");
+    const defect = await fromPromise(
+      () => Promise.reject(cause),
+      (_cause, unexpected) => unexpected(cause),
+    );
+    const refusal = {
+      reason: "pr_resume_refused" as const,
+      detail: "Observation write refused.",
+      next: { command: "operator next", why: "Read the owner." },
+    };
+    spyOn(DeviceState, "recordPullRequestQueueObservation").mockReturnValue(
+      failure === "err"
+        ? Err(refusal)
+        : defect.map(() => ({
+            launchId: "unused",
+            head,
+            at: "unused",
+            note: null,
+            state: "active" as const,
+            events: [],
+            parentSeen: false,
+          })),
+    );
+    device.answer((args) =>
+      succeeded(
+        pullRequestBody({
+          head,
+          queueEnabled: true,
+          queueEntry: requestKind(args) === membershipRead ? "Q_EXTERNAL" : null,
+        }),
+      ),
+    );
+    const result = await merge(input);
+    if (failure === "err") expect(result).toMatchObject({ tag: "Err", error: refusal });
+    else {
+      expect(result.tag).toBe("Defect");
+      if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    }
+    expect(device.calls.map(requestKind)).toEqual(
+      membershipRead === "pull_request" ? ["pull_request"] : ["pull_request", "merge_queue"],
+    );
+    expect(device.pullRequestRow("other")).toEqual(before);
+  },
+);
+
+test("initial external membership at a different head creates no receipt or effect", async () => {
+  const { device, input } = await owner(null, undefined, true);
+  await using _ = device;
+  const before = device.pullRequestRow("other");
+  const write = spyOn(DeviceState, "recordPullRequestQueueObservation");
+  device.answer(() =>
+    succeeded(pullRequestBody({ head: "other", queueEnabled: true, queueEntry: "Q_OTHER" })),
+  );
+  expect(await merge(input)).toMatchObject({ tag: "Err", error: { reason: "pr_head_mismatch" } });
+  expect(write).not.toHaveBeenCalled();
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  expect(device.pullRequestRow("other")).toEqual(before);
+});
+
 async function pendingQueueRefusal() {
   const fixture = await owner(null, undefined, true);
   const { device, input, head } = fixture;
@@ -530,7 +682,7 @@ async function pendingQueueRefusal() {
   return { ...fixture, parking };
 }
 
-test("a newly recorded attempt retains first membership before a lost second read", async () => {
+test("external first queue membership records observation, not submission identity, before a lost second read", async () => {
   const { device, input, head } = await owner(null, undefined, true);
   await using _ = device;
   let queueReads = 0;
@@ -554,7 +706,8 @@ test("a newly recorded attempt retains first membership before a lost second rea
     queueConfirmed: true,
     queueRefusal: null,
   });
-  expect(accepted.queueAttempt).toBeTruthy();
+  expect(accepted.queueAttempt).toBeNull();
+  expect(accepted.queueObservation).toEqual({ head, entry: "Q7" });
   device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true })));
   await merge(input);
   expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(0);
