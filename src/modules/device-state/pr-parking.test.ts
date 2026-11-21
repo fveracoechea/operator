@@ -118,15 +118,17 @@ test.each(["refused", "confirmed", "external"] as const)(
     const before = db.serialize();
     expect(recordPullRequestQueue(db, "l", "different").tag).toBe("Err");
     expect(db.serialize()).toEqual(before);
-    const claim = claimParkedRead(db, Date.now()).getOr(null);
-    expect(claim?.rows[0]?.parking).toMatchObject({
+    const claim =
+      claimParkedRead(db, Date.now()).getOr(null) ??
+      expect.unreachable("The batch must own its read lease.");
+    const parked = claim.rows[0] ?? expect.unreachable("The batch must claim the parked PR.");
+    expect(parked.parking).toMatchObject({
       ...queue,
       head: "h",
       state: "parked",
       ...cursors,
     });
-    const parked = claim?.rows[0] ?? expect.unreachable("The batch must claim the parked PR.");
-    const at = claim?.at ?? expect.unreachable("The batch must own its read lease.");
+    const at = claim.at;
     const parking = {
       ...parked.parking,
       parentsSeen: [...cursors.parentsSeen, "complete all-parent observation"],
