@@ -107,19 +107,24 @@ export function pullRequestArgs(args: string[]) {
   if (group === "cleanup") return cleanupArgs(args.slice(1));
   if (group === "internal-review")
     return name === "recover" ? recoveryArgs(flags) : skipArgs(args.slice(1));
-  if (group === "pr" && name === "round") {
+  if (group === "pr" && ["round", "ready"].includes(name ?? "")) return reviewArgs(name, flags);
+  const command = ownerCommands.find((known) => known === name);
+  if (group !== "pr" || command === undefined) return null;
+  return ownerArgs(command, flags);
+}
+
+function reviewArgs(name: string | undefined, flags: string[]) {
+  if (name === "round") {
     const parsed = proseArgs(flags, ["--file"]);
     return parsed?.file === undefined
       ? null
       : { operation: "pr_round" as const, file: parsed.file };
   }
-  if (group === "pr" && name === "ready") {
+  if (name === "ready") {
     const parsed = proseArgs(flags, ["--file", "--note"]);
     return parsed === null ? null : { operation: "pr_ready" as const, ...parsed };
   }
-  const command = ownerCommands.find((known) => known === name);
-  if (group !== "pr" || command === undefined) return null;
-  return ownerArgs(command, flags);
+  return null;
 }
 
 function ownerArgs(command: string, flags: string[]) {

@@ -1,9 +1,12 @@
 import { afterEach, expect, spyOn, test, mock } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+// Bun has no temporary-directory location API.
+import { tmpdir } from "node:os";
 import { PrStacks } from "./main.ts";
 import { GithubApi } from "../github-api/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import { Err, Ok } from "unthrown";
 
 let root: string | undefined;
 afterEach(async () => {
@@ -13,7 +16,7 @@ afterEach(async () => {
 });
 
 test("independent prerequisites produce a deterministic dependency-only base with leased publication", async () => {
-  root = await mkdtemp("/tmp/opencode/pr-stacks-");
+  root = await mkdtemp(`${tmpdir()}/pr-stacks-`);
   const cwd = root;
   async function git(...args: string[]) {
     const answer = await ToolInvocation.run({ tool: "git", cwd, args, timeoutMs: 10000 });
@@ -83,12 +86,79 @@ test("independent prerequisites produce a deterministic dependency-only base wit
   expect(await git("ls-tree", "--name-only", base.head)).toBe("a\nb");
   expect(await git("rev-parse", "HEAD")).toEqual(heads.get(2) ?? "");
   expect(await PrStacks.prepare({ ...input, parents: parents.toReversed() })).toEqual(prepared);
-  expect((await PrStacks.publish({ cwd, remote: "origin", base })).tag).toBe("Ok");
-  expect((await PrStacks.publish({ cwd, remote: "origin", base })).tag).toBe("Ok");
+  expect(await PrStacks.start(input)).toMatchObject({
+    tag: "Ok",
+    value: { head: base.head, branch: base.branch, remote: "origin" },
+  });
+  expect(await git("ls-remote", "origin", `refs/heads/${base.branch}`)).toBe("");
+  let intents = 0;
+  const denied = {
+    reason: "stack_parent",
+    detail: "Controlled persistence failure.",
+    next: { command: "operator next", why: "Inspect durable intent first." },
+  };
+  expect(
+    await PrStacks.publish({
+      cwd,
+      remote: "origin",
+      base,
+      attempted: false,
+      beforePush: () => {
+        intents++;
+        return Err(denied);
+      },
+    }),
+  ).toMatchObject({ tag: "Err", error: denied });
+  expect(intents).toBe(1);
+  expect(await git("ls-remote", "origin", `refs/heads/${base.branch}`)).toBe("");
+  expect(
+    await PrStacks.publish({
+      cwd,
+      remote: "origin",
+      base,
+      attempted: true,
+      beforePush: () => {
+        intents++;
+        return Ok(undefined);
+      },
+    }),
+  ).toMatchObject({ tag: "Err" });
+  expect(intents).toBe(1);
+  expect(await git("ls-remote", "origin", `refs/heads/${base.branch}`)).toBe("");
+  expect(
+    (
+      await PrStacks.publish({
+        cwd,
+        remote: "origin",
+        base,
+        attempted: false,
+        beforePush: () => Ok(undefined),
+      })
+    ).tag,
+  ).toBe("Ok");
+  expect(
+    (
+      await PrStacks.publish({
+        cwd,
+        remote: "origin",
+        base,
+        attempted: true,
+        beforePush: () => Ok(undefined),
+      })
+    ).tag,
+  ).toBe("Ok");
   expect(await git("ls-remote", "origin", `refs/heads/${base.branch}`)).toStartWith(base.head);
   expect(PrStacks.decode(JSON.stringify(base))).toEqual(base);
   expect(
-    (await PrStacks.publish({ cwd, remote: "origin", base: { ...base, branch: "a" } })).tag,
+    (
+      await PrStacks.publish({
+        cwd,
+        remote: "origin",
+        base: { ...base, branch: "a" },
+        attempted: false,
+        beforePush: () => Ok(undefined),
+      })
+    ).tag,
   ).toBe("Err");
   const single = await PrStacks.prepare({
     ...input,

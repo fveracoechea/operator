@@ -368,14 +368,18 @@ test("parked observation reads all PRs and recorded parents in one validated Git
       data: {
         viewer: { login: "owner" },
         r0: answer().repository,
-        r1: { ...answer({ headRefOid: "child-head" }).repository, parent },
+        r1: {
+          ...answer({ headRefOid: "child-head" }).repository,
+          parent,
+          parent1: { ...parent, headRefOid: "other-head", state: "OPEN" },
+        },
       },
     }),
   );
   expect(
     await observeParkedPullRequests([
       { repository: "owner/one", number: 7, parent: null },
-      { repository: "owner/two", number: 8, parent: 6 },
+      { repository: "owner/two", number: 8, parent: 6, parents: [6, 9] },
     ]),
   ).toMatchObject({
     tag: "Ok",
@@ -384,6 +388,10 @@ test("parked observation reads all PRs and recorded parents in one validated Git
       {
         observed: { head: "child-head" },
         parent: { state: "MERGED", head: "parent-head", base: "main" },
+        parents: [
+          { number: 6, state: "MERGED" },
+          { number: 9, state: "OPEN", head: "other-head" },
+        ],
       },
     ],
   });
@@ -392,6 +400,7 @@ test("parked observation reads all PRs and recorded parents in one validated Git
   expect(query).toContain('r0: repository(owner: "owner", name: "one")');
   expect(query).toContain('r1: repository(owner: "owner", name: "two")');
   expect(query).toContain("parent: pullRequest(number: 6)");
+  expect(query).toContain("parent1: pullRequest(number: 9)");
 });
 
 test("a partial parked batch or missing recorded parent refuses without another GitHub read", async () => {

@@ -6,8 +6,9 @@ import { Ok } from "unthrown";
 import { z } from "zod";
 import { migrationsFolder } from "./database.ts";
 import { insertRow } from "./state-fixture.ts";
-import { changeStack, readStack, restartStackReview } from "./stacks.ts";
+import { changeStack, readStack, restartStackReview, beginStackReview } from "./stacks.ts";
 import { startHandoff } from "./internal-reviews.ts";
+import { recordPullRequestQueue } from "./pr-parking.ts";
 
 function stackDevice() {
   const client = new Database(":memory:");
@@ -65,15 +66,15 @@ test("a changed stack archives an exhausted review and requires a genuinely fres
     Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
   );
   expect(created).toMatchObject({ tag: "Ok", value: { revision: 1 } });
+  expect(beginStackReview(client, "reviewer", "operation", 1).tag).toBe("Err");
   const restarted = restartStackReview(client, "reviewer", "operation", 1);
   expect(restarted).toMatchObject({ tag: "Ok", value: { revision: 2 } });
   const current = client
-    .query("SELECT state, implementer_launch_id, handoff_state, ready_head FROM internal_reviews")
+    .query("SELECT state, implementer_launch_id, ready_head FROM internal_reviews")
     .get();
   expect(current).toEqual({
     state: "reviewing",
     implementer_launch_id: "reviewer",
-    handoff_state: "pending",
     ready_head: null,
   });
   expect(client.query("SELECT number FROM internal_review_rounds").all()).toEqual([]);
@@ -94,19 +95,61 @@ test("a changed stack archives an exhausted review and requires a genuinely fres
   });
 });
 
-test("a stack-created review transfers its null handoff claim and blocks competing stack effects", () => {
+test.each(["known", "unknown"] as const)(
+  "stack invalidation archives %s readiness bytes before clearing active authority",
+  (origin) => {
+    using client = stackDevice();
+    const receipt =
+      origin === "known"
+        ? {
+            head: "reviewed-head",
+            at: "original-at",
+            note: "/original-note",
+            dispositions: [
+              { round: 2, finding: 1, disposition: "declined", reason: "Not applicable." },
+            ],
+          }
+        : {
+            origin: "migration-0026",
+            head: null,
+            at: "migration-at",
+            note: null,
+            dispositions: [],
+          };
+    const raw = JSON.stringify(receipt, null, 2);
+    const progress = '{"seen":["original-comment"],"failures":[],"eligibleHead":"reviewed-head"}';
+    client.query("UPDATE pull_requests SET readiness = ?, progress = ?").run(raw, progress);
+    expect(
+      changeStack(client, "reviewer", "operation", null, () =>
+        Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+      ).tag,
+    ).toBe("Ok");
+    const result = restartStackReview(client, "reviewer", "operation", 1);
+    expect(result.tag).toBe("Ok");
+    if (result.tag !== "Ok") return;
+    expect(JSON.parse(result.value.reviewHistory ?? "null")).toMatchObject({
+      readinessRaw: raw,
+      readiness: receipt,
+      progress,
+    });
+    expect(client.query("SELECT readiness FROM pull_requests").get()).toEqual({ readiness: null });
+    expect(client.query("SELECT next_kind FROM kind_handoffs").all()).toEqual([]);
+  },
+);
+
+test("a null handoff claim cannot publish a successor or authorize competing stack effects", () => {
   using client = stackDevice();
-  insertRow(client, "internal_reviews", {
+  insertRow(client, "kind_handoffs", {
     source_id: "source",
     assignment: "child",
-    state: "reviewing",
-    implementer_launch_id: "reviewer",
+    outgoing_launch_id: "reviewer",
+    next_kind: "review",
     handoff_state: "pending",
     owner_pid: null,
     lease_at: null,
   });
   expect(startHandoff(client, "source", "child", 1).tag).toBe("Ok");
-  expect(client.query("SELECT owner_pid FROM internal_reviews").get()).toEqual({ owner_pid: 1 });
+  expect(client.query("SELECT owner_pid FROM kind_handoffs").get()).toEqual({ owner_pid: null });
   expect(
     changeStack(client, "reviewer", "operation", null, () =>
       Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
@@ -147,4 +190,67 @@ test("a replacement launch can claim exact unfinished progress but the old launc
     tag: "Ok",
     value: { data: "replacement" },
   });
+});
+
+test("unresolved queue and stack effects exclude one another at transactional admission", () => {
+  using client = stackDevice();
+  client
+    .query("UPDATE pull_requests SET parking = ?")
+    .run(JSON.stringify({ queueHead: "guarded-head" }));
+  expect(
+    changeStack(client, "reviewer", "operation", null, () =>
+      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+    ),
+  ).toMatchObject({
+    tag: "Err",
+    error: { reason: "stack_incomplete" },
+  });
+  expect(client.query("SELECT id FROM stack_operations").all()).toEqual([]);
+  client.exec("UPDATE pull_requests SET parking = NULL");
+  expect(
+    changeStack(client, "reviewer", "operation", null, () =>
+      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+    ).tag,
+  ).toBe("Ok");
+  expect(recordPullRequestQueue(client, "reviewer", "guarded-head")).toMatchObject({
+    tag: "Err",
+    error: { reason: "stack_incomplete" },
+  });
+  expect(client.query("SELECT parking FROM pull_requests").get()).toEqual({ parking: null });
+});
+
+test("same-worktree replacement keeps archived review bytes and becomes the explicit outgoing stack owner", () => {
+  using client = stackDevice();
+  client.exec("UPDATE launches SET worktree_path = '/child' WHERE id = 'reviewer'");
+  expect(
+    changeStack(client, "reviewer", "operation", null, () =>
+      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+    ).tag,
+  ).toBe("Ok");
+  const invalidated = restartStackReview(client, "reviewer", "operation", 1);
+  expect(invalidated.tag).toBe("Ok");
+  if (invalidated.tag !== "Ok") return;
+  const archived = invalidated.value.reviewHistory;
+  client.exec("UPDATE launches SET state = 'interrupted' WHERE id = 'reviewer'");
+  insertRow(client, "launches", {
+    id: "replacement",
+    source_id: "source",
+    assignment: "child",
+    attempt: 3,
+    state: "running",
+    branch: "task/child",
+    worktree_path: "/child",
+  });
+  expect(
+    changeStack(client, "replacement", "operation", 2, () =>
+      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+    ),
+  ).toMatchObject({
+    tag: "Ok",
+    value: { launchId: "replacement", reviewHistory: archived },
+  });
+  expect(client.query("SELECT implementer_launch_id FROM internal_reviews").get()).toEqual({
+    implementer_launch_id: "replacement",
+  });
+  expect(client.query("SELECT next_kind FROM kind_handoffs").all()).toEqual([]);
 });

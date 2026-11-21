@@ -33,6 +33,7 @@ export type PullRequestFailure =
       reason:
         | "pr_owner_inactive"
         | "stack_incomplete"
+        | "stack_review_required"
         | "pr_already_associated"
         | "pr_owned_elsewhere"
         | "pr_not_associated"
@@ -178,29 +179,135 @@ export function activeOwner(
       detail:
         "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
     });
-  if (!options.stackOperation) {
-    const operation = db
-      .select()
-      .from(stackOperations)
-      .where(
-        and(
-          eq(stackOperations.sourceId, owner.source.id),
-          eq(stackOperations.assignment, owner.assignment.key),
-          notInArray(stackOperations.state, ["complete", "cancelled"]),
-        ),
-      )
-      .get();
-    if (operation !== undefined)
-      return Err<PullRequestFailure>({
-        reason: "stack_incomplete",
-        detail: `Stack operation ${operation.id} must finish before another PR operation.`,
-        next: {
-          command: `operator pr stack apply --plan ${operation.id}`,
-          why: "Resume the pinned stack operation before review, relay, or merge.",
-        },
-      });
-  }
-  return Ok(owner);
+  return stackOwnerFence(db, owner, launchId, options.stackOperation);
+}
+
+function stackOwnerFence(
+  db: Db,
+  owner: {
+    source: typeof sources.$inferSelect;
+    assignment: typeof assignments.$inferSelect;
+    launch: typeof launches.$inferSelect;
+  },
+  launchId: string,
+  stackOperation = false,
+) {
+  return (
+    stackOperation ? stackEffectFence(db, owner) : ordinaryStackFence(db, owner, launchId)
+  ).as(owner);
+}
+
+function stackEffectFence(
+  db: Db,
+  owner: Parameters<typeof stackOwnerFence>[1],
+): Result<void, PullRequestFailure> {
+  const pr = db
+    .select()
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.sourceId, owner.source.id),
+        eq(pullRequests.assignment, owner.assignment.key),
+      ),
+    )
+    .get();
+  if (
+    pr?.waitState === "waiting" &&
+    pr.waitOwnerPid !== process.pid &&
+    !ownerGone({ ownerPid: pr.waitOwnerPid, leaseAt: pr.waitLeaseAt }, Date.now())
+  )
+    return Err<PullRequestFailure>({
+      reason: "stack_incomplete",
+      detail: "A live PR wait owns this branch. Stop or finish that wait before a stack change.",
+      next: {
+        command: "operator next",
+        why: "Inspect the recorded wait without a competing branch effect.",
+      },
+    });
+  if (
+    pr?.parking !== undefined &&
+    pr.parking !== null &&
+    z.object({ queueHead: z.string().nullable().optional() }).parse(JSON.parse(pr.parking))
+      .queueHead !== undefined &&
+    z.object({ queueHead: z.string().nullable().optional() }).parse(JSON.parse(pr.parking))
+      .queueHead !== null
+  )
+    return Err<PullRequestFailure>({
+      reason: "stack_incomplete",
+      detail: "An unresolved merge queue effect blocks stack changes. Observe its outcome first.",
+      next: {
+        command: "operator next --wait",
+        why: "Reconcile queued delivery without rewriting its head.",
+      },
+    });
+  return Ok(undefined);
+}
+
+function ordinaryStackFence(
+  db: Db,
+  owner: Parameters<typeof stackOwnerFence>[1],
+  launchId: string,
+): Result<void, PullRequestFailure> {
+  const operation = db
+    .select()
+    .from(stackOperations)
+    .where(
+      and(
+        eq(stackOperations.sourceId, owner.source.id),
+        eq(stackOperations.assignment, owner.assignment.key),
+        notInArray(stackOperations.state, ["complete", "cancelled"]),
+      ),
+    )
+    .get();
+  if (operation !== undefined)
+    return Err<PullRequestFailure>({
+      reason: "stack_incomplete",
+      detail: `Stack operation ${operation.id} must finish before another PR operation.`,
+      next: {
+        command: `operator pr stack apply --plan ${operation.id}`,
+        why: "Resume the pinned stack operation before review, relay, or merge.",
+      },
+    });
+  const review = db
+    .select()
+    .from(internalReviews)
+    .where(
+      and(
+        eq(internalReviews.sourceId, owner.source.id),
+        eq(internalReviews.assignment, owner.assignment.key),
+      ),
+    )
+    .get();
+  const integration = db
+    .select()
+    .from(stackOperations)
+    .where(
+      and(
+        eq(stackOperations.sourceId, owner.source.id),
+        eq(stackOperations.assignment, owner.assignment.key),
+        eq(stackOperations.launchId, launchId),
+        notInArray(stackOperations.state, ["planned", "blocked"]),
+        isNotNull(stackOperations.reviewHistory),
+      ),
+    )
+    .get();
+  if (
+    integration !== undefined &&
+    review?.state === "reviewing" &&
+    review.implementerLaunchId === launchId
+  )
+    return Err<PullRequestFailure>({
+      reason: "stack_review_required",
+      detail: "The changed integration needs a fresh independent reviewer, not the outgoing owner.",
+      next: {
+        command:
+          integration.state === "cancelled"
+            ? "operator pr stack plan"
+            : `operator pr stack review --plan ${integration.id}`,
+        why: "Hand the verified integration to its fresh review kind.",
+      },
+    });
+  return Ok(undefined);
 }
 
 /** A finished parked launch may only record the verified merge of its retained pushed head. */

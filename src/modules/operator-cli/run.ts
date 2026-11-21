@@ -161,8 +161,12 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   if (pr?.operation === "pr_merge" && "sourceId" in pr) return run();
   let selection: Result<Worker | null, Refusal>;
   const event = eventOf(args);
-  if (event !== undefined && event !== "submit" && event !== "resume") {
-    const target = await PullRequests.workerTarget({ paths, cwd: process.cwd() });
+  if (usesWorktree(pr, event)) {
+    const target = await PullRequests.workerTarget({
+      paths,
+      cwd: process.cwd(),
+      stackOperation: pr?.operation === "pr_stack",
+    });
     if (target.tag === "Ok") {
       selection = worktreeWorker(paths, target.value);
     } else {
@@ -197,6 +201,13 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
       }
       await run();
     },
+  );
+}
+
+function usesWorktree(pr: ReturnType<typeof pullRequestArgs>, event: Event | undefined) {
+  return (
+    pr?.operation === "pr_stack" ||
+    (event !== undefined && event !== "submit" && event !== "resume")
   );
 }
 

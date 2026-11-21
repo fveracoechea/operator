@@ -11,8 +11,11 @@ import {
   internalReviewRounds,
   pullRequests,
   launches,
+  kindHandoffs,
 } from "./schema.ts";
 import { ownerGone } from "./leases.ts";
+import { storedPrReadinessSchema } from "./pr-readiness.ts";
+import { recordKindHandoff } from "./kind-handoff-record.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
 export type StackRow = typeof stackOperations.$inferSelect;
@@ -140,7 +143,6 @@ export function finishStack(
           db.update(pullRequests)
             .set({
               relay: effect.relay,
-              progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
             })
             .where(
               and(
@@ -211,40 +213,34 @@ export function changeStack(
         ({ source, assignment, launch }): Result<StackRow, Refusal> => {
           const handoff = db
             .select()
-            .from(internalReviews)
+            .from(kindHandoffs)
             .where(
               and(
-                eq(internalReviews.sourceId, source.id),
-                eq(internalReviews.assignment, assignment.key),
+                eq(kindHandoffs.sourceId, source.id),
+                eq(kindHandoffs.assignment, assignment.key),
               ),
             )
             .get();
-          if (
-            handoff?.handoffState === "pending" &&
-            handoff.ownerPid !== process.pid &&
-            !ownerGone(handoff, Date.now())
-          )
+          if (handoff !== undefined && handoff.handoffState !== "done")
             return refused("A live internal-review handoff already owns this assignment.");
           const row = db.select().from(stackOperations).where(eq(stackOperations.id, id)).get();
           const claim = stackClaim(db, row, launch, revision);
           if (claim.tag !== "Ok")
             return claim.flatMap(() => refused("The operation claim failed."));
           return decide(row ?? null).map((change) => {
-            if (row !== undefined && row.launchId !== launchId && row.reviewHistory !== null)
+            if (row !== undefined && row.launchId !== launchId && row.reviewHistory !== null) {
               db.update(internalReviews)
-                .set({
-                  implementerLaunchId: launchId,
-                  handoffState: "pending",
-                  ownerPid: null,
-                  leaseAt: null,
-                })
+                .set({ implementerLaunchId: launchId })
                 .where(
                   and(
                     eq(internalReviews.sourceId, source.id),
                     eq(internalReviews.assignment, assignment.key),
+                    eq(internalReviews.implementerLaunchId, row.launchId),
+                    eq(internalReviews.state, "reviewing"),
                   ),
                 )
                 .run();
+            }
             const next: StackRow = {
               id,
               sourceId: source.id,
@@ -300,11 +296,39 @@ export function restartStackReview(
           );
           const review = db.select().from(internalReviews).where(key).get() ?? null;
           const rounds = db.select().from(internalReviewRounds).where(roundsKey).all();
+          const prKey = and(
+            eq(pullRequests.sourceId, source.id),
+            eq(pullRequests.assignment, assignment.key),
+          );
+          const pr = db.select().from(pullRequests).where(prKey).get();
+          if (pr === undefined) return refused("The stack has no associated PR.");
+          const readiness = storedPrReadinessSchema.parse(pr.readiness);
+          const handoff =
+            db
+              .select()
+              .from(kindHandoffs)
+              .where(
+                and(
+                  eq(kindHandoffs.sourceId, source.id),
+                  eq(kindHandoffs.assignment, assignment.key),
+                ),
+              )
+              .get() ?? null;
           const now = new Date().toISOString();
           const archived = {
             ...operation,
             revision: revision + 1,
-            reviewHistory: JSON.stringify({ review, rounds }),
+            reviewHistory: JSON.stringify({
+              version: 1,
+              operation: id,
+              review,
+              rounds,
+              readiness,
+              readinessRaw: pr.readiness,
+              progress: pr.progress,
+              parking: pr.parking,
+              handoff,
+            }),
             leaseAt: now,
           };
           db.update(stackOperations).set(archived).where(eq(stackOperations.id, id)).run();
@@ -314,7 +338,7 @@ export function restartStackReview(
             assignment: assignment.key,
             state: "reviewing",
             implementerLaunchId: launchId,
-            handoffState: "pending",
+            handoffState: "done",
             handoffDetail: null,
             ownerPid: null,
             leaseAt: null,
@@ -328,7 +352,10 @@ export function restartStackReview(
           if (review === null) db.insert(internalReviews).values(fresh).run();
           else db.update(internalReviews).set(fresh).where(key).run();
           db.update(pullRequests)
-            .set({ progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }) })
+            .set({
+              readiness: null,
+              progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
+            })
             .where(
               and(
                 eq(pullRequests.sourceId, source.id),
@@ -339,6 +366,54 @@ export function restartStackReview(
           return Ok(archived);
         },
       ),
+    ),
+  );
+}
+
+/** Only verified completion can reserve the explicit stack-specific review successor. */
+export function beginStackReview(client: Database, launchId: string, id: string, revision: number) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      activeOwner(db, launchId, { stackOperation: true }).flatMap(({ source, assignment }) => {
+        const row = db.select().from(stackOperations).where(eq(stackOperations.id, id)).get();
+        if (
+          row?.sourceId !== source.id ||
+          row.assignment !== assignment.key ||
+          row.launchId !== launchId ||
+          row.revision !== revision ||
+          row.state !== "complete" ||
+          row.reviewHistory === null
+        )
+          return refused("Only this completed integration can start its fresh review.");
+        const target = { sourceId: source.id, assignment: assignment.key, launchId };
+        const prior = db
+          .select()
+          .from(kindHandoffs)
+          .where(
+            and(eq(kindHandoffs.sourceId, source.id), eq(kindHandoffs.assignment, assignment.key)),
+          )
+          .get();
+        if (prior?.outgoingLaunchId === launchId && prior.nextKind === "review") {
+          if (prior.handoffState === "done") return Ok(false);
+          if (prior.ownerPid !== process.pid && !ownerGone(prior, Date.now()))
+            return refused("The recorded stack review handoff is already running.");
+          db.update(kindHandoffs)
+            .set({
+              ownerPid: process.pid,
+              leaseAt: new Date().toISOString(),
+              handoffState: "pending",
+            })
+            .where(
+              and(
+                eq(kindHandoffs.sourceId, source.id),
+                eq(kindHandoffs.assignment, assignment.key),
+              ),
+            )
+            .run();
+          return Ok(true);
+        }
+        return recordKindHandoff(db, target, "review").as(true);
+      }),
     ),
   );
 }

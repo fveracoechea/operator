@@ -170,6 +170,13 @@ function adoptedHistory(history: NonNullable<BriefInput["adoptionHistory"]>) {
   return sections;
 }
 
+function stackFacts(stack: NonNullable<BriefInput["stack"]>) {
+  const parents = stack.parents ?? [stack];
+  if (parents.length === 1)
+    return `Parent: \`${stack.assignment}\`, PR #${stack.number}, branch \`${stack.branch}\`. The relay owns base changes; preserve unlanded work.`;
+  return `Base: \`${stack.branch}\`. Prerequisites: ${parents.map((parent) => `\`${parent.assignment}\` PR #${parent.number} (\`${parent.branch}\`)`).join(", ")}. The relay owns base changes; preserve unlanded work.`;
+}
+
 function history(input: BriefInput) {
   const sections = adoptedHistory(input.adoptionHistory ?? []);
   if (input.dependencyReports.length > 0)
@@ -201,13 +208,7 @@ function history(input: BriefInput) {
         `Report ${input.promotion.number} of \`${input.promotion.report}\`. The reused worktree can hold prototype changes; clean the branch before its first push.`,
       ),
     );
-  if (input.stack !== null)
-    sections.push(
-      section(
-        "Stack",
-        `Base: \`${input.stack.branch}\`. Prerequisites: ${(input.stack.parents ?? [input.stack]).map((parent) => `\`${parent.assignment}\` PR #${parent.number} (\`${parent.branch}\`)`).join(", ")}. The relay owns base changes; preserve unlanded work.`,
-      ),
-    );
+  if (input.stack !== null) sections.push(section("Stack", stackFacts(input.stack)));
   if (input.adoption !== null && input.adoption.number !== null)
     sections.push(
       section(
@@ -250,8 +251,7 @@ function history(input: BriefInput) {
 export function renderBrief(input: BriefInput) {
   const sections = [headerFacts(input), section("Task", input.instructions)];
   if (input.intent !== null) sections.push(section("Acceptance criteria", quote(input.intent)));
-  sections.push(handoff(input));
-  sections.push(changedStack(input) ?? "");
+  sections.push(handoff(input), changedStack(input) ?? "");
   const note = input.note ?? null;
   if (
     note !== null &&

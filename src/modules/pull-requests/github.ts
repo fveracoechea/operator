@@ -431,10 +431,17 @@ export function observePullRequest(repository: string, number: number) {
   );
 }
 
-type ParkedTarget = { repository: string; number: number; parent: number | null };
-const batchRepository = pullRequestAnswer.shape.data.shape.repository.extend({
-  parent: parentAnswer.shape.data.shape.repository.shape.pullRequest.optional(),
-});
+type ParkedTarget = {
+  repository: string;
+  number: number;
+  parent: number | null;
+  parents?: number[];
+};
+const batchRepository = pullRequestAnswer.shape.data.shape.repository
+  .extend({
+    parent: parentAnswer.shape.data.shape.repository.shape.pullRequest.optional(),
+  })
+  .passthrough();
 type BatchRepository = z.infer<typeof batchRepository>;
 const connections = ["reviews", "comments", "reviewThreads"] as const;
 
@@ -460,7 +467,7 @@ function feedbackSelection(target: ParkedTarget, index: number, repository?: Bat
   }
   return `r${index}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) {
     defaultBranchRef { name } viewerDefaultMergeMethod pullRequest(number: ${target.number}) { ${fields} }
-    ${target.parent === null ? "" : `parent: pullRequest(number: ${target.parent}) { state baseRefName headRefOid }`}
+    ${(target.parents ?? (target.parent === null ? [] : [target.parent])).map((number, at) => `${at === 0 ? "parent" : `parent${at}`}: pullRequest(number: ${number}) { state baseRefName headRefOid }`).join("\n")}
   }`;
 }
 
@@ -638,6 +645,13 @@ export function observeParkedPullRequests(targets: ParkedTarget[]) {
               next: readRecovery,
             });
           const repository = parsed.data;
+          const parents = targets[index]?.parents ?? [];
+          for (let at = 0; at < parents.length; at++) {
+            const node = parentAnswer.shape.data.shape.repository.shape.pullRequest.safeParse(
+              repository[at === 0 ? "parent" : `parent${at}`],
+            );
+            if (!node.success) return Err(incompleteFeedback());
+          }
           if (!observation({ viewer: data.viewer, repository }).checksComplete)
             return Err({
               reason: "github_invalid_response",
@@ -652,7 +666,7 @@ export function observeParkedPullRequests(targets: ParkedTarget[]) {
     )
     .flatMap(({ repositories, viewer }) =>
       completeFeedback(targets, repositories).map(() =>
-        repositories.map((repository) => ({
+        repositories.map((repository, index) => ({
           observed: observation({ viewer, repository }),
           parent:
             repository.parent === undefined
@@ -662,6 +676,17 @@ export function observeParkedPullRequests(targets: ParkedTarget[]) {
                   head: repository.parent.headRefOid,
                   base: repository.parent.baseRefName,
                 },
+          parents: (targets[index]?.parents ?? []).map((number, at) => {
+            const parent = parentAnswer.shape.data.shape.repository.shape.pullRequest.parse(
+              repository[at === 0 ? "parent" : `parent${at}`],
+            );
+            return {
+              number,
+              state: parent.state,
+              head: parent.headRefOid,
+              base: parent.baseRefName,
+            };
+          }),
         })),
       ),
     );

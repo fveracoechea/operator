@@ -3,6 +3,7 @@
 ## Status
 
 Amended 2026-11-17 in #422: an owner can refresh open prerequisites and use a per-child dependency-only integration base.
+Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): all prerequisite consumers use the complete graph, including parked observations.
 
 Accepted - 2026-10-24.
 Decided in #228, #231, #232, and #233.
@@ -49,7 +50,8 @@ The CLI pins the old prerequisite cut and the replacement heads before it change
 It refuses ambiguous attribution rather than replay obsolete prerequisite history or discard child work.
 Only the child owner changes the child's refs and PR base; prerequisite owners retain their refs and worktrees.
 Interrupted effects retain their pinned inputs and uncertain outcomes until inspection establishes which effects completed.
-A stacked PR is not merge eligible until its parent merged and its relay finished.
+A stacked PR is not merge eligible until every required prerequisite merged into the default branch and its relay finished.
+Parked observations retain one actionable all-prerequisites event with their cursors; the first merged prerequisite cannot trigger a premature relay.
 Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation, or the supervising SuperAgent selects a parked assignment on the person's instruction.
 It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.

@@ -13,9 +13,12 @@ An interrupted operation retains its exact inputs and failures. Read `operator s
 Repeat `apply` with the same ID to resume. A replacement owner can recover only in the same recorded worktree and branch.
 When pinned prerequisites move, cancel only a clean, pushed, confirmed original or installed child before planning again.
 `operator pr stack cancel --plan <id>` preserves child work and installed dependency provenance.
-An unconfirmed PR-base write remains blocked until its external outcome is established; do not repeat it blindly.
+Unconfirmed publication, draft, push, or base changes remain blocked until observation establishes their outcomes.
+An absent or original remote value does not authorize another write.
 For an attribution refusal, preserve the work and ask the SuperAgent. `--cut` cannot authorize an arbitrary ancestor.
 
-Changed ancestry invalidates previous readiness and review evidence. The PR stays a draft until a fresh reviewer qualifies the new diff.
+Changed integration head or review base invalidates active readiness, even with the same patch.
+Earlier rounds, dispositions, summary links, and readiness remain history; a prior skip or review-off setting does not waive fresh review.
+The PR stays a draft until a fresh reviewer qualifies the new diff and guarded ready starts fresh feedback.
 After every prerequisite merges, the managed relay preserves only the child's delta and requires fresh review of the default-branch diff.
 Merge eligibility never overrides an explicit merge hold.

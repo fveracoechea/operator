@@ -2,12 +2,14 @@ import { Err, Ok, fromThrowable, type Result } from "unthrown";
 import {
   readStack,
   changeStack,
+  beginStackReview,
   restartStackReview,
   stackIdle,
   recordStackBase,
   readStackBases,
   finishStack,
 } from "./stacks.ts";
+import { stackHistory } from "./stack-history.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { createDatabase, databaseExists } from "./creation.ts";
 import { openDatabase } from "./database.ts";
@@ -168,6 +170,12 @@ function hold(renew: () => void) {
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
+  stackHistory(text: string) {
+    return stackHistory(text);
+  },
+  beginStackReview(paths: Paths, launchId: string, id: string, revision: number) {
+    return writing(paths, (client) => beginStackReview(client, launchId, id, revision));
+  },
   finishStack(
     paths: Paths,
     launchId: string,

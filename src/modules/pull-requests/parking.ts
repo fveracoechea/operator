@@ -35,6 +35,7 @@ type BatchObservation = Extract<
   Awaited<ReturnType<typeof observeParkedPullRequests>>,
   { tag: "Ok" }
 >["value"][number];
+type ParkedFacts = Omit<BatchObservation, "parents"> & { parents?: BatchObservation["parents"] };
 
 /** A migrated unknown head becomes known only through the current parked observation. */
 function observedParking(parking: Parked["parking"], observed: Observation) {
@@ -42,7 +43,7 @@ function observedParking(parking: Parked["parking"], observed: Observation) {
 }
 
 /** The same observation decision advances both live-wait and parked cursors. */
-export function parkedObservation(row: Parked, facts: BatchObservation) {
+export function parkedObservation(row: Parked, facts: ParkedFacts) {
   const relay = row.relay === null ? null : relaySchema.parse(JSON.parse(row.relay));
   const progress = progressSchema.parse(JSON.parse(row.progress));
   const decision = decideWait({
@@ -66,20 +67,7 @@ export function parkedObservation(row: Parked, facts: BatchObservation) {
           )
           .map((event) => JSON.stringify(event))
       : [];
-  const parentMerged =
-    relay !== null &&
-    relay.state !== "relayed" &&
-    facts.parent?.state === "MERGED" &&
-    !row.parking.parentSeen;
-  if (parentMerged)
-    events.push(
-      JSON.stringify({
-        kind: "parent_merged",
-        parent: relay.parent,
-        head: facts.parent?.head,
-        base: facts.parent?.base,
-      }),
-    );
+  const parent = parentObservation(row, facts, relay);
   return {
     sourceId: row.sourceId,
     assignment: row.assignment,
@@ -88,10 +76,72 @@ export function parkedObservation(row: Parked, facts: BatchObservation) {
     parking: {
       ...observedParking(row.parking, facts.observed),
       state: facts.observed.state === "CLOSED" ? ("closed" as const) : row.parking.state,
-      events: [...row.parking.events, ...events],
-      parentSeen: row.parking.parentSeen || parentMerged,
+      ...parent,
+      events: [...row.parking.events, ...events, ...parent.events],
     },
   };
+}
+
+function parentObservation(
+  row: Parked,
+  facts: ParkedFacts,
+  relay: ReturnType<typeof relaySchema.parse> | null,
+) {
+  const result: Pick<Parked["parking"], "parentSeen" | "parentsSeen"> & { events: string[] } = {
+    parentSeen: row.parking.parentSeen,
+    events: [],
+  };
+  if (row.parking.parentsSeen !== undefined) result.parentsSeen = row.parking.parentsSeen;
+  if (relay === null || relay.state === "relayed") return result;
+  if (relay.prerequisites !== undefined) return graphObservation(result, facts, relay);
+  if (facts.parent?.state === "MERGED" && !result.parentSeen) {
+    result.parentSeen = true;
+    result.events.push(
+      JSON.stringify({
+        kind: "parent_merged",
+        parent: relay.parent,
+        head: facts.parent.head,
+        base: facts.parent.base,
+      }),
+    );
+  }
+  return result;
+}
+
+function graphObservation(
+  result: Pick<Parked["parking"], "parentSeen" | "parentsSeen"> & { events: string[] },
+  facts: ParkedFacts,
+  relay: ReturnType<typeof relaySchema.parse>,
+) {
+  const parents = facts.parents ?? [];
+  const blocked = parents.some(
+    (parent) =>
+      parent.state === "CLOSED" ||
+      (parent.state === "MERGED" && parent.base !== facts.observed.defaultBranch),
+  );
+  const ready =
+    parents.length > 0 &&
+    parents.length === relay.prerequisites?.length &&
+    parents.every(
+      (parent) => parent.state === "MERGED" && parent.base === facts.observed.defaultBranch,
+    );
+  const key = JSON.stringify(
+    parents.map((parent) => [parent.number, parent.state, parent.head, parent.base]),
+  );
+  if ((ready || blocked) && !(result.parentsSeen ?? []).includes(key)) {
+    result.parentsSeen = [...(result.parentsSeen ?? []), key];
+    result.events.push(
+      JSON.stringify({
+        kind: "parent_merged",
+        parent: relay.parent,
+        head: facts.parent?.head,
+        base: facts.parent?.base,
+        parents,
+        blocked,
+      }),
+    );
+  }
+  return result;
 }
 
 /** A claimed device batch records cursors and durable events before any resumed worker can start. */
@@ -139,6 +189,12 @@ export function observeParked(input: { paths: Paths }): AsyncResult<undefined, R
               number: row.number,
               parent:
                 row.relay === null ? null : relaySchema.parse(JSON.parse(row.relay)).parent.number,
+              parents:
+                row.relay === null
+                  ? []
+                  : relaySchema
+                      .parse(JSON.parse(row.relay))
+                      .prerequisites?.map((parent) => parent.number),
             })),
           );
           if (observed.tag !== "Ok") return observed.map(() => undefined);

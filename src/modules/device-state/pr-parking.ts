@@ -31,6 +31,7 @@ const parkingReceipt = z.object({
   state: z.enum(["parking", "parked", "resuming", "active", "closed"]),
   events: z.array(z.string()),
   parentSeen: z.boolean().default(false),
+  parentsSeen: z.array(z.string()).optional(),
   // The guarded queue attempt owns batch completion, even if its response is lost.
   queueHead: z.string().nullable().optional(),
 });
@@ -170,6 +171,7 @@ export function parkPullRequest(
                 row.parking === null
                   ? false
                   : prParkingSchema.parse(JSON.parse(row.parking)).parentSeen,
+              parentsSeen: previous?.parentsSeen ?? [],
             };
             db.update(pullRequests)
               .set({

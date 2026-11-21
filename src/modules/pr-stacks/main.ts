@@ -4,7 +4,7 @@ import { GithubApi } from "../github-api/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 
-const parentSchema = z.object({
+const parentSchema = z.strictObject({
   assignment: z.string(),
   number: z.number().int().positive(),
   branch: z.string(),
@@ -13,14 +13,25 @@ const parentSchema = z.object({
   state: z.enum(["OPEN", "MERGED"]).optional(),
 });
 type StackParent = z.infer<typeof parentSchema>;
-const baseSchema = z.object({
+const baseSchema = z.strictObject({
   head: z.string(),
   branch: z.string(),
   managed: z.boolean(),
+  remote: z.string().min(1).optional(),
+  remoteUrl: z.string().min(1).optional(),
   parents: z.array(parentSchema),
+  publication: z
+    .object({
+      remote: z.string().min(1),
+      state: z.enum(["intent", "verified"]),
+      at: z.string().optional(),
+      expected: z.literal("absent").optional(),
+    })
+    .strict()
+    .optional(),
 });
 const failureSchema = z.object({ at: z.string(), reason: z.string(), detail: z.string() });
-const operationSchema = z.object({
+const operationSchema = z.strictObject({
   id: z.string(),
   repository: z.string(),
   sourceId: z.string(),
@@ -33,6 +44,9 @@ const operationSchema = z.object({
   base: z.string(),
   cut: z.string(),
   remote: z.string(),
+  remoteUrl: z.string().min(1).optional(),
+  worktree: z.string().min(1).optional(),
+  originalRef: z.string().min(1).optional(),
   parents: z.array(parentSchema),
   target: z.string(),
   targetBranch: z.string(),
@@ -44,13 +58,25 @@ const operationSchema = z.object({
   step: z.enum(["planned", "prepared", "installed", "pushed", "complete", "cancelled"]),
   blocker: failureSchema.nullable(),
   failures: z.array(failureSchema),
+  attempts: z
+    .array(
+      z
+        .object({
+          effect: z.enum(["base", "draft", "install", "push", "retarget"]),
+          at: z.string(),
+          outcome: z.enum(["intent", "verified", "uncertain"]),
+          detail: z.string().optional(),
+        })
+        .strict(),
+    )
+    .default([]),
 });
 type StackPlan = z.infer<typeof operationSchema>;
 type Parent = Pick<StackParent, "assignment" | "number" | "branch"> & {
   head?: string;
   base?: string;
 };
-type StackBase = { head: string; branch: string; managed: boolean; parents: StackParent[] };
+type StackBase = z.infer<typeof baseSchema>;
 
 function refuse(detail: string): Result<never, Refusal> {
   return Err({
@@ -184,6 +210,9 @@ function prepare(input: {
 }): AsyncResult<StackBase, Refusal> {
   return fromPromise(
     async () => {
+      const remoteUrl = await git(input.cwd, ["remote", "get-url", input.remote]);
+      if (remoteUrl === null || remoteUrl === "")
+        return refuse("The dependency remote URL could not be pinned.");
       const parents: StackParent[] = [];
       for (const parent of input.parents.toSorted((a, b) =>
         a.assignment.localeCompare(b.assignment),
@@ -204,12 +233,19 @@ function prepare(input: {
       }
       const existing = await containing(input.cwd, parents);
       if (existing !== null)
-        return Ok({ head: existing.head, branch: existing.branch, parents, managed: false });
+        return Ok({
+          head: existing.head,
+          branch: existing.branch,
+          parents,
+          managed: false,
+          remoteUrl,
+        });
       return (await integrate(input.cwd, parents)).map((head) => ({
         head,
         branch: `operator/stacks/${input.namespace}/${head}`,
         parents,
         managed: true,
+        remoteUrl,
       }));
     },
     (cause, defect) => defect(cause),
@@ -226,6 +262,7 @@ export const PrStacks = {
     repository: string;
     parents: Parent[];
     namespace: string;
+    previous?: StackBase;
   }): AsyncResult<StackBase, Refusal> {
     return fromPromise(
       async () => {
@@ -235,14 +272,22 @@ export const PrStacks = {
         const remote = await git(input.cwd, ["config", `branch.${first.branch}.remote`]);
         if (remote === null || remote === "")
           return refuse("The prerequisite has no pushed upstream remote.");
-        const prepared = await prepare({ ...input, remote });
-        if (prepared.tag !== "Ok") return prepared;
-        const published = await PrStacks.publish({
-          cwd: input.cwd,
+        const prepared = await prepare({
+          ...input,
           remote,
-          base: prepared.value,
+          parents: input.previous?.parents ?? input.parents,
         });
-        return published.as(prepared.value);
+        if (prepared.tag !== "Ok") return prepared;
+        if (input.previous !== undefined)
+          return input.previous.head === prepared.value.head &&
+            input.previous.branch === prepared.value.branch &&
+            input.previous.remote === remote &&
+            input.previous.remoteUrl === prepared.value.remoteUrl
+            ? Ok(input.previous)
+            : refuse(
+                "The interrupted start's pinned dependency inputs changed. Preserve its publication record.",
+              );
+        return prepared.map((base) => ({ ...base, remote }));
       },
       (cause, defect) => defect(cause),
     ).flatMap((result): Result<StackBase, Refusal> => result);
@@ -250,25 +295,41 @@ export const PrStacks = {
   decode(text: string): StackBase {
     return baseSchema.parse(JSON.parse(text));
   },
-  publish(input: { cwd: string; remote: string; base: StackBase }): AsyncResult<void, Refusal> {
+  publish(input: {
+    cwd: string;
+    remote: string;
+    base: StackBase;
+    attempted: boolean;
+    beforePush: () => Result<void, Refusal>;
+  }): AsyncResult<void, Refusal> {
     return fromPromise(
       async () => {
         if (!input.base.managed) return Ok(undefined);
         if (!input.base.branch.startsWith("operator/stacks/"))
           return refuse("A managed base must use the Operator-owned namespace.");
+        const remoteUrl = await git(input.cwd, ["remote", "get-url", input.remote]);
+        if (input.base.remoteUrl === undefined || remoteUrl !== input.base.remoteUrl)
+          return refuse("The managed base's pinned remote URL is unknown or changed.");
         const ref = `refs/heads/${input.base.branch}`;
         const observed = await git(input.cwd, ["ls-remote", input.remote, ref]);
         if (observed === null) return refuse("The managed base remote identity is unknown.");
         const head = observed.split("\t")[0];
         if (head === input.base.head) return Ok(undefined);
         if (head !== "") return refuse("A different head already owns the managed base name.");
+        if (input.attempted)
+          return refuse(
+            "The previous base publication is unresolved. An absent ref does not authorize another write.",
+          );
+        const intent = input.beforePush();
+        if (intent.tag !== "Ok") return intent;
         const sent = await git(input.cwd, [
           "push",
           `--force-with-lease=${ref}:`,
           input.remote,
           `${input.base.head}:${ref}`,
         ]);
-        return sent === null
+        const verified = await git(input.cwd, ["ls-remote", input.remote, ref]);
+        return sent === null || verified === null || verified.split("\t")[0] !== input.base.head
           ? refuse("The managed base push is incomplete or uncertain. Inspect it before resuming.")
           : Ok(undefined);
       },

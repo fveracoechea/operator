@@ -378,6 +378,10 @@ function chooseResources(input: Request, facts: Facts) {
             repository: facts.project.repository,
             parents: facts.stack.parents,
             namespace: `${input.sourceId}/${input.assignment}`,
+            previous: facts.source.stackBases.find(
+              (row) =>
+                row.assignment === input.assignment && row.data.publication?.state === "intent",
+            )?.data,
           })
         : OkAsync(null),
     )
@@ -495,6 +499,9 @@ function writeBrief(
   });
   const promotion = settings.planned.promotion;
   const phasePr = settings.pullRequest ?? directEntry;
+  const managedStack = settings.source.stackOperations.findLast(
+    (row) => row.assignment === settings.planned.key,
+  )?.data;
   return fromPromise(
     async () => {
       const questions: NonNullable<Parameters<typeof renderBrief>[0]["questions"]> = [];
@@ -554,9 +561,7 @@ function writeBrief(
         pullRequest: settings.pullRequest,
         dependencyReports: settings.planned.dependencyReports,
         stack: settings.stack,
-        managedStack: settings.source.stackOperations.findLast(
-          (row) => row.assignment === settings.planned.key,
-        )?.data,
+        managedStack,
         awaitingStackReview,
         internalReview: settings.internalReview,
         review: settings.review,
@@ -575,6 +580,45 @@ function writeBrief(
   );
 }
 
+function publishStackStart(
+  request: Request,
+  id: string,
+  branch: string | null,
+  base: Resources["preparedStack"],
+  checkout: string,
+) {
+  if (base === null || branch === null) return OkAsync(undefined);
+  function save(data: NonNullable<typeof base>) {
+    return DeviceState.recordStackBase(request.paths, id, branch ?? "", JSON.stringify(data)).as(
+      undefined,
+    );
+  }
+  if (!base.managed) return save(base).toAsync();
+  const remote = base.remote ?? base.publication?.remote;
+  if (remote === undefined)
+    return ErrAsync<Failure>({
+      reason: "stack_parent",
+      detail: "The pinned managed start has no publication remote. Nothing was published.",
+      next: {
+        decider: "super-agent",
+        question: "How should this incomplete start's remote identity be recovered?",
+      },
+    });
+  const publication = base.publication ?? {
+    remote,
+    state: "intent" as const,
+    at: new Date().toISOString(),
+    expected: "absent" as const,
+  };
+  return PrStacks.publish({
+    cwd: checkout,
+    remote,
+    base,
+    attempted: base.publication !== undefined,
+    beforePush: () => save({ ...base, publication }),
+  }).flatMap(() => save({ ...base, publication: { ...publication, state: "verified" } }));
+}
+
 /** Herdr effects run with no database transaction open. Each returned resource is recorded. */
 function launchEffects(input: {
   request: Request;
@@ -591,6 +635,9 @@ function launchEffects(input: {
   }
   return (
     DoAsync()
+      .flatTap(() =>
+        publishStackStart(request, input.id, branch, resources.preparedStack, checkout),
+      )
       .bind("workspaceId", () =>
         ensureWorkspace(checkout, repository, resources.workspace.workspaceId),
       )
@@ -626,18 +673,6 @@ function launchEffects(input: {
           ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
           : preparedAgain(request.paths, placement.worktreePath);
       })
-      .flatTap(() =>
-        resources.preparedStack === null || branch === null
-          ? OkAsync(undefined)
-          : DeviceState.recordStackBase(
-              request.paths,
-              input.id,
-              branch,
-              JSON.stringify(resources.preparedStack),
-            )
-              .toAsync()
-              .as(undefined),
-      )
       .bind("adopted", ({ placement }) => {
         const pr = settings.adoption;
         if (
@@ -672,7 +707,22 @@ function launchEffects(input: {
         });
       })
       .bind("brief", ({ placement, adopted }) =>
-        writeBrief(request, settings, placement, branch, adopted),
+        writeBrief(
+          request,
+          resources.preparedStack === null || settings.stack === null
+            ? settings
+            : {
+                ...settings,
+                stack: {
+                  ...settings.stack,
+                  branch: resources.preparedStack.branch,
+                  parents: resources.preparedStack.parents,
+                },
+              },
+          placement,
+          branch,
+          adopted,
+        ),
       )
       .flatTap(({ placement }) =>
         AgentHosts.start({

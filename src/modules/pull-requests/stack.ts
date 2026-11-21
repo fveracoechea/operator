@@ -11,19 +11,34 @@ import { DeviceState } from "../device-state/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { PrStacks } from "../pr-stacks/main.ts";
 import { openPullRequests, retarget, readyFacts, markDraft, observeParent } from "./github.ts";
-import { resolveOwner, qualify, type Owner, type Paths } from "./owner.ts";
+import { resolveOwner, qualify as qualifyIo, type Owner, type Paths } from "./owner.ts";
 import { stackGit, stackCandidate } from "./stack-git.ts";
 import { parentCut } from "./stack-cut.ts";
 import { stackParents } from "./stack-parents.ts";
 import { stacked, type Relay } from "./relay.ts";
 import { startHandoff } from "./internal-review.ts";
-import type { Refusal } from "../../lib/cli-result.ts";
+import { stackEffect } from "./stack-effects.ts";
+import type { Refusal, NextStep } from "../../lib/cli-result.ts";
+import { z } from "zod";
+
+function qualify<C, T>(cause: C, defect: (cause: C) => T) {
+  return cause instanceof SyntaxError || cause instanceof z.ZodError
+    ? {
+        reason: "state_corrupt",
+        detail: "The recorded stack is corrupt or unsupported. It was not repaired.",
+        next: {
+          decider: "super-agent" as const,
+          question: "How should the stored stack evidence be inspected without overwriting it?",
+        },
+      }
+    : qualifyIo(cause, defect);
+}
 
 type Input = { paths: Paths; cwd: string };
 type Plan = ReturnType<typeof PrStacks.operation>;
 type StackParent = Plan["parents"][number];
 type PreviewInput = Input & { cut?: string; parents?: string[] };
-type Outcome = { reason: string; data: Plan };
+type Outcome = { reason: string; data: Plan; next?: NextStep; state?: Record<string, unknown> };
 type Child = AsyncOkOf<ReturnType<typeof openPullRequests>>[number];
 type Operation = {
   input: Input;
@@ -91,6 +106,27 @@ function advance(operation: Operation, change: Partial<Plan>): Result<void, Refu
   });
 }
 
+function attempt(
+  operation: Operation,
+  effect: Plan["attempts"][number]["effect"],
+  outcome: Plan["attempts"][number]["outcome"],
+  detail?: string,
+) {
+  const entry: Plan["attempts"][number] = { effect, outcome, at: new Date().toISOString() };
+  if (detail !== undefined) entry.detail = detail;
+  return advance(operation, { attempts: [...operation.plan.attempts, entry] });
+}
+
+function attempted(plan: Plan, effect: Plan["attempts"][number]["effect"]) {
+  return plan.attempts.some((row) => row.effect === effect);
+}
+
+function verifiedEffect(operation: Operation, effect: Plan["attempts"][number]["effect"]) {
+  return operation.plan.attempts.findLast((row) => row.effect === effect)?.outcome === "verified"
+    ? Ok(undefined)
+    : attempt(operation, effect, "verified");
+}
+
 function pushedHead(owner: Owner, remote: string): AsyncResult<string, Refusal> {
   return fromPromise(async () => {
     const read = await stackGit(owner.worktreePath, [
@@ -105,7 +141,10 @@ function pushedHead(owner: Owner, remote: string): AsyncResult<string, Refusal> 
   }, qualify).flatMap((result) => result);
 }
 
-function synchronizedRemote(owner: Owner, child: Child): AsyncResult<string, Refusal> {
+function synchronizedRemote(
+  owner: Owner,
+  child: Child,
+): AsyncResult<{ remote: string; url: string }, Refusal> {
   return fromPromise(async () => {
     if (!(await clean(owner, child.head)))
       return refuse(
@@ -117,8 +156,9 @@ function synchronizedRemote(owner: Owner, child: Child): AsyncResult<string, Ref
       return refuse("stack_remote", "Push the owned branch with an upstream before planning.");
     const pushed = await pushedHead(owner, remote.out);
     if (pushed.tag !== "Ok") return stop(pushed);
-    return pushed.value === child.head
-      ? Ok(remote.out)
+    const url = await stackGit(owner.worktreePath, ["remote", "get-url", remote.out]);
+    return pushed.value === child.head && url.ok && url.out !== ""
+      ? Ok({ remote: remote.out, url: url.out })
       : refuse("stack_unsynced", "The local, pushed, and observed child heads must match.");
   }, qualify).flatMap((result) => result);
 }
@@ -171,7 +211,7 @@ function oldCut(
 
 function preview(input: PreviewInput, owner: Owner): AsyncResult<Outcome, Refusal> {
   return childFacts(owner).flatMap((child) =>
-    synchronizedRemote(owner, child).flatMap((remote) =>
+    synchronizedRemote(owner, child).flatMap(({ remote, url }) =>
       fromPromise(async () => {
         const parents = await stackParents({
           paths: input.paths,
@@ -189,8 +229,12 @@ function preview(input: PreviewInput, owner: Owner): AsyncResult<Outcome, Refusa
         if (target.tag !== "Ok") return stop(target);
         const cut = await oldCut(input, owner, child, target.value.parents, remote);
         if (cut.tag !== "Ok") return stop(cut);
+        const id = crypto.randomUUID();
         const plan: Plan = {
-          id: crypto.randomUUID(),
+          id,
+          remoteUrl: url,
+          worktree: owner.worktreePath,
+          originalRef: `refs/operator/stacks/${id}/original`,
           repository: owner.repository,
           sourceId: owner.sourceId,
           assignment: owner.assignment,
@@ -213,6 +257,7 @@ function preview(input: PreviewInput, owner: Owner): AsyncResult<Outcome, Refusa
           relayToMain: false,
           candidate: null,
           step: "planned",
+          attempts: [],
         };
         return save(input, owner, plan, null, false).map(() => ({
           reason: "stack_planned",
@@ -296,6 +341,8 @@ function preflight(operation: Operation): AsyncResult<void, Refusal> {
     if (current.tag !== "Ok") return stop(current);
     if (current.value.launchId !== owner.launchId)
       return refuse("stack_stale", "The active owner changed before the next stack effect.");
+    const identity = await pinnedResources(owner, plan);
+    if (identity.tag !== "Ok") return stop(identity);
     const parents = await validateParents(owner, plan);
     if (parents.tag !== "Ok") return stop(parents);
     const child = await childFacts(owner);
@@ -318,6 +365,21 @@ function preflight(operation: Operation): AsyncResult<void, Refusal> {
   }, qualify).flatMap((result): Result<void, Refusal> => result);
 }
 
+function pinnedResources(owner: Owner, plan: Plan): AsyncResult<void, Refusal> {
+  return fromPromise(async () => {
+    const remote = await stackGit(owner.worktreePath, ["remote", "get-url", plan.remote]);
+    return plan.worktree === owner.worktreePath &&
+      plan.originalRef === `refs/operator/stacks/${plan.id}/original` &&
+      remote.ok &&
+      remote.out === plan.remoteUrl
+      ? Ok(undefined)
+      : refuse(
+          "stack_stale",
+          "The pinned worktree, original ref, or remote URL is unknown or changed. Preserve this operation for inspection.",
+        );
+  }, qualify).flatMap((result) => result);
+}
+
 function invalidateReview(operation: Operation): AsyncResult<void, Refusal> {
   const { input, owner, plan } = operation;
   return fromPromise(async () => {
@@ -332,10 +394,17 @@ function invalidateReview(operation: Operation): AsyncResult<void, Refusal> {
     const child = await childFacts(owner);
     if (child.tag !== "Ok") return stop(child);
     if (!child.value.draft) {
+      if (attempted(plan, "draft"))
+        return refuse(
+          "stack_draft_uncertain",
+          "The previous draft request remains unresolved. Inspect it without repeating the write.",
+        );
       const facts = await readyFacts(owner.repository, plan.number, "");
       if (facts.tag !== "Ok") return stop(facts);
       if (facts.value.head !== child.value.head)
         return refuse("stack_stale", "The PR moved before its draft transition.");
+      const intent = attempt(operation, "draft", "intent");
+      if (intent.tag !== "Ok") return stop(intent);
       const drafted = await markDraft(facts.value.id);
       if (drafted.tag !== "Ok") return stop(drafted);
     }
@@ -347,6 +416,11 @@ function invalidateReview(operation: Operation): AsyncResult<void, Refusal> {
         "The child must be a confirmed draft before its ancestry changes.",
       );
     operation.draftConfirmed = true;
+    if (
+      attempted(operation.plan, "draft") &&
+      operation.plan.attempts.findLast((row) => row.effect === "draft")?.outcome !== "verified"
+    )
+      return attempt(operation, "draft", "verified");
     return Ok(undefined);
   }, qualify).flatMap((result) => result);
 }
@@ -357,13 +431,16 @@ function publishBase(operation: Operation): AsyncResult<void, Refusal> {
   return PrStacks.publish({
     cwd: owner.worktreePath,
     remote: plan.remote,
+    attempted: attempted(plan, "base"),
+    beforePush: () => attempt(operation, "base", "intent"),
     base: {
       head: plan.target,
       branch: plan.targetBranch,
       managed: plan.managed,
       parents: plan.parents,
+      remoteUrl: plan.remoteUrl,
     },
-  });
+  }).flatMap(() => (plan.managed ? verifiedEffect(operation, "base") : Ok(undefined)));
 }
 
 function prepareCandidate(operation: Operation): AsyncResult<void, Refusal> {
@@ -372,6 +449,8 @@ function prepareCandidate(operation: Operation): AsyncResult<void, Refusal> {
     if (plan.step !== "planned") return Ok(undefined);
     if (!(await clean(owner, plan.head)))
       return refuse("stack_unclean", "The worktree no longer matches the clean planned head.");
+    if (plan.cut === plan.target)
+      return advance(operation, { candidate: plan.head, step: "prepared" });
     const candidate = await stackCandidate(owner.worktreePath, plan.cut, plan.target, plan.head);
     return candidate.ok
       ? advance(operation, { candidate: candidate.out, step: "prepared" })
@@ -385,7 +464,8 @@ function prepareCandidate(operation: Operation): AsyncResult<void, Refusal> {
 function retainOriginal(operation: Operation): AsyncResult<void, Refusal> {
   return fromPromise(async () => {
     const { owner, plan } = operation;
-    const ref = `refs/operator/stacks/${plan.id}/original`;
+    const ref = plan.originalRef;
+    if (ref === undefined) return refuse("stack_backup", "The original recovery ref is unknown.");
     const backup = await stackGit(owner.worktreePath, ["update-ref", ref, plan.head, ""]);
     if (backup.ok) return Ok(undefined);
     const existing = await stackGit(owner.worktreePath, ["rev-parse", ref]);
@@ -408,6 +488,8 @@ function installCandidate(operation: Operation): AsyncResult<void, Refusal> {
     if (local.out !== plan.head && local.out !== candidate)
       return refuse("stack_stale", "The local child head changed during stack preparation.");
     if (local.out === plan.head && (await clean(owner, plan.head))) {
+      const intent = attempt(operation, "install", "intent");
+      if (intent.tag !== "Ok") return stop(intent);
       const installed = await stackGit(cwd, ["read-tree", "-u", "-m", plan.head, candidate]);
       if (!installed.ok)
         return refuse(
@@ -427,7 +509,9 @@ function installCandidate(operation: Operation): AsyncResult<void, Refusal> {
         ? { ok: true }
         : await stackGit(cwd, ["update-ref", `refs/heads/${owner.branch}`, candidate, plan.head]);
     return moved.ok
-      ? advance(operation, { step: "installed" })
+      ? verifiedEffect(operation, "install").flatMap(() =>
+          advance(operation, { step: "installed" }),
+        )
       : refuse("stack_stale", "The owned branch moved before installation completed.");
   }, qualify).flatMap((result) => result);
 }
@@ -444,8 +528,23 @@ function pushCandidate(operation: Operation): AsyncResult<void, Refusal> {
       );
     const remote = await pushedHead(owner, plan.remote);
     if (remote.tag !== "Ok") return stop(remote);
+    if (remote.value === candidate)
+      return verifiedEffect(operation, "push").flatMap(() =>
+        advance(operation, { step: "pushed" }),
+      );
     if (remote.value === plan.head) {
-      const intent = advance(operation, { pushAttempted: true });
+      if (stackEffect(plan.pushAttempted, "original") === "blocked")
+        return refuse(
+          "stack_push_uncertain",
+          "The earlier child push is unresolved. An original remote head does not authorize another write.",
+        );
+      const intent = advance(operation, {
+        pushAttempted: true,
+        attempts: [
+          ...operation.plan.attempts,
+          { effect: "push", outcome: "intent", at: new Date().toISOString() },
+        ],
+      });
       if (intent.tag !== "Ok") return stop(intent);
       const sent = await stackGit(owner.worktreePath, [
         "push",
@@ -463,7 +562,7 @@ function pushCandidate(operation: Operation): AsyncResult<void, Refusal> {
     const verified = await pushedHead(owner, plan.remote);
     if (verified.tag !== "Ok") return stop(verified);
     return verified.value === candidate
-      ? advance(operation, { step: "pushed" })
+      ? verifiedEffect(operation, "push").flatMap(() => advance(operation, { step: "pushed" }))
       : refuse("stack_push", "The pushed candidate is unconfirmed. No base change was attempted.");
   }, qualify).flatMap((result) => result);
 }
@@ -475,7 +574,8 @@ function retargetCandidate(operation: Operation): AsyncResult<void, Refusal> {
     if (before.tag !== "Ok") return stop(before);
     if (before.value.head !== plan.candidate)
       return refuse("stack_stale", "GitHub has not confirmed the pushed child head.");
-    if (before.value.base === plan.targetBranch) return Ok(undefined);
+    if (before.value.base === plan.targetBranch)
+      return plan.retargetAttempted ? verifiedEffect(operation, "retarget") : Ok(undefined);
     if (plan.retargetAttempted)
       return refuse(
         "stack_retarget_uncertain",
@@ -483,13 +583,21 @@ function retargetCandidate(operation: Operation): AsyncResult<void, Refusal> {
       );
     if (before.value.base !== plan.base)
       return refuse("stack_stale", "The PR base changed before retargeting.");
-    const intent = advance(operation, { retargetAttempted: true });
+    const intent = advance(operation, {
+      retargetAttempted: true,
+      attempts: [
+        ...operation.plan.attempts,
+        { effect: "retarget", outcome: "intent", at: new Date().toISOString() },
+      ],
+    });
     if (intent.tag !== "Ok") return stop(intent);
-    await retarget(owner.repository, plan.number, plan.targetBranch);
+    const changed = await retarget(owner.repository, plan.number, plan.targetBranch);
+    const retained = retargetAnswer(operation, changed);
+    if (retained.tag !== "Ok") return stop(retained);
     const after = await childFacts(owner);
     if (after.tag !== "Ok") return stop(after);
     return after.value.head === plan.candidate && after.value.base === plan.targetBranch
-      ? Ok(undefined)
+      ? verifiedEffect(operation, "retarget")
       : refuse(
           "stack_retarget_uncertain",
           "GitHub has not established the requested head and base. No uncertain write will be repeated.",
@@ -497,7 +605,50 @@ function retargetCandidate(operation: Operation): AsyncResult<void, Refusal> {
   }, qualify).flatMap((result) => result);
 }
 
+function retargetAnswer(
+  operation: Operation,
+  changed: Result<string | null, never>,
+): Result<void, Refusal> {
+  if (changed.tag === "Ok")
+    return changed.value === null
+      ? Ok(undefined)
+      : attempt(operation, "retarget", "uncertain", changed.value);
+  const recorded = attempt(
+    operation,
+    "retarget",
+    "uncertain",
+    changed.tag === "Defect" ? String(changed.cause) : String(changed.error),
+  );
+  if (recorded.tag !== "Ok")
+    console.error("stack_retarget_persistence", { primary: changed, secondary: recorded });
+  return changed.as(undefined);
+}
+
 function finishOperation(operation: Operation): AsyncResult<void, Refusal> {
+  const { owner, plan } = operation;
+  return childFacts(owner)
+    .flatMap((child) =>
+      pushedHead(owner, plan.remote).flatMap((remote) =>
+        fromPromise(
+          async () =>
+            child.head === plan.candidate &&
+            remote === plan.candidate &&
+            child.base === plan.targetBranch &&
+            plan.candidate !== null &&
+            (await clean(owner, plan.candidate))
+              ? Ok(undefined)
+              : refuse(
+                  "stack_stale",
+                  "The exact final head, base, and clean pushed worktree are no longer verified.",
+                ),
+          qualify,
+        ).flatMap((result) => result),
+      ),
+    )
+    .flatMap(() => persistCompletion(operation));
+}
+
+function persistCompletion(operation: Operation): AsyncResult<void, Refusal> {
   const { input, owner, plan } = operation;
   const first = plan.parents[0];
   if (first === undefined)
@@ -530,9 +681,9 @@ function finishOperation(operation: Operation): AsyncResult<void, Refusal> {
 function runOperation(operation: Operation): AsyncResult<void, Refusal> {
   return fromPromise(async () => {
     for (const step of [
+      prepareCandidate,
       invalidateReview,
       publishBase,
-      prepareCandidate,
       installCandidate,
       pushCandidate,
       retargetCandidate,
@@ -540,6 +691,12 @@ function runOperation(operation: Operation): AsyncResult<void, Refusal> {
     ]) {
       const guard = await preflight(operation);
       if (guard.tag !== "Ok") return stop(guard);
+      if (
+        step === invalidateReview &&
+        operation.plan.candidate === operation.plan.head &&
+        operation.plan.targetBranch === operation.plan.base
+      )
+        return await finishOperation(operation);
       const result = await step(operation);
       if (result.tag !== "Ok") return stop(result);
     }
@@ -591,7 +748,11 @@ function apply(input: Input, owner: Owner, id: string): AsyncResult<Outcome, Ref
       };
     }
     const released = save(input, owner, operation.plan, operation.revision, false);
-    if (result.tag !== "Ok") return stop(result);
+    if (result.tag !== "Ok") {
+      if (released.tag !== "Ok")
+        console.error("stack_release_failure", { primary: result, secondary: released });
+      return stop(result);
+    }
     return released
       .toAsync()
       .flatMap(() => refreshBrief(input, owner))
@@ -616,6 +777,7 @@ function reviewStack(input: Input, owner: Owner, id: string): AsyncResult<Outcom
     const plan = PrStacks.operation(read.value.data);
     if (
       plan.step !== "complete" ||
+      read.value.reviewHistory === null ||
       plan.launchId !== owner.launchId ||
       owner.implementerLaunchId !== owner.launchId ||
       owner.reviewState !== "reviewing"
@@ -638,10 +800,13 @@ function reviewStack(input: Input, owner: Owner, id: string): AsyncResult<Outcom
       );
     const parents = await validateParents(owner, plan);
     if (parents.tag !== "Ok") return stop(parents);
-    return (await startHandoff(input.paths, owner)).map(() => ({
-      reason: "stack_review_started",
-      data: plan,
-    }));
+    return DeviceState.beginStackReview(input.paths, owner.launchId, id, read.value.revision)
+      .toAsync()
+      .flatMap((reserved) => (reserved ? startHandoff(input.paths, owner) : OkAsync("started")))
+      .map(() => ({
+        reason: "stack_review_started",
+        data: plan,
+      }));
   }, qualify).flatMap((result) => result);
 }
 
@@ -652,7 +817,7 @@ export function relayStack(
   relay: Relay,
 ): AsyncResult<Outcome, Refusal> {
   return childFacts(owner).flatMap((child) =>
-    synchronizedRemote(owner, child).flatMap((remote) =>
+    synchronizedRemote(owner, child).flatMap(({ remote, url }) =>
       fromPromise(async () => {
         const branch = child.defaultBranch;
         const cut = relay.cut;
@@ -693,8 +858,12 @@ export function relayStack(
         const target = await stackGit(owner.worktreePath, ["rev-parse", "FETCH_HEAD"]);
         if (!fetched.ok || !target.ok)
           return refuse("stack_remote", "The default branch could not be pinned for relay.");
+        const id = crypto.randomUUID();
         const plan: Plan = {
-          id: crypto.randomUUID(),
+          id,
+          remoteUrl: url,
+          worktree: owner.worktreePath,
+          originalRef: `refs/operator/stacks/${id}/original`,
           repository: owner.repository,
           sourceId: owner.sourceId,
           assignment: owner.assignment,
@@ -717,6 +886,7 @@ export function relayStack(
           pushAttempted: false,
           candidate: null,
           step: "planned",
+          attempts: [],
         };
         const recorded = save(input, owner, plan, null, false);
         return recorded.tag === "Ok" ? await apply(input, owner, plan.id) : stop(recorded);
@@ -770,7 +940,7 @@ function cancelStack(input: Input, owner: Owner, id: string): AsyncResult<Outcom
           ? previous.previousOwners
           : [...previous.previousOwners, previous.launchId],
     };
-    if (plan.retargetAttempted || plan.step === "complete")
+    if (plan.retargetAttempted || plan.step === "complete" || unresolvedEffects(plan))
       return refuse(
         "stack_cancel_unsafe",
         "A completed or retarget-attempted refresh cannot be cancelled by guessing its outcome. Preserve the operation and inspect it.",
@@ -804,6 +974,13 @@ function cancelStack(input: Input, owner: Owner, id: string): AsyncResult<Outcom
   }, qualify).flatMap((result) => result);
 }
 
+function unresolvedEffects(plan: Plan) {
+  return (["base", "draft", "push"] as const).some((effect) => {
+    const last = plan.attempts.findLast((row) => row.effect === effect);
+    return last !== undefined && last.outcome !== "verified";
+  });
+}
+
 /** The worktree is the sole target selector; applying again resumes only the same pinned operation. */
 export function stack(
   input: Input & {
@@ -813,13 +990,44 @@ export function stack(
     parents?: string[];
   },
 ): AsyncResult<Outcome, Refusal> {
-  return resolveOwner({ ...input, stackOperation: true }).flatMap((owner) => {
-    if (input.action === "plan") return preview(input, owner);
-    if (input.plan === undefined)
-      return refuse("stack_plan_required", "Name the pinned stack operation.").toAsync();
-    if (input.action === "cancel") return cancelStack(input, owner, input.plan);
-    return input.action === "review"
-      ? reviewStack(input, owner, input.plan)
-      : apply(input, owner, input.plan);
-  });
+  return resolveOwner({ ...input, stackOperation: true })
+    .flatMap((owner) => {
+      if (input.action === "plan") return preview(input, owner);
+      if (input.plan === undefined)
+        return refuse("stack_plan_required", "Name the pinned stack operation.").toAsync();
+      if (input.action === "cancel") return cancelStack(input, owner, input.plan);
+      return input.action === "review"
+        ? reviewStack(input, owner, input.plan)
+        : apply(input, owner, input.plan);
+    })
+    .map((outcome) => ({
+      ...outcome,
+      next: stackNext(outcome),
+      state: { operation: outcome.data.id, step: outcome.data.step },
+    }));
+}
+
+function stackNext(outcome: Outcome): NextStep {
+  const plan = outcome.data;
+  if (outcome.reason === "stack_review_started")
+    return { why: "The recorded handoff owns the fresh review. Stop this outgoing worker." };
+  if (plan.step === "cancelled")
+    return {
+      command: "operator pr stack plan",
+      why: "Inspect the preserved work before planning another integration.",
+    };
+  if (plan.step !== "complete")
+    return {
+      command: `operator pr stack apply --plan ${plan.id}`,
+      why: "Apply only these pinned inputs from the owned worktree.",
+    };
+  if (plan.candidate === plan.head && plan.base === plan.targetBranch)
+    return {
+      command: "operator pr wait",
+      why: "The integration is unchanged; retain its existing readiness.",
+    };
+  return {
+    command: `operator pr stack review --plan ${plan.id}`,
+    why: "Hand the actual changed head and review base to a fresh independent reviewer.",
+  };
 }

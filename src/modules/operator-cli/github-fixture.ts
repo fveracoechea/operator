@@ -258,9 +258,12 @@ if (query.includes("ParkedPRs") || query.includes("ParkedFeedbackPages")) {
   for (const match of query.matchAll(/(r\\d+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{([\\s\\S]*?)(?=r\\d+: repository|$)/g)) {
     const number = Number(/pullRequest\\(number: (\\d+)\\)/.exec(match[4])?.[1]);
     const pr = state.pulls.find(row => row.number === number);
-    const parentNumber = Number(/parent: pullRequest\\(number: (\\d+)\\)/.exec(match[4])?.[1]);
-    const parent = state.pulls.find(row => row.number === parentNumber);
-    data[match[1]] = { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: pr === undefined ? null : prFacts(pr, match[4]), ...(parent === undefined ? {} : { parent: { state: parent.state, baseRefName: parent.baseRefName ?? "main", headRefOid: headOf(parent) } }) };
+    const parents = {};
+    for (const selected of match[4].matchAll(/(parent\\d*): pullRequest\\(number: (\\d+)\\)/g)) {
+      const parent = state.pulls.find(row => row.number === Number(selected[2]));
+      if (parent !== undefined) parents[selected[1]] = { state: parent.state, baseRefName: parent.baseRefName ?? "main", headRefOid: headOf(parent) };
+    }
+    data[match[1]] = { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: pr === undefined ? null : prFacts(pr, match[4]), ...parents };
   }
   answer({ data });
   process.exit(0);

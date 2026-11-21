@@ -641,7 +641,7 @@ export const PullRequests = {
     return stack(input);
   },
   /** The canonical validated PR command target, shared with worker-phase guards. */
-  workerTarget(input: Request) {
+  workerTarget(input: Request & { stackOperation?: boolean }) {
     return resolveOwner(input).map(({ repository, sourceId, assignment, launchId }) => ({
       repository,
       sourceId,

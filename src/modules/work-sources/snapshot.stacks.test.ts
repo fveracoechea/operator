@@ -10,6 +10,7 @@ const plan = {
   assignment: "child",
   launchId: "l-child",
   previousOwners: [],
+  attempts: [],
   number: 8,
   branch: "task/child",
   head: "child-old",

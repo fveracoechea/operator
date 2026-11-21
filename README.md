@@ -469,7 +469,7 @@ The child diff excludes prerequisite integration, and prerequisite owners retain
 An incomplete operation blocks ordinary PR writes. Inspect its progress and failures with `operator source show` or `operator next`.
 Use `operator pr stack cancel --plan <id>` when the original or installed candidate is clean, pushed, and confirmed at its unchanged PR base.
 Cancellation keeps the child work and installed dependency provenance; it does not roll back a pushed candidate.
-An attempted but unconfirmed GitHub base change cannot be cancelled or blindly repeated.
+An attempted but unconfirmed publication, draft, push, or GitHub base change cannot be cancelled or blindly repeated.
 Observe and resolve that external outcome before resuming. GitHub base changes have no cross-system compare-and-swap guarantee.
 
 Refresh makes the PR a draft, archives earlier review records, and clears stale readiness (ADR-0020).

@@ -3,6 +3,7 @@
 ## Status
 
 Amended 2026-11-17 in #422: stack effects keep durable pinned progress and refuse uncertain cross-system recovery.
+Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): every stack write retains prior intent and observation-based recovery.
 
 Accepted - 2026-10-24.
 Decided in #204, #208, #231, and #232.
@@ -29,8 +30,10 @@ Writes across projects serialize, but no external tool or network call runs whil
 A busy timeout produces a definite failure rather than a partial write.
 Git, GitHub, and SQLite do not form one transaction.
 Stack operations claim their owned resources and record progress around each external effect.
+They persist exact inputs and intent before base publication, draft changes, local installation, pushes, or retargeting.
 Exact-head branch leases prevent stale pushes; PR-base changes require revalidation and read-back without a claim of cross-system atomicity.
 An uncertain effect remains incomplete until observation establishes its outcome.
+An unreadable or original external value does not prove non-application and does not authorize another uncertain write.
 SQLite uses full synchronization explicitly.
 
 A damaged database is never silently repaired or replaced.
@@ -61,7 +64,7 @@ The cap is part of the registered plan and changes only with a new registration.
 - Silent table creation on every open was rejected because it can conceal damaged or unsupported state.
 - Raw copies of a live database and its side files were rejected because they do not establish a consistent backup.
 - An integer version beside migration history was rejected because two format authorities can disagree.
-- Supervisor ownership and request-replay protocols were rejected because transition guards protect the workflow from duplicate operations.
+- Generic supervisor-owned request replay remains rejected; narrow stack records accept recovery costs at the actual effect boundaries.
 - A device-wide agent quota in device settings was rejected because one project's large plan would starve another project's work, and SuperAgents of different projects would compete for one count.
 - A cap that only the SuperAgent remembers was rejected because a restart loses it and next actions would list work that the cap forbids.
 - Counting only implementers, without PR owners and reviewers, was rejected because those agents use the same device and CI.

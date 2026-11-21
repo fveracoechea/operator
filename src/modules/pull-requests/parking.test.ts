@@ -575,3 +575,50 @@ test("a close records the abandon frontier rather than a waking launch", () => {
   expect(closed.parking.state).toBe("closed");
   expect(closed.parking.events).toEqual([]);
 });
+
+test("a managed parked batch waits for every parent and retains the final event across repark", () => {
+  const prerequisites = [
+    { assignment: "a", number: 6, branch: "a", head: "a0", base: "main" },
+    { assignment: "b", number: 9, branch: "b", head: "b0", base: "main" },
+  ];
+  const managed = {
+    ...row,
+    relay: JSON.stringify({
+      parent: prerequisites[0],
+      prerequisites,
+      cut: "integration",
+      base: "managed",
+      state: "stacked",
+      blocker: null,
+      ownerPid: null,
+      leaseAt: null,
+      rebasedHead: null,
+    }),
+  };
+  const a = { number: 6, state: "MERGED" as const, head: "a1", base: "main" };
+  const b = { number: 9, state: "OPEN" as const, head: "b1", base: "main" };
+  const first = parkedObservation(managed, { observed, parent: a, parents: [a, b] });
+  expect(first.parking.events).toEqual([]);
+  const reparked = {
+    ...managed,
+    ...first,
+    parking: { ...first.parking, events: [], parentSeen: true },
+  };
+  const finalFacts = { observed, parent: a, parents: [a, { ...b, state: "MERGED" as const }] };
+  const final = parkedObservation(reparked, finalFacts);
+  expect(final.parking.events).toHaveLength(1);
+  expect(JSON.parse(final.parking.events[0] ?? "null")).toMatchObject({
+    kind: "parent_merged",
+    parents: [{ number: 6 }, { number: 9 }],
+    blocked: false,
+  });
+  expect(parkedObservation({ ...reparked, ...final }, finalFacts).parking.events).toEqual(
+    final.parking.events,
+  );
+  expect(
+    parkedObservation(
+      { ...reparked, ...final, parking: { ...final.parking, events: [] } },
+      finalFacts,
+    ).parking.events,
+  ).toEqual([]);
+});

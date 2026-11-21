@@ -7,10 +7,12 @@ import { fakeGithubScript } from "./github-fixture.ts";
 
 type Device = Awaited<ReturnType<typeof workerDevice>>;
 let device: Device | undefined;
+const panes = new Map<string, string>();
 
 afterEach(async () => {
   if (device !== undefined) await rm(device.root, { recursive: true, force: true });
   device = undefined;
+  panes.clear();
 });
 
 async function git(cwd: string, ...args: string[]) {
@@ -44,9 +46,49 @@ async function open(assignment: string, source: string, number: number, base: st
       baseRefName: base,
     });
   });
-  const associated = await (device as Device).run(["pr", "associate"], { cwd });
+  const associated = await (device as Device).run(["pr", "associate"], {
+    cwd,
+    pane: launched.paneId,
+  });
   expect(associated.code, associated.stderr).toBe(0);
+  await feedbackOwner(assignment, source, cwd);
   return cwd;
+}
+
+async function feedbackOwner(assignment: string, source: string, cwd: string) {
+  const shown = z.object({
+    data: z.object({
+      launches: z.array(
+        z.object({
+          assignment: z.string(),
+          state: z.string(),
+          kind: z.object({ name: z.string() }).nullable(),
+          paneId: z.string().nullable(),
+        }),
+      ),
+    }),
+  });
+  let feedback = false;
+  for (let attempt = 0; attempt < 100 && !feedback; attempt++) {
+    const state = shown.parse(
+      (await (device as Device).run(["source", "show", "--source", source])).output,
+    );
+    feedback = state.data.launches.some(
+      (row) =>
+        row.assignment === assignment &&
+        row.state === "running" &&
+        row.kind?.name === "pr-feedback",
+    );
+    const current = state.data.launches.findLast(
+      (row) => row.assignment === assignment && row.state === "running",
+    );
+    if (current?.paneId !== undefined && current.paneId !== null) panes.set(cwd, current.paneId);
+    if (!feedback) await Bun.sleep(100);
+  }
+  expect(
+    feedback,
+    JSON.stringify((await (device as Device).run(["source", "show", "--source", source])).output),
+  ).toBe(true);
 }
 
 async function stackDevice(options: { multiple?: boolean } = {}) {
@@ -134,6 +176,16 @@ test("owner previews and refreshes a child onto its newer OPEN parent without ch
     await git(child, "rev-parse", "HEAD"),
   );
   const source = await (device as Device).run(["source", "show", "--source", plan.sourceId]);
+  const childReadiness = z
+    .object({
+      data: z.object({
+        pullRequests: z.array(z.object({ assignment: z.string(), readiness: z.unknown() })),
+        stackOperations: z.array(z.object({ reviewHistory: z.string().nullable() })),
+      }),
+    })
+    .parse(source.output).data;
+  expect(childReadiness.pullRequests.find((pr) => pr.assignment === "child")?.readiness).toBeNull();
+  expect(childReadiness.stackOperations[0]?.reviewHistory).toContain(original);
   const reviews = z
     .object({
       data: z.object({
@@ -155,14 +207,22 @@ test("owner previews and refreshes a child onto its newer OPEN parent without ch
     cwd: child,
   });
   expect(repeated.code, repeated.stderr).toBe(0);
+  const oldReady = await (device as Device).run(["pr", "ready"], {
+    cwd: child,
+    pane: panes.get(child),
+  });
+  expect(oldReady.output.reason).toBe("stack_review_required");
   const handoff = await (device as Device).run(["pr", "stack", "review", "--plan", plan.id], {
     cwd: child,
+    pane: panes.get(child),
   });
   expect(handoff.code, handoff.stderr).toBe(0);
   expect(handoff.output.reason).toBe("stack_review_started");
   const handedOff = z.object({
     data: z.object({
-      internalReviews: z.array(z.object({ handoffState: z.string() })),
+      handoffs: z.array(
+        z.object({ assignment: z.string(), handoffState: z.string(), nextKind: z.string() }),
+      ),
       launches: z.array(
         z.object({
           assignment: z.string(),
@@ -170,6 +230,8 @@ test("owner previews and refreshes a child onto its newer OPEN parent without ch
           state: z.string(),
           worktreePath: z.string().nullable(),
           internalReview: z.boolean().optional(),
+          paneId: z.string().nullable(),
+          kind: z.object({ name: z.string() }).nullable(),
         }),
       ),
     }),
@@ -182,7 +244,7 @@ test("owner previews and refreshes a child onto its newer OPEN parent without ch
     attempt < 100 &&
     !state.launches.some(
       (launch) =>
-        launch.assignment === "child" && launch.attempt === 2 && launch.state === "running",
+        launch.assignment === "child" && launch.attempt === 3 && launch.state === "running",
     );
     attempt++
   ) {
@@ -191,21 +253,72 @@ test("owner previews and refreshes a child onto its newer OPEN parent without ch
       (await (device as Device).run(["source", "show", "--source", plan.sourceId])).output,
     ).data;
   }
-  expect(state.internalReviews[0]?.handoffState).toBe("done");
+  expect(state.handoffs.find((row) => row.assignment === "child")).toMatchObject({
+    handoffState: "done",
+    nextKind: "review",
+  });
   expect(
-    state.launches.find((launch) => launch.assignment === "child" && launch.attempt === 2),
-  ).toEqual({
+    state.launches.find((launch) => launch.assignment === "child" && launch.attempt === 3),
+  ).toMatchObject({
     assignment: "child",
-    attempt: 2,
+    attempt: 3,
     state: "running",
     worktreePath: child,
     internalReview: true,
+    kind: { name: "review" },
   });
   const reviewerBrief = await Bun.file(
     `${(device as Device).root}/state/operator/projects/example/one/sources/${sourceId}/assignments/child/brief.md`,
   ).text();
   expect(reviewerBrief).not.toContain(`operator pr stack review --plan ${plan.id}`);
-  expect(reviewerBrief).toContain("fresh");
+  expect(reviewerBrief).toContain("review");
+  const reviewerPane =
+    state.launches.find((launch) => launch.assignment === "child" && launch.attempt === 3)
+      ?.paneId ?? "";
+  const round = await (device as Device).writeText("fresh-stack-round.md", "## Findings\n");
+  expect(
+    (
+      await (device as Device).run(["pr", "round", "--file", round], {
+        cwd: child,
+        pane: reviewerPane,
+      })
+    ).code,
+  ).toBe(0);
+  const summary = await (device as Device).writeText(
+    "fresh-stack-summary.md",
+    "## Overview\nReviewed the actual integration against its new base.\n\n## Dispositions\n",
+  );
+  const ready = await (device as Device).run(["pr", "ready", "--file", summary], {
+    cwd: child,
+    pane: reviewerPane,
+  });
+  expect(ready.code, ready.stderr).toBe(0);
+  await feedbackOwner("child", sourceId, child);
+}, 60000);
+
+test("a true no-op preserves the exact ready frontier and starts no new review", async () => {
+  const { child, source } = await stackDevice();
+  const before = await (device as Device).run(["source", "show", "--source", source]);
+  const facts = z.object({
+    data: z.object({
+      pullRequests: z.array(z.object({ assignment: z.string(), readiness: z.unknown() })),
+      launches: z.array(z.object({ id: z.string() })),
+    }),
+  });
+  const original = await git(child, "rev-parse", "HEAD");
+  const planned = await (device as Device).run(["pr", "stack", "plan"], { cwd: child });
+  const id = z.object({ data: z.object({ id: z.string() }) }).parse(planned.output).data.id;
+  const applied = await (device as Device).run(["pr", "stack", "apply", "--plan", id], {
+    cwd: child,
+  });
+  expect(applied.code, applied.stderr).toBe(0);
+  const after = await (device as Device).run(["source", "show", "--source", source]);
+  expect(facts.parse(after.output).data).toEqual(facts.parse(before.output).data);
+  expect(await git(child, "rev-parse", "HEAD")).toBe(original);
+  expect(
+    (await (device as Device).run(["pr", "stack", "review", "--plan", id], { cwd: child })).output
+      .reason,
+  ).toBe("stack_review");
 }, 60000);
 
 test("an older known prerequisite ancestor cannot be used as a cut that replays prerequisite work", async () => {
@@ -260,6 +373,18 @@ test("a rejected child push retains the installed candidate and resumes without 
     data: { step: "installed", failures: [{ reason: "stack_push" }] },
   });
   await rm(hook);
+  const uncertain = await (device as Device).run(["pr", "stack", "apply", "--plan", id], {
+    cwd: child,
+  });
+  expect(uncertain.output.reason).toBe("stack_push_uncertain");
+  expect(await git(child, "ls-remote", "origin", "refs/heads/task/child")).toStartWith(original);
+  await git(
+    child,
+    "push",
+    `--force-with-lease=refs/heads/task/child:${original}`,
+    "origin",
+    `${candidate}:refs/heads/task/child`,
+  );
   const resumed = await (device as Device).run(["pr", "stack", "apply", "--plan", id], {
     cwd: child,
   });
@@ -404,13 +529,26 @@ test("a child with several OPEN parents dispatches, waits for every merge, and r
       baseRefName: branch,
     }),
   );
-  const associated = await (device as Device).run(["pr", "associate"], { cwd: child });
+  const associated = await (device as Device).run(["pr", "associate"], {
+    cwd: child,
+    pane: dispatched.paneId,
+  });
   expect(associated.code, associated.stderr).toBe(0);
+  await feedbackOwner("child", source, child);
   expect(await git(child, "diff", `${target}...HEAD`, "--name-only")).toBe("child.txt");
   const childHead = await git(child, "rev-parse", "HEAD");
   await github((state) => {
     const first = state.pulls.find((row) => row.number === 6);
     if (first !== undefined) Object.assign(first, { state: "MERGED" });
+    const pr = state.pulls.find((row) => row.number === 8);
+    if (pr !== undefined)
+      pr.comments = [
+        {
+          id: "first-feedback",
+          body: "Retain this real feedback while another parent stays open.",
+          author: "reviewer",
+        },
+      ];
   });
   const waiting = await (device as Device).run(["pr", "wait", "--timeout", "0"], { cwd: child });
   expect(waiting.code, waiting.stderr).toBe(0);
@@ -488,11 +626,9 @@ test("an existing child adds an implemented sibling through a dependency-only ma
   expect(await git(sibling, "rev-parse", "HEAD")).toBe(siblingHead);
   const after = await (device as Device).run(["source", "show", "--source", source]);
   const planned = z.object({
-    data: z.object({ planned: z.array(z.looseObject({ key: z.string() })) }),
+    data: z.object({ plan: z.unknown() }),
   });
-  expect(planned.parse(after.output).data.planned).toEqual(
-    planned.parse(before.output).data.planned,
-  );
+  expect(planned.parse(after.output).data.plan).toEqual(planned.parse(before.output).data.plan);
   const githubState = fixtureState.parse(
     await Bun.file(`${(device as Device).root}/github.json`).json(),
   );

@@ -4,12 +4,21 @@ import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import type { Refusal } from "../../lib/cli-result.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { PrStacks } from "../pr-stacks/main.ts";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import { reviewHandoffTarget } from "./handoff-target.ts";
 import { readRecoveryReceipt } from "./internal-review-recovery.ts";
 import { storedPrReadinessSchema } from "./pr-readiness.ts";
-import { assignments, kindHandoffs, launches, pullRequests, sources } from "./schema.ts";
+import {
+  assignments,
+  kindHandoffs,
+  launches,
+  pullRequests,
+  sources,
+  stackOperations,
+  internalReviews,
+} from "./schema.ts";
 
 export type HandoffContinuation = {
   repository: string;
@@ -215,7 +224,51 @@ function continuationOwner(db: Db, facts: ContinuationFacts, latest: typeof laun
   if (handoff.nextKind === "pr-feedback") return feedbackContinuation(db, facts, latest);
   // An explicitly recovered promotion can retain its original report-kind snapshot.
   if (recovered) return true;
+  if (stackReviewContinuation(db, facts, latest)) return true;
   return kindContinuation(db, facts, latest);
+}
+
+/** A completed changed integration permits review without changing the outgoing kind snapshot. */
+function stackReviewContinuation(
+  db: Db,
+  facts: ContinuationFacts,
+  latest: typeof launches.$inferSelect,
+) {
+  if (facts.handoff.nextKind !== "review" || facts.assignment.completion !== "pr") return false;
+  const review = db
+    .select()
+    .from(internalReviews)
+    .where(
+      and(
+        eq(internalReviews.sourceId, facts.source.id),
+        eq(internalReviews.assignment, facts.assignment.key),
+      ),
+    )
+    .get();
+  if (review?.state !== "reviewing" || review.implementerLaunchId !== latest.id) return false;
+  const operations = db
+    .select()
+    .from(stackOperations)
+    .where(
+      and(
+        eq(stackOperations.sourceId, facts.source.id),
+        eq(stackOperations.assignment, facts.assignment.key),
+        eq(stackOperations.launchId, latest.id),
+        eq(stackOperations.state, "complete"),
+      ),
+    )
+    .all();
+  return operations.some((row) => {
+    const plan = PrStacks.operation(row.data);
+    return (
+      row.reviewHistory !== null &&
+      plan.step === "complete" &&
+      plan.launchId === latest.id &&
+      plan.branch === latest.branch &&
+      plan.repository === facts.source.repository &&
+      plan.candidate !== null
+    );
+  });
 }
 
 function feedbackContinuation(
