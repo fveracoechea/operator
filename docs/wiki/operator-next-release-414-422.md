@@ -137,3 +137,77 @@ The corrected descendant requires fresh narrow Standards and Spec applicability 
 Per the revised qualification sequence, both reviews must clear before another full-quality or smoke run.
 The 0a6 full-quality pass is history, not qualification of this descendant.
 No baseline changeset, migration, new command, consumer-note import, mutation campaign, hook change, or release action was added.
+
+## Verified #415 landing on 2026-11-21
+
+This entry supersedes the pending #415 qualification and landing gates above.
+Existing [PR #415](https://github.com/fveracoechea/operator/pull/415) merged at `2026-11-21T21:39:12Z`.
+The actual merge is `c274f62cf1be4cd3fce192e4a0f924c0ecdf51b1`.
+Its ordered parents are previous main `e5606a7b7168248992655dcc04ba4f45e1cd4f61` and qualified head `6f60b96c639a8b48a65bab5d7dad7ce1af07562f`.
+Its tree `3a7419f2858031fd51930441162369f5a9b07891` equals both the qualified head's tree and the prospective tested merge tree.
+Remote main matched the actual merge before #423 composition.
+
+Both final independent reviews were clean at that exact head, tree, and base.
+Their reports are `/tmp/opencode/operator-next-release-415-external-standards.md` and `/tmp/opencode/operator-next-release-415-external-spec.md`.
+The final unchanged-head receipts are under `/tmp/opencode/issue373-qualification/runs/`:
+
+- `pr415-external-membership-final-quality.json`: one full-quality run, 4,937 passing tests, zero failures, 37,764 assertions across 362 files.
+- `pr415-external-membership-final-linux-flake.json`: Linux package, artifact, locked-dependency, version, and installed discovery checks passed.
+- `pr415-external-membership-final-delivery.json`: both delivery paths passed, with 65 tests and 826 assertions across 10 files.
+
+All eight actual final-head CI jobs passed.
+Quality run `44950359412` and release-smoke run `44950359400` contain those results.
+The qualifier verified complete reviews and threads, protections, ancestry, live refs, and prospective tested-tree equality before ordinary pinned merge.
+No admin, auto, deletion, force, or protection bypass was used.
+The detailed record is `/tmp/opencode/operator-next-release-415-landing.md`.
+The machine-readable result is `/tmp/opencode/operator-next-release-415-merge-verification.json`.
+That landing does not qualify #423 or authorize publication or runtime activation.
+
+## Reviewed #423 corrections and notes on 2026-11-21
+
+Both initial independent #423 reviews requested changes at `10da29d3e87e53c6bcdfe110ecd28465a3655c5e` against included parent `bc9ad9907151a3939302d19b0a5a540eb66920cd`.
+The reports are `/tmp/opencode/operator-next-release-423-standards.md` and `/tmp/opencode/operator-next-release-423-spec.md`.
+After deduplication, they identified four blockers.
+Each had a failing public reproduction before its production correction.
+The retained red receipts use prefixes `423-spec-three-public-red` and `423-standards-identity-public-red` in the shared qualification directory.
+
+Commit `449ec644c338a9e2f2b86bc323126687fbebabd2` corrects all four:
+
+1. Association preserves the full recorded prerequisite graph and accepts only its recorded integration base.
+2. Immediate stack transactions validate pending and completed dependency edges, so reciprocal admissions serialize and refuse cycles.
+3. Completed-but-unhanded review recovery persists same-worktree replacement ownership without replaying integration effects or changing archive bytes.
+4. State-owned operation validation rejects corrupt identity and lineage before effects, with zero-write public regressions.
+
+The public regressions are in `src/modules/operator-cli/run.pr-stack-recovery.test.ts`.
+Owning tests cover identity, concurrent graph admission, association, and review transfer.
+Frozen `93cc53921e1fe87f2a5a4ad6c04604586b1a6a1d`, tree `f600102c3569261096ddbf37b9b4892fb1da217c`, passed static checks and 666 focused tests.
+The receipts are `423-93cc539-static.json` and `423-93cc539-focused.json`.
+Both fresh correction reviews were clean against included parent `750aaea7fe56eabeeb1ff38575ec8bd82fd801aa`.
+The reports are `/tmp/opencode/operator-next-release-423-correction-standards.md` and `/tmp/opencode/operator-next-release-423-correction-spec.md`.
+Spec independently passed 222 focused tests with 2,654 assertions, including seven public proofs.
+Standards passed its public, owning, identity, parking, and compatibility checks.
+These reviews cover the four corrections and current feature applicability, not a future parent composition.
+
+The approved note source is `e0977e2737219614630bc25f93d1012f0c6ce583`.
+Ordinary import commit `c80dee4dfa98261f7c7d744892e6d5c628cdefad` contains exactly its 16 existing changesets, with identical source blobs.
+Both feature-owned notes remain intact.
+All 26 pending notes parsed and planned only `3.0.0`; source version remains `2.3.2`.
+Historical note receipts use prefix `423-notes-c80dee4` and do not qualify later source changes.
+The source handoff is `/tmp/opencode/operator-next-release-consumer-notes.md`.
+
+## Actual-parent #423 composition and remaining gates on 2026-11-21
+
+After the verified #415 landing, #423 ordinarily merged exact main `c274f62cf1be4cd3fce192e4a0f924c0ecdf51b1`.
+Composition merge `fcb2a3ead95296ec57a01ff1d950ee1281a33672` retains both actual lineages without cherry-picking parent corrections.
+The strict stack-effect `deliveryIdle` fence has no queued-feedback exception.
+Delivery admission retains reciprocal `stackIdle` exclusion.
+The inherited refusal proof, confirmation, queue head and attempt, external observation identity, raw CAS, and all-parent cursors must remain intact together.
+External observations retain a null submission attempt rather than inventing one.
+Generic review handoffs, readiness invalidation, historical validation provenance, complete graphs, and corrupt-identity refusal remain required.
+
+Wiki ownership transferred from the completed #415 qualifier to the #423 composition owner for this append-only update.
+The current source handoff is `/tmp/opencode/operator-next-release-423-implementation.md`, with exact candidate identity in `-candidate.json`.
+New frozen scoped and static receipts must name the final composition.
+The coordinator will assign a separate final qualifier and two narrow final-composition applicability reviewers after that stable handoff.
+Final full quality, required isolated smoke, current CI, clean final reviews, live refs and threads, and prospective tested-tree equality remain gates.
+No #423 ready transition, full-quality run, smoke, merge, new mutation campaign, generated version, publication, or runtime activation is claimed here.

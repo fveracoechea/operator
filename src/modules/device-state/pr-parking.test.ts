@@ -68,35 +68,93 @@ function fixture() {
   return db;
 }
 
-test("queue disposition belongs to the PR receipt and survives parking again", () => {
-  using db = fixture();
-  const attempt = recordPullRequestQueue(db, "l", "h").getOr(null);
-  expect(attempt).not.toBeNull();
-  const cursors = { parentSeen: true, parentsSeen: ["previous all-parent observation"] };
-  db.query(
-    "UPDATE pull_requests SET parking = json_set(parking, '$.parentSeen', json('true'), '$.parentsSeen', json(?))",
-  ).run(JSON.stringify(cursors.parentsSeen));
-  expect(db.query("SELECT COUNT(*) AS count FROM kind_handoffs").get()).toEqual({ count: 0 });
-  expect(parkPullRequest(db, "l", { head: "h", note: "/park.md" })).toMatchObject({
-    tag: "Ok",
-    value: { queueHead: "h", queueAttempt: attempt, state: "parking", ...cursors },
-  });
-  db.exec("UPDATE launches SET state = 'finished'");
-  const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
-  expect(completeParking(db, target).tag).toBe("Ok");
-  expect(recordPullRequestQueue(db, "l", "h").tag).toBe("Ok");
-  const before = db.serialize();
-  expect(recordPullRequestQueue(db, "l", "different").tag).toBe("Err");
-  expect(db.serialize()).toEqual(before);
-  const claim = claimParkedRead(db, Date.now()).getOr(null);
-  expect(claim?.rows[0]?.parking).toMatchObject({
-    queueHead: "h",
-    queueAttempt: attempt,
-    head: "h",
-    state: "parked",
-    ...cursors,
-  });
-});
+test.each(["refused", "confirmed", "external"] as const)(
+  "the %s queue disposition and all-parent cursors survive parking again",
+  (disposition) => {
+    using db = fixture();
+    const attempt =
+      disposition === "external" ? null : recordPullRequestQueue(db, "l", "h").getOr(null);
+    if (disposition === "external")
+      expect(
+        recordPullRequestQueueObservation(db, "l", "h", {
+          head: "h",
+          state: "OPEN",
+          entry: "Q_EXTERNAL",
+        }).tag,
+      ).toBe("Ok");
+    else {
+      if (attempt === null) return expect.unreachable("The local enqueue must own its attempt.");
+      expect(recordPullRequestQueueRefusal(db, "l", "h", attempt, "Typed refusal.").tag).toBe("Ok");
+      if (disposition === "confirmed")
+        expect(
+          refusePullRequestQueue(db, "l", "h", attempt, {
+            head: "h",
+            state: "OPEN",
+            entry: "Q_LOCAL",
+          }).getOr(true),
+        ).toBe(false);
+    }
+    const queue = {
+      queueHead: "h",
+      queueAttempt: attempt,
+      queueRefusal:
+        disposition === "refused" ? { attempt, head: "h", detail: "Typed refusal." } : null,
+      queueConfirmed: disposition !== "refused",
+      queueObservation: disposition === "external" ? { head: "h", entry: "Q_EXTERNAL" } : null,
+    };
+    const cursors = { parentSeen: true, parentsSeen: ["previous all-parent observation"] };
+    db.query(
+      "UPDATE pull_requests SET parking = json_set(parking, '$.parentSeen', json('true'), '$.parentsSeen', json(?))",
+    ).run(JSON.stringify(cursors.parentsSeen));
+    expect(db.query("SELECT COUNT(*) AS count FROM kind_handoffs").get()).toEqual({ count: 0 });
+    expect(parkPullRequest(db, "l", { head: "h", note: "/park.md" })).toMatchObject({
+      tag: "Ok",
+      value: { ...queue, state: "parking", ...cursors },
+    });
+    db.exec("UPDATE launches SET state = 'finished'");
+    const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
+    expect(completeParking(db, target).tag).toBe("Ok");
+    expect(recordPullRequestQueue(db, "l", "h").tag).toBe("Ok");
+    const before = db.serialize();
+    expect(recordPullRequestQueue(db, "l", "different").tag).toBe("Err");
+    expect(db.serialize()).toEqual(before);
+    const claim = claimParkedRead(db, Date.now()).getOr(null);
+    expect(claim?.rows[0]?.parking).toMatchObject({
+      ...queue,
+      head: "h",
+      state: "parked",
+      ...cursors,
+    });
+    const parked = claim?.rows[0] ?? expect.unreachable("The batch must claim the parked PR.");
+    const at = claim?.at ?? expect.unreachable("The batch must own its read lease.");
+    const parking = {
+      ...parked.parking,
+      parentsSeen: [...cursors.parentsSeen, "complete all-parent observation"],
+      events: ["all prerequisites merged"],
+    };
+    const update = {
+      ...target,
+      previous: parked.parkingRaw,
+      progress: parked.progress,
+      parking,
+    };
+    expect(finishParkedRead(db, at, [update])).toMatchObject({ tag: "Ok", value: true });
+    expect(
+      prParkingSchema.parse(
+        JSON.parse(
+          db.query<{ parking: string }, []>("SELECT parking FROM pull_requests").get()?.parking ??
+            "null",
+        ),
+      ),
+    ).toEqual(parking);
+    const committed = db.serialize();
+    expect(finishParkedRead(db, at, [{ ...update, parking: parked.parking }])).toMatchObject({
+      tag: "Ok",
+      value: false,
+    });
+    expect(db.serialize()).toEqual(committed);
+  },
+);
 
 test("observed external membership retains its resource identity without a submission attempt", () => {
   using db = fixture();

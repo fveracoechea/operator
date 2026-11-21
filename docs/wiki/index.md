@@ -46,3 +46,10 @@ Before a coordination decision, read the relevant pages and verify changed facts
 When a later decision changes an entry, retain the earlier entry, mark it superseded, and link the replacement.
 Update every affected page and this index.
 Keep source issues, PRs, ADRs, and reports outside the wiki; cite them rather than duplicate or edit them.
+
+## Next-release composition checkpoint on 2026-11-21
+
+The [verified #415 landing](operator-next-release-414-422.md#verified-415-landing-on-2026-11-21) records actual main `c274f62`, clean final reviews, qualification, CI, and tested-tree equality.
+The [#423 correction record](operator-next-release-414-422.md#reviewed-423-corrections-and-notes-on-2026-11-21) records four resolved findings, clean `93cc539` reviews, and the approved 16-note import.
+The [actual-parent composition](operator-next-release-414-422.md#actual-parent-423-composition-and-remaining-gates-on-2026-11-21) retains final #423 review, qualification, smoke, CI, and live merge gates.
+Feature landing still does not authorize publication or runtime activation.
