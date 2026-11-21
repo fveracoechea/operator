@@ -212,11 +212,34 @@ if (query.includes("files(first")) {
 // With a real bare remote, an open PR's head is its branch there, as GitHub reports a push.
 const headOf = (pr) => pr.head ?? (state.remote ? Bun.spawnSync(["git", "--git-dir", state.remote, "rev-parse", "refs/heads/" + pr.headRefName]).stdout.toString().trim() : "head-1");
 if (query.includes("MergeQueueFacts")) {
+  if (state.queueMembershipReads?.length) {
+    const entry = state.queueMembershipReads.shift();
+    await save();
+    if (entry === "lost") {
+      status(502, "Bad Gateway", { message: "Later membership response lost." });
+      process.exit(1);
+    }
+    const pr = state.pulls.find(row => row.number === Number(field("number")));
+    answer({ data: { repository: { pullRequest: { id: "PR_" + pr.number, state: pr.state, headRefOid: headOf(pr), isMergeQueueEnabled: true, mergeQueueEntry: entry === null ? null : { id: entry } } } } });
+    process.exit(0);
+  }
+  if (state.enqueueTypedRefused && state.enqueueVerificationLost) {
+    state.enqueueVerificationLost = false;
+    await save();
+    status(502, "Bad Gateway", { message: "Membership verification response lost." });
+    process.exit(1);
+  }
   const pr = state.pulls.find(row => row.number === Number(field("number")));
   answer({ data: { repository: { pullRequest: { id: "PR_" + pr.number, state: pr.state, headRefOid: headOf(pr), isMergeQueueEnabled: pr.isMergeQueueEnabled ?? false, mergeQueueEntry: pr.queueEntry ? { id: pr.queueEntry } : null } } } });
   process.exit(0);
 }
 if (query.includes("mutation EnqueuePR")) {
+  if (state.enqueueTypedRefuse) {
+    state.enqueueTypedRefused = true;
+    await save();
+    answer({ data: { enqueuePullRequest: null }, errors: [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Queue admission refused." }] });
+    process.exit(0);
+  }
   const pr = state.pulls.find(row => "PR_" + row.number === field("id"));
   if (state.enqueueRefuse || field("head") !== headOf(pr)) { answer({ data: null, errors: [{ message: "Queue refused the head." }] }); process.exit(0); }
   pr.queueEntry = "QUEUE_" + pr.number;

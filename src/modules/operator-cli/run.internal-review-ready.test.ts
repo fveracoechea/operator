@@ -249,6 +249,9 @@ async function github(change: {
   omitQueueEntry?: boolean;
   enqueueLost?: boolean;
   mergeSubmitLost?: boolean;
+  enqueueTypedRefuse?: boolean;
+  enqueueVerificationLost?: boolean;
+  queueMembershipReads?: ("Q7" | "lost" | null)[];
   pulls?: Pull[];
   commentLost?: boolean;
   readyLost?: boolean;
@@ -880,6 +883,147 @@ test("selected direct recovery preserves its selector in every returned merge re
   });
   expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(puts);
 }, 120000);
+
+test("a typed queue refusal survives a lost verification and a new CLI process without blind resubmission", async () => {
+  const { source, head } = await parkedFixture();
+  await github({
+    pulls: [
+      pull({
+        head,
+        reviewDecision: "APPROVED",
+        checks: [{ name: "ci", conclusion: "SUCCESS" }],
+        isMergeQueueEnabled: true,
+      }),
+    ],
+    enqueueTypedRefuse: true,
+    enqueueVerificationLost: true,
+  });
+  const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+  expect(await run(command)).toMatchObject({
+    code: 1,
+    output: { reason: "pr_enqueue_refused", state: { notApplied: true } },
+  });
+  const parking = z
+    .looseObject({ queueAttempt: z.string() })
+    .parse((await shown(source)).pullRequests[0]?.parking);
+  expect(parking).toMatchObject({
+    queueHead: head,
+    queueRefusal: { head, attempt: parking.queueAttempt },
+  });
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+  await github({ enqueueTypedRefuse: false });
+  expect(await run(command)).toMatchObject({
+    code: 1,
+    output: {
+      reason: "pr_enqueue_refused",
+      next: { command: `operator pr merge --source ${source} --assignment implement` },
+    },
+  });
+  expect((await shown(source)).pullRequests[0]?.parking).toMatchObject({ queueHead: null });
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+  expect(await run(command)).toMatchObject({ code: 0, output: { reason: "pr_enqueued" } });
+  expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(2);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+}, 120000);
+
+test.each([
+  ["pull_request", "absent"],
+  ["merge_queue", "absent"],
+  ["merge_queue", "lost"],
+] as const)(
+  "membership in %s survives a later %s read and separate CLI processes",
+  async (membershipRead, laterRead) => {
+    const { source, head } = await parkedFixture();
+    const facts = {
+      head,
+      reviewDecision: "APPROVED",
+      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      isMergeQueueEnabled: true,
+    };
+    await github({
+      pulls: [pull(facts)],
+      enqueueTypedRefuse: true,
+      enqueueVerificationLost: true,
+    });
+    const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+    expect(await run(command)).toMatchObject({
+      code: 1,
+      output: { reason: "pr_enqueue_refused", state: { notApplied: true } },
+    });
+    const before = z
+      .looseObject({ queueAttempt: z.string() })
+      .parse((await shown(source)).pullRequests[0]?.parking);
+    await github({
+      enqueueTypedRefuse: false,
+      pulls: [pull({ ...facts, queueEntry: membershipRead === "pull_request" ? "Q7" : null })],
+      queueMembershipReads:
+        membershipRead === "pull_request" ? [null] : ["Q7", laterRead === "lost" ? "lost" : null],
+    });
+    await run(command);
+    const accepted = (await shown(source)).pullRequests[0]?.parking;
+    await github({ pulls: [pull(facts)] });
+    await run(command);
+    await run(command);
+    const after = await shown(source);
+    expect(accepted).toMatchObject({
+      queueHead: head,
+      queueAttempt: before.queueAttempt,
+      queueConfirmed: true,
+      queueRefusal: null,
+    });
+    expect(after.pullRequests[0]?.parking).toMatchObject({
+      queueHead: head,
+      queueAttempt: before.queueAttempt,
+      queueConfirmed: true,
+      queueRefusal: null,
+    });
+    expect(after.assignments.find((row) => row.key === "implement")?.state).toBe("pr-open");
+    expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  },
+  120000,
+);
+
+test.each(["absent", "lost"] as const)(
+  "initial external membership without a receipt survives %s queue facts and CLI restart",
+  async (later) => {
+    const { source, head } = await parkedFixture();
+    const facts = {
+      head,
+      reviewDecision: "APPROVED",
+      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      isMergeQueueEnabled: true,
+    };
+    expect((await shown(source)).pullRequests[0]?.parking).toMatchObject({
+      queueHead: null,
+      queueAttempt: null,
+    });
+    await github({
+      pulls: [pull({ ...facts, queueEntry: "Q7" })],
+      queueMembershipReads: [later === "lost" ? "lost" : null],
+    });
+    const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+    await run(command);
+    const accepted = (await shown(source)).pullRequests[0]?.parking;
+    const immediateEnqueues = await calls("gh-calls.jsonl", "mutation EnqueuePR");
+    await github({ pulls: [pull(facts)] });
+    await run(command);
+    await run(command);
+    const after = await shown(source);
+    expect(accepted).toMatchObject({
+      queueHead: head,
+      queueAttempt: null,
+      queueConfirmed: true,
+      queueObservation: { head, entry: "Q7" },
+    });
+    expect(after.pullRequests[0]?.parking).toEqual(accepted);
+    expect(after.assignments.find((row) => row.key === "implement")?.state).toBe("pr-open");
+    expect(immediateEnqueues).toBe(0);
+    expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  },
+  120000,
+);
 
 test("an omitted queue field preserves parked cursors and the batch retry schedule", async () => {
   const { source, head } = await parkedFixture();

@@ -36,6 +36,15 @@ const parkingReceipt = z.object({
   // The guarded queue attempt owns batch completion, even if its response is lost.
   queueHead: z.string().nullable().optional(),
   queueAttempt: z.string().nullable().optional(),
+  queueRefusal: z
+    .object({ attempt: z.string(), head: z.string(), detail: z.string() })
+    .nullable()
+    .optional(),
+  queueConfirmed: z.boolean().optional(),
+  queueObservation: z
+    .object({ head: z.string().min(1), entry: z.string().min(1) })
+    .nullable()
+    .optional(),
 });
 export const prParkingSchema = z.union([
   parkingReceipt.extend({
@@ -129,7 +138,15 @@ export function recordPullRequestQueue(
               parentSeen: false,
             };
             db.update(pullRequests)
-              .set({ parking: JSON.stringify({ ...parking, queueHead: head, queueAttempt }) })
+              .set({
+                parking: JSON.stringify({
+                  ...parking,
+                  queueHead: head,
+                  queueAttempt,
+                  queueRefusal: null,
+                  queueConfirmed: false,
+                }),
+              })
               .where(key(row))
               .run();
             return queueAttempt;
@@ -140,12 +157,92 @@ export function recordPullRequestQueue(
   );
 }
 
-/** Only the exact attempt's proven refusal can release its durable queue exclusion. */
-export function refusePullRequestQueue(
+function queueObservationMatches(
+  head: string,
+  observed: { head: string; state: string; entry: string | null },
+) {
+  return (
+    observed.head === head && observed.state === "OPEN" && observed.entry !== "" && head !== ""
+  );
+}
+
+function noQueueDisposition(parking: PrParking | null) {
+  return (
+    parking === null ||
+    (parking.state !== "closed" &&
+      !parking.queueConfirmed &&
+      (parking.queueHead ?? null) === null &&
+      (parking.queueAttempt ?? null) === null &&
+      (parking.queueRefusal ?? null) === null &&
+      (parking.queueObservation ?? null) === null)
+  );
+}
+
+/** An external membership observation excludes delivery without claiming a local submission. */
+export function recordPullRequestQueueObservation(
+  client: Database,
+  launchId: string,
+  head: string,
+  observed: { head: string; state: string; entry: string | null },
+  actor = { selected: false, session: null as string | null },
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
+        ({ source, assignment, launch }): Result<PrParking, Refusal> => {
+          const entry = observed.entry;
+          const row = db
+            .select()
+            .from(pullRequests)
+            .where(key({ sourceId: source.id, assignment: assignment.key }))
+            .get();
+          if (
+            row === undefined ||
+            assignment.state !== "pr-open" ||
+            row.branch !== launch.branch ||
+            entry === null ||
+            !queueObservationMatches(head, observed)
+          )
+            return Err(refused());
+          const previous =
+            row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
+          if (!noQueueDisposition(previous)) return Err(refused());
+          return deliveryAdmission(db, { launchId, head, ...actor }, false).map(() => {
+            const parking: PrParking = {
+              ...(previous ?? {
+                launchId,
+                head,
+                at: new Date().toISOString(),
+                note: null,
+                state: "active",
+                events: [],
+                parentSeen: false,
+              }),
+              queueHead: head,
+              queueAttempt: null,
+              queueRefusal: null,
+              queueConfirmed: true,
+              queueObservation: { head, entry },
+            };
+            db.update(pullRequests)
+              .set({ parking: JSON.stringify(parking) })
+              .where(key(row))
+              .run();
+            return parking;
+          });
+        },
+      ),
+    ),
+  );
+}
+
+/** Save nonapplication before any later verification can lose its answer or process. */
+export function recordPullRequestQueueRefusal(
   client: Database,
   launchId: string,
   head: string,
   attempt: string,
+  detail: string,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
@@ -161,11 +258,76 @@ export function refusePullRequestQueue(
             : prParkingSchema.parse(JSON.parse(row.parking));
         if (row === undefined || parking?.queueHead !== head || parking.queueAttempt !== attempt)
           return Err(refused());
+        if (parking.queueConfirmed) return Ok(undefined);
         db.update(pullRequests)
-          .set({ parking: JSON.stringify({ ...parking, queueHead: null, queueAttempt: null }) })
+          .set({ parking: JSON.stringify({ ...parking, queueRefusal: { attempt, head, detail } }) })
           .where(key(row))
           .run();
         return Ok(undefined);
+      }),
+    ),
+  );
+}
+
+/** Only the exact attempt's proven refusal can release its durable queue exclusion. */
+function queueRefusalApplies(parking: PrParking, head: string, attempt: string) {
+  return (
+    !parking.queueConfirmed &&
+    parking.queueRefusal?.attempt === attempt &&
+    parking.queueRefusal.head === head
+  );
+}
+
+export function refusePullRequestQueue(
+  client: Database,
+  launchId: string,
+  head: string,
+  attempt: string,
+  observed: { head: string; state: string; entry: string | null },
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db) =>
+      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(({ source, assignment }) => {
+        const row = db
+          .select()
+          .from(pullRequests)
+          .where(key({ sourceId: source.id, assignment: assignment.key }))
+          .get();
+        const parking =
+          row?.parking === null || row?.parking === undefined
+            ? null
+            : prParkingSchema.parse(JSON.parse(row.parking));
+        if (row === undefined || parking?.queueHead !== head || parking.queueAttempt !== attempt)
+          return Err(refused());
+        if (observed.entry !== null) {
+          if (observed.head !== head) return Err(refused());
+          db.update(pullRequests)
+            .set({
+              parking: JSON.stringify({ ...parking, queueConfirmed: true, queueRefusal: null }),
+            })
+            .where(key(row))
+            .run();
+          return Ok(false);
+        }
+        if (
+          observed.head !== head ||
+          observed.state !== "OPEN" ||
+          !queueRefusalApplies(parking, head, attempt)
+        )
+          return Ok(false);
+        db.update(pullRequests)
+          .set({
+            parking: JSON.stringify({
+              ...parking,
+              queueHead: null,
+              queueAttempt: null,
+              queueRefusal: null,
+              queueConfirmed: false,
+            }),
+          })
+          .where(key(row))
+          .run();
+        return Ok(true);
       }),
     ),
   );
@@ -212,6 +374,9 @@ export function parkPullRequest(
               events: [],
               queueHead: previous?.queueHead ?? null,
               queueAttempt: previous?.queueAttempt ?? null,
+              queueRefusal: previous?.queueRefusal ?? null,
+              queueConfirmed: previous?.queueConfirmed ?? false,
+              queueObservation: previous?.queueObservation ?? null,
               parentSeen:
                 row.parking === null
                   ? false

@@ -476,9 +476,31 @@ test("a durable queue receipt permits feedback observation but refuses a relay c
   const { input, launchId, worktree } = waiting(device);
   const head = git(worktree, "rev-parse", "HEAD");
   expect(DeviceState.recordPullRequestQueue(device.paths, launchId, head).tag).toBe("Ok");
+  const attempt = DeviceState.prParkingSchema().parse(
+    JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+  ).queueAttempt;
+  expect(
+    DeviceState.recordPullRequestQueueRefusal(
+      device.paths,
+      launchId,
+      head,
+      attempt ?? "",
+      "Typed refusal.",
+    ).tag,
+  ).toBe("Ok");
   device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true, queueEntry: "Q7" })));
   expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
   expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  expect(
+    DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    ),
+  ).toMatchObject({
+    queueHead: head,
+    queueAttempt: attempt,
+    queueConfirmed: true,
+    queueRefusal: null,
+  });
   const before = await Bun.file(device.paths.database).arrayBuffer();
   expect(
     DeviceState.recordPullRequestWait(device.paths, launchId, (row) => ({
@@ -488,6 +510,30 @@ test("a durable queue receipt permits feedback observation but refuses a relay c
     })),
   ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
   expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+});
+
+test("queued correction observation does not confirm membership for a different head", async () => {
+  await using device = await prDevice();
+  const { input, launchId, worktree } = waiting(device);
+  const head = git(worktree, "rev-parse", "HEAD");
+  const attempt = DeviceState.recordPullRequestQueue(device.paths, launchId, head).getOr(null);
+  if (attempt === null) return expect.unreachable("The attempt must be newly recorded.");
+  expect(
+    DeviceState.recordPullRequestQueueRefusal(
+      device.paths,
+      launchId,
+      head,
+      attempt,
+      "Typed refusal.",
+    ).tag,
+  ).toBe("Ok");
+  const before = device.pullRequestRow("other")?.parking;
+  device.answer(() =>
+    succeeded(pullRequestBody({ head: "changed", queueEnabled: true, queueEntry: "Q_OTHER" })),
+  );
+  expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
+  expect(device.pullRequestRow("other")?.parking).toBe(before);
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
 });
 
 test.each(["null", "incomplete"] as const)(
