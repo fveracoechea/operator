@@ -207,6 +207,87 @@ const eligible = {
   checks: [{ name: "lint", conclusion: "SUCCESS" }],
 };
 
+test.each([false, true])(
+  "direct recovery survives command exit with a known UUID %s and never submits twice",
+  async (known) => {
+    const source = await setup("opencode");
+    const worker = await openPullRequest(source);
+    await github(known ? { mergeReadLost: true } : { mergeSubmitLost: true });
+    const first = await run(["pr", "merge"], worker.worktreePath);
+    expect(first.code).toBe(1);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(1);
+    await Bun.write(`${root}/hold.txt`, "Stop new delivery.");
+    const beforeHold = await Bun.file(database()).arrayBuffer();
+    expect(
+      (
+        await run([
+          "obligation",
+          "add",
+          "--source",
+          source,
+          "--key",
+          "too-late",
+          "--kind",
+          "merge-hold",
+          "--file",
+          `${root}/hold.txt`,
+        ])
+      ).output,
+    ).toMatchObject({ reason: "pr_delivery_running" });
+    expect(await Bun.file(database()).arrayBuffer()).toEqual(beforeHold);
+    await github({ mergeReadLost: false, mergeSubmitLost: false });
+    if (known) {
+      await Bun.write(`${worker.worktreePath}/keep.txt`, "Unlanded work.");
+      expect((await run(["pr", "merge"], worker.worktreePath)).output).toMatchObject({
+        reason: "pr_merged",
+      });
+      expect(await settled(source)).toMatchObject({
+        state: "blocked",
+        reason: "cleanup_unlanded_work",
+      });
+      expect(await Bun.file(`${worker.worktreePath}/keep.txt`).text()).toBe("Unlanded work.");
+    } else {
+      expect((await run(["pr", "merge"], worker.worktreePath)).output).toMatchObject({
+        reason: "pr_merge_unverified",
+      });
+      expect((await shown(source)).assignments[0]).toMatchObject({ state: "pr-open" });
+    }
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(1);
+  },
+  60000,
+);
+
+test("a source merge hold prevents the owner's new remote merge effect", async () => {
+  const source = await setup("opencode");
+  const worker = await openPullRequest(source);
+  await Bun.write(`${root}/hold.txt`, "Wait for my explicit release.");
+  expect(
+    (
+      await run([
+        "obligation",
+        "add",
+        "--source",
+        source,
+        "--key",
+        "person-hold",
+        "--kind",
+        "merge-hold",
+        "--reference",
+        "another PR",
+        "--file",
+        `${root}/hold.txt`,
+      ])
+    ).code,
+  ).toBe(0);
+  const before = await calls("gh-calls.jsonl", '"PUT"');
+  await github({ mergeFailure: true });
+  expect((await run(["pr", "merge"], worker.worktreePath)).output).toMatchObject({
+    reason: "pr_merge_held",
+  });
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(before);
+  expect((await shown(source)).assignments[0]).toMatchObject({ state: "pr-open" });
+}, 30000);
+
 /** The owner commits its change, opens the PR at that head, and associates it. */
 async function openPullRequest(source: string, change: Record<string, unknown> = eligible) {
   const worker = await dispatch(source);
@@ -396,7 +477,7 @@ for (const host of ["opencode", "claude-code"] as const)
     });
   }, 90000);
 
-test("every merge refusal leaves GitHub and device state unchanged", async () => {
+test("local merge refusals leave state unchanged; a submitted remote refusal retains its intent", async () => {
   const source = await setup("opencode");
   const worker = await openPullRequest(source, {});
   // An earlier wait reported eligibility. The merge still observes GitHub again.
@@ -440,14 +521,15 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
   expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
     code: 1,
     output: {
-      reason: "pr_merge_refused",
+      reason: "github_failed",
       next: {
-        decider: "person",
-        question: "Which GitHub merge restriction must be resolved before this PR can merge?",
+        decider: "super-agent",
+        question:
+          "How should GitHub's current state be inspected before repeating the unconfirmed request?",
       },
     },
   });
-  expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
+  expect(await Bun.file(database()).arrayBuffer()).not.toEqual(before);
   expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
   expect(await exists(worker.worktreePath)).toBe(true);
 }, 90000);
@@ -544,6 +626,22 @@ test("a recorded ready frontier permits a new head only after fresh merge guards
   });
   expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
   await github({ pulls: [{ ...pull, ...eligible }], branches: { [branch]: head } });
+  const beforeValidation = await Bun.file(database()).arrayBuffer();
+  expect((await run(["pr", "merge"], worker.worktreePath)).output).toMatchObject({
+    reason: "pr_validation_stale",
+  });
+  expect(await Bun.file(database()).arrayBuffer()).toEqual(beforeValidation);
+  expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  await Bun.write(
+    `${root}/correction.txt`,
+    "Scope: one bounded correction. Evidence: targeted regression test passes.",
+  );
+  expect(
+    (await run(["pr", "validate", "--file", `${root}/correction.txt`], worker.worktreePath)).output,
+  ).toMatchObject({
+    reason: "pr_validated",
+    data: { head, readyHead: worker.head },
+  });
   expect(await run(["pr", "merge"], worker.worktreePath)).toMatchObject({
     code: 0,
     output: { reason: "pr_merged", data: { head } },
@@ -657,6 +755,7 @@ test.each([false, true])(
         "pr_merged",
         "pr_merge_unchanged",
         "pr_owner_inactive",
+        "pr_delivery_running",
       ]);
     await held("cleanup-held");
     expect(await exists(worker.worktreePath)).toBe(true);

@@ -6,6 +6,7 @@ import { cleanups, projectRemovals, projects, reviewRequests, sources } from "./
 import { deleteSourceRecords } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
+import { deliveryIdle } from "./delivery-guards.ts";
 
 export type RegisteredProject = typeof projects.$inferSelect;
 export type ProjectStateFailure =
@@ -30,7 +31,12 @@ function hasOpenSource(db: Db, repository: string) {
     .from(sources)
     .where(eq(sources.repository, repository))
     .all()
-    .some((source) => !["finished", "reset"].includes(source.state) || source.endedAt === null);
+    .some(
+      (source) =>
+        !["finished", "reset"].includes(source.state) ||
+        source.endedAt === null ||
+        deliveryIdle(db, source.id).tag !== "Ok",
+    );
 }
 
 // A failed cleanup outlives its finished source. Removal or a move would hide or misdirect it.

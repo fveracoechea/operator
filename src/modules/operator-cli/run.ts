@@ -21,6 +21,7 @@ import { runQuestions } from "./questions.ts";
 import { runMessages } from "./messages.ts";
 import { runObligations } from "./obligations.ts";
 import { runReviews } from "./reviews.ts";
+import { runWebPages } from "./web-pages.ts";
 import { projectArgs, runProject } from "./projects.ts";
 import { runSettings } from "./settings.ts";
 import { startup } from "./startup.ts";
@@ -161,7 +162,10 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   if (pr?.operation === "pr_merge" && "sourceId" in pr) return run();
   let selection: Result<Worker | null, Refusal>;
   const event = eventOf(args);
-  if (event !== undefined && event !== "submit" && event !== "resume") {
+  if (
+    pr?.operation === "pr_validate" ||
+    (event !== undefined && event !== "submit" && event !== "resume")
+  ) {
     const target = await PullRequests.workerTarget({ paths, cwd: process.cwd() });
     if (target.tag === "Ok") {
       selection = worktreeWorker(paths, target.value);
@@ -273,6 +277,7 @@ export async function run(args: string[]): Promise<void> {
 
 async function handle(args: string[], paths: OperatorPaths, json: boolean) {
   for (const handler of [
+    async (input: string[], _paths: OperatorPaths, flag: boolean) => runWebPages(input, flag),
     async (input: string[], _paths: OperatorPaths, flag: boolean) => runLauncher(input, flag),
     runSkills,
     runReadiness,

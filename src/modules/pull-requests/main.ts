@@ -34,6 +34,7 @@ import {
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
 import { recoverReview } from "./internal-review-recovery.ts";
+import { validate } from "./validation.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 import { parkQuietWait, readParkNote, observeParked } from "./parking.ts";
 
@@ -355,6 +356,39 @@ function relayStep(
   });
 }
 
+/** Accepted membership invalidates an earlier refusal before feedback can park again. */
+function rememberQueueMembership(
+  input: Request,
+  owner: Owner,
+  observed: Observation,
+): AsyncResult<undefined, Failure> {
+  const parking =
+    owner.parking === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(owner.parking));
+  if (
+    observed.queueEntry === null ||
+    observed.queueEntry === undefined ||
+    parking?.queueHead === null ||
+    parking?.queueHead === undefined ||
+    parking.queueHead !== observed.head ||
+    parking.queueAttempt === null ||
+    parking.queueAttempt === undefined
+  )
+    return OkAsync(undefined);
+  return DeviceState.refusePullRequestQueue(
+    input.paths,
+    owner.launchId,
+    parking.queueHead,
+    parking.queueAttempt,
+    {
+      head: observed.head,
+      state: observed.state,
+      entry: observed.queueEntry,
+    },
+  )
+    .toAsync()
+    .map(() => undefined);
+}
+
 /** Observes once, records any result, and polls again until the deadline. */
 function poll(
   input: Request,
@@ -372,8 +406,9 @@ function poll(
           why: "Read complete checks before acknowledging this observation.",
         },
       });
-    return relayStep(input, owner, pr, observed).flatMap(
-      (relayed): AsyncResult<Outcome, Failure> => {
+    return rememberQueueMembership(input, owner, observed)
+      .flatMap(() => relayStep(input, owner, pr, observed))
+      .flatMap((relayed): AsyncResult<Outcome, Failure> => {
         if (relayed?.kind === "blocked") return ErrAsync(relayed.blocker);
         if (relayed?.kind === "relayed")
           return OkAsync({
@@ -398,8 +433,7 @@ function poll(
             },
           });
         return decideOnce(input, owner, pr, observed, deadline);
-      },
-    );
+      });
   });
 }
 
@@ -533,6 +567,9 @@ function waitWithNote(input: Request & { timeoutSeconds: number }) {
  * verified merge, and the SuperAgent can repeat it after a failure.
  */
 export const PullRequests = {
+  validate(input: Parameters<typeof validate>[0]) {
+    return validate(input);
+  },
   /** The canonical validated PR command target, shared with worker-phase guards. */
   workerTarget(input: Request) {
     return resolveOwner(input).map(({ repository, sourceId, assignment, launchId }) => ({

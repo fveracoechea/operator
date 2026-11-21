@@ -4,6 +4,7 @@
 
 Accepted - 2026-11-11.
 Decided in the SuperAgent retro of 2026-11-11, finding 3.
+Amended 2026-11-21 in [#414's approved scope](https://github.com/fveracoechea/operator/issues/414#issuecomment-7067082608): merge holds enforce source-wide delivery exclusion.
 
 ## Context
 
@@ -18,6 +19,10 @@ An obligation has a kind, a short summary, and an optional reference such as a P
 The kinds are `pr-share`, `review-reply`, `merge-hold`, `standing-rule`, and `person-decision`.
 A key names one obligation for the whole source, so a retry cannot add it twice.
 An obligation is open until the SuperAgent closes it, and the ledger keeps closed obligations until the source is pruned.
+A merge hold blocks new merges and enqueues across the source, regardless of its optional reference.
+Only the person's release closes that hold.
+An accepted request or queue entry can still apply, so an unresolved delivery prevents acknowledgment of a new effective hold.
+Other obligation kinds remain advisory.
 
 `operator obligation add`, `close`, and `list` take `--source`, because the ledger belongs to the source rather than to one assignment.
 An ended source takes no new obligation, but its open obligations stay closable.

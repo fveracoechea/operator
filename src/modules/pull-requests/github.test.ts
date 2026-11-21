@@ -361,6 +361,49 @@ test("enqueue uses the guarded head without jumping the queue and validates GitH
   }
 });
 
+test.each([
+  [
+    { enqueuePullRequest: null },
+    [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Restriction refused." }],
+    true,
+  ],
+  [{ enqueuePullRequest: null }, [{ message: "Unknown outcome." }], false],
+  [
+    null,
+    [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Restriction refused." }],
+    true,
+  ],
+  [null, [{ type: "FORBIDDEN", path: ["enqueuePullRequest"], message: "Not permitted." }], true],
+  [null, [{ message: "Internal server error" }], false],
+  [null, [{ type: "INTERNAL", path: ["enqueuePullRequest"], message: "Unknown outcome." }], false],
+  [
+    null,
+    [
+      {
+        type: "UNPROCESSABLE",
+        path: ["enqueuePullRequest", "mergeQueueEntry"],
+        message: "Readback failure.",
+      },
+    ],
+    false,
+  ],
+  [null, [], false],
+  [
+    { enqueuePullRequest: { mergeQueueEntry: { id: "Q7" } } },
+    [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Partial error." }],
+    false,
+  ],
+] as const)(
+  "enqueue nonapplication requires a typed mutation-level refusal: %j %j",
+  async (data, errors, notApplied) => {
+    github(() => ok({ data, errors }));
+    expect(await enqueuePullRequest("PR7", "abc")).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_enqueue_refused", state: { notApplied } },
+    });
+  },
+);
+
 test("parked observation reads all PRs and recorded parents in one validated GitHub request", async () => {
   const parent = { state: "MERGED", baseRefName: "main", headRefOid: "parent-head" };
   const call = github(() =>

@@ -42,6 +42,7 @@ const obligationExitCodes = {
   obligation_not_open: 4,
   source_not_open: 4,
   source_not_found: 4,
+  pr_delivery_running: 4,
 };
 
 export async function runObligations(
