@@ -122,6 +122,10 @@ in
         echo "fixture $name" > $host/$name/SKILL.md
       done
     done
+    for host in $HOME/.claude/skills $XDG_CONFIG_HOME/opencode/skills; do
+      mkdir -p $host/handoff
+      echo "# Fixture handoff" > $host/handoff/SKILL.md
+    done
     # Nix consumers also own the Claude Code settings that readiness checks.
     cat > $HOME/.claude/settings.json <<'JSON'
     {

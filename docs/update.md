@@ -13,9 +13,14 @@ The first command of the new release migrates device state when the release ship
 A migration runs only on an idle device.
 The device is idle when these conditions are true in every registered project:
 
-- No assignment is `running`, `pr-open`, or `reported`.
-- No reviewer is reviewing, starting, moving, cleaning up, or posting a review.
-- No worker launch, worktree preparation, cleanup, internal review handoff, or project removal is in progress.
+- No worker launch is `running`, and no review request is `reviewing`.
+- No live owner holds a lease for a worker start, worktree preparation, cleanup, reviewer start, move, cleanup, or review post.
+- No live owner holds a lease for an internal review handoff, kind handoff, stack effect, or parked PR batch read.
+- No project removal is pending.
+
+Assignment states such as `running`, `pr-open`, and `reported` do not block migration by themselves.
+A missing owner or a stale lease does not hold an effect.
+[ADR-0030](adr/0030-lifecycle-probes-of-herdr-panes-end-an-assignment.md) records the live-process protection rule.
 
 Finish or reset that work with the release that started it.
 Read the [changelog](../CHANGELOG.md) for each version between the current and the new release.
