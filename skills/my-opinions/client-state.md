@@ -7,7 +7,7 @@
 - Transient interaction state, such as a drag preview, stays local to the interaction that owns it.
 - Identity lives in the query key. An imperative invalidation is a side effect that must fire from one place and never be missed.
 - Polling is the wrong trigger for a once-a-day event. Window focus plus a slow visible-tab interval catches it.
-- A data transform is a named, tested selector in its own module, typed against wire shapes. Keep `select` free of inline transforms.
+- For named selectors and their placement, use [sub-modules.md](../deep-modules/sub-modules.md). For Query's `select`, use [query-select.md](../tanstack-tools/query-select.md).
 - Data-module functions take one object argument named `input`, destructured on the first line. Elsewhere it is good practice, not a rule.
 - Components do not know how data is fetched. Errors surface on the query error path, never during render.
 
