@@ -103,18 +103,19 @@ export function recordPullRequestQueue(
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      deliveryAdmission(db, { launchId, head, ...actor }, false).flatMap(() =>
-        activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
-          ({ source, assignment, launch }): Result<undefined, Refusal> => {
-            const row = db
-              .select()
-              .from(pullRequests)
-              .where(key({ sourceId: source.id, assignment: assignment.key }))
-              .get();
-            if (row === undefined || assignment.state !== "pr-open" || row.branch !== launch.branch)
-              return Err(refused());
-            const previous =
-              row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
+      activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
+        ({ source, assignment, launch }): Result<undefined, Refusal> => {
+          const row = db
+            .select()
+            .from(pullRequests)
+            .where(key({ sourceId: source.id, assignment: assignment.key }))
+            .get();
+          if (row === undefined || assignment.state !== "pr-open" || row.branch !== launch.branch)
+            return Err(refused());
+          const previous =
+            row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
+          if (previous?.queueHead === head) return Ok(undefined);
+          return deliveryAdmission(db, { launchId, head, ...actor }, false).map(() => {
             const parking: PrParking = previous ?? {
               launchId,
               head,
@@ -128,9 +129,9 @@ export function recordPullRequestQueue(
               .set({ parking: JSON.stringify({ ...parking, queueHead: head }) })
               .where(key(row))
               .run();
-            return Ok(undefined);
-          },
-        ),
+            return undefined;
+          });
+        },
       ),
     ),
   );
@@ -367,15 +368,19 @@ export function resumeParkedPullRequest(
             .run();
           return Ok(undefined);
         }
-        return recordKindHandoff(db, { ...target, launchId: parking.launchId }, "pr-feedback").map(
-          () => {
-            db.update(pullRequests)
-              .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
-              .where(key(target))
-              .run();
-            return undefined;
-          },
-        );
+        return recordKindHandoff(
+          db,
+          { ...target, launchId: parking.launchId },
+          "pr-feedback",
+          undefined,
+          true,
+        ).map(() => {
+          db.update(pullRequests)
+            .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
+            .where(key(target))
+            .run();
+          return undefined;
+        });
       });
     }),
   );

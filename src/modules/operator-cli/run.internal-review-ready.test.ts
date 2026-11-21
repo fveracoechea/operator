@@ -2015,7 +2015,26 @@ ${overview}
     ],
   });
   expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
-    output: { reason: "pr_merge_refused", phase: "feedback" },
+    output: { reason: "pr_validation_stale", phase: "feedback" },
+  });
+  await github({ branches: { "task/12-implement": afterReady } });
+  expect(
+    await run(
+      ["pr", "validate", "--file", "-"],
+      reviewer,
+      "Correction scope: bounded fix. Targeted evidence: regression receipt.",
+      pane,
+    ),
+  ).toMatchObject({
+    output: {
+      reason: "pr_validated",
+      phase: "feedback",
+      data: { head: afterReady, readyHead: third },
+    },
+  });
+  expect((await shown(source)).internalReviewRounds).toEqual(ended.internalReviewRounds);
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: { reason: "github_failed", phase: "feedback" },
   });
 }, 180000);
 
@@ -2319,7 +2338,26 @@ test("an internal review skip runs at pr ready with no rounds or summary comment
     ],
   });
   expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
-    output: { reason: "pr_merge_refused", phase: "feedback" },
+    output: { reason: "pr_validation_stale", phase: "feedback" },
+  });
+  await github({ branches: { "task/12-implement": afterSkip } });
+  expect(
+    await run(
+      ["pr", "validate", "--file", "-"],
+      reviewer,
+      "Correction scope: bounded skip-followup. Targeted evidence: regression receipt.",
+      pane,
+    ),
+  ).toMatchObject({
+    output: {
+      reason: "pr_validated",
+      phase: "feedback",
+      data: { head: afterSkip, readyHead: head },
+    },
+  });
+  expect((await shown(source)).internalReviewRounds).toEqual([]);
+  expect(await run(["pr", "merge"], reviewer, undefined, pane)).toMatchObject({
+    output: { reason: "github_failed", phase: "feedback" },
   });
   await exec(["herdr", "pane", "exit", pane, "w"]);
   expect((await run(["dispatch", "--source", source, "--assignment", "implement"])).code).toBe(0);

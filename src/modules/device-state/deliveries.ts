@@ -225,6 +225,11 @@ export function changeDelivery(
           "pr_delivery_running",
           "The local delivery claim changed. Nothing was recorded.",
         );
+      if (row.requestUuid !== null && change.uuid !== undefined && change.uuid !== row.requestUuid)
+        return deliveryRefusal(
+          "pr_delivery_running",
+          "The original remote request identity cannot be replaced. Nothing was recorded.",
+        );
       db.update(deliveries)
         .set({
           requestUuid: change.uuid ?? row.requestUuid,

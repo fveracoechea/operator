@@ -38,4 +38,8 @@ test("stack exclusion retains unreconciled effects even without a live claim", (
     client.query("UPDATE stack_operations SET state = ?").run(state);
     expect(stackIdle(db, "s", "a").tag).toBe("Ok");
   }
+  client
+    .query("UPDATE stack_operations SET owner_pid = ?, lease_at = ?")
+    .run(process.pid, new Date().toISOString());
+  expect(stackIdle(db, "s", "a")).toMatchObject({ error: { reason: "pr_stack_running" } });
 });

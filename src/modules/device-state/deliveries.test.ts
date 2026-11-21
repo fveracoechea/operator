@@ -49,6 +49,11 @@ test("intent is durable, assignment-keyed, and recovery preserves its original a
   expect(ok(recoverDelivery(db, { ...input, launchId: "replacement" }, admitted.id))).toMatchObject(
     { launchId: "l", head: "h", readiness },
   );
+  const claimed = db.serialize();
+  expect(changeDelivery(db, admitted.id, { uuid: "different-request" })).toMatchObject({
+    error: { reason: "pr_delivery_running" },
+  });
+  expect(db.serialize()).toEqual(claimed);
   expect(changeDelivery(db, admitted.id, { finish: true }).tag).toBe("Ok");
   expect(ok(readDelivery(db, "replacement"))).toBeNull();
 });
