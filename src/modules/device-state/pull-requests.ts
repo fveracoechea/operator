@@ -36,7 +36,6 @@ export type PullRequestFailure =
         | "pr_owner_inactive"
         | "stack_incomplete"
         | "stack_review_required"
-        | "pr_stack_running"
         | "pr_already_associated"
         | "pr_owned_elsewhere"
         | "pr_not_associated"
