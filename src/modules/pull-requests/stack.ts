@@ -17,7 +17,7 @@ import { parentCut } from "./stack-cut.ts";
 import { stackParents } from "./stack-parents.ts";
 import { stacked, type Relay } from "./relay.ts";
 import { startHandoff } from "./internal-review.ts";
-import { stackEffect } from "./stack-effects.ts";
+import { stackEffect, unchangedIntegration } from "./stack-effects.ts";
 import type { Refusal, NextStep } from "../../lib/cli-result.ts";
 import { z } from "zod";
 
@@ -691,11 +691,7 @@ function runOperation(operation: Operation): AsyncResult<void, Refusal> {
     ]) {
       const guard = await preflight(operation);
       if (guard.tag !== "Ok") return stop(guard);
-      if (
-        step === invalidateReview &&
-        operation.plan.candidate === operation.plan.head &&
-        operation.plan.targetBranch === operation.plan.base
-      )
+      if (step === invalidateReview && unchangedIntegration(operation.plan))
         return await finishOperation(operation);
       const result = await step(operation);
       if (result.tag !== "Ok") return stop(result);
@@ -1021,7 +1017,7 @@ function stackNext(outcome: Outcome): NextStep {
       command: `operator pr stack apply --plan ${plan.id}`,
       why: "Apply only these pinned inputs from the owned worktree.",
     };
-  if (plan.candidate === plan.head && plan.base === plan.targetBranch)
+  if (unchangedIntegration(plan))
     return {
       command: "operator pr wait",
       why: "The integration is unchanged; retain its existing readiness.",
