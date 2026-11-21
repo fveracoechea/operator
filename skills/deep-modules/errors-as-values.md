@@ -4,9 +4,15 @@ Expected failures are outcomes callers must account for, such as a missing invoi
 Return them as values so the operation's contract states how it can fail.
 Keep programming defects and unexpected failures separate from those expected outcomes.
 
-## Make the failure contract explicit
+## Follow the four principles
 
-- Include expected failures in the return type, with enough information for callers to distinguish and act on them.
+- **Explicit contracts.** Return types describe success and expected failures, with enough information for callers to distinguish and act on them.
+- **Normal return flow.** Expected failures return as values rather than escape through exceptions.
+- **Checked handling.** Use available type and lint tools to detect unhandled cases and discarded failures.
+- **Two expected outcomes.** An operation succeeds or returns an expected failure. Defects remain separate.
+
+## Follow project conventions
+
 - Use the project's existing error representation and tooling. The intent does not require a particular library or result type.
 - Keep implementation details private. Describe failures in terms the module's callers understand.
 
