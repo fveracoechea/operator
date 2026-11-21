@@ -8,11 +8,28 @@ import {
   pullRequestBody,
   requestKind,
   succeeded,
+  failed,
 } from "./device-fixture.ts";
 import { resolveOwner } from "./owner.ts";
 import { directDelivery } from "./direct-delivery.ts";
 
 afterEach(() => mock.restore());
+
+test("known-UUID readback retains its primary Err even when later observation proves merge", async () => {
+  const { device, head, launchId, input } = await intent("original-request");
+  await using _ = device;
+  device.answer((args) =>
+    requestKind(args) === "merge_read"
+      ? failed("original read failure", 404)
+      : succeeded(pullRequestBody({ state: "MERGED", head, mergeCommit: "merged-7" })),
+  );
+  expect<unknown>(await directDelivery(input)).toMatchObject({
+    tag: "Err",
+    error: { reason: "github_failed", detail: "github_refused: original read failure" },
+  });
+  expect(value(DeviceState.readDelivery(device.paths, launchId))).toBeNull();
+  expect(device.calls.map(requestKind)).toEqual(["merge_read", "pull_request"]);
+});
 function value<T, E>(result: Result<T, E>): T {
   expect(result.tag).toBe("Ok");
   // oxlint-disable-next-line unthrown/no-throw -- A failed fixture operation must stop the test.

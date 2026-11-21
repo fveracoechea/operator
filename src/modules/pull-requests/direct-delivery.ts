@@ -23,7 +23,7 @@ type Input = {
   method?: Observation["mergeMethod"];
 };
 type Answer = Result<MergeRequest, Refusal> | null;
-type Followed = { answer: Answer; terminal: boolean; refusal: Refusal | null };
+type Followed = { answer: Answer; terminal: boolean; refusal: Refusal | null; readback: boolean };
 
 function uncertain(): Refusal {
   return {
@@ -54,6 +54,7 @@ function follow(input: Input, initial: Answer): AsyncResult<Followed, Refusal> {
   return fromPromise(async () => {
     const { paths, owner, number, delivery } = input;
     let answer = initial;
+    let readback = input.method === undefined && input.delivery.requestUuid !== null;
     for (let reads = 0; answer?.tag === "Ok"; reads += 1) {
       if (answer.value.uuid !== null) {
         const saved = DeviceState.changeDelivery(paths, delivery.id, { uuid: answer.value.uuid });
@@ -61,14 +62,24 @@ function follow(input: Input, initial: Answer): AsyncResult<Followed, Refusal> {
       }
       const step = followMergeRequest(answer.value, reads);
       if (step.result === "verify")
-        return Ok({ answer, terminal: answer.value.status === "failed", refusal: step.refusal });
+        return Ok({
+          answer,
+          terminal: answer.value.status === "failed",
+          refusal: step.refusal,
+          readback,
+        });
       await Bun.sleep(mergeRequestReadMs);
       const renewed = DeviceState.changeDelivery(paths, delivery.id, {});
       if (renewed.tag !== "Ok") return renewed.flatMap<Followed, Refusal>(() => Err(uncertain()));
       answer = await readMergeRequest(owner.repository, number, step.uuid);
+      readback = true;
     }
-    return Ok({ answer, terminal: false, refusal: null });
+    return Ok({ answer, terminal: false, refusal: null, readback });
   }, qualify).flatMap<Followed, Refusal>((result) => result);
+}
+
+function retainReadFailure(tag: "Err" | "Defect" | undefined, readback: boolean) {
+  return tag === "Defect" || (readback && tag === "Err");
 }
 
 function verify(input: Input, state: Followed): AsyncResult<Merged, Refusal> {
@@ -87,7 +98,8 @@ function verify(input: Input, state: Followed): AsyncResult<Merged, Refusal> {
         : observed.tag !== "Ok"
           ? observed
           : null;
-    if (merged !== null && primary?.tag !== "Defect") return released.map(() => merged);
+    if (merged !== null && !retainReadFailure(primary?.tag, state.readback))
+      return released.map(() => merged);
     if (primary !== null) {
       if (observed.tag !== "Ok" && primary !== observed)
         console.error("delivery_verification", { secondary: observed });
