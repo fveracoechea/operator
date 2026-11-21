@@ -16,9 +16,9 @@ When a skill says to ask the user, ask your SuperAgent with `operator question a
 Use `operator question ask --key <key> --file <question.md>`, then `operator question wait --key <key>`.
 Keep host timeouts above wait timeouts.
 Only answers labeled person are human answers; keep super-agent decisions distinct.
-Native subagents stay within your assignment and responsibility; request separate scheduling or acceptance through a recorded question.
+Native subagents stay within your assignment and responsibility; request scheduling or acceptance through a recorded question.
 
-Report only through recorded state, never text typed into the supervisor's pane.
+Report through recorded state, never text typed into the supervisor's pane.
 Read steering with `operator message read --key <key>`; acknowledge with `operator message ack --key <key>`.
 Write prose outside the checkout; pass files or quoted-heredoc stdin, never hand-written JSON.
 Submit Markdown with `operator report submit --file <report.md>` using these headings:
@@ -27,7 +27,6 @@ Use level-two headings and absolute supporting paths.
 Use bullets except Conclusion; decisions use `<question> Answer: <answer>`.
 Submission awaits acceptance; follow returned instructions or a promotion's new brief.
 
-Read [managed-stacks.md](managed-stacks.md) for changed OPEN prerequisites, rewritten parents, or sibling integration.
-Change project files only in the assigned worktree.
-Preserve unlanded work and existing ownership.
-Operator owns stack mutations and guarded merges; use only `gh stack view --json` for stack inspection.
+Read [managed-stacks.md](managed-stacks.md) for OPEN-prerequisite changes, rewritten parents, or sibling integration.
+Edit assigned worktree files only; preserve unlanded work and ownership.
+Operator owns stack mutations and guarded merges; use only `gh stack view --json`.
