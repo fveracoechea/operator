@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 // Bun has no recursive directory removal or permission API.
 import { chmod, rm } from "node:fs/promises";
 import { z } from "zod";
@@ -91,7 +92,7 @@ async function feedbackOwner(assignment: string, source: string, cwd: string) {
   ).toBe(true);
 }
 
-async function stackDevice(options: { multiple?: boolean } = {}) {
+async function stackDevice(options: { multiple?: boolean; baseOnly?: boolean } = {}) {
   device = await workerDevice();
   const { root, main } = device;
   const remote = `${root}/remote.git`;
@@ -120,7 +121,12 @@ async function stackDevice(options: { multiple?: boolean } = {}) {
         instructions: "Child.",
         kind: "implementation",
         branch: "task/child",
-        dependencies: options.multiple === true ? ["parent", "sibling"] : ["parent"],
+        dependencies:
+          options.baseOnly === true
+            ? ["sibling"]
+            : options.multiple === true
+              ? ["parent", "sibling"]
+              : ["parent"],
       },
       {
         key: "sibling",
@@ -133,6 +139,29 @@ async function stackDevice(options: { multiple?: boolean } = {}) {
     ],
   });
   const parent = await open("parent", source, 6, "main");
+  if (options.baseOnly === true) {
+    const launched = await device.dispatch(source, "sibling");
+    const sibling = launched.worktreePath ?? "";
+    await git(sibling, "merge", "--ff-only", "task/parent");
+    await git(sibling, "push", "-qu", "origin", "task/sibling");
+    await github((state) =>
+      state.pulls.push({
+        number: 9,
+        url: "https://github.com/example/one/pull/9",
+        headRefName: "task/sibling",
+        headRepository: "example/one",
+        state: "OPEN",
+        baseRefName: "main",
+      }),
+    );
+    const associated = await device.run(["pr", "associate"], {
+      cwd: sibling,
+      pane: launched.paneId,
+    });
+    expect(associated.code, associated.stderr).toBe(0);
+    await feedbackOwner("sibling", source, sibling);
+    return { parent, sibling, child: await open("child", source, 8, "task/sibling"), source };
+  }
   if (options.multiple === true) {
     const sibling = await open("sibling", source, 9, "main");
     return { parent, child: "", source, sibling };
@@ -319,6 +348,188 @@ test("a true no-op preserves the exact ready frontier and starts no new review",
     (await (device as Device).run(["pr", "stack", "review", "--plan", id], { cwd: child })).output
       .reason,
   ).toBe("stack_review");
+}, 60000);
+
+test("an unfinished direct request blocks public stack recovery before any readiness or branch effect", async () => {
+  const { parent, child, source } = await stackDevice();
+  await Bun.write(`${parent}/later.txt`, "later parent\n");
+  await git(parent, "add", ".");
+  await git(parent, "commit", "-qm", "advance parent");
+  await git(parent, "push", "-q");
+  const planned = await (device as Device).run(["pr", "stack", "plan"], { cwd: child });
+  expect(planned.code, planned.stderr).toBe(0);
+  const id = z.object({ data: z.object({ id: z.string() }) }).parse(planned.output).data.id;
+  const head = await git(child, "rev-parse", "HEAD");
+  const database = `${(device as Device).root}/state/operator/operator.sqlite`;
+  {
+    using client = new Database(database);
+    // Fault injection: a previously submitted request outlived its process before stack recovery.
+    client
+      .query(`INSERT INTO deliveries
+      (id, source_id, assignment, launch_id, head, readiness, selected, session, request_uuid,
+       started_at, ended_at, owner_pid, lease_at)
+      SELECT 'unresolved', source_id, assignment,
+        (SELECT id FROM launches WHERE source_id = ? AND assignment = 'child' ORDER BY attempt DESC LIMIT 1),
+        ?, readiness, 0, NULL, NULL, 'prior-request', NULL, NULL, NULL
+      FROM pull_requests WHERE source_id = ? AND assignment = 'child'`)
+      .run(source, head, source);
+  }
+  const before = await Bun.file(database).arrayBuffer();
+  const githubBefore = await Bun.file(`${(device as Device).root}/github.json`).text();
+  const refused = await (device as Device).run(["pr", "stack", "apply", "--plan", id], {
+    cwd: child,
+  });
+  expect(refused.output.reason).toBe("pr_delivery_running");
+  expect(refused.code).toBe(4);
+  expect(await Bun.file(database).arrayBuffer()).toEqual(before);
+  expect(await Bun.file(`${(device as Device).root}/github.json`).text()).toBe(githubBefore);
+  expect(await git(child, "rev-parse", "HEAD")).toBe(head);
+  expect(await git(child, "ls-remote", "origin", "refs/heads/task/child")).toStartWith(head);
+}, 60000);
+
+test("a same-head base-only integration archives readiness and leaves correction validation historical", async () => {
+  const { child, source } = await stackDevice({ baseOnly: true });
+  await Bun.write(`${child}/correction.txt`, "bounded correction\n");
+  await git(child, "add", ".");
+  await git(child, "commit", "-qm", "correct child");
+  await git(child, "push", "-q");
+  const head = await git(child, "rev-parse", "HEAD");
+  await github((state) => {
+    state.branches = { "task/child": head };
+    const pr = state.pulls.find((row) => row.number === 8);
+    if (pr !== undefined) pr.checks = [{ name: "targeted", conclusion: "SUCCESS" }];
+  });
+  const evidence = await (device as Device).writeText(
+    "correction-evidence.md",
+    "Only correction.txt changed. The targeted correction test passed.",
+  );
+  const validated = await (device as Device).run(["pr", "validate", "--file", evidence], {
+    cwd: child,
+    pane: panes.get(child),
+  });
+  expect(validated.code, validated.stderr).toBe(0);
+  const database = `${(device as Device).root}/state/operator/operator.sqlite`;
+  let previous: unknown[];
+  {
+    using client = new Database(database, { readonly: true });
+    previous = client.query("SELECT * FROM delivery_validations").all();
+  }
+  const planned = await (device as Device).run(["pr", "stack", "plan", "--parent", "parent"], {
+    cwd: child,
+  });
+  expect(planned.code, planned.stderr).toBe(0);
+  const plan = z
+    .object({
+      data: z.object({
+        id: z.string(),
+        head: z.string(),
+        cut: z.string(),
+        target: z.string(),
+        base: z.string(),
+        targetBranch: z.string(),
+      }),
+    })
+    .parse(planned.output).data;
+  expect(plan.head).toBe(head);
+  expect(plan.cut).toBe(plan.target);
+  expect(plan.base).toBe("task/sibling");
+  expect(plan.targetBranch).toBe("task/parent");
+  const applied = await (device as Device).run(["pr", "stack", "apply", "--plan", plan.id], {
+    cwd: child,
+  });
+  expect(applied.code, applied.stderr).toBe(0);
+  expect(applied.output).toMatchObject({
+    next: { command: `operator pr stack review --plan ${plan.id}` },
+  });
+  expect(await git(child, "rev-parse", "HEAD")).toBe(head);
+  expect(await git(child, "ls-remote", "origin", "refs/heads/task/child")).toStartWith(head);
+  {
+    using client = new Database(database, { readonly: true });
+    expect(client.query("SELECT * FROM delivery_validations").all()).toEqual(previous);
+    expect(
+      client.query("SELECT readiness FROM pull_requests WHERE assignment = 'child'").get(),
+    ).toEqual({ readiness: null });
+    const row = z
+      .object({ review_history: z.string() })
+      .parse(client.query("SELECT review_history FROM stack_operations WHERE id = ?").get(plan.id));
+    const prior = z.object({ readiness: z.string() }).parse(previous[0]);
+    expect(JSON.parse(row.review_history)).toMatchObject({ readinessRaw: prior.readiness });
+  }
+  const blocked = await (device as Device).run(["pr", "validate", "--file", evidence], {
+    cwd: child,
+    pane: panes.get(child),
+  });
+  expect(blocked.output.reason).toBe("stack_review_required");
+  const githubState = fixtureState.parse(
+    await Bun.file(`${(device as Device).root}/github.json`).json(),
+  );
+  expect(githubState.pulls.find((row) => row.number === 8)).toMatchObject({
+    baseRefName: "task/parent",
+    isDraft: true,
+  });
+  const handoff = await (device as Device).run(["pr", "stack", "review", "--plan", plan.id], {
+    cwd: child,
+    pane: panes.get(child),
+  });
+  expect(handoff.code, handoff.stderr).toBe(0);
+  const launches = z.object({
+    data: z.object({
+      launches: z.array(
+        z.object({
+          assignment: z.string(),
+          state: z.string(),
+          attempt: z.number(),
+          paneId: z.string().nullable(),
+          kind: z.object({ name: z.string() }).nullable(),
+        }),
+      ),
+    }),
+  });
+  let reviewer: string | null = null;
+  for (let attempt = 0; attempt < 100 && reviewer === null; attempt++) {
+    const shown = await (device as Device).run(["source", "show", "--source", source]);
+    reviewer =
+      launches
+        .parse(shown.output)
+        .data.launches.find(
+          (row) =>
+            row.assignment === "child" &&
+            row.attempt === 3 &&
+            row.state === "running" &&
+            row.kind?.name === "review",
+        )?.paneId ?? null;
+    if (reviewer === null) await Bun.sleep(100);
+  }
+  expect(reviewer).not.toBeNull();
+  const round = await (device as Device).writeText("base-only-round.md", "## Findings\n");
+  expect(
+    (
+      await (device as Device).run(["pr", "round", "--file", round], {
+        cwd: child,
+        pane: reviewer ?? "",
+      })
+    ).code,
+  ).toBe(0);
+  const summary = await (device as Device).writeText(
+    "base-only-ready.md",
+    "## Overview\nReviewed the unchanged head against the actual new base.\n\n## Dispositions\n",
+  );
+  const ready = await (device as Device).run(["pr", "ready", "--file", summary], {
+    cwd: child,
+    pane: reviewer ?? "",
+  });
+  expect(ready.code, ready.stderr).toBe(0);
+  await feedbackOwner("child", source, child);
+  {
+    using client = new Database(database, { readonly: true });
+    expect(client.query("SELECT * FROM delivery_validations").all()).toEqual(previous);
+    const current = z
+      .object({ readiness: z.string() })
+      .parse(client.query("SELECT readiness FROM pull_requests WHERE assignment = 'child'").get());
+    expect(JSON.parse(current.readiness)).toMatchObject({ head });
+    const old = z.object({ readiness: z.string() }).parse(previous[0]);
+    expect(current.readiness).not.toBe(old.readiness);
+  }
 }, 60000);
 
 test("an older known prerequisite ancestor cannot be used as a cut that replays prerequisite work", async () => {

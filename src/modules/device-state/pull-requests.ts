@@ -25,7 +25,7 @@ import { requestAssignmentReview } from "./review-requests.ts";
 import { abandonConversations } from "./sources.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
 import { adoptionOwner, type AdoptionFailure } from "./adoptions.ts";
-import { deliveryIdle } from "./delivery-guards.ts";
+import { deliveryIdle, stackIdle } from "./delivery-guards.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
@@ -36,6 +36,7 @@ export type PullRequestFailure =
         | "pr_owner_inactive"
         | "stack_incomplete"
         | "stack_review_required"
+        | "pr_stack_running"
         | "pr_already_associated"
         | "pr_owned_elsewhere"
         | "pr_not_associated"
@@ -227,23 +228,7 @@ function stackEffectFence(
         why: "Inspect the recorded wait without a competing branch effect.",
       },
     });
-  if (
-    pr?.parking !== undefined &&
-    pr.parking !== null &&
-    z.object({ queueHead: z.string().nullable().optional() }).parse(JSON.parse(pr.parking))
-      .queueHead !== undefined &&
-    z.object({ queueHead: z.string().nullable().optional() }).parse(JSON.parse(pr.parking))
-      .queueHead !== null
-  )
-    return Err<PullRequestFailure>({
-      reason: "stack_incomplete",
-      detail: "An unresolved merge queue effect blocks stack changes. Observe its outcome first.",
-      next: {
-        command: "operator next --wait",
-        why: "Reconcile queued delivery without rewriting its head.",
-      },
-    });
-  return Ok(undefined);
+  return deliveryIdle(db, owner.source.id, owner.assignment.key);
 }
 
 function ordinaryStackFence(
@@ -251,26 +236,16 @@ function ordinaryStackFence(
   owner: Parameters<typeof stackOwnerFence>[1],
   launchId: string,
 ): Result<void, PullRequestFailure> {
-  const operation = db
-    .select()
-    .from(stackOperations)
-    .where(
-      and(
-        eq(stackOperations.sourceId, owner.source.id),
-        eq(stackOperations.assignment, owner.assignment.key),
-        notInArray(stackOperations.state, ["complete", "cancelled"]),
-      ),
-    )
-    .get();
-  if (operation !== undefined)
-    return Err<PullRequestFailure>({
-      reason: "stack_incomplete",
-      detail: `Stack operation ${operation.id} must finish before another PR operation.`,
-      next: {
-        command: `operator pr stack apply --plan ${operation.id}`,
-        why: "Resume the pinned stack operation before review, relay, or merge.",
-      },
-    });
+  return stackIdle(db, owner.source.id, owner.assignment.key).flatMap(() =>
+    stackReviewFence(db, owner, launchId),
+  );
+}
+
+function stackReviewFence(
+  db: Db,
+  owner: Parameters<typeof stackOwnerFence>[1],
+  launchId: string,
+): Result<void, PullRequestFailure> {
   const review = db
     .select()
     .from(internalReviews)

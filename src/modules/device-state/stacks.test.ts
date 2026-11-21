@@ -6,9 +6,18 @@ import { Ok } from "unthrown";
 import { z } from "zod";
 import { migrationsFolder } from "./database.ts";
 import { insertRow } from "./state-fixture.ts";
-import { changeStack, readStack, restartStackReview, beginStackReview } from "./stacks.ts";
+import {
+  changeStack,
+  readStack,
+  restartStackReview,
+  beginStackReview,
+  finishStack,
+  recordStackBase,
+} from "./stacks.ts";
 import { startHandoff } from "./internal-reviews.ts";
 import { recordPullRequestQueue } from "./pr-parking.ts";
+import { admitDelivery, recordDeliveryValidation } from "./deliveries.ts";
+import { WorkerKinds } from "../worker-kinds/main.ts";
 
 function stackDevice() {
   const client = new Database(":memory:");
@@ -203,7 +212,7 @@ test("unresolved queue and stack effects exclude one another at transactional ad
     ),
   ).toMatchObject({
     tag: "Err",
-    error: { reason: "stack_incomplete" },
+    error: { reason: "pr_delivery_running" },
   });
   expect(client.query("SELECT id FROM stack_operations").all()).toEqual([]);
   client.exec("UPDATE pull_requests SET parking = NULL");
@@ -214,10 +223,73 @@ test("unresolved queue and stack effects exclude one another at transactional ad
   ).toBe("Ok");
   expect(recordPullRequestQueue(client, "reviewer", "guarded-head")).toMatchObject({
     tag: "Err",
-    error: { reason: "stack_incomplete" },
+    error: { reason: "pr_stack_running" },
   });
   expect(client.query("SELECT parking FROM pull_requests").get()).toEqual({ parking: null });
 });
+
+test.each(["direct", "queue"] as const)(
+  "%s recovery uncertainty excludes every stack write transaction without a live process",
+  (effect) => {
+    using client = stackDevice();
+    expect(
+      changeStack(client, "reviewer", "operation", null, () =>
+        Ok({ state: "planned", data: "original", ownerPid: process.pid }),
+      ).tag,
+    ).toBe("Ok");
+    if (effect === "direct") {
+      insertRow(client, "deliveries", {
+        id: "pending",
+        source_id: "source",
+        assignment: "child",
+        launch_id: "reviewer",
+        head: "original",
+        selected: 0,
+        started_at: "prior",
+        owner_pid: null,
+        lease_at: null,
+      });
+    } else {
+      client
+        .query("UPDATE pull_requests SET parking = ?")
+        .run(
+          JSON.stringify({ state: "parked", queueHead: "original", ownerPid: null, leaseAt: null }),
+        );
+    }
+    const before = client.serialize();
+    const operations = [
+      () =>
+        changeStack(client, "reviewer", "another", null, () =>
+          Ok({ state: "planned", data: "new", ownerPid: process.pid }),
+        ),
+      () =>
+        changeStack(client, "reviewer", "operation", 1, () =>
+          Ok({ state: "blocked", data: "changed", ownerPid: null }),
+        ),
+      () => restartStackReview(client, "reviewer", "operation", 1),
+      () =>
+        finishStack(client, "reviewer", "operation", 1, {
+          data: "changed",
+          base: "{}",
+          relay: "{}",
+        }),
+      () => recordStackBase(client, "reviewer", "task/child", "{}"),
+      () => beginStackReview(client, "reviewer", "operation", 1),
+    ];
+    for (const operation of operations) {
+      expect(operation()).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
+      expect(client.serialize()).toEqual(before);
+    }
+    if (effect === "direct") client.exec("UPDATE deliveries SET ended_at = 'verified'");
+    else
+      client.exec(`UPDATE pull_requests SET parking = '{"state":"closed","queueHead":"original"}'`);
+    expect(
+      changeStack(client, "reviewer", "operation", 1, () =>
+        Ok({ state: "planned", data: "original", ownerPid: null }),
+      ).tag,
+    ).toBe("Ok");
+  },
+);
 
 test("same-worktree replacement keeps archived review bytes and becomes the explicit outgoing stack owner", () => {
   using client = stackDevice();
@@ -253,4 +325,89 @@ test("same-worktree replacement keeps archived review bytes and becomes the expl
     implementer_launch_id: "replacement",
   });
   expect(client.query("SELECT next_kind FROM kind_handoffs").all()).toEqual([]);
+});
+
+test("a stack invalidates validation applicability without deleting evidence, even at a same-head fresh ready frontier", () => {
+  using client = stackDevice();
+  client
+    .query("UPDATE launches SET kind = ? WHERE id = 'reviewer'")
+    .run(JSON.stringify(WorkerKinds.resolve("pr-feedback")));
+  const readiness = JSON.stringify({
+    head: "baseline",
+    at: "old-review",
+    note: null,
+    dispositions: [],
+  });
+  client.query("UPDATE pull_requests SET readiness = ?").run(readiness);
+  expect(
+    recordDeliveryValidation(client, {
+      launchId: "reviewer",
+      head: "corrected",
+      readiness,
+      summary: "Prior bounded correction.",
+    }).tag,
+  ).toBe("Ok");
+  const validations = client.query("SELECT * FROM delivery_validations").all();
+  const input = { launchId: "reviewer", head: "corrected", selected: false, session: null };
+  expect(admitDelivery(client, input, false).tag).toBe("Ok");
+  expect(
+    changeStack(client, "reviewer", "operation", null, () =>
+      Ok({ state: "planned", data: "{}", ownerPid: process.pid }),
+    ).tag,
+  ).toBe("Ok");
+  expect(restartStackReview(client, "reviewer", "operation", 1).tag).toBe("Ok");
+  expect(client.query("SELECT readiness FROM pull_requests").get()).toEqual({ readiness: null });
+  expect(client.query("SELECT * FROM delivery_validations").all()).toEqual(validations);
+  expect(admitDelivery(client, input, false)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_stack_running" },
+  });
+  expect(
+    finishStack(client, "reviewer", "operation", 2, { data: "{}", base: "{}", relay: "{}" }).tag,
+  ).toBe("Ok");
+  expect(
+    recordDeliveryValidation(client, {
+      launchId: "reviewer",
+      head: "corrected",
+      readiness,
+      summary: "Cannot reuse old readiness.",
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "stack_review_required" } });
+  // The public base-only scenario covers the actual independent review and ready handoff.
+  // This synthetic frontier keeps the same baseline head to isolate receipt applicability.
+  const fresh = JSON.stringify({
+    head: "baseline",
+    at: "fresh-base-review",
+    note: null,
+    dispositions: [],
+  });
+  client.exec("UPDATE internal_reviews SET state = 'ready'");
+  client.query("UPDATE pull_requests SET readiness = ?").run(fresh);
+  const before = client.serialize();
+  expect(admitDelivery(client, input, false)).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_validation_stale" },
+  });
+  expect(
+    recordDeliveryValidation(client, {
+      launchId: "reviewer",
+      head: "corrected",
+      readiness,
+      summary: "Still old.",
+    }),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_validation_stale" } });
+  expect(client.serialize()).toEqual(before);
+  expect(client.query("SELECT * FROM delivery_validations").all()).toEqual(validations);
+  expect(
+    recordDeliveryValidation(client, {
+      launchId: "reviewer",
+      head: "corrected",
+      readiness: fresh,
+      summary: "Evidence against the fresh baseline.",
+    }).tag,
+  ).toBe("Ok");
+  expect(admitDelivery(client, input, false).tag).toBe("Ok");
+  expect(
+    client.query("SELECT readiness FROM delivery_validations ORDER BY validated_at").all(),
+  ).toEqual([{ readiness }, { readiness: fresh }]);
 });
