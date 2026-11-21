@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { Ok } from "unthrown";
+import { Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { Environment } from "../environment/main.ts";
@@ -380,6 +380,166 @@ test("a proven enqueue refusal releases only its attempt and permits fresh guard
   expect(device.calls.some((args) => args.includes("PUT"))).toBe(false);
 });
 
+test.each(["lost", "defect"] as const)(
+  "a typed enqueue refusal survives %s verification and remains durably recoverable",
+  async (verification) => {
+    const { device, input, head } = await owner(null, undefined, true);
+    await using _ = device;
+    const secondary = new TypeError("Secondary membership failure.");
+    const log = spyOn(process.stderr, "write").mockImplementation(() => true);
+    let submitted = false;
+    device.answer((args) => {
+      if (requestKind(args) === "enqueue") {
+        submitted = true;
+        return succeeded({
+          data: { enqueuePullRequest: null },
+          errors: [
+            {
+              type: "UNPROCESSABLE",
+              path: ["enqueuePullRequest"],
+              message: "Primary typed refusal.",
+            },
+          ],
+        });
+      }
+      if (submitted && requestKind(args) === "merge_queue")
+        return verification === "defect"
+          ? Promise.reject(secondary)
+          : uncertain("Secondary membership answer lost.");
+      return succeeded(pullRequestBody({ head, queueEnabled: true }));
+    });
+    expect(await merge(input)).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "pr_enqueue_refused",
+        detail: "Primary typed refusal.",
+        state: { notApplied: true },
+      },
+    });
+    const receipt = DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    );
+    expect(receipt).toMatchObject({
+      queueHead: head,
+      queueRefusal: { head, attempt: receipt.queueAttempt, detail: "Primary typed refusal." },
+    });
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining(
+        verification === "defect"
+          ? "Secondary membership failure."
+          : "Secondary membership answer lost.",
+      ),
+    );
+    device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true })));
+    expect(await merge(input)).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_enqueue_refused", next: { command: "operator pr merge" } },
+    });
+    expect(
+      DeviceState.prParkingSchema().parse(
+        JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+      ).queueHead,
+    ).toBeNull();
+    expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
+  },
+);
+
+test.each(["changed-head", "closed", "merged", "partial", "lost", "member"] as const)(
+  "durable typed refusal stays pending after unsafe %s verification on a later call",
+  async (verification) => {
+    const { device, input, head } = await owner(null, undefined, true);
+    await using _ = device;
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    let submitted = false;
+    device.answer((args) => {
+      if (requestKind(args) === "enqueue") {
+        submitted = true;
+        return succeeded({
+          data: { enqueuePullRequest: null },
+          errors: [
+            { type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Typed refusal." },
+          ],
+        });
+      }
+      return submitted && requestKind(args) === "merge_queue"
+        ? uncertain("First verification lost.")
+        : succeeded(pullRequestBody({ head, queueEnabled: true }));
+    });
+    expect(await merge(input)).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_enqueue_refused" },
+    });
+    const attempt = DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    ).queueAttempt;
+    device.answer((args) => {
+      if (requestKind(args) !== "merge_queue")
+        return succeeded(pullRequestBody({ head, queueEnabled: true }));
+      if (verification === "lost") return uncertain("Still lost.");
+      const body = pullRequestBody({
+        head: verification === "changed-head" ? "changed" : head,
+        state: verification === "closed" ? "CLOSED" : verification === "merged" ? "MERGED" : "OPEN",
+        queueEnabled: true,
+        queueEntry: verification === "member" ? "Q7" : null,
+      });
+      return succeeded(
+        verification === "partial"
+          ? { ...body, errors: [{ message: "Partial observation." }] }
+          : body,
+      );
+    });
+    await merge(input);
+    expect(
+      DeviceState.prParkingSchema().parse(
+        JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+      ),
+    ).toMatchObject({
+      queueHead: head,
+      queueAttempt: attempt,
+    });
+    expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
+  },
+);
+
+test.each(["record", "release"] as const)(
+  "a queue refusal retains its primary Err through a %s Defect",
+  async (failure) => {
+    const { device, input, head } = await owner(null, undefined, true);
+    await using _ = device;
+    const cause = new TypeError(`Secondary ${failure} failure.`);
+    const defect = await fromPromise(
+      () => Promise.reject(cause),
+      (_cause, unexpected) => unexpected(cause),
+    );
+    const log = spyOn(process.stderr, "write").mockImplementation(() => true);
+    if (failure === "record")
+      spyOn(DeviceState, "recordPullRequestQueueRefusal").mockReturnValue(
+        defect.map(() => undefined),
+      );
+    else spyOn(DeviceState, "refusePullRequestQueue").mockReturnValue(defect.map(() => false));
+    device.answer((args) =>
+      requestKind(args) === "enqueue"
+        ? succeeded({
+            data: { enqueuePullRequest: null },
+            errors: [
+              { type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Primary refusal." },
+            ],
+          })
+        : succeeded(pullRequestBody({ head, queueEnabled: true })),
+    );
+    expect(await merge(input)).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_enqueue_refused", detail: "Primary refusal." },
+    });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(cause.message));
+    expect(
+      DeviceState.prParkingSchema().parse(
+        JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+      ).queueHead,
+    ).toBe(head);
+  },
+);
+
 test.each([
   uncertain("lost response"),
   failed("generic API failure"),
@@ -420,7 +580,7 @@ test.each([false, true])(
     await using _ = device;
     const cause = new TypeError("original enqueue defect");
     const secondary = new TypeError("secondary membership defect");
-    const log = spyOn(console, "error").mockImplementation(() => undefined);
+    const log = spyOn(process.stderr, "write").mockImplementation(() => true);
     let requested = false;
     device.answer((args) => {
       if (requestKind(args) === "enqueue") {
@@ -436,13 +596,7 @@ test.each([false, true])(
     const result = await merge(input);
     expect(result.tag).toBe("Defect");
     if (result.tag === "Defect") expect(result.cause).toBe(cause);
-    if (fails)
-      expect(log).toHaveBeenCalledWith(
-        "enqueue_verification",
-        expect.objectContaining({
-          secondary: expect.objectContaining({ cause: secondary }) as unknown,
-        }),
-      );
+    if (fails) expect(log).toHaveBeenCalledWith(expect.stringContaining(secondary.message));
     expect(assignmentState(device)).toBe("pr-open");
   },
 );

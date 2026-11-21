@@ -1,4 +1,4 @@
-import { ErrAsync, OkAsync, P, fromPromise, type AsyncResult } from "unthrown";
+import { ErrAsync, OkAsync, P, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -206,7 +206,7 @@ function guarded(
       return readMergeQueue(owner.repository, number).flatMap(
         (queue): AsyncResult<Outcome, Failure> => {
           if (queueHead !== null && queue.entry === null)
-            return awaitBatch(input, owner, number, observed);
+            return recoverQueueRefusal(input, owner, number, observed, queue);
           if (queue.enabled || queue.entry !== null)
             return queuedMerge(input, owner, number, observed, decision.head, queue);
           if (queueHead !== null) return awaitBatch(input, owner, number, observed);
@@ -265,6 +265,46 @@ function awaitBatch(
   }));
 }
 
+function recoverQueueRefusal(
+  input: Request,
+  owner: Owner,
+  number: number,
+  observed: Observation,
+  queue: Queue,
+): AsyncResult<Outcome, Failure> {
+  const parking =
+    owner.parking === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(owner.parking));
+  const proof = parking?.queueRefusal;
+  if (
+    proof === null ||
+    proof === undefined ||
+    parking?.queueAttempt !== proof.attempt ||
+    parking.queueHead !== proof.head
+  )
+    return awaitBatch(input, owner, number, observed);
+  return DeviceState.refusePullRequestQueue(
+    input.paths,
+    owner.launchId,
+    proof.head,
+    proof.attempt,
+    queue,
+  )
+    .toAsync()
+    .flatMap((cleared): AsyncResult<Outcome, Failure> =>
+      cleared
+        ? ErrAsync({
+            reason: "pr_enqueue_refused",
+            detail: proof.detail,
+            next: {
+              command: mergeCommand(input),
+              why: "The known refused attempt was reconciled. Repeat the fresh merge gate before new admission.",
+            },
+            state: { notApplied: true },
+          })
+        : awaitBatch(input, owner, number, observed),
+    );
+}
+
 function queuedMerge(
   input: Request,
   owner: Owner,
@@ -280,9 +320,9 @@ function queuedMerge(
       next: { command: mergeCommand(input), why: "Repeat the fresh merge gate before enqueueing." },
       state: { expectedHead: head, observedHead: queue.head, observedState: queue.state },
     });
-  const persisted =
-    owner.parking !== null &&
-    DeviceState.prParkingSchema().parse(JSON.parse(owner.parking)).queueHead === head;
+  const parking =
+    owner.parking === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(owner.parking));
+  const persisted = parking?.queueHead === head;
   return (
     persisted
       ? OkAsync(null)
@@ -294,24 +334,18 @@ function queuedMerge(
     if (attempt === null && queue.entry === null) return awaitBatch(input, owner, number, observed);
     return fromPromise(async () => {
       const requested = queue.entry === null ? await enqueuePullRequest(queue.id, head) : null;
+      saveQueueRefusal(input, owner, head, attempt, requested);
       const verification = await readMergeQueue(owner.repository, number);
-      if (requested?.tag === "Defect") {
-        if (verification.tag !== "Ok")
-          console.error("enqueue_verification", { secondary: verification });
+      if (requested !== null && requested.tag !== "Ok" && verification.tag !== "Ok") {
+        reportQueueFailure("enqueue_verification", verification);
         return requested.map<Outcome>(() => enqueued(owner, number, head, null));
       }
-      if (
-        attempt !== null &&
-        refusedQueueAttempt(requested, verification, head) &&
-        requested?.tag === "Err"
-      ) {
-        const released = DeviceState.refusePullRequestQueue(
-          input.paths,
-          owner.launchId,
-          head,
-          attempt,
-        );
-        if (released.tag !== "Ok") console.error("enqueue_release", { secondary: released });
+      if (requested?.tag === "Defect") {
+        if (verification.tag !== "Ok") reportQueueFailure("enqueue_verification", verification);
+        return requested.map<Outcome>(() => enqueued(owner, number, head, null));
+      }
+      recordQueueObservation(input, owner, head, attempt ?? parking?.queueAttempt, verification);
+      if (requested?.tag === "Err" && requested.error.state?.notApplied === true) {
         return requested.map<Outcome>(() => enqueued(owner, number, head, null));
       }
       return verification.toAsync().flatMap((confirmed): AsyncResult<Outcome, Failure> => {
@@ -340,18 +374,53 @@ function queuedMerge(
   });
 }
 
-function refusedQueueAttempt(
-  requested: Awaited<ReturnType<typeof enqueuePullRequest>> | null,
-  verification: Awaited<ReturnType<typeof readMergeQueue>>,
+type EnqueueAnswer = Awaited<ReturnType<typeof enqueuePullRequest>> | null;
+function saveQueueRefusal(
+  input: Request,
+  owner: Owner,
   head: string,
+  attempt: string | null,
+  requested: EnqueueAnswer,
 ) {
-  return (
-    requested?.tag === "Err" &&
-    requested.error.state?.notApplied === true &&
-    verification.tag === "Ok" &&
-    verification.value.head === head &&
-    verification.value.entry === null &&
-    verification.value.state === "OPEN"
+  if (attempt === null || requested?.tag !== "Err" || requested.error.state?.notApplied !== true)
+    return;
+  const saved = DeviceState.recordPullRequestQueueRefusal(
+    input.paths,
+    owner.launchId,
+    head,
+    attempt,
+    requested.error.detail,
+  );
+  if (saved.tag !== "Ok") reportQueueFailure("enqueue_refusal_record", saved);
+}
+
+function recordQueueObservation(
+  input: Request,
+  owner: Owner,
+  head: string,
+  attempt: string | null | undefined,
+  verification: Awaited<ReturnType<typeof readMergeQueue>>,
+) {
+  if (attempt === null || attempt === undefined || verification.tag !== "Ok") return;
+  const recorded = DeviceState.refusePullRequestQueue(
+    input.paths,
+    owner.launchId,
+    head,
+    attempt,
+    verification.value,
+  );
+  if (recorded.tag !== "Ok") reportQueueFailure("enqueue_release", recorded);
+}
+
+function reportQueueFailure<T>(phase: string, secondary: Result<T, Failure>) {
+  const outcome =
+    secondary.tag === "Defect"
+      ? { tag: secondary.tag, cause: secondary.cause }
+      : secondary.tag === "Err"
+        ? { tag: secondary.tag, error: secondary.error }
+        : { tag: secondary.tag };
+  process.stderr.write(
+    `${phase} ${Bun.inspect({ secondary: outcome }, { colors: false, compact: true, depth: 8 }).replaceAll("\n", "\\n")}; `,
   );
 }
 

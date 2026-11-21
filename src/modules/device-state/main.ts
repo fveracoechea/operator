@@ -67,6 +67,7 @@ import {
   prParkingSchema,
   recordPullRequestQueue,
   refusePullRequestQueue,
+  recordPullRequestQueueRefusal,
   parkPullRequest,
   completeParking,
   resumeParkedPullRequest,
@@ -194,8 +195,27 @@ export const DeviceState = {
     return writing(paths, (client) => recordPullRequestQueue(client, launchId, head, actor));
   },
 
-  refusePullRequestQueue(paths: Paths, launchId: string, head: string, attempt: string) {
-    return writing(paths, (client) => refusePullRequestQueue(client, launchId, head, attempt));
+  recordPullRequestQueueRefusal(
+    paths: Paths,
+    launchId: string,
+    head: string,
+    attempt: string,
+    detail: string,
+  ) {
+    return writing(paths, (client) =>
+      recordPullRequestQueueRefusal(client, launchId, head, attempt, detail),
+    );
+  },
+  refusePullRequestQueue(
+    paths: Paths,
+    launchId: string,
+    head: string,
+    attempt: string,
+    observed: Parameters<typeof refusePullRequestQueue>[4],
+  ) {
+    return writing(paths, (client) =>
+      refusePullRequestQueue(client, launchId, head, attempt, observed),
+    );
   },
   parkPullRequest(paths: Paths, launchId: string, input: Parameters<typeof parkPullRequest>[2]) {
     return writing(paths, (client) => parkPullRequest(client, launchId, input));

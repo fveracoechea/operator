@@ -60,3 +60,27 @@ The earlier guard mutation diagnostic recorded 39 killed mutants and 15 survivor
 It was not a complete changed-production campaign and remains non-gating.
 Populated direct-intent and source/assignment exclusion assertions were added for the concrete review gap.
 No new mutation campaign or zero-survivor requirement was added.
+
+## Durable refusal follow-up
+
+The frozen full-quality run at `750aaea7fe56eabeeb1ff38575ec8bd82fd801aa` passed 4,872 tests with 36,996 assertions across 362 files.
+Its unchanged-tree receipt is `/tmp/opencode/issue373-qualification/runs/pr415-corrected-final-quality.json`.
+That pass did not authorize merge.
+The fresh Spec review was clean, but Standards reproduced lost refusal evidence when immediate queue verification failed.
+The reports are `/tmp/opencode/operator-next-release-415-correction-spec.md` and `/tmp/opencode/operator-next-release-415-correction-standards.md`.
+
+The follow-up stores typed nonapplication evidence in the existing parking receipt before membership verification.
+Evidence names the exact attempt and expected head; the row owns source and assignment identity.
+A later successful matching OPEN/no-membership read reconciles only that attempt.
+The returned retry still performs a new complete merge gate before any fresh admission.
+Accepted membership invalidates refusal evidence and remains durable through parking, waits, batch observations, and later missing membership.
+Unknown historical receipts and generic failures remain unresolved rather than becoming retry permission.
+The primary enqueue Err or Defect survives secondary observation, evidence-persistence, and release failures.
+Secondary diagnostics retain their cause and share the first text line, preserving the CLI's three-line refusal limit.
+
+`pr415-durable-refusal-red.json` captures the two owning failures and a separate-process public CLI failure before the production change.
+The receipts and logs remain under `/tmp/opencode/issue373-qualification/runs/`.
+Later numbered development receipts distinguish failed controls from passing results.
+The follow-up's final static, scoped, full-quality, smoke, and independent-review evidence must name its actual descendant head.
+Neither the clean 750aaea Spec verdict nor its full-quality pass qualifies that descendant.
+No storage migration, new command, guide authority, release publication, or mutation gate was added.

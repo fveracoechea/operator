@@ -38,7 +38,13 @@ type BatchObservation = Extract<
 
 /** A migrated unknown head becomes known only through the current parked observation. */
 function observedParking(parking: Parked["parking"], observed: Observation) {
-  return "origin" in parking ? { ...parking, head: observed.head } : parking;
+  const current = "origin" in parking ? { ...parking, head: observed.head } : parking;
+  return current.queueAttempt !== null &&
+    current.queueAttempt !== undefined &&
+    observed.queueEntry !== null &&
+    observed.queueEntry !== undefined
+    ? { ...current, queueConfirmed: true, queueRefusal: null }
+    : current;
 }
 
 /** The same observation decision advances both live-wait and parked cursors. */

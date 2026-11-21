@@ -14,6 +14,7 @@ import {
   prParkingSchema,
   recordPullRequestQueue,
   refusePullRequestQueue,
+  recordPullRequestQueueRefusal,
   activateParking,
 } from "./pr-parking.ts";
 
@@ -90,18 +91,63 @@ test("a proven refusal releases only its exact queue attempt, never a later atte
   expect(first).not.toBeNull();
   if (first === null) return expect.unreachable("The first admission must own its attempt.");
   expect(recordPullRequestQueue(db, "l", "h").getOr("unexpected")).toBeNull();
-  expect(refusePullRequestQueue(db, "l", "h", first).tag).toBe("Ok");
+  expect(recordPullRequestQueueRefusal(db, "l", "h", first, "Typed refusal.").tag).toBe("Ok");
+  expect(
+    refusePullRequestQueue(db, "l", "h", first, { head: "h", state: "OPEN", entry: null }).getOr(
+      false,
+    ),
+  ).toBe(true);
   const second = recordPullRequestQueue(db, "l", "h").getOr(null);
   expect(second).not.toBeNull();
   expect(second).not.toBe(first);
   const before = db.serialize();
-  expect(refusePullRequestQueue(db, "l", "h", first).tag).toBe("Err");
-  expect(refusePullRequestQueue(db, "l", "other", second ?? "").tag).toBe("Err");
+  expect(recordPullRequestQueueRefusal(db, "l", "h", first, "Stale proof.").tag).toBe("Err");
+  expect(
+    refusePullRequestQueue(db, "l", "h", first, { head: "h", state: "OPEN", entry: null }).tag,
+  ).toBe("Err");
+  expect(
+    refusePullRequestQueue(db, "l", "other", second ?? "", {
+      head: "h",
+      state: "OPEN",
+      entry: null,
+    }).tag,
+  ).toBe("Err");
   expect(db.serialize()).toEqual(before);
   expect(parkPullRequest(db, "l", { head: "h", note: null })).toMatchObject({
     tag: "Ok",
     value: { queueHead: "h", queueAttempt: second },
   });
+});
+
+test("queue refusal proof survives parking, but accepted membership permanently retains that attempt", () => {
+  using db = fixture();
+  const attempt = recordPullRequestQueue(db, "l", "h").getOr(null);
+  if (attempt === null) return expect.unreachable("The new attempt must be owned.");
+  const open = { head: "h", state: "OPEN", entry: null };
+  const unknown = db.serialize();
+  expect(refusePullRequestQueue(db, "l", "h", attempt, open).getOr(true)).toBe(false);
+  expect(db.serialize()).toEqual(unknown);
+  expect(recordPullRequestQueueRefusal(db, "l", "h", attempt, "Typed refusal.").tag).toBe("Ok");
+  for (const observed of [
+    { ...open, head: "changed" },
+    { ...open, state: "CLOSED" },
+    { ...open, state: "MERGED" },
+  ]) {
+    const before = db.serialize();
+    expect(refusePullRequestQueue(db, "l", "h", attempt, observed).getOr(true)).toBe(false);
+    expect(db.serialize()).toEqual(before);
+  }
+  expect(parkPullRequest(db, "l", { head: "h", note: null })).toMatchObject({
+    tag: "Ok",
+    value: { queueRefusal: { attempt, head: "h", detail: "Typed refusal." } },
+  });
+  expect(refusePullRequestQueue(db, "l", "h", attempt, { ...open, entry: "Q7" }).getOr(true)).toBe(
+    false,
+  );
+  expect(recordPullRequestQueueRefusal(db, "l", "h", attempt, "Stale refusal.").tag).toBe("Ok");
+  const accepted = db.serialize();
+  expect(refusePullRequestQueue(db, "l", "h", attempt, open).getOr(true)).toBe(false);
+  expect(db.serialize()).toEqual(accepted);
 });
 
 test.each([

@@ -421,9 +421,31 @@ test("a durable queue receipt permits feedback observation but refuses a relay c
   const { input, launchId, worktree } = waiting(device);
   const head = git(worktree, "rev-parse", "HEAD");
   expect(DeviceState.recordPullRequestQueue(device.paths, launchId, head).tag).toBe("Ok");
+  const attempt = DeviceState.prParkingSchema().parse(
+    JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+  ).queueAttempt;
+  expect(
+    DeviceState.recordPullRequestQueueRefusal(
+      device.paths,
+      launchId,
+      head,
+      attempt ?? "",
+      "Typed refusal.",
+    ).tag,
+  ).toBe("Ok");
   device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true, queueEntry: "Q7" })));
   expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
   expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  expect(
+    DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    ),
+  ).toMatchObject({
+    queueHead: head,
+    queueAttempt: attempt,
+    queueConfirmed: true,
+    queueRefusal: null,
+  });
   const before = await Bun.file(device.paths.database).arrayBuffer();
   expect(
     DeviceState.recordPullRequestWait(device.paths, launchId, (row) => ({

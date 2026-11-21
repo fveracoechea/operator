@@ -505,6 +505,29 @@ test("a queued PR acknowledges eligibility without waking a worker or dropping r
   expect(JSON.parse(feedback.parking.events[0] ?? "null")).toMatchObject({ kind: "feedback" });
 });
 
+test("a parked batch retains accepted membership against an earlier typed refusal", () => {
+  const pending = {
+    ...row,
+    parking: {
+      ...row.parking,
+      queueHead: "h",
+      queueAttempt: "attempt-7",
+      queueRefusal: { attempt: "attempt-7", head: "h", detail: "Typed refusal." },
+    },
+  };
+  const result = parkedObservation(pending, {
+    observed: { ...observed, queueEntry: "Q7" },
+    parent: null,
+  });
+  expect(result.parking).toMatchObject({
+    queueHead: "h",
+    queueAttempt: "attempt-7",
+    queueConfirmed: true,
+    queueRefusal: null,
+  });
+  expect(result.parking.events).toEqual([]);
+});
+
 test("new feedback and CI failures commit their independent cursors with durable events once", () => {
   const facts = {
     observed: {
