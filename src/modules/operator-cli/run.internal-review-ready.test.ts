@@ -245,6 +245,7 @@ async function dispatch(source: string, assignment = "implement", kind?: string)
 
 type Pull = Record<string, unknown> & { number: number };
 async function github(change: {
+  branches?: Record<string, string>;
   omitQueueEntry?: boolean;
   enqueueLost?: boolean;
   pulls?: Pull[];
