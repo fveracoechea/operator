@@ -30,7 +30,7 @@ That is an `invoices` module the code base never named.
 ## Read these signs as a missing module
 
 - The noun appears in a route folder, a layer module and a backend module.
-- A module is named after a technical role, such as `query-options`, `selectors`, `api`, `hooks` or `utils`. That is a layer.
+- A top-level module is named after a technical role, such as `query-options`, `selectors`, `api`, `hooks` or `utils`. That is a layer.
 - A module is named after a backend service, and its methods cover several nouns.
 - A type such as `Invoice` is declared, or narrowed, in a file that no invoices module owns.
 - One module holds the cache rules for data that another module fetches.

@@ -3,7 +3,7 @@
 ## Test the module through its interface
 
 A test file sits beside the unit it covers and carries its name: `main.server.test.ts` beside `main.server.ts`.
-The test calls the public constants or functions the way a caller does, including operations on an exported object.
+An application module test calls its interface object the way a caller does.
 Assert caller-observed results and effects.
 Tests follow the chosen production architecture rather than imposing a factory or a new public method.
 Change the interface when real callers need a missing use case.
@@ -15,10 +15,10 @@ Its own test uses a `createServerFn` stand-in that runs the validator and then t
 ## Use function-level injection or fake a public collaborator
 
 When an operation accepts a function dependency, pass a fake directly.
-For the `reminderPreview` example in [module-shape.md](module-shape.md):
+For the `InvoiceReminders.preview` example in [module-shape.md](module-shape.md):
 
 ```ts
-expect(await reminderPreview('absent', '2026-11-21', async () => undefined))
+expect(await InvoiceReminders.preview('absent', '2026-11-21', async () => undefined))
   .toEqual({status: 'missing'})
 ```
 
@@ -36,7 +36,7 @@ The module's own files run real in its tests.
 When one of them wraps an outside dependency, fake that dependency's module, not the file that wraps it.
 Mock no private implementation files.
 Such mocks couple tests to file layout and break on refactors that change no behaviour.
-For `sendReminder`, fake the public `InvoiceStore` and `Mailer` entries, then assert both the returned result and the mail.
+For `InvoiceReminders.send`, fake the public `InvoiceStore` and `Mailer` entries, then assert both the returned result and the mail.
 Cover policy refusals too, such as a settled invoice that sends no mail.
 Use the test runner's mock setup and import ordering, and restore fakes or isolate globals so tests cannot leak replacements.
 
@@ -61,6 +61,6 @@ A full mount is slow, so a route test asserts what only the composition can brea
 ## Drive a server module's routes through the real server
 
 This applies to a server-only app.
-A module test calls the public operation.
+A module test calls the operation on the interface object.
 A route test starts the server on a free port, or calls its `fetch` handler with a real `Request`, and asserts the status and the body.
 The route is a caller, so a route test fakes the module at its entry file and never reaches past it.

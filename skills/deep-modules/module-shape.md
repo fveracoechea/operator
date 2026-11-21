@@ -4,19 +4,25 @@
 
 The rest of the app imports a module only through its entry files.
 Every other file is private, and files inside the module import each other with relative paths.
-Export constants and functions that hide application logic, including an operation object when that suits the caller.
-An object is a constant too.
-Export count and object shape do not establish depth.
+An application module's `main.ts` or `main.server.ts` exports one named PascalCase object, such as `Movie`, `Auth` or `Cache`.
+Its members expose operations and selected sub-modules, while functions behind the object implement the behavior.
+An exported arrow-function constant is still an operation, so it belongs behind that object.
 Use the caller's knowledge and the deletion test in [interface-design.md](interface-design.md) to judge depth.
 
-Follow the host application's interface-object convention when it requires one PascalCase object per entry file.
-The examples below permit named functions; the UI and sub-module examples use that object convention.
-Neither form makes private implementation files public.
+A meaningful constant value, such as `export const MOVIE_TIMEOUT = 500`, may sit beside the object.
+Caller-facing types may also have named exports.
+These exports do not make the module shallow merely by increasing its export count.
+Neither `as const` nor runtime freezing is mandatory.
+Keep mutable application state under the ownership rules in [server-state.md](server-state.md).
+
+Wire schemas and framework-required server functions keep their named exports in the entry files below.
+Ownerless reusable `src/lib/` utilities use named exports rather than application interface objects.
+Internal sub-modules have their own export choices in [sub-modules.md](sub-modules.md).
 
 | File                                   | Holds                                                                  | Environment                        |
 | -------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- |
-| `main.ts`                              | public constants, functions and caller-facing types                    | a module that callers import       |
-| `main.server.ts`                       | server-only public operations and types                                | full-stack                         |
+| `main.ts`                              | one interface object, plus meaningful constants and caller-facing types | a module that callers import       |
+| `main.server.ts`                       | one server-only interface object, plus constants and types               | full-stack                         |
 | `schemas.ts` or `schemas.generated.ts` | the wire shapes as Zod, and the types inferred from them               | a module whose data crosses a wire |
 | `$functions.ts`                        | the server functions and server-function middleware                    | TanStack Start                     |
 
@@ -38,8 +44,8 @@ Add `main.ts` when a route places the module's UI or calls it in the browser.
 
 This applies to a full-stack app, where one module holds code for both sides.
 
-- `main.server.ts` holds server-only operations.
-- `main.ts` holds isomorphic or browser operations. TanStack Start renders every component in the route tree on the server, even under `ssr: 'data-only'`, so a `.client.ts` file on that path fails the SSR build.
+- `main.server.ts` holds the server-only interface object.
+- `main.ts` holds the isomorphic or browser interface object. TanStack Start renders every component in the route tree on the server, even under `ssr: 'data-only'`, so a `.client.ts` file on that path fails the SSR build.
 - A module with callers on each side can have both entry files.
 
 The file name tells where code runs.
@@ -73,7 +79,7 @@ export type Invoice = {
   balanceCents: number
 }
 
-export function reminderDecision(invoice: Invoice, today: string) {
+function reminderDecision(invoice: Invoice, today: string) {
   if (invoice.balanceCents <= 0) {
     return {status: 'skip', reason: 'settled'} as const
   }
@@ -109,7 +115,7 @@ The preview owns the lookup and missing-invoice policy.
 ```ts
 import {InvoiceStore} from '@/modules/invoice-store/main.server'
 
-export async function reminderPreview(
+async function reminderPreview(
   invoiceId: string,
   today: string,
   readInvoice: (id: string) => Promise<Invoice | undefined> = InvoiceStore.find,
@@ -133,7 +139,7 @@ The caller asks for the finished use case rather than sequencing those steps.
 ```ts
 import {Mailer} from '@/modules/mailer/main.server'
 
-export async function sendReminder(invoiceId: string, today: string) {
+async function sendReminder(invoiceId: string, today: string) {
   const decision = await reminderPreview(invoiceId, today)
   if (decision.status !== 'ready') return decision
   const receipt = await Mailer.send({
@@ -142,14 +148,19 @@ export async function sendReminder(invoiceId: string, today: string) {
   })
   return {status: 'sent', messageId: receipt.id} as const
 }
+
+export const InvoiceReminders = {
+  preview: reminderPreview,
+  send: sendReminder,
+}
 ```
 
-With the stored `invoice` above, `sendReminder('inv-42', '2026-11-21')` sends one mail to `ada@example.com`.
+With the stored `invoice` above, `InvoiceReminders.send('inv-42', '2026-11-21')` sends one mail to `ada@example.com`.
 If the mailer returns `{id: 'mail-7'}`, the operation returns `{status: 'sent', messageId: 'mail-7'}`.
 A settled invoice returns `{status: 'skip', reason: 'settled'}` without sending mail.
 
-Under an interface-object convention, keep the functions private as needed and export `const InvoiceReminders = {preview: reminderPreview, send: sendReminder}`.
-The grouping adds no depth; the hidden lookup, policy and effect sequence do.
+The caller sees the object, while the functions remain private implementation details.
+The hidden lookup, policy and effect sequence provide its depth.
 
 ## Expose the UI as finished use cases on a `UI` object
 
@@ -163,7 +174,8 @@ export const InvoicesUI = {
 ```
 
 The route places the member whole: `<Invoices.UI.OverdueList />`.
-Each member decides what it shows from its own state.
+Components decide what they show from their own state.
+UI-only hooks can also be members, such as `Movie.UI.useWatchTime()`.
 Keep the module's `.tsx` files under its `ui/` folder.
 The internal compound, its provider and its parts, follows the `react-composition` skill.
 
