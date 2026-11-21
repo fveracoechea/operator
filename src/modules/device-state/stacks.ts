@@ -64,16 +64,18 @@ function stackClaim(
 export function recordStackBase(client: Database, launchId: string, branch: string, data: string) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId, true, true).flatMap(({ source, assignment, launch }) => {
-        if (launch.branch !== branch)
-          return refused("The stack base does not belong to this launch's branch.");
-        const row = { sourceId: source.id, assignment: assignment.key, launchId, branch, data };
-        db.insert(stackBases)
-          .values(row)
-          .onConflictDoUpdate({ target: [stackBases.sourceId, stackBases.assignment], set: row })
-          .run();
-        return Ok(row);
-      }),
+      activeOwner(db, launchId, { stackOperation: true, adopting: true }).flatMap(
+        ({ source, assignment, launch }) => {
+          if (launch.branch !== branch)
+            return refused("The stack base does not belong to this launch's branch.");
+          const row = { sourceId: source.id, assignment: assignment.key, launchId, branch, data };
+          db.insert(stackBases)
+            .values(row)
+            .onConflictDoUpdate({ target: [stackBases.sourceId, stackBases.assignment], set: row })
+            .run();
+          return Ok(row);
+        },
+      ),
     ),
   );
 }
@@ -103,48 +105,53 @@ export function finishStack(
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId, true).flatMap(({ source, assignment, launch }) => {
-        const row = db.select().from(stackOperations).where(eq(stackOperations.id, id)).get();
-        if (
-          row?.sourceId !== source.id ||
-          row.assignment !== assignment.key ||
-          row.launchId !== launchId ||
-          row.revision !== revision ||
-          row.ownerPid !== process.pid ||
-          launch.branch === null
-        )
-          return refused("The pinned operation lost its claim before finalization.");
-        const next = {
-          ...row,
-          data: effect.data,
-          state: effect.state ?? "complete",
-          revision: revision + 1,
-          ownerPid: null,
-          leaseAt: null,
-        };
-        db.update(stackOperations).set(next).where(eq(stackOperations.id, id)).run();
-        const base = {
-          sourceId: source.id,
-          assignment: assignment.key,
-          launchId,
-          branch: launch.branch,
-          data: effect.base,
-        };
-        db.insert(stackBases)
-          .values(base)
-          .onConflictDoUpdate({ target: [stackBases.sourceId, stackBases.assignment], set: base })
-          .run();
-        db.update(pullRequests)
-          .set({
-            relay: effect.relay,
-            progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
-          })
-          .where(
-            and(eq(pullRequests.sourceId, source.id), eq(pullRequests.assignment, assignment.key)),
+      activeOwner(db, launchId, { stackOperation: true }).flatMap(
+        ({ source, assignment, launch }) => {
+          const row = db.select().from(stackOperations).where(eq(stackOperations.id, id)).get();
+          if (
+            row?.sourceId !== source.id ||
+            row.assignment !== assignment.key ||
+            row.launchId !== launchId ||
+            row.revision !== revision ||
+            row.ownerPid !== process.pid ||
+            launch.branch === null
           )
-          .run();
-        return Ok(next);
-      }),
+            return refused("The pinned operation lost its claim before finalization.");
+          const next = {
+            ...row,
+            data: effect.data,
+            state: effect.state ?? "complete",
+            revision: revision + 1,
+            ownerPid: null,
+            leaseAt: null,
+          };
+          db.update(stackOperations).set(next).where(eq(stackOperations.id, id)).run();
+          const base = {
+            sourceId: source.id,
+            assignment: assignment.key,
+            launchId,
+            branch: launch.branch,
+            data: effect.base,
+          };
+          db.insert(stackBases)
+            .values(base)
+            .onConflictDoUpdate({ target: [stackBases.sourceId, stackBases.assignment], set: base })
+            .run();
+          db.update(pullRequests)
+            .set({
+              relay: effect.relay,
+              progress: JSON.stringify({ seen: [], failures: [], eligibleHead: null }),
+            })
+            .where(
+              and(
+                eq(pullRequests.sourceId, source.id),
+                eq(pullRequests.assignment, assignment.key),
+              ),
+            )
+            .run();
+          return Ok(next);
+        },
+      ),
     ),
   );
 }
@@ -170,7 +177,7 @@ function refused(detail: string) {
 export function readStack(client: Database, launchId: string, id: string) {
   return transaction(client, false, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId, true).flatMap(({ source, assignment }) => {
+      activeOwner(db, launchId, { stackOperation: true }).flatMap(({ source, assignment }) => {
         const row = db
           .select()
           .from(stackOperations)
@@ -200,7 +207,7 @@ export function changeStack(
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId, true).flatMap(
+      activeOwner(db, launchId, { stackOperation: true }).flatMap(
         ({ source, assignment, launch }): Result<StackRow, Refusal> => {
           const handoff = db
             .select()
@@ -267,7 +274,7 @@ export function restartStackReview(
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
-      activeOwner(db, launchId, true).flatMap(
+      activeOwner(db, launchId, { stackOperation: true }).flatMap(
         ({ source, assignment }): Result<StackRow, Refusal> => {
           const operation = db
             .select()

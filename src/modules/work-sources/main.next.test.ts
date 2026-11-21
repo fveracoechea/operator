@@ -44,6 +44,268 @@ function next(all?: boolean) {
   return WorkSources.next({ paths, cwd: root, all });
 }
 
+test("adoption history copies only ended owners of the same still-open PR", async () => {
+  const ended = storedSource(
+    [{ key: "work", completion: "pr", state: "abandoned", intent: "Keep the API." }],
+    { pullRequests: [storedPullRequest("work")] },
+  );
+  const live = storedSource([{ key: "live", completion: "pr", state: "pr-open" }], {
+    pullRequests: [storedPullRequest("live")],
+  });
+  const merged = storedSource([{ key: "merged", completion: "pr", state: "merged" }], {
+    state: "finished",
+    endedAt: "now",
+    cleanups: [storedCleanup("merged", { state: "done", step: null })],
+    pullRequests: [
+      storedPullRequest("merged", { mergedAt: "now", mergedHead: "head", mergeCommit: "merge" }),
+    ],
+  });
+  const unrelated = storedSource([{ key: "other", completion: "pr", state: "abandoned" }], {
+    pullRequests: [storedPullRequest("other", { number: 8 })],
+  });
+  const read = stored([ended, live, merged, unrelated]);
+  expect(await WorkSources.adoptionHistory({ paths, cwd: root, number: 7 })).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        sourceId: "one",
+        assignment: "work",
+        intent: "Keep the API.",
+        issue: "APP-work",
+        summary: null,
+        rounds: [],
+      },
+    ],
+  });
+  expect(read).toHaveBeenCalledWith(paths, "example/one", undefined);
+});
+
+test("adoption history projects recorded rounds with applied, declined, and absent dispositions by round and finding", async () => {
+  const findings = [
+    { severity: "blocker", axis: "Spec", location: "src/api.ts:1", claim: "Keep the API." },
+    { severity: "nice-to-have", axis: "Standards", location: "src/api.ts:2", claim: "Rename it." },
+    {
+      severity: "nice-to-have",
+      axis: "Skills",
+      location: "src/api.ts:3",
+      claim: "Read the guide.",
+    },
+  ];
+  const row = storedSource(
+    [
+      { key: "work", completion: "pr", state: "abandoned", intent: "Keep compatibility." },
+      { key: "other", completion: "pr", state: "abandoned" },
+    ],
+    {
+      launches: [storedLaunch("work", { id: "old", state: "finished", endedAt: "before" })],
+      pullRequests: [
+        storedPullRequest("work", {
+          readiness: JSON.stringify({
+            head: "ready-head",
+            at: "before",
+            note: "/old/note.md",
+            dispositions: [
+              { round: 1, finding: 1, disposition: "applied" },
+              {
+                round: 1,
+                finding: 2,
+                disposition: "declined",
+                reason: "The person kept the name.",
+              },
+              { round: 2, finding: 1, disposition: "declined", reason: "Already covered." },
+            ],
+          }),
+        }),
+      ],
+      internalReviews: [
+        {
+          sourceId: "one",
+          assignment: "work",
+          state: "ready",
+          implementerLaunchId: "old",
+          handoffState: "done",
+          handoffDetail: null,
+          handoffRunning: false,
+          startedAt: "before",
+          updatedAt: "before",
+          ownerPid: null,
+          leaseAt: null,
+          readyHead: "ready-head",
+          commentId: "summary",
+          commentUrl: "https://github.com/c/summary",
+          endedAt: "before",
+        },
+      ],
+      internalReviewRounds: [
+        {
+          sourceId: "one",
+          assignment: "work",
+          number: 1,
+          launchId: "reviewer",
+          head: "round-one",
+          findings: JSON.stringify(findings),
+          recordedAt: "before",
+        },
+        {
+          sourceId: "one",
+          assignment: "work",
+          number: 2,
+          launchId: "reviewer",
+          head: "round-two",
+          findings: JSON.stringify([findings[0]]),
+          recordedAt: "before",
+        },
+      ],
+    },
+  );
+  stored([row]);
+  expect(await WorkSources.adoptionHistory({ paths, cwd: root, number: 7 })).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        sourceId: "one",
+        assignment: "work",
+        intent: "Keep compatibility.",
+        issue: "APP-work",
+        summary: "https://github.com/c/summary",
+        rounds: [
+          {
+            number: 1,
+            head: "round-one",
+            findings: [
+              {
+                severity: "blocker",
+                axis: "Spec",
+                location: "src/api.ts:1",
+                claim: "Keep the API.",
+                disposition: "applied",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Standards",
+                location: "src/api.ts:2",
+                claim: "Rename it.",
+                disposition: "declined: The person kept the name.",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Skills",
+                location: "src/api.ts:3",
+                claim: "Read the guide.",
+                disposition: null,
+              },
+            ],
+          },
+          {
+            number: 2,
+            head: "round-two",
+            findings: [
+              {
+                severity: "blocker",
+                axis: "Spec",
+                location: "src/api.ts:1",
+                claim: "Keep the API.",
+                disposition: "declined: Already covered.",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+});
+
+test("next projects a retained ready receipt without reconstructing review or wait evidence", async () => {
+  const receipt = {
+    head: "ready-head",
+    at: "2026-11-18T01:00:00.000Z",
+    note: "/device/ready.md",
+    dispositions: [
+      { round: 1, finding: 2, disposition: "declined", reason: "The guard covers it." },
+    ],
+  };
+  stored([
+    storedSource([{ key: "work", completion: "pr", state: "pr-open" }], {
+      launches: [storedLaunch("work")],
+      pullRequests: [storedPullRequest("work", { readiness: JSON.stringify(receipt) })],
+    }),
+  ]);
+  const result = await next();
+  expect(result).toMatchObject({
+    tag: "Ok",
+    value: {
+      sources: [
+        {
+          waits: [
+            {
+              assignment: "work",
+              pullRequest: { pr_ready: true, readiness: receipt },
+            },
+          ],
+        },
+      ],
+    },
+  });
+});
+test.each([
+  ["pending", true, "wait", "kind_handoff", "pending"],
+  ["pending", false, "replace_worker", "handoff_failed", "stopped"],
+  ["failed", false, "replace_worker", "handoff_failed", "failed"],
+  ["done", false, "wait", "assignment_active", "done"],
+] as const)(
+  "next projects the selected %s handoff with running=%s",
+  async (state, running, action, reason, described) => {
+    function handoff(assignment: string) {
+      return {
+        sourceId: "one",
+        assignment,
+        outgoingLaunchId: `l-${assignment}`,
+        nextKind: "review",
+        handoffState: state,
+        handoffDetail: "handoff detail",
+        handoffRunning: running,
+        startedAt: "before",
+        updatedAt: "now",
+        ownerPid: null,
+        leaseAt: null,
+      };
+    }
+    stored([
+      storedSource(
+        [
+          { key: "other", completion: "pr", state: "pr-open" },
+          { key: "build", completion: "pr", state: "pr-open" },
+        ],
+        {
+          launches: [storedLaunch("other"), storedLaunch("build")],
+          pullRequests: [storedPullRequest("other"), storedPullRequest("build")],
+          handoffs: [
+            { ...handoff("other"), nextKind: "pr-feedback", handoffState: "done" },
+            handoff("build"),
+          ],
+        },
+      ),
+    ]);
+    const result = await next(true);
+    expect(result.tag).toBe("Ok");
+    const source = result.tag === "Ok" ? result.value.sources[0] : undefined;
+    const row = [...(source?.actions ?? []), ...(source?.waits ?? [])].find(
+      (row) => "assignment" in row && row.assignment === "build",
+    );
+    expect(row).toMatchObject({
+      assignment: "build",
+      action,
+      reason,
+      handoff: {
+        outgoingLaunchId: "l-build",
+        nextKind: "review",
+        state: described,
+        detail: "handoff detail",
+      },
+    });
+  },
+);
+
 const merged = {
   mergedHead: "abc",
   mergeCommit: "def",
@@ -78,7 +340,7 @@ const open = storedSource(
         activity: "working",
         activityAt: "2026-01-02T01:00:00.000Z",
       }),
-      storedLaunch("stop"),
+      storedLaunch("stop", { state: "interrupted" }),
       storedLaunch("rep", { state: "finished", endedAt: "2026-01-03T00:00:00.000Z" }),
       storedLaunch("ret"),
       storedLaunch("acc", { state: "finished" }),
@@ -169,6 +431,7 @@ type CleanupRow = {
 function mergedRow(key: string, action: string, reason: string, cleanup: CleanupRow) {
   return {
     assignment: key,
+    kind: null,
     action,
     reason,
     blockers: [],
@@ -179,6 +442,9 @@ function mergedRow(key: string, action: string, reason: string, cleanup: Cleanup
       branch: `task/${key}`,
       wait: "idle",
       waitAt: null,
+      pr_ready: false,
+      readiness: null,
+      parking: null,
       stack: null,
     },
     cleanup: { updatedAt: "2026-01-04T00:00:00.000Z", ...cleanup },
@@ -195,21 +461,26 @@ test("next describes each open assignment with its recorded facts", async () => 
   expect<unknown>(source?.actions).toEqual([
     {
       assignment: "stop",
-      action: "owner_attention",
-      reason: "pr_wait_stopped",
+      kind: null,
+      action: "replace_worker",
+      reason: "worker_interrupted",
       blockers: [],
-      launch: { ...finishedLaunch("stop"), state: "running" },
+      launch: { ...finishedLaunch("stop"), state: "interrupted" },
       pullRequest: {
         number: 8,
         url: "https://github.com/example/one/pull/7",
         branch: "task/stop",
         wait: "stopped",
         waitAt: null,
+        pr_ready: false,
+        readiness: null,
+        parking: null,
         stack: null,
       },
     },
     {
       assignment: "rep",
+      kind: null,
       action: "review_report",
       reason: "report_submitted",
       blockers: [],
@@ -227,7 +498,8 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "ret",
-      action: "resume_worker",
+      kind: null,
+      action: "worker_attention",
       reason: "follow_up_returned",
       blockers: [],
       launch: { ...finishedLaunch("ret"), state: "running" },
@@ -244,6 +516,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "dep",
+      kind: null,
       action: "ready_assignment",
       reason: "assignment_ready",
       blockers: [],
@@ -252,6 +525,7 @@ test("next describes each open assignment with its recorded facts", async () => 
           assignment: "acc",
           report: 1,
           conclusion: "acc done.",
+          files: [],
           unresolved: ["Gap of acc."],
           reference: "operator:example/one/sources/one/assignments/acc/reports/1",
         },
@@ -259,6 +533,7 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "fail",
+      kind: null,
       action: "replace_worker",
       reason: "launch_failed",
       blockers: [],
@@ -270,7 +545,8 @@ test("next describes each open assignment with its recorded facts", async () => 
     },
     {
       assignment: "acf",
-      action: "retry_cleanup",
+      kind: null,
+      action: "clean_up",
       reason: "cleanup_failed",
       blockers: [],
       launch: finishedLaunch("acf"),
@@ -295,12 +571,12 @@ test("next describes each open assignment with its recorded facts", async () => 
       state: "blocked",
       failure: { reason: "cleanup_unlanded_work", detail: "Unpushed commits." },
     }),
-    mergedRow("m4", "retry_cleanup", "cleanup_failed", {
+    mergedRow("m4", "clean_up", "cleanup_failed", {
       step: "remote_branch",
       state: "failed",
       failure: { reason: "push_failed", detail: "The remote refused." },
     }),
-    mergedRow("m6", "retry_cleanup", "cleanup_stopped", {
+    mergedRow("m6", "clean_up", "cleanup_stopped", {
       step: "pane",
       state: "pending",
       failure: null,
@@ -309,8 +585,9 @@ test("next describes each open assignment with its recorded facts", async () => 
   expect<unknown>(source?.waits).toEqual([
     {
       assignment: "pr1",
+      kind: null,
       action: "wait",
-      reason: "pr_feedback_loop",
+      reason: "assignment_active",
       blockers: [],
       launch: {
         ...finishedLaunch("pr1"),
@@ -325,11 +602,15 @@ test("next describes each open assignment with its recorded facts", async () => 
         branch: "task/pr1",
         wait: "waiting",
         waitAt: "2026-01-02T02:00:00.000Z",
+        pr_ready: false,
+        readiness: null,
+        parking: null,
         stack: { ...relay, blocker: null },
       },
     },
     {
       assignment: "blk",
+      kind: null,
       action: "wait",
       reason: "dependencies_pending",
       blockers: [
@@ -382,7 +663,7 @@ test("an ended source keeps its owed cleanup and offers prune only after retenti
   expect(source?.state).toBe("finished");
   expect(source?.actions.map((row) => [row.action, row.reason])).toEqual([
     ["source_ended", "finished"],
-    ["retry_cleanup", "cleanup_failed"],
+    ["clean_up", "cleanup_failed"],
     ["person_decision", "cleanup_unlanded_work"],
   ]);
   expect(source?.actions[0]).toEqual({
@@ -494,6 +775,7 @@ test("the report rule validates the assignment states it reads", () => {
     assignment: { key: "a", completion: "report", state: "reported" },
     launch: null,
     latest: { number: 1, decision: null, cleanupState: null },
+    reports: [],
     caller: { socket: null, paneId: null },
   };
   expect(
@@ -666,6 +948,7 @@ test("a reached running cap holds ready work as a named wait, counting each live
     ready: [],
     capped: ["a", "b"].map((assignment) => ({
       assignment,
+      kind: null,
       action: "wait",
       reason: "running_cap_reached",
       blockers: [],

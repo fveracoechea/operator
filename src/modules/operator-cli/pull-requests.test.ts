@@ -35,7 +35,6 @@ function spies() {
     merge: spyOn(PullRequests, "merge").mockReturnValue(completed("pr_merged")),
     associate: spyOn(PullRequests, "associate").mockReturnValue(completed("pr_associated")),
     wait: spyOn(PullRequests, "wait").mockReturnValue(completed("pr_feedback")),
-    handoff: spyOn(PullRequests, "handoff").mockReturnValue(completed("handoff_completed")),
     recover: spyOn(PullRequests, "recoverReview").mockReturnValue(
       completed("internal_review_recovered"),
     ),
@@ -48,7 +47,18 @@ function spies() {
 test("parses owner and cleanup commands", () => {
   expect(pullRequestArgs(["pr", "associate", "--json"])).toEqual({ operation: "pr_associate" });
   expect(pullRequestArgs(["pr", "merge"])).toEqual({ operation: "pr_merge" });
-  expect(pullRequestArgs(["pr", "wait"])).toEqual({ operation: "pr_wait", timeoutSeconds: 300 });
+  expect(pullRequestArgs(["pr", "merge", "--json"])).toEqual({ operation: "pr_merge" });
+  expect(pullRequestArgs(["pr", "merge", "--source", "s", "--assignment", "a"])).toEqual({
+    operation: "pr_merge",
+    sourceId: "s",
+    assignment: "a",
+  });
+  expect(pullRequestArgs(["pr", "wait"])).toEqual({ operation: "pr_wait", timeoutSeconds: 540 });
+  expect(pullRequestArgs(["pr", "wait", "--note", "-"])).toEqual({
+    operation: "pr_wait",
+    timeoutSeconds: 540,
+    note: "-",
+  });
   expect(pullRequestArgs(["pr", "wait", "--timeout", "0", "--json"])).toEqual({
     operation: "pr_wait",
     timeoutSeconds: 0,
@@ -77,11 +87,21 @@ test.each([
   [["pr", "close"]],
   [["pr", "merge", "--json", "--json"]],
   [["pr", "associate", "--timeout", "5"]],
+  [["pr", "associate", "--source", "s", "--assignment", "a"]],
   [["pr", "wait", "--timeout"]],
   [["pr", "wait", "--timeout", "x5"]],
   [["pr", "wait", "--timeout", "5x"]],
-  [["pr", "wait", "--timeout", "123456"]],
+  [["pr", "wait", "--timeout", "9007199254740992"]],
   [["pr", "wait", "--timeout", "5", "--timeout", "6"]],
+  [["pr", "wait", "--note"]],
+  [["pr", "wait", "--note", "--json"]],
+  [["pr", "wait", "--note", "one", "--note", "two"]],
+  [["pr", "merge", "--note", "one"]],
+  [["pr", "merge", "--other"]],
+  [["pr", "merge", "--source", "s"]],
+  [["pr", "merge", "--assignment", "a"]],
+  [["pr", "merge", "--source", "s", "--assignment", "a", "--person-instructed"]],
+  [["pr", "merge", "--source", "s", "--assignment", "a", "--source", "t"]],
   [["pr", "wait", "--source", "s"]],
   [["cleanup"]],
   [["cleanup", "--source", "s"]],
@@ -99,6 +119,21 @@ test.each([
   expect(pullRequestArgs(args)).toBeNull();
   expect(await runPullRequests(args, paths, true)).toBe(false);
   for (const spy of Object.values(called)) expect(spy).not.toHaveBeenCalled();
+});
+
+test("ready accepts a note file or stdin without allowing two stdin consumers", () => {
+  expect(pullRequestArgs(["pr", "ready", "--note", "-"])).toEqual({
+    operation: "pr_ready",
+    note: "-",
+  });
+  expect(pullRequestArgs(["pr", "ready", "--file", "summary.md", "--note", "note.md"])).toEqual({
+    operation: "pr_ready",
+    file: "summary.md",
+    note: "note.md",
+  });
+  for (const flags of [["--file", "-", "--note", "-"], ["--note"], ["--note", "x", "--note", "y"]])
+    expect(pullRequestArgs(["pr", "ready", ...flags])).toBeNull();
+  expect(pullRequestArgs(["pr", "round", "--note", "x"])).toBeNull();
 });
 
 test("passes each command to the matching pull request operation", async () => {
@@ -119,13 +154,24 @@ test("passes each command to the matching pull request operation", async () => {
     personInstructed: true,
   });
   await runPullRequests(["pr", "merge"], paths, true);
-  expect(called.merge).toHaveBeenCalledWith({ paths, cwd });
+  expect(called.merge.mock.calls).toStrictEqual([[{ paths, cwd }]]);
   await runPullRequests(["pr", "associate"], paths, true);
   expect(called.associate).toHaveBeenCalledWith({ paths, cwd });
   await runPullRequests(["pr", "wait", "--timeout", "12"], paths, true);
   expect(called.wait).toHaveBeenCalledWith({ paths, cwd, timeoutSeconds: 12 });
   for (const spy of [called.cleanup, called.merge, called.associate, called.wait])
     expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test("a scoped merge passes both selectors to the same guarded operation", async () => {
+  const called = spies();
+  quiet();
+  await runPullRequests(["pr", "merge", "--source", "s", "--assignment", "a"], paths, true);
+  expect(called.merge.mock.calls).toStrictEqual([
+    [{ paths, cwd: process.cwd(), sourceId: "s", assignment: "a" }],
+  ]);
+  expect(called.associate).not.toHaveBeenCalled();
+  expect(called.wait).not.toHaveBeenCalled();
 });
 
 test("routes an authorized internal review skip without invoking recovery or PR operations", async () => {
@@ -178,7 +224,7 @@ test.each([
   });
 });
 
-test("routes handoff with its assignment and predecessor process", async () => {
+test("the removed handoff command invokes no pull request operation", async () => {
   const called = spies();
   quiet();
   expect(
@@ -187,18 +233,8 @@ test("routes handoff with its assignment and predecessor process", async () => {
       paths,
       true,
     ),
-  ).toBe(true);
-  expect(called.handoff).toHaveBeenCalledWith({
-    paths,
-    cwd: process.cwd(),
-    operation: "handoff",
-    sourceId: "s",
-    assignment: "a",
-    afterPid: 123,
-  });
-  expect(called.handoff).toHaveBeenCalledTimes(1);
-  for (const [name, spy] of Object.entries(called))
-    if (name !== "handoff") expect(spy).not.toHaveBeenCalled();
+  ).toBe(false);
+  for (const spy of Object.values(called)) expect(spy).not.toHaveBeenCalled();
 });
 
 test("routes recovery with pinned provenance and authorization", async () => {

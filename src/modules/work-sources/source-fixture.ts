@@ -53,11 +53,18 @@ export function storedSource(
       completion: row.completion,
       state: row.state,
     })),
+    ...storedRecords(rows),
+  };
+}
+
+function storedRecords(rows: Partial<Omit<Stored, "source" | "assignments">>) {
+  return {
     launches: rows.launches ?? [],
     pullRequests: rows.pullRequests ?? [],
     reports: rows.reports ?? [],
     cleanups: rows.cleanups ?? [],
     internalReviews: rows.internalReviews ?? [],
+    handoffs: rows.handoffs ?? [],
     internalReviewRounds: rows.internalReviewRounds ?? [],
     promotions: rows.promotions ?? [],
     questions: rows.questions ?? [],
@@ -119,6 +126,8 @@ export function storedPullRequest(
     url: "https://github.com/example/one/pull/7",
     branch: `task/${assignment}`,
     associatedAt: "2026-01-02T00:00:00.000Z",
+    readiness: null,
+    parking: null,
     progress: "{}",
     waitState: "idle",
     waitAt: null,
@@ -214,6 +223,7 @@ export function storedQuestion(
     launchId: `l-${assignment}`,
     question: `Is ${assignment} in scope?`,
     askedAt: "2026-01-03T00:00:00.000Z",
+    awaitingPersonSeenAt: null,
     state: "open",
     answer: null,
     answeredBy: null,

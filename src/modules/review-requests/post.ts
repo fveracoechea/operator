@@ -130,7 +130,7 @@ function approval(facts: Parameters<typeof decideEvent>[0], event: ReviewEvent) 
       detail:
         "A required CI check still runs, or the PR has more checks than one read returns. Post the approval after CI finishes. Nothing was posted.",
       next: {
-        command: "operator review wait",
+        command: "operator next --wait",
         why: "Wait for required CI before posting the approval.",
       },
       state: {
@@ -498,7 +498,7 @@ function yieldPost(paths: Paths, target: Target, request: Row): Posted {
       ErrAsync<Failure>({
         reason: "review_post_in_progress",
         next: {
-          command: "operator review wait",
+          command: "operator next --wait",
           why: "Let the process that started the post finish.",
         },
         detail: "Another process started this post. Run the post again. Nothing was posted.",

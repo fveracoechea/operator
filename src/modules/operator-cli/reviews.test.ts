@@ -28,12 +28,11 @@ function spies() {
     post: spyOn(ReviewRequests, "post").mockReturnValue(completed("review_posted")),
     skip: spyOn(ReviewRequests, "skip").mockReturnValue(completed("review_skipped")),
     cleanup: spyOn(ReviewRequests, "cleanup").mockReturnValue(completed("review_cleaned")),
-    wait: spyOn(ReviewRequests, "wait").mockReturnValue(completed("review_waited")),
     next: spyOn(ReviewRequests, "next").mockReturnValue(completed("review_next")),
   };
 }
 test("parses each review command with its own flags and defaults", () => {
-  const defaults = { profile: undefined, timeout: 300, slackThread: undefined, all: false };
+  const defaults = { profile: undefined, slackThread: undefined };
   for (const command of ["add", "post", "skip", "cleanup", "start"] as const)
     expect(reviewArgs(["review", command, url])).toEqual({ ...defaults, command, url });
   expect(reviewArgs(["review", "add", url, "--slack-thread", thread])).toEqual({
@@ -48,13 +47,7 @@ test("parses each review command with its own flags and defaults", () => {
     url,
     profile: "fast",
   });
-  expect(reviewArgs(["review", "wait", "--timeout", "45", "--all"])).toEqual({
-    ...defaults,
-    command: "wait",
-    url: "",
-    timeout: 45,
-    all: true,
-  });
+  expect(reviewArgs(["review", "wait", "--timeout", "45", "--all"])).toBeNull();
   expect(reviewArgs(["review", "next", "--json"])).toEqual({
     ...defaults,
     command: "next",
@@ -109,8 +102,6 @@ test("passes each command to the matching review operation", async () => {
     await runReviews(["review", command, url], paths, true);
     expect(called[command]).toHaveBeenCalledWith({ paths, url });
   }
-  await runReviews(["review", "wait", "--timeout", "9"], paths, true);
-  expect(called.wait).toHaveBeenCalledWith({ paths, timeoutSeconds: 9, all: false });
   await runReviews(["review", "next"], paths, true);
   expect(called.next).toHaveBeenCalledWith(paths);
   for (const call of Object.values(called)) expect(call).toHaveBeenCalledTimes(1);

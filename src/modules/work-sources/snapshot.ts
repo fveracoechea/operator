@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PrStacks } from "../pr-stacks/main.ts";
-import type { DeviceState } from "../device-state/main.ts";
+import { DeviceState } from "../device-state/main.ts";
 import { storedPlanSchema } from "./plan.ts";
 import { assignmentStateSchema, type AssignmentState } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
@@ -68,6 +68,14 @@ const pullRequestSchema = z.object({
   url: z.string(),
   branch: z.string(),
   associatedAt: z.string(),
+  readiness: DeviceState.storedPrReadinessSchema(),
+  parking: z
+    .string()
+    .nullable()
+    .default(null)
+    .transform((text) =>
+      text === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(text)),
+    ),
   waitState: z.enum(["idle", "waiting", "reported", "timed_out", "not_open"]),
   waitAt: z.string().nullable(),
   waitStopped: z.boolean(),
@@ -85,6 +93,19 @@ const pullRequestSchema = z.object({
             .object({
               parent: z.object({ assignment: z.string(), number: z.number(), branch: z.string() }),
               state: z.enum(["stacked", "blocked", "relayed"]),
+              prerequisites: z
+                .array(
+                  z.object({
+                    assignment: z.string(),
+                    number: z.number().int().positive(),
+                    branch: z.string(),
+                    head: z.string(),
+                    base: z.string(),
+                  }),
+                )
+                .optional(),
+              cut: z.string().optional(),
+              base: z.string().optional(),
               blocker: z.object({ reason: z.string(), detail: z.string() }).nullable(),
             })
             .parse(JSON.parse(text)),
@@ -148,6 +169,16 @@ const internalReviewSchema = z.object({
   endedAt: z.string().nullable(),
 });
 export type InternalReview = z.infer<typeof internalReviewSchema>;
+
+const handoffSchema = z.object({
+  assignment: z.string(),
+  outgoingLaunchId: z.string(),
+  nextKind: WorkerKinds.snapshotSchema().shape.name,
+  handoffState: z.enum(["pending", "failed", "done"]),
+  handoffDetail: z.string().nullable(),
+  handoffRunning: z.boolean(),
+});
+export type KindHandoff = z.infer<typeof handoffSchema>;
 
 export const findingSchema = z.strictObject({
   axis: z.enum(["Spec", "Standards", "Skills"]),
@@ -498,6 +529,7 @@ export function decodeSource(input: StoredSource) {
     reports: z.array(reportSchema).parse(input.reports),
     cleanups: z.array(cleanupSchema).parse(input.cleanups),
     internalReviews: z.array(internalReviewSchema).parse(input.internalReviews),
+    handoffs: z.array(handoffSchema).parse(input.handoffs),
     internalReviewRounds: z.array(roundSchema).parse(input.internalReviewRounds),
     questions: z.array(questionSchema).parse(input.questions),
     messages: z.array(messageSchema).parse(input.messages),
@@ -566,7 +598,7 @@ export function decodeSource(input: StoredSource) {
     ...source,
     planned: assignments.map((assignment) => ({
       ...assignment,
-      kind: z.enum(WorkerKinds.names()).nullable().parse(storedKinds.get(assignment.key)),
+      kind: z.string().nullable().parse(storedKinds.get(assignment.key)),
     })),
   };
 }

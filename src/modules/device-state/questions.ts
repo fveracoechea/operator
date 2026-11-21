@@ -18,7 +18,7 @@ export type QuestionFacts = {
 };
 
 export type QuestionChange = {
-  insert?: QuestionRow;
+  insert?: typeof workerQuestions.$inferInsert;
   update?: Partial<Omit<QuestionRow, "sourceId" | "assignment" | "key">>;
   /** The steering message that delivers an answer, recorded in the same transaction. */
   message?: MessageRow;

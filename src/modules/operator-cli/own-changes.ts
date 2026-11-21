@@ -8,7 +8,6 @@ const supervisorCommands = new Set([
   "dispatch",
   "abandon",
   "cleanup",
-  "handoff",
   "source register",
   "source reset",
   "message send",

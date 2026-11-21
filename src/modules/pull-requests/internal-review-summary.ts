@@ -1,15 +1,12 @@
 import { Err, Ok, fromPromise } from "unthrown";
 import { z } from "zod";
 import { qualify } from "./owner.ts";
+import { DeviceState } from "../device-state/main.ts";
 
-const place = { round: z.number().int().positive(), finding: z.number().int().positive() };
+const persistedDisposition = DeviceState.prReadinessSchema().shape.dispositions.element;
 const dispositionSchema = z.discriminatedUnion("disposition", [
-  z.strictObject({ ...place, disposition: z.literal("applied") }),
-  z.strictObject({
-    ...place,
-    disposition: z.literal("declined"),
-    reason: z.string().trim().min(1),
-  }),
+  persistedDisposition.options[0].strict(),
+  persistedDisposition.options[1].strict(),
 ]);
 export type Disposition = z.infer<typeof dispositionSchema>;
 

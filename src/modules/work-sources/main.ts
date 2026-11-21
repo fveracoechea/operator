@@ -4,6 +4,7 @@ import {
   fromSafePromise,
   fromThrowable,
   Ok,
+  OkAsync,
   Err,
   type AsyncResult,
   type ErrOf,
@@ -13,7 +14,13 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import { planSchema, storedPlanSchema, promotionSchema, questionPlan } from "./plan.ts";
+import {
+  configuredPlanSchema,
+  storedPlanSchema,
+  promotionSchema,
+  questionPlan,
+  oneOffPlan,
+} from "./plan.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
@@ -22,6 +29,7 @@ import {
   findingSchema,
   type Cleanup,
   type InternalReview,
+  type KindHandoff,
   type Launch,
   type PullRequest,
   type Message,
@@ -33,6 +41,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Environment } from "../environment/main.ts";
 import {
   actionKeys,
+  eventKey,
   addKeys,
   changedAnswer,
   dropKeys,
@@ -45,9 +54,11 @@ import {
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 import { missingWorkers } from "./missing-workers.ts";
+import type { ReviewRequests } from "../review-requests/main.ts";
 // Bun has no synchronous directory metadata API.
 import { lstatSync } from "node:fs";
-import type { ResultContext } from "../../lib/cli-result.ts";
+import type { ResultContext, Refusal } from "../../lib/cli-result.ts";
+import { readTextInput } from "../../lib/read-text-input.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
@@ -87,6 +98,9 @@ function pullRequestSummary(pr: PullRequest) {
     number: pr.number,
     url: pr.url,
     branch: pr.branch,
+    pr_ready: pr.readiness !== null,
+    readiness: pr.readiness,
+    parking: pr.parking,
     wait: pr.waitStopped ? "stopped" : pr.waitState,
     waitAt: pr.waitAt,
     stack: pr.relay,
@@ -392,13 +406,14 @@ function retention(
 }
 
 /** Parses a supplied plan, checks its profiles against device settings, and writes the source. */
-function registerPlan(input: Input, supply: () => Promise<object>) {
-  return fromPromise(
-    async () => planSchema.parse(await supply()),
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  )
-    .flatMap((plan) =>
-      DeviceSettings.show(input.paths).flatMap(({ data: settings }) => {
+function registerPlan(input: Input, supply: () => Promise<object>, oneOff = false) {
+  return DeviceSettings.show(input.paths)
+    .flatMap(({ data: settings }) =>
+      fromPromise(
+        async () => configuredPlanSchema(settings.config.kinds, oneOff).parse(await supply()),
+        (cause, defect) =>
+          cause instanceof Error ? qualify(cause, defect, oneOff) : defect(cause),
+      ).flatMap((plan) => {
         const missing = plan.assignments.find(
           (assignment) =>
             assignment.profile !== undefined &&
@@ -520,12 +535,46 @@ export const WorkSources = {
   register(input: Input & { file: string }) {
     return registerPlan(input, () => Bun.file(input.file).json());
   },
+  oneOff(
+    input: Input & {
+      kind: string;
+      brief: string;
+      intentFile?: string;
+      profile?: string;
+      trackerKey?: string;
+      adopt?: string;
+    },
+  ) {
+    return registerPlan(
+      input,
+      async () => {
+        z.string()
+          .refine((brief) => brief !== "-" || input.intentFile !== "-", {
+            message: "The brief and intent cannot both read stdin. Supply a file for either field.",
+          })
+          .parse(input.brief);
+        return oneOffPlan({
+          ...input,
+          instructions: await readTextInput(input.brief),
+          intent:
+            input.intentFile === undefined ? undefined : await readTextInput(input.intentFile),
+        });
+      },
+      true,
+    );
+  },
   /**
-   * Registers a SuperAgent's research question as a source with one read-only report
+   * Registers a SuperAgent's question as a one-off source with one answer-kind report
    * assignment, so the question needs no plan file. ADR-0027.
    */
-  ask(input: Input & { question: string; profile?: string }) {
-    return registerPlan(input, async () => questionPlan(input.question, input.profile));
+  ask(input: Input & { file: string; profile?: string }) {
+    return registerPlan(input, async () => {
+      const question = z
+        .string()
+        .refine((text) => text.trim() !== "")
+        .parse(await readTextInput(input.file));
+      return questionPlan(question, input.profile);
+    });
   },
   show(input: Input & { sourceId: string }) {
     return read(input).map((sources) => {
@@ -540,6 +589,57 @@ export const WorkSources = {
         }
       );
     });
+  },
+  /** Copy ended owners' facts, never their authority or readiness, into an adopted PR's brief. */
+  adoptionHistory(input: Input & { number: number }) {
+    return read(input).map((sources) =>
+      sources.flatMap((source) =>
+        source.pullRequests.flatMap((pr) => {
+          if (pr.number !== input.number) return [];
+          const ended =
+            source.state !== "open" ||
+            source.assignments.some(
+              (row) => row.key === pr.assignment && ["abandoned", "merged"].includes(row.state),
+            );
+          if (!ended || pr.mergedAt !== null) return [];
+          const planned = source.planned.find((row) => row.key === pr.assignment);
+          const review = source.internalReviews.find((row) => row.assignment === pr.assignment);
+          const dispositions = new Map(
+            (pr.readiness?.dispositions ?? []).map((item) => [
+              `${item.round}.${item.finding}`,
+              item,
+            ]),
+          );
+          return [
+            {
+              sourceId: source.id,
+              assignment: pr.assignment,
+              intent: planned?.intent ?? source.plan.intent ?? null,
+              issue: planned?.trackerKey ?? source.trackerKey,
+              summary: review?.commentUrl ?? null,
+              rounds: source.internalReviewRounds
+                .filter((row) => row.assignment === pr.assignment)
+                .map((round) => ({
+                  number: round.number,
+                  head: round.head,
+                  findings: round.findings.map((finding, index) => {
+                    const disposition = dispositions.get(`${round.number}.${index + 1}`);
+                    return {
+                      ...finding,
+                      disposition:
+                        disposition === undefined
+                          ? null
+                          : disposition.disposition === "applied"
+                            ? "applied"
+                            : `declined: ${disposition.reason}`,
+                    };
+                  }),
+                })),
+            },
+          ];
+        }),
+      ),
+    );
   },
   /**
    * The accepted reports of an assignment's direct dependencies. A consumer brief copies this
@@ -760,7 +860,7 @@ export const WorkSources = {
    * also after a restart. A wait without a source from an agent session covers every source that
    * the session supervises, in every project.
    */
-  wait(input: Input & { sourceId?: string; timeoutSeconds: number; all?: boolean }) {
+  wait(input: WaitInput) {
     return coordinationWait(input);
   },
   /**
@@ -898,11 +998,20 @@ type Source = ReturnType<typeof decodeSource>;
 type CoordinationScope = Parameters<typeof DeviceState.startCoordinationWait>[1];
 // The watch recurses, so it names the closed failures of the reads and the records it repeats.
 type WatchFailure =
+  | Refusal
   | ErrOf<ReturnType<typeof readSources>>
   | import("unthrown").AsyncErrOf<ReturnType<typeof observeSources>>
   | ErrOf<ReturnType<import("unthrown").AsyncOkOf<ReturnType<typeof observeSources>>["reconcile"]>>
   | ErrOf<ReturnType<typeof DeviceState.finishCoordinationWait>>;
-type Answer = { sources: (ReturnType<typeof nextActions> & { repository: string })[] };
+type ReviewObservation = import("unthrown").AsyncOkOf<ReturnType<typeof ReviewRequests.upkeep>>;
+type ReviewScope = Parameters<typeof ReviewRequests.upkeep>[0]["scopes"][number];
+type CoordinationWatch = Watch & {
+  reviewReadAt: number | null;
+  reviewFailures: ReviewObservation["events"];
+};
+type Answer = {
+  sources: (ReturnType<typeof nextActions> & { repository: string })[];
+} & ReviewObservation;
 type WatchOutcome = {
   reason: "next_actions_changed" | "next_wait_timed_out";
   data: Answer | ReturnType<typeof changedAnswer<Answer["sources"][number]["actions"][number]>>;
@@ -937,7 +1046,28 @@ function withoutEnded<T extends { sources: { actions: { action: string }[]; wait
 // A wait reads only local device state, so it can read often.
 const coordinationPollMs = 2000;
 
-type WaitInput = Input & { sourceId?: string; timeoutSeconds: number; all?: boolean };
+type WaitInput = Input & {
+  sourceId?: string;
+  timeoutSeconds: number;
+  all?: boolean;
+  observeParked?: () => AsyncResult<undefined, Refusal>;
+  reviewUpkeep?: (input: {
+    scopes: readonly ReviewScope[];
+    observe: boolean;
+  }) => ReturnType<typeof ReviewRequests.upkeep>;
+};
+
+function reviewScopes(input: WaitInput & { session: string | null }, repository: string) {
+  if (input.sourceId !== undefined)
+    return Ok<ReviewScope[]>([{ repository, sourceIds: [input.sourceId], manual: false }]);
+  if (input.session === null) return Ok<ReviewScope[]>([{ repository }]);
+  return DeviceState.readSupervision(input.paths, input.session).map((sources) =>
+    [...new Set([repository, ...sources.map((source) => source.repository)])].map((repo) => ({
+      repository: repo,
+      sourceIds: sources.filter((source) => source.repository === repo).map((source) => source.id),
+    })),
+  );
+}
 
 function coordinationWait(input: WaitInput) {
   const deadline = Date.now() + input.timeoutSeconds * 1000;
@@ -956,7 +1086,12 @@ function coordinationWait(input: WaitInput) {
         return fromPromise(
           async () => {
             try {
-              return await watchActions(watched, target, startWatch(), deadline);
+              return await watchActions(
+                watched,
+                target,
+                { ...startWatch(), reviewReadAt: null, reviewFailures: [] },
+                deadline,
+              );
             } finally {
               release();
             }
@@ -1023,36 +1158,72 @@ function scopeAnswer(
 function watchActions(
   input: WaitInput & { session: string | null },
   target: CoordinationScope,
-  watch: Watch,
+  watch: CoordinationWatch,
   deadline: number,
 ): AsyncResult<WatchOutcome, WatchFailure> {
-  // The stored set is read before the actions, so an acknowledged change is already visible.
-  const read = DeviceState.readCoordinationWait(input.paths, target)
-    .toAsync()
+  // Read the source board before review upkeep commits transitions. An unrelated source-read
+  // failure must not consume review events that this combined observation never returns.
+  const read = (input.observeParked?.() ?? OkAsync(undefined))
+    .flatMap(() => DeviceState.readCoordinationWait(input.paths, target))
     .flatMap((stored) =>
-      scopeAnswer(input, target.repository).flatMap((answer) => {
-        const set = parseSet(stored);
-        const current = actionKeys(answer);
-        const dropped =
-          set === null
-            ? Ok(undefined)
-            : DeviceState.changeCoordinationWait(
-                input.paths,
-                target,
-                dropKeys([...set].filter((key) => !current.has(key))),
-              ).discard();
-        return dropped.map(() => ({ stored: set, answer, current }));
-      }),
-    );
+      scopeAnswer(input, target.repository).map((sources) => ({ stored, sources })),
+    )
+    .flatMap(({ stored, sources }) =>
+      reviewScopes(input, target.repository).map((scopes) => ({ stored, sources, scopes })),
+    )
+    .flatMap(({ stored, sources, scopes }) => {
+      const observe = watch.reviewReadAt === null || Date.now() - watch.reviewReadAt >= 30000;
+      if (observe) watch.reviewReadAt = Date.now();
+      const read =
+        input.reviewUpkeep?.({ scopes, observe }) ??
+        OkAsync<ReviewObservation>({ events: [], requests: [] });
+      return read.map((reviews) => {
+        if (observe) {
+          watch.reviewFailures = reviews.events.filter((event) => event.kind === "read_failed");
+          return { stored, answer: { ...sources, ...reviews } };
+        }
+        // An omitted GitHub read cannot clear a failed observation's acknowledgement.
+        const visible = new Set(reviews.requests.map((request) => request.url));
+        return {
+          stored,
+          answer: {
+            ...sources,
+            ...reviews,
+            events: watch.reviewFailures.filter((event) => visible.has(event.url)),
+          },
+        };
+      });
+    })
+    .flatMap(({ stored, answer }) => {
+      const set = parseSet(stored);
+      const current = actionKeys(answer);
+      const dropped =
+        set === null
+          ? Ok(undefined)
+          : DeviceState.changeCoordinationWait(
+              input.paths,
+              target,
+              dropKeys([...set].filter((key) => !current.has(key))),
+            ).discard();
+      return dropped.map(() => ({ stored: set, answer, current }));
+    });
   return read.flatMap(({ stored, answer, current }) => {
     const now = Date.now();
     // A scope that never returned a set returns at once with every action. It records the end of
     // each ended source without returning it, so a first session wait carries no old ends.
-    const due = stored === null ? [...current] : dueKeys({ stored, current, watch, now });
+    const due =
+      stored === null
+        ? [...current]
+        : [
+            ...new Set([
+              ...dueKeys({ stored, current, watch, now }),
+              ...answer.events.map(eventKey).filter((key) => !stored.has(key)),
+            ]),
+          ];
+    const shown = stored === null ? actionKeys(withoutEnded(answer)) : new Set(due);
     // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
-    if (stored === null || due.length > 0 || now >= deadline) {
-      const changed = stored === null || due.length > 0;
-      const shown = stored === null ? actionKeys(withoutEnded(answer)) : new Set(due);
+    if (shown.size > 0 || now >= deadline) {
+      const changed = shown.size > 0;
       return DeviceState.finishCoordinationWait(input.paths, target, addKeys(due))
         .toAsync()
         .map(() => ({
@@ -1060,10 +1231,21 @@ function watchActions(
           data: input.all === true ? answer : changedAnswer(answer, shown),
         }));
     }
-    return fromPromise(
-      () => Bun.sleep(Math.min(coordinationPollMs, deadline - Date.now())),
-      (cause, defect) => defect(cause),
-    ).flatMap(() => watchActions(input, target, watch, deadline));
+    const initialized =
+      stored === null
+        ? DeviceState.changeCoordinationWait(input.paths, target, addKeys(current), {
+            initialize: true,
+          }).discard()
+        : Ok(undefined);
+    return initialized
+      .toAsync()
+      .flatMap(() =>
+        fromPromise(
+          () => Bun.sleep(Math.min(coordinationPollMs, deadline - Date.now())),
+          (cause, defect) => defect(cause),
+        ),
+      )
+      .flatMap(() => watchActions(input, target, watch, deadline));
   });
 }
 
@@ -1082,6 +1264,7 @@ function dependencyReports(source: Source, assignment: string) {
             report: report.number,
             conclusion: report.conclusion,
             unresolved: report.unresolved,
+            files: report.files,
             reference: reportReference(source.repository, source.id, report),
           },
         ];
@@ -1089,7 +1272,7 @@ function dependencyReports(source: Source, assignment: string) {
 }
 
 /** A handoff that a reviewer start ended is no longer a fact. */
-function handoffFact(review: InternalReview | undefined) {
+function handoffFact(review: KindHandoff | undefined) {
   if (review === undefined || review.handoffState === "done") return undefined;
   if (review.handoffState === "failed") return "failed";
   return review.handoffRunning ? "running" : "stopped";
@@ -1097,15 +1280,38 @@ function handoffFact(review: InternalReview | undefined) {
 
 function pullRequestFacts(pullRequest: PullRequest | undefined) {
   if (pullRequest === undefined) return {};
-  return {
+  const facts: Pick<
+    Parameters<typeof decideAssignment>[0],
+    "pullRequest" | "relay" | "parked" | "prClosed" | "waking"
+  > = {
     pullRequest: pullRequest.waitStopped ? ("stopped" as const) : pullRequest.waitState,
     relay: pullRequest.relay?.state,
+    parked:
+      pullRequest.parking?.state === "parked" ||
+      (pullRequest.parking !== null &&
+        "origin" in pullRequest.parking &&
+        pullRequest.parking.state === "resuming"),
+    prClosed: pullRequest.parking?.state === "closed",
   };
+  if (pullRequest.parking !== null && pullRequest.parking.events.length > 0)
+    facts.waking = wakingReason(pullRequest.parking.events);
+  return facts;
 }
 
 // An unanswered question, a reply, or a message that needs attention explains an idle worker, so it
 // replaces that attention. A pending message inside its period leaves the idle attention shown.
-const idleReasons = new Set(["worker_idle", "pr_owner_idle"]);
+const idleReasons = new Set(["worker_idle"]);
+
+function wakingReason(events: string[]) {
+  const kinds = new Set(
+    events.map((event) => z.object({ kind: z.string() }).parse(JSON.parse(event)).kind),
+  );
+  return kinds.has("feedback") || kinds.has("merge_eligible")
+    ? ("pr_feedback" as const)
+    : kinds.has("checks_failed")
+      ? ("ci_failed" as const)
+      : ("pr_relay_blocked" as const);
+}
 
 /** The SuperAgent answers an open question. A question that it moved to the person waits on the person. */
 function questionAction(question: Question) {
@@ -1241,7 +1447,9 @@ function decideAssignmentRow(
   const decision = decideAssignment({
     assignment: current,
     dependencies,
-    dispatchable: assignment.kind === null || WorkerKinds.resolve(assignment.kind).dispatchable,
+    dispatchable:
+      WorkerKinds.dispatchable(assignment.kind) ||
+      ("adopt" in assignment && assignment.adopt !== undefined),
     // A start whose dispatching process stopped can be replaced.
     launch: launch?.abandoned === true ? "abandoned" : launch?.state,
     ...pullRequestFacts(pullRequest),
@@ -1252,17 +1460,23 @@ function decideAssignmentRow(
         ? undefined
         : { decision: report.decision, cleanup: report.cleanupState },
     cleanup: cleanupFact(cleanup),
-    handoff: handoffFact(review),
+    handoff: handoffFact(source.handoffs.find((row) => row.assignment === assignment.key)),
     reviewing: review?.state === "reviewing",
     capReached: maxRunning !== undefined && running >= maxRunning,
     resources,
   });
   const cap =
     decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
+  const kind: { kind?: string | null } = { kind: assignment.kind };
   const row = described(
     input,
     source,
-    { assignment: assignment.key, ...decision, ...cap },
+    {
+      assignment: assignment.key,
+      ...kind,
+      ...decision,
+      ...cap,
+    },
     { assignment: assignment.key, launch, pullRequest, report, cleanup, review },
   );
   return retained.length > 0 ? { ...row, retainedResources: retained } : row;
@@ -1292,6 +1506,7 @@ function described<T extends object>(
       base?: Source["stackBases"][number]["data"];
       operation?: Source["stackOperations"][number]["data"];
     };
+    handoff?: object;
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
@@ -1308,6 +1523,17 @@ function described<T extends object>(
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
   if (records.review !== undefined) row.internalReview = reviewSummary(source, records.review);
+  const handoff = source.handoffs.find((entry) => entry.assignment === records.assignment);
+  if (handoff !== undefined)
+    row.handoff = {
+      outgoingLaunchId: handoff.outgoingLaunchId,
+      nextKind: handoff.nextKind,
+      state:
+        handoff.handoffState === "pending" && !handoff.handoffRunning
+          ? "stopped"
+          : handoff.handoffState,
+      detail: handoff.handoffDetail,
+    };
   // Gaps of accepted dependency work stay visible until the dependent itself ends.
   const carried = dependencyReports(source, records.assignment);
   if (carried.length > 0) row.dependencyReports = carried;
@@ -1339,7 +1565,7 @@ function nextActions(
   const decisions = decide(input, source, now, missing);
   // An ended source keeps the cleanup that its completed work still owes.
   const cleanup = decisions.filter(
-    (decision) => decision.action === "retry_cleanup" || decision.action === "person_decision",
+    (decision) => decision.action === "clean_up" || decision.action === "person_decision",
   );
   if (source.state !== "open") {
     const kept = retention(source, now);

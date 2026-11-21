@@ -3,15 +3,26 @@
 ## Test the module through its interface
 
 A test file sits beside the unit it covers and carries its name: `main.server.test.ts` beside `main.server.ts`.
-The test calls the interface object the way a route does, and asserts what the caller observes.
-When a behaviour is hard to reach through the interface, the module has the wrong shape, so fix the interface and not the test.
+The test calls the public constants or functions the way a caller does, including operations on an exported object.
+Assert caller-observed results and effects.
+Tests follow the chosen production architecture rather than imposing a factory or a new public method.
+Change the interface when real callers need a missing use case.
+Otherwise, exercise private logic through that use case or a focused beside-test, without exporting it solely for tests.
 
 A module whose interface is `$functions.ts` is tested through its server functions.
 Its own test uses a `createServerFn` stand-in that runs the validator and then the handler, so the test reaches the server code the RPC would run.
 
-## Fake another module at its entry file
+## Use function-level injection or fake a public collaborator
 
-A test replaces a collaborator module at the same specifier its callers import:
+When an operation accepts a function dependency, pass a fake directly.
+For the `reminderPreview` example in [module-shape.md](module-shape.md):
+
+```ts
+expect(await reminderPreview('absent', '2026-11-21', async () => undefined))
+  .toEqual({status: 'missing'})
+```
+
+For imported collaborators, replace the public entry module at the same specifier production imports:
 
 ```ts
 const cache = {get: mock(), set: mock()}
@@ -23,7 +34,11 @@ await mock.module('@/env.server', () => ({ServerEnv: env}))
 That is Bun's `mock.module`, and Vitest writes the same fake with `vi.mock`.
 The module's own files run real in its tests.
 When one of them wraps an outside dependency, fake that dependency's module, not the file that wraps it.
-A fake at an internal file couples the test to the module's file layout, and the test breaks on a refactor that changes no behaviour.
+Mock no private implementation files.
+Such mocks couple tests to file layout and break on refactors that change no behaviour.
+For `sendReminder`, fake the public `InvoiceStore` and `Mailer` entries, then assert both the returned result and the mail.
+Cover policy refusals too, such as a settled invoice that sends no mail.
+Use the test runner's mock setup and import ordering, and restore fakes or isolate globals so tests cannot leak replacements.
 
 ## Stand in for `$functions` modules in a caller's test
 
@@ -35,7 +50,7 @@ The existing HTTP fakes then keep working.
 Give the stand-in one line per server function.
 A suite that needs more overrides the module for that file.
 The module's own tests, with the `createServerFn` stand-in above, cover what this stand-in leaves out, such as identity headers.
-`anti-slop/no-module-mocking` stays on everywhere else, and is off for module tests and this stand-in only.
+If the host enables `anti-slop/no-module-mocking`, scope its exception to these public-boundary tests and stand-ins.
 
 ## Test a UI member through the real route tree
 
@@ -46,6 +61,6 @@ A full mount is slow, so a route test asserts what only the composition can brea
 ## Drive a server module's routes through the real server
 
 This applies to a server-only app.
-A module test calls the interface object.
+A module test calls the public operation.
 A route test starts the server on a free port, or calls its `fetch` handler with a real `Request`, and asserts the status and the body.
 The route is a caller, so a route test fakes the module at its entry file and never reaches past it.

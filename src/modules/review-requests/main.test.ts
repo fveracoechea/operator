@@ -583,14 +583,16 @@ test("next lists the recorded request rows", async () => {
   });
 });
 
-test("the interface passes post and wait to their workflows", async () => {
+test("the interface passes post and coordination upkeep to their workflows", async () => {
   expect(await ReviewRequests.post({ paths: home.paths, url: "nope" })).toMatchObject({
     tag: "Err",
     error: { reason: "review_url_invalid" },
   });
-  expect(await ReviewRequests.wait({ paths: home.paths, timeoutSeconds: 0 })).toMatchObject({
+  expect(
+    await ReviewRequests.upkeep({ paths: home.paths, scopes: [{ repository: target.repository }] }),
+  ).toMatchObject({
     tag: "Ok",
-    value: { reason: "review_wait_timed_out" },
+    value: { events: [], requests: [] },
   });
 });
 

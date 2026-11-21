@@ -1,5 +1,7 @@
 import { afterAll, afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { migrationsFolder } from "./database.ts";
 // Bun has no temporary-directory, folder, symlink, mode, or recursive removal API.
 import { mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -29,7 +31,12 @@ test("publishes one complete migrated database and never replaces an existing wi
     { repository: "owner/one" },
     { repository: "owner/two" },
   ]);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
+  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+    readMigrationFiles({ migrationsFolder }).map(({ hash, folderMillis }) => ({
+      hash,
+      created_at: folderMillis,
+    })),
+  );
   expect((await stat(paths.stateRoot)).mode.toString(8)).toEndWith("700");
   expect((await stat(paths.database)).mode.toString(8)).toEndWith("600");
   expect(

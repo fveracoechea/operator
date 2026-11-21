@@ -5,40 +5,29 @@ description: Use when a SuperAgent delegates work with an absolute brief referen
 
 # WorkerAgent
 
-When the brief names a kind guide, read it:
+Read the supplied absolute brief, then its kind guide:
 [research](kinds/research.md), [answer](kinds/answer.md), [prototype](kinds/prototype.md),
-[implementation](kinds/implementation.md), [review](kinds/review.md), [PR feedback](kinds/pr-feedback.md).
+[implementation](kinds/implementation.md), [review](kinds/review.md), or [PR feedback](kinds/pr-feedback.md).
+Without a brief, stop.
+Follow each result's `next` within your Task and its grilling authority.
+Ask your SuperAgent when Task and intent disagree, authority is unclear, or human participation is required.
 
-Read the supplied absolute brief before starting work.
-If no absolute brief is supplied, stop and say so in your own pane. Operator dispatch always supplies one.
-Do not infer a brief from a project-local Operator folder.
-The brief supplies the task, required skills, resources, reporting destination, and grilling authority.
-Use the global `operator --help` to confirm available commands.
-Inside Herdr, name your tab for the work when you start it: `herdr tab rename "$HERDR_TAB_ID" <label>`.
-A label names the work in three words when possible, and never more than four, for example `284 review output`.
-Only the agent that owns the pane renames the tab, not a native subagent.
+When a skill says to ask the user, ask your SuperAgent with `operator question ask` and wait.
+Use `operator question ask --key <key> --file <question.md>`, then `operator question wait --key <key>`.
+Keep host timeouts above wait timeouts.
+Only answers labeled person are human answers; keep super-agent decisions distinct.
+Native subagents stay within your assignment and responsibility; request separate scheduling or acceptance through a recorded question.
 
-Report to your supervising SuperAgent, not directly to the person.
-You reach it only through recorded Operator state: reports, PR waits, questions, and steering acknowledgements. Never type into its pane.
-For report work, submit from the pane that Operator dispatched for you:
+Report only through recorded state, never text typed into the supervisor's pane.
+Read steering with `operator message read --key <key>`; acknowledge with `operator message ack --key <key>`.
+Write prose outside the checkout; pass files or quoted-heredoc stdin, never hand-written JSON.
+Submit Markdown with `operator report submit --file <report.md>` using these headings:
+Conclusion, Evidence, Unresolved points, Supporting files, Human answers, SuperAgent decisions.
+Use level-two headings and absolute supporting paths.
+Use bullets except Conclusion; decisions use `<question> Answer: <answer>`.
+Submission awaits acceptance; follow returned instructions or a promotion's new brief.
 
-```sh
-operator report submit --file <report.md> --json
-```
-
-The report uses `## Conclusion`, `## Evidence`, `## Unresolved points`, `## Supporting files`, `## Human answers`, and `## SuperAgent decisions`.
-Write the conclusion as prose and the other sections as `- ` bullets, or `- None.` when empty.
-Decision bullets read `<question> Answer: <answer>`; supporting files use absolute paths.
-Use `--file -` to read stdin, with a quoted heredoc.
-Write the report file and drafts outside the project checkout.
-Label an answer `person` only when the person gave it. Every other answer is a `super-agent` decision.
-Submission records the report, and your SuperAgent's coordination wait returns it, so send no message about it.
-A submitted report requires the SuperAgent's acceptance before it completes report work.
-When the SuperAgent returns follow-up instructions, run `operator report resume --json` in the same pane, read them, and submit a new report.
-When the SuperAgent promotes your report, it names a new brief. Read it: you now own a PR assignment in the same pane and worktree, and your Herdr name changed.
-
-When a line `Operator recorded steering message <key> for you.` arrives, read [steering.md](steering.md).
-Read [responsibility.md](responsibility.md) when asking questions or using native subagents.
-Read [pull-requests.md](pull-requests.md) when your brief has a PR completion type.
 Read [managed-stacks.md](managed-stacks.md) for changed OPEN prerequisites, rewritten parents, or sibling integration.
-Read [internal-review.md](internal-review.md) when your brief makes you the internal reviewer of a draft PR.
+Change project files only in the assigned worktree.
+Preserve unlanded work and existing ownership.
+Operator owns stack mutations and guarded merges; use only `gh stack view --json` for stack inspection.

@@ -16,14 +16,18 @@ test("the migration renames the slack origin to manual", async () => {
   device = await reviewDevice();
   const file = `${device.root}/state/operator/operator.sqlite`;
   await rm(file);
+  const migrations = readMigrationFiles({
+    migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
+  });
+  const expectedHistory = migrations.map(({ hash, folderMillis }) => ({
+    hash,
+    created_at: folderMillis,
+  }));
   {
     using db = new Database(file);
     db.exec(
       "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)",
     );
-    const migrations = readMigrationFiles({
-      migrationsFolder: Bun.fileURLToPath(new URL("../device-state/migrations/", import.meta.url)),
-    });
     const manualReviewIndex = migrations.findIndex(
       (migration) => migration.folderMillis === 1794607188879,
     );
@@ -36,7 +40,9 @@ test("the migration renames the slack origin to manual", async () => {
         migration.folderMillis,
       );
     }
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(21);
+    expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+      expectedHistory.slice(0, manualReviewIndex),
+    );
     db.query("INSERT INTO projects VALUES ('example/one', ?, 'now')").run(device.checkout);
     db.exec(
       "INSERT INTO review_requests (id, repository, number, url, origin, state, requested_at, slack_channel, slack_ts) VALUES ('manual', 'example/one', 7, 'https://github.com/example/one/pull/7', 'slack', 'queued', 'now', 'C0123', '1234.000005'), ('assignment', 'example/one', 8, 'https://github.com/example/one/pull/8', 'assignment', 'queued', 'now', NULL, NULL)",
@@ -48,7 +54,9 @@ test("the migration renames the slack origin to manual", async () => {
   ]);
   {
     using db = new Database(file, { readonly: true });
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(22);
+    expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
+      expectedHistory,
+    );
     expect(
       db
         .query("SELECT name FROM sqlite_master WHERE name IN ('slack_effects', 'slack_watches')")

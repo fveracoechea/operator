@@ -79,7 +79,11 @@ async function git(cwd: string, ...args: string[]) {
 
 type Pull = Record<string, unknown> & { number: number };
 async function github(
-  change: (state: { pulls: Pull[]; branches: Record<string, string> }) => void,
+  change: (state: {
+    pulls: Pull[];
+    branches: Record<string, string>;
+    cleanupHold?: boolean;
+  }) => void,
 ) {
   const file = Bun.file(`${(device as Device).root}/github.json`);
   const state = (await file.exists())
@@ -98,9 +102,15 @@ async function github(
 const resultSchema = z.object({ reason: z.string(), data: z.looseObject({}).optional() });
 
 /** The worker's public commands. The test plays the reviewer and CI on the controlled GitHub. */
-async function workPullRequest(key: string, worktree: string, options: { leaveNotes: boolean }) {
+async function workPullRequest(
+  source: string,
+  key: string,
+  worktree: string,
+  options: { leaveNotes: boolean; pane: string },
+) {
+  let pane = options.pane;
   function run(args: string[]) {
-    return cli(args, { cwd: worktree });
+    return cli(args, { cwd: worktree, pane });
   }
   const number = key === "implement" ? 7 : 8;
   const branch = await git(worktree, "branch", "--show-current");
@@ -123,8 +133,25 @@ async function workPullRequest(key: string, worktree: string, options: { leaveNo
     state.branches[branch] = first;
   });
   expect(await run(["pr", "associate"])).toMatchObject({ code: 0 });
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const state = await shown(source);
+    const latest = state.launches.findLast((launch) => launch.assignment === key);
+    if (
+      latest?.state === "running" &&
+      latest.kind?.name === "pr-feedback" &&
+      latest.paneId !== null
+    ) {
+      expect(latest.worktreePath).toBe(worktree);
+      expect(latest.paneId).not.toBe(pane);
+      pane = latest.paneId;
+      break;
+    }
+    expect(Date.now(), JSON.stringify(state)).toBeLessThan(deadline);
+    await Bun.sleep(50);
+  }
 
-  // The first round brings review feedback. The owner fixes it and pushes to the same PR.
+  // Fresh pr-feedback handles GitHub feedback and pushes fixes to the same PR.
   const feedback = resultSchema.parse((await run(["pr", "wait", "--timeout", "0"])).output);
   expect(feedback).toMatchObject({
     reason: "pr_events_observed",
@@ -151,8 +178,26 @@ async function workPullRequest(key: string, worktree: string, options: { leaveNo
   });
   const eligible = resultSchema.parse((await run(["pr", "wait", "--timeout", "0"])).output);
   expect(eligible.data?.events).toContainEqual(expect.objectContaining({ kind: "merge_eligible" }));
-  if (options.leaveNotes) await Bun.write(`${worktree}/notes.txt`, "unlanded\n");
+  if (options.leaveNotes) {
+    await github((state) => {
+      state.cleanupHold = true;
+    });
+  }
   expect(await run(["pr", "merge"])).toMatchObject({ code: 0, output: { reason: "pr_merged" } });
+  if (options.leaveNotes) {
+    // Write after the clean merge, while cleanup is held before its worktree inspection.
+    const root = device?.root ?? expect.unreachable("The isolated device must exist.");
+    const deadline = Date.now() + 30000;
+    while (!(await Bun.file(`${root}/cleanup-held`).exists())) {
+      expect(Date.now()).toBeLessThan(deadline);
+      await Bun.sleep(20);
+    }
+    await Bun.write(`${worktree}/notes.txt`, "unlanded\n");
+    await github((state) => {
+      state.cleanupHold = false;
+    });
+    await Bun.write(`${root}/cleanup-release`, "");
+  }
 }
 
 const report = {
@@ -200,7 +245,7 @@ async function supervise(
         "ready_assignment",
         "replace_worker",
         "review_report",
-        "retry_cleanup",
+        "clean_up",
       ]);
       const key = row.assignment ?? "";
       if (row.action === "ready_assignment" || row.action === "replace_worker") {
@@ -219,8 +264,9 @@ async function supervise(
           });
           expect(submitted.code, submitted.stderr).toBe(0);
         } else {
-          await workPullRequest(key, worker.worktreePath, {
+          await workPullRequest(source, key, worker.worktreePath, {
             leaveNotes: options.leaveNotes === key,
+            pane: worker.paneId,
           });
           // Git deletes the empty `.git/worktrees` folder when cleanup removes the last worktree,
           // and a worktree start in the same repository at that moment fails. The SuperAgent
@@ -261,7 +307,16 @@ async function shown(source: string) {
       data: z.looseObject({
         state: z.string(),
         assignments: z.array(z.looseObject({ key: z.string(), state: z.string() })),
-        launches: z.array(z.looseObject({ assignment: z.string(), host: z.string() })),
+        launches: z.array(
+          z.looseObject({
+            assignment: z.string(),
+            host: z.string(),
+            state: z.string(),
+            paneId: z.string().nullable(),
+            worktreePath: z.string().nullable(),
+            kind: z.object({ name: z.string() }).nullable(),
+          }),
+        ),
       }),
     })
     .parse(result.output).data;
@@ -291,9 +346,9 @@ for (const { host, profile } of [
     // No SuperAgent or WorkerAgent command needed a person flag or a grant.
     expect(argv).toContainEqual(["pr", "merge"]);
     expect(argv.flat()).not.toContain("--person-instructed");
-    // Each brief gives the worker the same authority for its routine steps.
+    // Authority and procedure belong to the worker guide, not copied protocol in briefs.
     for (const brief of run.briefs)
-      expect(brief).toContain("without asking for approval of each command or step");
+      expect(brief).not.toMatch(/## Grilling authority|## Native subagents|operator pr wait/);
     // Both PR briefs carry the accepted report's unresolved point.
     expect(run.briefs.filter((brief) => brief.includes(report.unresolved[0] ?? ""))).toHaveLength(
       2,

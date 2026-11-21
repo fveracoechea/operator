@@ -8,6 +8,7 @@ import { z } from "zod";
 import { sha256 } from "../../lib/sha256.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { editorSchemaText, settingsSchema } from "./schema.ts";
+import { validateGuides } from "./validation.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -70,12 +71,14 @@ export async function readConfig(paths: OperatorPaths) {
   const exists = info !== null;
   const text = exists ? await Bun.file(paths.config).text() : null;
   const value: unknown = text === null ? {} : JSON.parse(text);
+  const config = storedSettingsSchema.parse(value);
+  await validateGuides(config, paths);
   return {
     path: paths.config,
     exists,
     text,
     identity: sha256(text ?? "absent"),
-    config: storedSettingsSchema.parse(value),
+    config,
   };
 }
 

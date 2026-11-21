@@ -73,6 +73,27 @@ const idleGuards: { applied: number; busy: (client: Database) => boolean; detail
       ),
     detail: "Migration is waiting for a running internal review handoff to finish. No handler ran.",
   },
+  {
+    applied: 23,
+    busy: (client) =>
+      heldBy(client, "SELECT owner_pid, lease_at FROM kind_handoffs WHERE owner_pid IS NOT NULL"),
+    detail: "Migration is waiting for a running kind handoff to finish. No handler ran.",
+  },
+  {
+    applied: 24,
+    busy: (client) =>
+      heldBy(
+        client,
+        "SELECT owner_pid, lease_at FROM stack_operations WHERE owner_pid IS NOT NULL",
+      ),
+    detail: "Migration is waiting for running stack effects to finish. No handler ran.",
+  },
+  {
+    applied: 26,
+    busy: (client) =>
+      heldBy(client, "SELECT owner_pid, lease_at FROM parked_pr_reads WHERE owner_pid IS NOT NULL"),
+    detail: "Migration is waiting for the parked PR batch read to finish. No handler ran.",
+  },
 ];
 
 /** Future workflow owners extend these guards when they add launches, waits, or held records. */
@@ -107,6 +128,12 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
   [1794416062667, []],
   [1794606256754, []],
   [1794607188879, []],
+  [1794881346701, []],
+  [1794952800000, []],
+  [1794956400000, []],
+  [1795042800000, []],
+  [1795125600000, []],
+  [1795177553070, []],
 ]);
 
 /** Each policy names queries that find records the migration must not run past. */

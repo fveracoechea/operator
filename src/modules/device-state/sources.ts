@@ -11,6 +11,7 @@ import {
   coordinationWaits,
   internalReviewRounds,
   internalReviews,
+  kindHandoffs,
   launches,
   obligations,
   projects,
@@ -121,6 +122,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
           internalReviews: (typeof internalReviews.$inferSelect & { handoffRunning: boolean })[];
+          handoffs: (typeof kindHandoffs.$inferSelect & { handoffRunning: boolean })[];
           internalReviewRounds: (typeof internalReviewRounds.$inferSelect)[];
           promotions: (typeof promotions.$inferSelect)[];
           questions: (typeof workerQuestions.$inferSelect)[];
@@ -205,15 +207,32 @@ export function readSources(client: Database, repository: string, sourceId?: str
                 // A cleanup with no owner is gone, so it is not running.
                 running: !ownerGone(cleanup, now),
               })),
-            internalReviews: db
+            handoffs: db
               .select()
+              .from(kindHandoffs)
+              .where(eq(kindHandoffs.sourceId, source.id))
+              .all()
+              .map((handoff) => ({
+                ...handoff,
+                handoffRunning: handoff.handoffState === "pending" && !ownerGone(handoff, now),
+              })),
+            internalReviews: db
+              .select({ review: internalReviews, handoff: kindHandoffs })
               .from(internalReviews)
+              .leftJoin(
+                kindHandoffs,
+                and(
+                  eq(kindHandoffs.sourceId, internalReviews.sourceId),
+                  eq(kindHandoffs.assignment, internalReviews.assignment),
+                ),
+              )
               .where(eq(internalReviews.sourceId, source.id))
               .all()
-              .map((review) => ({
+              .map(({ review, handoff }) => ({
                 ...review,
-                // A handoff with no owner is gone, so it is not running.
-                handoffRunning: review.handoffState === "pending" && !ownerGone(review, now),
+                handoffState: handoff?.handoffState ?? review.handoffState,
+                handoffDetail: handoff?.handoffDetail ?? null,
+                handoffRunning: handoff?.handoffState === "pending" && !ownerGone(handoff, now),
               })),
             internalReviewRounds: db
               .select()
@@ -526,6 +545,7 @@ export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(obligations).where(inArray(obligations.sourceId, ids)).run();
   db.delete(workerMessages).where(inArray(workerMessages.sourceId, ids)).run();
   db.delete(internalReviewRounds).where(inArray(internalReviewRounds.sourceId, ids)).run();
+  db.delete(kindHandoffs).where(inArray(kindHandoffs.sourceId, ids)).run();
   db.delete(internalReviews).where(inArray(internalReviews.sourceId, ids)).run();
   db.delete(workerQuestions).where(inArray(workerQuestions.sourceId, ids)).run();
   db.delete(coordinationWaits).where(inArray(coordinationWaits.scope, ids)).run();

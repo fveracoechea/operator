@@ -3,7 +3,7 @@ import { and, desc, eq, gt, inArray, ne, notExists, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import type { StateFailure } from "./failures.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import {
@@ -13,6 +13,7 @@ import {
   launches,
   pullRequests,
   internalReviews,
+  kindHandoffs,
   internalReviewRounds,
   workerMessages,
 } from "./schema.ts";
@@ -163,25 +164,33 @@ export function readInternalReviewRecovery(
   assignment: string,
 ) {
   return transaction(client, false, () =>
-    checkHistory(client).flatMap((db) => {
-      const row = db
-        .select({ message: workerMessages, repository: sources.repository })
-        .from(workerMessages)
-        .innerJoin(sources, eq(sources.id, workerMessages.sourceId))
-        .where(
-          and(
-            eq(workerMessages.sourceId, sourceId),
-            eq(workerMessages.assignment, assignment),
-            eq(workerMessages.key, recoveryKey),
-            eq(sources.repository, repository),
-          ),
-        )
-        .get();
-      if (row === undefined) return Ok(null);
-      const receipt = receiptFromMessage(row.message, row.repository);
-      return receipt === null ? incompatible() : Ok(receipt);
-    }),
+    checkHistory(client).flatMap((db) => readRecoveryReceipt(db, repository, sourceId, assignment)),
   );
+}
+
+/** The same pinned authorization is read within a continuation's existing transaction. */
+export function readRecoveryReceipt(
+  db: Db,
+  repository: string,
+  sourceId: string,
+  assignment: string,
+) {
+  const row = db
+    .select({ message: workerMessages, repository: sources.repository })
+    .from(workerMessages)
+    .innerJoin(sources, eq(sources.id, workerMessages.sourceId))
+    .where(
+      and(
+        eq(workerMessages.sourceId, sourceId),
+        eq(workerMessages.assignment, assignment),
+        eq(workerMessages.key, recoveryKey),
+        eq(sources.repository, repository),
+      ),
+    )
+    .get();
+  if (row === undefined) return Ok(null);
+  const receipt = receiptFromMessage(row.message, row.repository);
+  return receipt === null ? incompatible() : Ok(receipt);
 }
 
 /** Rechecks the defect and records its authorization under one SQLite writer reservation. */
@@ -367,6 +376,19 @@ export function recoverInternalReview(client: Database, input: RecoveryInput) {
           assignment: input.assignment,
           implementerLaunchId: input.launchId,
           state: "reviewing",
+          handoffState: "done",
+          startedAt: now,
+          updatedAt: now,
+          ownerPid: null,
+          leaseAt: null,
+        })
+        .run();
+      db.insert(kindHandoffs)
+        .values({
+          sourceId: input.sourceId,
+          assignment: input.assignment,
+          outgoingLaunchId: input.launchId,
+          nextKind: "review",
           handoffState: "pending",
           startedAt: now,
           updatedAt: now,

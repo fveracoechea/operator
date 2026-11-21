@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { superAgentMessages } from "../../lib/superagent-messages.ts";
 import { renderBrief } from "./brief.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 
@@ -14,7 +13,7 @@ const input = {
   intent: null,
   workingDirectory: "/worktrees/app-2",
   branch: "task/2",
-  reports: { directory: "/state/reports", files: ["1.md"] },
+  reports: { directory: "/state/reports", files: [] },
   followUps: { directory: "/state/follow-ups", files: [] },
   pullRequest: null,
   dependencyReports: [],
@@ -25,410 +24,393 @@ const input = {
   adoption: null,
 };
 
-test("the brief carries the task, resources, results, and earlier history", () => {
-  const brief = renderBrief(input);
-  for (const text of [
-    "Assignment: `implement`, tracker key `APP-2`",
-    "a merged pull request",
-    "`careful`",
-    "Implement the accepted report.",
-    "`worker-agent`",
-    "worktree `/worktrees/app-2` on branch `task/2`",
-    "`/state/reports/1.md`",
-    "Report to your supervising SuperAgent",
-  ])
-    expect(brief).toContain(text);
-  expect(brief).toContain("## Follow-up instructions\n\n- None.");
-});
-
-test.each(["research", "answer", "prototype", "implementation", "review", "pr-feedback"] as const)(
-  "%s has a shipped guide and its brief links the resolved absolute path",
-  async (name) => {
-    const kind = WorkerKinds.resolve(name);
-    const guide = Bun.fileURLToPath(
-      new URL(`../../../skills/worker-agent/kinds/${name}.md`, import.meta.url),
-    );
-    expect(kind.guide).toBe(`worker-agent/kinds/${name}.md`);
-    expect(await Bun.file(guide).exists()).toBe(true);
-    expect((await Bun.file(guide).text()).trim().length).toBeGreaterThan(30);
-    const brief = renderBrief({ ...input, kind: { ...kind, guide } });
-    expect(brief).toContain(`Worker kind: \`${name}\`. Read \`${guide}\`.`);
-  },
-);
-
-test("kind guides honor pane overrides and require the conflict-resolution skill", async () => {
-  const prototype = await Bun.file(
-    new URL("../../../skills/worker-agent/kinds/prototype.md", import.meta.url),
-  ).text();
-  expect(prototype).toContain("When the brief gives a worktree");
-  expect(prototype).toContain("For pane resources, change no project files.");
-  const feedback = await Bun.file(
-    new URL("../../../skills/worker-agent/kinds/pr-feedback.md", import.meta.url),
-  ).text();
-  expect(feedback).toContain("Load `resolving-merge-conflicts`");
-});
-
-test("an explicit null kind preserves the legacy brief without a guide", () => {
-  expect(renderBrief({ ...input, kind: null })).toBe(renderBrief(input));
-  expect(renderBrief({ ...input, kind: null })).not.toContain("Worker kind:");
-});
-
-test("a skill-path fallback retains the guide's condition and permits an absent optional file", () => {
-  const brief = renderBrief({
+test("branch-only adoption renders its branch without PR handoff facts or an Adopted PR section", () => {
+  const text = renderBrief({
     ...input,
-    kind: {
-      ...WorkerKinds.resolve("answer"),
-      guide: "/owned/worker-agent/kinds/answer.md",
-      skillsToRead: ["/upstream/show-me/SKILL.md"],
-    },
+    branch: "feature/persons-work",
+    head: "local-head",
+    adoption: { number: null, url: null, draft: null, branch: "feature/persons-work", head: null },
   });
-  expect(brief).toContain(
-    "When the guide calls for it and the file exists, read skill by path: `/upstream/show-me/SKILL.md`.",
-  );
-  expect(brief).not.toContain("\nRead skill by path:");
-  const multiple = renderBrief({
-    ...input,
-    kind: {
-      ...WorkerKinds.resolve("answer"),
-      skillsToRead: ["/one/SKILL.md", "/two/SKILL.md"],
-    },
-  });
-  expect(multiple).toContain(
-    "When the guide calls for it and the file exists, read skill by path: `/one/SKILL.md`.\nWhen the guide calls for it and the file exists, read skill by path: `/two/SKILL.md`.",
-  );
-  expect(renderBrief({ ...input, kind: WorkerKinds.resolve("research") })).not.toContain(
-    "read skill by path:",
-  );
+  expect(text).toContain("Branch: `feature/persons-work`");
+  expect(text).not.toContain("## Handoff");
+  expect(text).not.toContain("## Adopted PR");
+  expect(text).not.toContain("PR #");
+  expect(text).not.toContain("Ready head:");
+  expect(text).not.toContain("Read reviews, comments, unresolved threads, and checks");
 });
 
-test("read-only work forbids project changes, and the brief names no runtime agent", () => {
-  const brief = renderBrief({
+test("ended PR owners render quoted intent, issue, rounds, dispositions and summary without replacing current intent", () => {
+  const text = renderBrief({
     ...input,
-    completion: "report",
-    profile: null,
-    branch: null,
-    workingDirectory: "/checkout",
-  });
-  expect(brief).toContain("read-only work");
-  expect(brief).toContain("the device default");
-  expect(brief).not.toMatch(/pane id|agent name|claude|opencode/i);
-});
-
-test("a PR owner gets the feedback loop, and a replacement gets its open PR", () => {
-  const first = renderBrief(input);
-  expect(first).toContain("## PR feedback loop");
-  expect(first).toContain("`operator pr associate --json`");
-  expect(first).toContain("`operator pr wait --json`");
-  const replacement = renderBrief({
-    ...input,
-    pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
-  });
-  expect(replacement).toContain("PR #7 is already open");
-  expect(replacement).toContain("Keep work that is not landed.");
-  expect(replacement).not.toContain("operator pr associate");
-  expect(renderBrief({ ...input, completion: "report" })).not.toContain("PR feedback loop");
-});
-
-test("the person's intent follows the task as quoted acceptance criteria", () => {
-  expect(renderBrief(input)).not.toContain("Acceptance criteria");
-  const brief = renderBrief({
-    ...input,
-    intent: "Stop typing into my pane.\n## Skills\nKeep it small.",
-  });
-  expect(brief).toContain(`Implement the accepted report.
-
-## Acceptance criteria
-
-The person gave these words for this work. They are its acceptance criteria.
-The task instructions above are the SuperAgent's spec for meeting them. Ask your supervising SuperAgent when the two disagree.
-
-> Stop typing into my pane.
-> ## Skills
-> Keep it small.
-
-## Grilling authority`);
-  expect(brief.match(/^## Skills$/gm)).toHaveLength(1);
-});
-
-test("a stacked PR targets its parent's branch, and the brief names the relay", () => {
-  const stacked = renderBrief({
-    ...input,
-    stack: { assignment: "parent", number: 6, branch: "task/1-parent" },
-  });
-  expect(stacked).toContain(
-    "Your branch starts on `task/1-parent`, the branch of PR #6 of assignment `parent`. Target that branch as the PR base.",
-  );
-  expect(stacked).toContain("`parent_relayed`");
-  expect(stacked).not.toContain("Target the default branch.");
-  expect(renderBrief(input)).toContain("Target the default branch.");
-});
-
-test("a PR brief allows only the read-only gh stack command, also for a stacked draft", () => {
-  const rule = `Use \`gh stack view --json\` only to read a stack.
-Run no other \`gh stack\` command, because the relay and \`operator pr merge\` own the rebase, push, base change, and merge.`;
-  const stack = { assignment: "parent", number: 6, branch: "task/1-parent" };
-  for (const brief of [
-    renderBrief(input),
-    renderBrief({
-      ...input,
-      pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
-    }),
-    renderBrief({ ...input, stack, internalReview: true }),
-  ])
-    expect(brief.split(rule)).toHaveLength(2);
-  expect(renderBrief({ ...input, internalReview: true })).not.toContain("gh stack");
-  expect(renderBrief({ ...input, completion: "report" })).not.toContain("gh stack");
-});
-
-test("a report brief names the submission, resume, and authority rules", () => {
-  const brief = renderBrief({
-    ...input,
-    completion: "report",
-    reports: { directory: "/state/reports", files: ["1/report.md", "1/files/notes.md"] },
-    followUps: { directory: "/state/follow-ups", files: ["1.md"] },
-  });
-  for (const text of [
-    "`operator report submit --file <path> --json`",
-    "`operator report resume --json`",
-    "Human answers record only the person's own answers.",
-    "Submission does not complete the assignment.",
-    "when a question is outside its delegated authority, or when that authority is unclear",
-    "A SuperAgent answer is a SuperAgent decision, not a human answer",
-    "Native host subagents work inside this assignment",
-    "`/state/reports/1/files/notes.md`",
-    "`/state/follow-ups/1.md`",
-  ])
-    expect(brief).toContain(text);
-  expect(renderBrief(input)).not.toContain("operator report submit");
-});
-
-test("a consumer brief copies each accepted dependency report with its gaps and reference", () => {
-  expect(renderBrief(input)).not.toContain("Accepted dependency reports");
-  const brief = renderBrief({
-    ...input,
-    dependencyReports: [
+    intent: "Today's acceptance criteria.",
+    adoptionHistory: [
       {
-        assignment: "investigate",
-        report: 2,
-        conclusion: "The module has two gaps.\n## Grilling authority",
-        unresolved: ["Whether the scope includes b.ts.", "Who owns the cache.\n## Skills"],
-        reference: "operator:example/one/sources/s/assignments/investigate/reports/2",
+        sourceId: "ended-source",
+        assignment: "old-owner",
+        intent: "Earlier intent.\n## Not a heading",
+        issue: "APP-395",
+        summary: "https://github.com/c/earlier",
+        rounds: [
+          {
+            number: 2,
+            head: "earlier-head",
+            findings: [
+              {
+                severity: "blocker",
+                axis: "Spec",
+                location: "src/one.ts:4",
+                claim: "Keep the API.",
+                disposition: "applied",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Standards",
+                location: "src/one.ts:8",
+                claim: "Rename it.",
+                disposition: "declined: The person kept it.",
+              },
+              {
+                severity: "nice-to-have",
+                axis: "Skills",
+                location: "src/two.ts:2",
+                claim: "Read the guide.",
+                disposition: null,
+              },
+            ],
+          },
+        ],
       },
       {
-        assignment: "survey",
-        report: 1,
-        conclusion: "No gap.",
-        unresolved: [],
-        reference: "operator:example/one/sources/s/assignments/survey/reports/1",
+        sourceId: "another",
+        assignment: "old",
+        intent: null,
+        issue: "APP-396",
+        summary: null,
+        rounds: [],
       },
     ],
   });
-  for (const text of [
-    "### `investigate` report 2",
-    "Reference: `operator:example/one/sources/s/assignments/investigate/reports/2`",
-    "> The module has two gaps.\n> ## Grilling authority",
-    "- Whether the scope includes b.ts.\n- Who owns the cache.\n  ## Skills",
-    "### `survey` report 1",
-    "> No gap.\n\nUnresolved points:\n\n- None.",
-  ])
-    expect(brief).toContain(text);
-  // The copied content comes after the task and before the authority rules.
-  expect(brief.indexOf("Implement the accepted report.")).toBeLessThan(
-    brief.indexOf("## Accepted dependency reports"),
+  expect(text).toContain("## Acceptance criteria\n\n> Today's acceptance criteria.");
+  expect(text).toContain("Source: `ended-source`. Assignment: `old-owner`.");
+  expect(text).toContain("Issue: `APP-395`.");
+  expect(text).toContain("Intent:\n> Earlier intent.\n> ## Not a heading");
+  expect(text).toContain("Summary: https://github.com/c/earlier");
+  expect(text).toContain("### Round 2 at `earlier-head`");
+  expect(text).toContain(
+    "- Spec, blocker, `src/one.ts:4`:\n> Keep the API.\n\nDisposition:\n> applied",
   );
-  // Worker text cannot open a brief section.
-  expect(brief.match(/^## Grilling authority$/gm)).toHaveLength(1);
-  expect(brief.match(/^## Skills$/gm)).toHaveLength(1);
-  expect(brief.indexOf("## Accepted dependency reports")).toBeLessThan(
-    brief.search(/^## Grilling authority$/m),
-  );
+  expect(text).toContain("> declined: The person kept it.");
+  expect(text).toContain("- Skills, nice-to-have, `src/two.ts:2`:\n> Read the guide.");
+  expect(text).toContain("Source: `another`. Assignment: `old`.\n\nIssue: `APP-396`.");
+  expect(text).not.toContain("Summary: null");
+  expect(text).not.toContain("Disposition:\n> null");
 });
+test.each([null, "historical-ready"])(
+  "briefs retain historical head %s without inventing readiness from the observed head",
+  (head) => {
+    const pullRequest = {
+      number: 7,
+      url: "https://github.com/example/one/pull/7",
+      readiness: { head },
+    };
+    const withoutReview = renderBrief({ ...input, head: "observed", pullRequest });
+    expect(withoutReview).toContain("Head: `observed`.");
+    expect(withoutReview).toContain(
+      head === null ? "Ready head: unknown (release migration)." : `Ready head: \`${head}\`.`,
+    );
+    const reviewed = renderBrief({
+      ...input,
+      head: "observed",
+      pullRequest,
+      review: { state: "ready", readyHead: head, rounds: [] },
+    });
+    expect(reviewed).toContain("Review: `ready`.");
+    expect(reviewed).toContain("Head: `observed`.");
+    if (head === null) expect(reviewed).not.toContain("Ready head:");
+    else expect(reviewed).toContain(`Ready head: \`${head}\`.`);
+    expect(reviewed).not.toContain("Ready head: `observed`");
+  },
+);
 
-const authority = `## Grilling authority
+test("a worktree brief preserves every header fact without empty history or protocol", () => {
+  expect(
+    renderBrief({
+      ...input,
+      kind: {
+        ...WorkerKinds.resolve("implementation"),
+        guide: "/owned/implementation.md",
+        skillsToRead: ["/skills/one.md", "/skills/two.md"],
+      },
+      phase: "build",
+    }),
+  ).toBe(`# Assignment brief
 
-The task instructions state who answers questions and what the SuperAgent may decide.
-Do the work within this task without asking for approval of each command or step. Decide what the instructions and the repository settle, and record those decisions in your report or PR.
-Ask each question of your supervising SuperAgent, not of the person.
-Record it with \`operator question ask\` from this pane, and read the answer with \`operator question wait\`, as the \`worker-agent\` skill describes.
-The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
-A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
-
-## Native subagents
-
-Native host subagents work inside this assignment, and you remain responsible for their work and evidence.
-Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Request it in a recorded question to your supervising SuperAgent.
-
-## Skills
-
-Load the \`worker-agent\` skill.
-Load each other skill that the task instructions name.
-`;
-
-test("a first PR brief is exactly the release template for worktree work", () => {
-  expect(renderBrief({ ...input, reports: { directory: "/state/reports", files: [] } })).toBe(
-    `# Assignment brief
-
-Operator writes this brief at each start of the assignment.
-Read all of it before you start.
+- Source: \`source-1\`, tracker \`APP-1\`.
+- Assignment: \`implement\`, tracker \`APP-2\`.
+- Completion: \`pr\`.
+- Worker kind: \`implementation\`.
+- Guide: \`/owned/implementation.md\`.
+- Skill: \`/skills/one.md\`. Read when the guide calls for it and the file exists.
+- Skill: \`/skills/two.md\`. Read when the guide calls for it and the file exists.
+- Phase: \`build\`.
+- Resources: \`worktree\`, \`/worktrees/app-2\`. Change project files only in this worktree.
+- Base: \`default branch\`.
+- Start profile: \`careful\`.
+- Device files: \`/state/reports\`, \`/state/follow-ups\`.
+- Branch: \`task/2\`.
+- Internal review: \`off\`.
 
 ## Task
 
-- Source: \`source-1\`, tracker key \`APP-1\`.
-- Assignment: \`implement\`, tracker key \`APP-2\`.
-- Completion type: a merged pull request.
-- Start profile: \`careful\`.
-
 Implement the accepted report.
-
-${authority}
-## Resources
-
-- Work in the isolated Herdr worktree \`/worktrees/app-2\` on branch \`task/2\`.
-- Change project files only in this worktree.
-- Operator keeps coordination files in device state, not in the checkout.
-
-## Results and reporting
-
-- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
-- In the PR body, give a short conclusion, evidence references, and unresolved points.
-- Put detailed supporting files in \`/state/reports\`, where your SuperAgent reads them.
-- Herdr activity does not prove that the work is submitted or complete.
-
-## PR feedback loop
-
-Open one PR from your branch with your own tools. Use closing keywords for tracker issues.
-Target the default branch.
-Push with \`git push -u\`, so Git records the remote of your branch.
-Then run \`operator pr associate --json\` in your worktree.
-Run \`operator pr wait --json\` in your worktree, and repeat it after you handle each result.
-Check each claim in feedback, reply, and push fixes to the same PR.
-A \`pr_wait_timed_out\` result is visible to your SuperAgent until you wait again.
-When a stacked PR's parent merges, the wait rebases your branch onto the default branch, pushes it, and changes the PR base.
-It returns \`parent_relayed\`, or a \`relay_*\` blocker that you resolve before you wait again. Keep all work.
-Use \`gh stack view --json\` only to read a stack.
-Run no other \`gh stack\` command, because the relay and \`operator pr merge\` own the rebase, push, base change, and merge.
-After \`merge_eligible\`, run \`operator pr merge --json\`. It checks GitHub again, merges, and then closes this pane.
-PR commands select your assignment only through this worktree.
-
-## Earlier reports
-
-- None.
-
-## Follow-up instructions
-
-- None.
-`,
-  );
+`);
+  expect(renderBrief({ ...input, internalReview: true })).toContain("- Internal review: `on`.");
 });
 
-test("a read-only report brief is exactly the release template for pane work", () => {
+test("a legacy pane brief has no guessed kind, branch, review setting, note, or empty event sections", () => {
   expect(
     renderBrief({
       ...input,
       completion: "report",
-      profile: null,
       branch: null,
+      profile: null,
       workingDirectory: "/checkout",
-      reports: { directory: "/state/reports", files: ["1/report.md", "1/files/notes.md"] },
-      followUps: { directory: "/state/follow-ups", files: ["1.md"] },
+      note: "/state/ignored.md",
+      events: [],
+      questions: [],
     }),
-  ).toBe(
-    `# Assignment brief
+  ).toBe(`# Assignment brief
 
-Operator writes this brief at each start of the assignment.
-Read all of it before you start.
+- Source: \`source-1\`, tracker \`APP-1\`.
+- Assignment: \`implement\`, tracker \`APP-2\`.
+- Completion: \`report\`.
+- Phase: \`unrecorded\`.
+- Resources: \`pane\`, \`/checkout\`. Read-only; change no project files.
+- Base: \`default branch\`.
+- Start profile: \`device default\`.
+- Device files: \`/state/reports\`, \`/state/follow-ups\`.
 
 ## Task
 
-- Source: \`source-1\`, tracker key \`APP-1\`.
-- Assignment: \`implement\`, tracker key \`APP-2\`.
-- Completion type: a report that the SuperAgent accepts.
-- Start profile: the device default.
-
 Implement the accepted report.
-
-${authority}
-## Resources
-
-- Work in a separate pane of the controlling checkout \`/checkout\`.
-- This is read-only work. Do not change project files, branches, or worktrees.
-- Operator keeps coordination files in device state, not in the checkout.
-
-## Results and reporting
-
-- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
-- Write a Markdown report outside the checkout with headings \`## Conclusion\`, \`## Evidence\`, \`## Unresolved points\`, \`## Supporting files\`, \`## Human answers\`, and \`## SuperAgent decisions\`.
-- Write the conclusion as prose. Other sections use \`- \` bullets, or \`- None.\` when empty. Supporting files use absolute paths.
-- Decision bullets read \`<question> Answer: <answer>\`. Human answers record only the person's own answers. SuperAgent decisions stay in their own section.
-- Submit it from this pane with \`operator report submit --file <path> --json\`. Your SuperAgent's coordination wait returns it, so send no message.
-- Operator stores the report and copies of the supporting files in \`/state/reports\`.
-- Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.
-- When you receive follow-up instructions, run \`operator report resume --json\` in this pane before you continue, then submit a new report.
-- Herdr activity does not prove that the work is submitted or complete.
-
-## Earlier reports
-
-- \`/state/reports/1/report.md\`
-- \`/state/reports/1/files/notes.md\`
-
-## Follow-up instructions
-
-- \`/state/follow-ups/1.md\`
-`,
-  );
-});
-
-test("an open PR's loop lists each step, and dependency reports are separate blocks", () => {
+`);
   expect(
     renderBrief({
       ...input,
+      kind: null,
+      note: "/state/ignored.md",
+      promotion: { report: "survey", number: 2 },
+    }),
+  ).not.toContain("## Note");
+});
+
+test.each(WorkerKinds.names())(
+  "%s links its installed guide without copying the guide's procedure",
+  async (name) => {
+    const kind = WorkerKinds.resolve(name);
+    const guide = Bun.fileURLToPath(new URL(`../../../skills/${kind.guide}`, import.meta.url));
+    expect(await Bun.file(guide).exists()).toBe(true);
+    const brief = renderBrief({ ...input, kind: { ...kind, guide } });
+    expect(brief).toContain(`Guide: \`${guide}\``);
+  },
+);
+
+test("each built-in kind's rendered brief holds at most 40 fixed words and 30 per conditional rule", () => {
+  for (const name of WorkerKinds.names()) {
+    const kind = WorkerKinds.resolve(name);
+    const brief = renderBrief({ ...input, kind, completion: kind.completion });
+    expect(brief).not.toMatch(/operator |git push|gh stack/);
+    expect(brief).not.toMatch(
+      /Grilling authority|Native subagents|Human answers|SuperAgent decisions/,
+    );
+    expect(brief.match(/^## .+$/gm)).toEqual(["## Task"]);
+    // Facts and task text are variable content, not template prose. Count all remaining labels too.
+    const fixed = brief.replaceAll(/`[^`]*`/g, "").replace(input.instructions, "");
+    expect(fixed.split(/\s+/).filter((word) => /[a-z]/i.test(word)).length).toBeLessThanOrEqual(40);
+    const conditional = renderBrief({
+      ...input,
+      kind,
+      completion: kind.completion,
+      intent: "PERSON_INTENT",
+      note: "/state/note.md",
+      events: ["WAKE_EVENT"],
       pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
-    }),
-  ).toContain(
-    "## PR feedback loop\n\nPR #7 is already open for this assignment: https://github.com/example/one/pull/7.\nRead its reviews, comments, unresolved threads, and checks before you wait.\nInspect the worktree first. Keep work that is not landed.\nRun `operator pr wait --json`",
-  );
-  const report = { conclusion: "c", unresolved: [], reference: "r" };
-  expect(
-    renderBrief({
-      ...input,
+      review: {
+        state: "skipped",
+        readyHead: "HEAD",
+        comment: "https://github.com/example/one/pull/7#issuecomment-1",
+        rounds: [
+          {
+            number: 1,
+            head: "ROUND_HEAD",
+            findings: [
+              {
+                axis: "Spec",
+                severity: "blocker",
+                location: "a.ts:1",
+                claim: "CLAIM",
+                disposition: "applied",
+              },
+            ],
+          },
+        ],
+      },
       dependencyReports: [
-        { ...report, assignment: "a", report: 1 },
-        { ...report, assignment: "b", report: 2 },
+        {
+          assignment: "survey",
+          report: 2,
+          reference: "ref",
+          conclusion: "CONCLUSION",
+          unresolved: ["UNRESOLVED"],
+          files: [],
+        },
       ],
-    }),
-  ).toContain(
-    "Implement the accepted report.\n\n## Accepted dependency reports\n\nThe SuperAgent accepted these reports of the assignments that this work depends on.\nCheck whether each unresolved point applies to your task. Record a question for your supervising SuperAgent about each point that does.\n\n### `a` report 1\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n### `b` report 2\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n## Grilling authority",
+      promotion: { report: "survey", number: 2 },
+      stack: { assignment: "parent", number: 6, branch: "task/parent" },
+      adoption: {
+        number: 41,
+        url: "https://github.com/example/one/pull/41",
+        branch: "feature/existing",
+        draft: true,
+        head: "adopted-head",
+      },
+      questions: [{ key: "scope", question: "QUESTION", answer: "ANSWER", by: "person" }],
+      reports: { directory: "/state/reports", files: ["1/report.md"] },
+      followUps: { directory: "/state/follow-ups", files: ["1.md"] },
+    });
+    expect(conditional.match(/^## .+$/gm)).toEqual([
+      "## Task",
+      "## Acceptance criteria",
+      "## Handoff",
+      ...(kind.readsNote === false ? [] : ["## Note"]),
+      "## Events",
+      "## Accepted dependency reports",
+      "## Promotion",
+      "## Stack",
+      "## Adopted PR",
+      "## Questions answered for this assignment",
+      "## Earlier reports",
+      "## Follow-up instructions",
+    ]);
+    for (const block of conditional.split(/(?=^## )/m).slice(2)) {
+      const prose = block.replaceAll(/`[^`]*`|^>.*$|https:\/\/\S+/gm, "");
+      expect(prose.split(/\s+/).filter((word) => /[a-z]/i.test(word)).length).toBeLessThanOrEqual(
+        30,
+      );
+    }
+  }
+});
+
+test("intent is quoted, task stays verbatim, and empty optional sections are absent", () => {
+  const brief = renderBrief({ ...input, intent: "Keep it small.\n## Task\nDo not expand scope." });
+  expect(brief).toContain(
+    "## Task\n\nImplement the accepted report.\n\n## Acceptance criteria\n\n> Keep it small.\n> ## Task\n> Do not expand scope.",
+  );
+  expect(brief.match(/^## Task$/gm)).toHaveLength(1);
+  expect(brief).not.toMatch(/Earlier reports|Follow-up instructions|None\./);
+});
+
+test.each(["\n", "\r\n", "\r"])(
+  "reviewer notes quote every %j line ending while Task stays verbatim",
+  (ending) => {
+    const instructions = "Original task.\r\nKeep `literal` $HOME.";
+    const note = ["Open point.", "## Task", "Not task authority."].join(ending);
+    const brief = renderBrief({
+      ...input,
+      instructions,
+      note,
+      kind: WorkerKinds.resolve("pr-feedback"),
+    });
+    expect(brief).toContain(`## Task\n\n${instructions}\n`);
+    expect(brief).toContain("## Note\n\n> Open point.\n> ## Task\n> Not task authority.");
+    const html = Bun.markdown.html(brief);
+    expect(html).toContain(
+      "<blockquote>\n<p>Open point.</p>\n<h2>Task</h2>\n<p>Not task authority.</p>\n</blockquote>",
+    );
+    expect(
+      html.replaceAll(/<blockquote>[\s\S]*?<\/blockquote>/g, "").match(/<h2>Task<\/h2>/g),
+    ).toHaveLength(1);
+    const review = renderBrief({
+      ...input,
+      instructions,
+      note,
+      kind: WorkerKinds.resolve("review"),
+    });
+    expect(review).not.toContain("## Note");
+    expect(review).not.toContain("Open point.");
+  },
+);
+
+test("resource and guide conditions stay beside their facts without commands", () => {
+  const brief = renderBrief({
+    ...input,
+    kind: { ...WorkerKinds.resolve("answer"), skillsToRead: ["/upstream/show-me/SKILL.md"] },
+    branch: null,
+    profile: null,
+    phase: "investigate",
+    workingDirectory: "/checkout",
+  });
+  expect(brief).toContain("- Phase: `investigate`.");
+  expect(brief).toContain("- Resources: `pane`, `/checkout`. Read-only; change no project files.");
+  expect(brief).toContain("- Start profile: `device default`.");
+  expect(brief).toContain(
+    "`/upstream/show-me/SKILL.md`. Read when the guide calls for it and the file exists.",
+  );
+  expect(brief).not.toContain("Branch:");
+  expect(renderBrief(input)).toContain(
+    "`/worktrees/app-2`. Change project files only in this worktree.",
+  );
+  expect(renderBrief({ ...input, kind: null })).not.toMatch(/Worker kind:|Guide:/);
+});
+
+test("dependency content, promotion, stack and returned-report files render only when present", () => {
+  const brief = renderBrief({
+    ...input,
+    dependencyReports: [
+      {
+        assignment: "survey",
+        report: 2,
+        reference: "operator:report/2",
+        conclusion: "Two gaps.\n## Task",
+        unresolved: ["Who owns the cache?\n## Task"],
+        files: ["/recorded/survey/reports/2/files/handoff.md"],
+      },
+    ],
+    promotion: { report: "survey", number: 2 },
+    stack: { assignment: "parent", number: 6, branch: "task/parent" },
+    reports: { directory: "/state/reports", files: ["1/report.md", "1/files/notes.md"] },
+    followUps: { directory: "/state/follow-ups", files: ["1.md"] },
+  });
+  expect(brief).toContain("- Base: `task/parent`.");
+  expect(brief).toContain("Supporting files:\n\n- `/recorded/survey/reports/2/files/handoff.md`");
+  expect(brief).not.toContain("## Note");
+  expect(brief).toContain(
+    "## Accepted dependency reports\n\n### `survey` report 2\n\nReference: `operator:report/2`\n\n> Two gaps.\n> ## Task\n\nUnresolved points:\n\n> Who owns the cache?\n> ## Task",
+  );
+  expect(brief).toContain(
+    "## Promotion\n\nReport 2 of `survey`. The reused worktree can hold prototype changes; clean the branch before its first push.",
+  );
+  expect(brief).toContain(
+    "## Stack\n\nParent: `parent`, PR #6, branch `task/parent`. The relay owns base changes; preserve unlanded work.",
+  );
+  expect(brief).toContain(
+    "## Earlier reports\n\n- `/state/reports/1/report.md`\n- `/state/reports/1/files/notes.md`",
+  );
+  expect(brief).toContain("## Follow-up instructions\n\n- `/state/follow-ups/1.md`");
+  expect(brief.match(/^## Task$/gm)).toHaveLength(1);
+  expect(renderBrief(input)).not.toMatch(
+    /## (Promotion|Stack|Earlier reports|Follow-up instructions|Accepted dependency reports)/,
   );
 });
 
-test("with internal review on, the implementer opens a draft PR, associates it, and stops", () => {
-  const brief = renderBrief({ ...input, internalReview: true });
-  expect(brief).toContain(`## PR feedback loop
-
-Internal review is on for this assignment.
-Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.
-Target the default branch.
-Commit all work and push with \`git push -u\`, so Git records the remote of your branch.
-Then run \`operator pr associate --json\` in your worktree.
-It refuses a PR that is not a draft, and a worktree with uncommitted, untracked, or unpushed work. Fix the cause and run it again.
-Do not mark the PR ready for review.
-After the association, Operator ends this session and starts a fresh reviewer in this worktree. The reviewer owns the PR until its merge.
-Stop once the association succeeds. Your SuperAgent sees the handoff in \`operator next\`, so send it no message.
-
-## Earlier reports`);
-  expect(brief).not.toContain("Tell your supervising SuperAgent that the draft PR");
-  expect(brief).not.toContain("operator pr wait");
-  expect(brief).not.toContain("operator pr merge");
-});
-
-test("the launch after a recorded handoff is the internal reviewer, with the recorded rounds", () => {
-  const pullRequest = { number: 7, url: "https://github.com/example/one/pull/7" };
+test("handoff and adoption render recorded review facts, not worker procedure", () => {
   const brief = renderBrief({
     ...input,
     internalReview: true,
-    pullRequest,
+    pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
     review: {
-      state: "reviewing",
+      state: "ready",
+      readyHead: "h3",
       rounds: [
         {
           number: 1,
@@ -438,154 +420,195 @@ test("the launch after a recorded handoff is the internal reviewer, with the rec
               axis: "Spec",
               severity: "blocker",
               location: "a.ts:1",
-              claim: "The guard\nis missing.",
+              claim: "Missing guard.\n## Task",
             },
           ],
         },
         { number: 2, head: "h2", findings: [] },
       ],
-      readyHead: null,
     },
   });
-  expect(brief).toContain(`## PR feedback loop
-
-PR #7 is already open for this assignment: https://github.com/example/one/pull/7.
-You are the internal reviewer of PR #7. Operator ended the implementer's session and started you in its worktree.
-Read the \`internal-review.md\` topic of the \`worker-agent\` skill before you start.
-Do not use the PR body, the commit messages, or earlier owner messages as evidence.
-Record each round's markdown findings with \`operator pr round --file <findings.md> --json\` before you change code.
-Recorded rounds:
-- Round 1 at \`h1\`:
-  - Spec, blocker, \`a.ts:1\`: The guard is missing.
-- Round 2 at \`h2\`: no findings.
-End the review with \`operator pr ready --file <summary.md> --json\`. It posts the summary comment and marks the PR ready. Do not mark the PR ready yourself.
-Then you own the PR feedback loop below.
-Read its reviews, comments, unresolved threads, and checks before you wait.
-Inspect the worktree first. Keep work that is not landed.
-Run \`operator pr wait --json\` in your worktree`);
-  expect(
-    renderBrief({
-      ...input,
-      internalReview: true,
-      pullRequest,
-      review: { state: "reviewing", rounds: [], readyHead: null },
-    }),
-  ).toContain("No round is recorded yet.");
-  // The role comes from the recorded review, never from a draft state that the brief cannot see.
-  for (const review of [
-    null,
-    { state: "ready" as const, rounds: [], readyHead: "h3" },
-    { state: "skipped" as const, rounds: [], readyHead: "h3" },
-  ]) {
-    const owner = renderBrief({ ...input, internalReview: true, pullRequest, review });
-    expect(owner).not.toMatch(/internal reviewer|draft|operator pr round|operator pr ready/);
-    expect(owner).toContain("After `merge_eligible`, run `operator pr merge --json`.");
-  }
-});
-
-test("a launch after the internal review ended is the PR owner, and its brief says how it ended", () => {
-  const pullRequest = { number: 7, url: "https://github.com/example/one/pull/7" };
-  const rounds = [{ number: 1, head: "h1", findings: [] }];
-  expect(
-    renderBrief({
-      ...input,
-      internalReview: true,
-      pullRequest,
-      review: { state: "ready", rounds, readyHead: "h3" },
-    }),
-  ).toContain(`PR #7 is already open for this assignment: https://github.com/example/one/pull/7.
-The internal review of PR #7 ended ready at \`h3\`.
-You own the PR. Record no more review rounds.
-Read its reviews, comments, unresolved threads, and checks before you wait.`);
-  expect(
-    renderBrief({
-      ...input,
-      internalReview: true,
-      pullRequest,
-      review: { state: "skipped", rounds: [], readyHead: "h3" },
-    }),
-  ).toContain(`The internal review of PR #7 was skipped on the person's instruction at \`h3\`.
-You own the PR. Record no more review rounds.`);
-});
-
-test("with internal review off, the brief names no draft and no internal reviewer", () => {
-  for (const pullRequest of [null, { number: 7, url: "https://github.com/example/one/pull/7" }]) {
-    const brief = renderBrief({ ...input, pullRequest });
-    expect(brief).not.toMatch(/draft|internal review/i);
-  }
-});
-
-test("a report brief ignores internal review", () => {
-  expect(renderBrief({ ...input, completion: "report", internalReview: true })).not.toMatch(
-    /draft|internal review/i,
+  expect(brief).toContain("## Handoff\n\nPR #7: https://github.com/example/one/pull/7");
+  expect(brief).toContain("Review: `ready`.\nReady head: `h3`.");
+  expect(brief).toContain(
+    "### Round 1 at `h1`\n\n- Spec, blocker, `a.ts:1`:\n> Missing guard.\n> ## Task",
+  );
+  expect(brief).toContain("### Round 2 at `h2`");
+  expect(brief).not.toMatch(/operator |## PR feedback loop|internal reviewer/);
+  const skipped = renderBrief({
+    ...input,
+    review: { state: "skipped", readyHead: "h4", rounds: [] },
+  });
+  expect(skipped).toContain("Internal review was skipped on the person's instruction.");
+  const adopted = renderBrief({
+    ...input,
+    adoption: {
+      number: 41,
+      url: "https://github.com/example/one/pull/41",
+      draft: false,
+      head: "adopted-head",
+      branch: "feature/existing",
+    },
+  });
+  expect(adopted).toContain("## Handoff\n\nPR #41: https://github.com/example/one/pull/41");
+  expect(adopted).toContain(
+    "## Adopted PR\n\nPR #41: https://github.com/example/one/pull/41\nBranch: `feature/existing`. State: `ready`.",
+  );
+  expect(adopted).toContain(
+    "Read reviews, comments, unresolved threads, and checks before changing code or waiting. Keep existing commits; open no second PR.",
   );
 });
 
-test("no brief tells the worker to message its SuperAgent, which it reaches only through records", () => {
-  const dependency = {
-    assignment: "a",
-    report: 1,
-    reference: "r",
-    conclusion: "c",
-    unresolved: ["u"],
+test("kind data controls note access, while events and answered questions carry record prose", () => {
+  const facts = {
+    ...input,
+    note: "/state/handoff.md",
+    events: ["feedback: Please fix the guard.\n## Task"],
+    questions: [
+      {
+        key: "scope",
+        question: "Include b.ts?\n## Task",
+        answer: "Yes.\n## Task",
+        by: "super-agent" as const,
+      },
+    ],
   };
-  for (const brief of [
-    input,
-    { ...input, internalReview: true },
-    { ...input, pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" } },
-    {
-      ...input,
-      pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
-      review: { state: "reviewing" as const, rounds: [], readyHead: null },
-    },
-    {
-      ...input,
-      pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
-      review: { state: "skipped" as const, rounds: [], readyHead: "h" },
-    },
-    { ...input, stack: { assignment: "parent", number: 6, branch: "task/1" } },
-    { ...input, promotion: { report: "survey", number: 2 } },
-    { ...input, completion: "report" as const, branch: null, dependencyReports: [dependency] },
-  ])
-    expect(superAgentMessages(renderBrief(brief))).toEqual([]);
+  const feedback = renderBrief({ ...facts, kind: WorkerKinds.resolve("pr-feedback") });
+  expect(feedback).toContain("## Note\n\n> /state/handoff.md");
+  expect(feedback).toContain("## Events\n\n> feedback: Please fix the guard.\n> ## Task");
+  expect(feedback).toContain(
+    "## Questions answered for this assignment\n\n### `scope`\n\nBy: `super-agent`\n\n> Include b.ts?\n> ## Task\n\nAnswer:\n\n> Yes.\n> ## Task",
+  );
+  expect(feedback.match(/^## Task$/gm)).toHaveLength(1);
+  expect(renderBrief({ ...facts, kind: WorkerKinds.resolve("review") })).not.toContain("## Note");
+  const promoted = { ...facts, kind: WorkerKinds.resolve("implementation") };
+  expect(renderBrief(promoted)).not.toContain("## Note");
+  expect(renderBrief({ ...promoted, promotion: { report: "survey", number: 2 } })).toContain(
+    "## Note",
+  );
+  expect(
+    renderBrief({ ...facts, kind: { ...WorkerKinds.resolve("research"), readsNote: true } }),
+  ).toContain("## Note");
+  expect(renderBrief(input)).not.toMatch(/## (Note|Events|Questions answered)/);
 });
 
-test("a promoted PR brief names the report and asks to clean the branch before its first push", () => {
-  const brief = renderBrief({ ...input, promotion: { report: "survey", number: 2 } });
-  expect(brief).toContain(`Implement the accepted report.
-
-## Promotion
-
-The SuperAgent promoted report 2 of \`survey\` into this PR assignment.
-You work in that report's worktree, and its accepted report is listed above.
-The worktree can hold prototype changes that the PR must not keep. Clean the branch before your first push.
-
-## Grilling authority`);
-  expect(renderBrief(input)).not.toContain("## Promotion");
+test("each supplied disposition renders under its finding and quotes multiline declined reasons", () => {
+  const brief = renderBrief({
+    ...input,
+    review: {
+      state: "ready",
+      readyHead: "h3",
+      rounds: [
+        {
+          number: 1,
+          head: "h1",
+          findings: [
+            {
+              axis: "Spec",
+              severity: "blocker",
+              location: "a.ts:1",
+              claim: "Missing guard.",
+              disposition: "applied",
+            },
+            {
+              axis: "Standards",
+              severity: "nice-to-have",
+              location: "b.ts:2",
+              claim: "Rename this.",
+              disposition: "declined: Existing public name.\n## Task\nKeep compatibility.",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(brief).toContain("- Spec, blocker, `a.ts:1`:\n> Missing guard.\nDisposition:\n> applied");
+  expect(brief).toContain(
+    "- Standards, nice-to-have, `b.ts:2`:\n> Rename this.\nDisposition:\n> declined: Existing public name.\n> ## Task\n> Keep compatibility.",
+  );
+  expect(brief.match(/^## Task$/gm)).toHaveLength(1);
 });
 
-test("an adopted PR's brief follows its draft state and names the base", () => {
+test("handoff facts include only observed head, ready head, summary, and skipped-review facts", () => {
+  const pullRequest = { number: 7, url: "https://github.com/example/one/pull/7" };
+  const reviewing = renderBrief({
+    ...input,
+    pullRequest,
+    head: null,
+    review: { state: "reviewing", readyHead: null, comment: null, rounds: [] },
+  });
+  expect(reviewing).toEndWith(
+    "## Handoff\n\nPR #7: https://github.com/example/one/pull/7\nReview: `reviewing`.\n",
+  );
+  expect(reviewing).not.toMatch(/Head:|Ready head:|Summary:|skipped on the person's instruction/);
+  const ready = renderBrief({
+    ...input,
+    pullRequest,
+    head: "HEAD",
+    review: {
+      state: "ready",
+      readyHead: "READY",
+      comment: "https://github.com/c/summary-1",
+      rounds: [],
+    },
+  });
+  expect(ready).toEndWith(
+    "## Handoff\n\nPR #7: https://github.com/example/one/pull/7\nHead: `HEAD`.\nReview: `ready`.\nReady head: `READY`.\nSummary: https://github.com/c/summary-1\n",
+  );
+  expect(ready).not.toContain("skipped on the person's instruction");
   const adoption = {
     number: 41,
     url: "https://github.com/example/one/pull/41",
-    draft: false,
+    draft: true,
+    head: "adopted-head",
     branch: "feature/existing",
   };
-  const ready = renderBrief({ ...input, adoption });
-  expect(ready).toContain(`## PR feedback loop
-
-You adopt PR #41, which Operator did not open: https://github.com/example/one/pull/41.
-Your worktree is on its branch. Do not open another PR, and do not rewrite commits that the PR already has.
-Read the PR, its reviews, comments, unresolved review threads, and checks before you change code or wait.
-The PR is ready for review, so it gets no internal review.
-Target the default branch.
-Push your fixes with \`git push -u\`, so Git records the remote of your branch.
-Run \`operator pr associate --json\` in your worktree before your first wait.`);
-  const draft = renderBrief({ ...input, adoption: { ...adoption, draft: true } });
-  expect(draft).toContain("You adopt draft PR #41");
-  expect(draft).toContain(
-    "Internal review is off for this assignment.\nMark the draft ready for review with `gh pr ready` before your first wait, because the merge needs a ready PR.\nTarget the default branch.",
+  expect(renderBrief({ ...input, adoption })).toContain(
+    "Branch: `feature/existing`. State: `draft`.",
   );
-  expect(draft).not.toContain("The PR is ready for review");
-  for (const brief of [ready, draft]) expect(superAgentMessages(brief)).toEqual([]);
+});
+
+test("several dependency reports, answers, events and follow-ups remain distinct quoted records", () => {
+  const brief = renderBrief({
+    ...input,
+    dependencyReports: [
+      {
+        assignment: "survey",
+        report: 1,
+        reference: "ref-1",
+        conclusion: "Clear.",
+        unresolved: [],
+        files: [],
+      },
+      {
+        assignment: "inspect",
+        report: 2,
+        reference: "ref-2",
+        conclusion: "Two questions.",
+        unresolved: ["Scope?", "Owner?"],
+        files: [],
+      },
+    ],
+    questions: [
+      { key: "scope", question: "Include b.ts?", answer: "No.", by: "person" },
+      {
+        key: "owner",
+        question: "Who decides?",
+        answer: "The supervising SuperAgent.",
+        by: "super-agent",
+      },
+    ],
+    events: ["Feedback arrived.", "A parent merged."],
+    followUps: { directory: "/state/follow-ups", files: ["1.md", "2.md"] },
+  });
+  expect(brief).toContain("## Events\n\n> Feedback arrived.\n\n> A parent merged.");
+  expect(brief).toContain(
+    "### `survey` report 1\n\nReference: `ref-1`\n\n> Clear.\n\n### `inspect` report 2\n\nReference: `ref-2`\n\n> Two questions.\n\nUnresolved points:\n\n> Scope?\n\n> Owner?",
+  );
+  expect(brief).toContain(
+    "### `scope`\n\nBy: `person`\n\n> Include b.ts?\n\nAnswer:\n\n> No.\n\n### `owner`\n\nBy: `super-agent`\n\n> Who decides?\n\nAnswer:\n\n> The supervising SuperAgent.",
+  );
+  expect(brief).toContain(
+    "## Follow-up instructions\n\n- `/state/follow-ups/1.md`\n- `/state/follow-ups/2.md`",
+  );
 });

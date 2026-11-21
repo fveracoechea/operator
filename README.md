@@ -4,7 +4,6 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 
 <img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
 
-
 > Inspired by Matrix: an Operator loads programs, guides missions, and keeps the crew in the field connected.
 
 Operator is based on [Matt Pocock's agent skills and workflow](https://github.com/mattpocock/skills).
@@ -83,7 +82,7 @@ stateDiagram-v2
         [*] --> pending
         pending --> done: reviewer launch reserved
         pending --> failed: handoff step fails
-        failed --> pending: handoff
+        failed --> pending: dispatch
         failed --> done: dispatch of the reviewer
         done --> done: pr round, at most two
     }
@@ -94,9 +93,9 @@ stateDiagram-v2
 ```
 
 - `pending`: the CLI closes the implementer's pane and starts a fresh WorkerAgent in the same worktree.
-  `next` shows a running handoff as a wait, and a handoff whose process stopped as `retry_handoff`.
-- `failed`: `next` shows `retry_handoff`.
-  The SuperAgent runs `operator handoff` from the controlling checkout.
+  `next` shows a running handoff as `wait` with `kind_handoff`.
+- `failed` or stopped: `next` shows `replace_worker` with `handoff_failed`.
+  The SuperAgent dispatches the assignment from the controlling checkout to resume the recorded next kind.
 - `done`: the reviewer checks the draft against the issue, the standards, and the skills that the brief names.
   Each `pr round` records the findings at the worktree head, and leaves the handoff state `done`.
   A second round needs a newer head, and there is no third round.
@@ -106,6 +105,17 @@ stateDiagram-v2
 - `skipped`: on your instruction, the SuperAgent ends a running review with `internal-review skip`, which marks the PR ready with no comment.
 
 The implementer runs no PR command after the handoff.
+
+The detached continuation keeps the outgoing caller's identity. It does not become the source's supervisor.
+The CLI checks its exact pending handoff, PID, fresh lease, outgoing launch, pane, and socket before continuing.
+It checks the same identity again at claim, lease renewal, pane closure, and launch reservation.
+Reservation consumes the handoff with the new launch and makes no supervisor write.
+
+PID publication has a one-second, read-only wait. If publication does not arrive, the continuation refuses without claiming another process's hold.
+This bound does not guarantee scheduler progress; the supervisor recovers a stopped handoff with ordinary dispatch.
+An internal flag alone grants no dispatch authority or fallback, even to a supervisor's internal-continuation request.
+The existing trusted-device PID, lease, and pane records do not authenticate process incarnation or the exact worker session.
+Strict pane matching can refuse safely on a stale-pane host topology. External pane closure is not atomic with SQLite, and lease renewal is not fencing against arbitrary process suspension.
 `pr merge` refuses until the internal review is `ready` or `skipped`.
 
 ## Install
@@ -305,10 +315,11 @@ A linked plugin file or folder, or a file there that Operator did not write, sta
 operator source register --file /absolute/path/assignments.json --json
 operator source show --source <source-id> --json
 operator next --json
-operator next --wait --timeout 300 --json
+operator next --wait --timeout 540 --json
 operator herdr install --json
 operator dispatch --source <source-id> --assignment <key> --json
-operator ask --question "<question>" [--profile <name>] --json
+operator dispatch --kind research --brief /absolute/path/task.md [--intent-file /absolute/path/intent.txt] [--profile <name>] [--tracker-key <key>] --json
+operator ask --file /absolute/path/question.txt [--profile <name>] --json
 operator source take-over --source <source-id> --person-instructed --json
 operator source reset --source <source-id> --person-instructed --json
 operator source prune --json
@@ -320,7 +331,29 @@ The SuperAgent reads the tracker and gives the CLI a JSON plan.
 The SuperAgent runs it in the background, so worker events reach it without text typed into its pane.
 `herdr install` links the Herdr plugin that prepares each worktree and records worker activity.
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
-`ask` registers one research question as its own source with a read-only report assignment, and dispatches its worker in the same command.
+`dispatch --kind --brief` creates a one-off source with one planned assignment and starts its worker.
+Use `--brief -` to read the task from stdin.
+Optional `--intent-file <path|->` reads the person's words as plain text.
+The task and intent cannot both select stdin. Supply a file for at least one field.
+The kind fixes completion and supplies resources and a default profile.
+Without `--tracker-key`, the source gets `<kind>:<8 hex digits>`.
+One-off sources use the same next actions, report promotion, reset, and prune as registered plans.
+They never gain another planned assignment.
+Use `--adopt <pr-number|pr-url|branch>` to continue the person's own open PR or pushed branch (ADR-0024).
+An adopted branch without a PR enters `implementation`.
+A draft PR enters `implementation` or `review`; a ready PR enters `implementation` or `pr-feedback`, without internal review.
+Plans keep numeric `adopt` fields and the PR's head branch.
+Adoption refuses another author's PR, another repository, report kinds, and existing assignment or review ownership.
+Local-only commits and checked-out worktrees remain under the person's control and block adoption.
+`ask` is the `answer` preset, with pane resources and a CLI-written question brief.
+Use `ask --file -` with a quoted heredoc to preserve literal prose (ADR-0032):
+
+```sh
+operator ask --file - --json <<'QUESTION'
+Why does `next --wait` return this row? Keep $HOME literal.
+QUESTION
+```
+
 The agent session that dispatches a source's work or waits for that source supervises it, together with its Herdr pane. Operator reads the session from `OPENCODE_SESSION_ID` or `CLAUDE_CODE_SESSION_ID`.
 A coordination command for that source from another session refuses with `source_supervised_elsewhere` and names the supervising session and pane. `source take-over` moves supervision to the calling session on the person's instruction.
 OpenCode WorkerAgents use the full TUI, with the `worker` agent and selected model and effort set before attachment.
@@ -351,7 +384,7 @@ Use a quoted heredoc with stdin to preserve shell punctuation, as ADR-0032 requi
 
 ```sh
 operator question ask --key <key> --file <question.md> --json
-operator question wait --key <key> --timeout 300 --json
+operator question wait --key <key> --timeout 540 --json
 operator question withdraw --key <key> --json
 operator question escalate --source <source-id> --assignment <key> --key <question> --json
 operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json
@@ -408,10 +441,10 @@ Bracket-prefixed prose such as `[Hold] Wait for approval.` remains plain text.
 ```sh
 operator pr associate --json
 operator pr round --file <findings.md> --json
-operator pr wait --timeout 300 --json
-operator pr ready --file <summary.md> --json
+operator pr wait --timeout 540 --json
+operator pr ready --file <summary.md> --note <reviewer-note.md> --json
 operator pr merge --json
-operator handoff --source <source-id> --assignment <key> --json
+operator pr merge --source <source-id> --assignment <key> --json
 operator internal-review skip --source <source-id> --assignment <key> --person-instructed --json
 operator cleanup --source <source-id> --assignment <key> --json
 ```
@@ -443,11 +476,18 @@ Refresh makes the PR a draft, archives earlier review records, and clears stale 
 `stack review` starts the ordinary fresh-reader handoff after completion.
 Multiple-parent relay waits for every prerequisite to merge, preserves only the child's recorded delta, and requires fresh review again.
 
-The WorkerAgent runs the `pr` commands in its worktree.
+The WorkerAgent runs unscoped `pr` commands in its worktree.
+On the person's instruction, the recorded supervisor can select a parked assignment with `pr merge --source --assignment` from its registered checkout.
+The selector refuses a live worker's assignment and does not transfer supervision.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
 `pr merge` merges only a ready PR whose base is the default branch.
-It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and an internal review that ended ready or skipped.
+It also needs an approving review, passing checks, no unresolved thread, a finished parent relay, the worktree at the PR head, and recorded `pr_ready`.
 It asks GitHub for the merge in the background, then records it only after GitHub shows the PR merged.
+For a merge-queue base, the same passed gate enqueues the exact guarded head instead of requesting a direct merge.
+`pr_enqueued` keeps the assignment PR-open and parked, with its worktree retained. Its `next` names the coordination wait.
+Retries observe queue membership before enqueueing again, also after a lost response.
+Only a parked batch read that verifies the merge completes the queued assignment and starts cleanup.
+Before that batch, a merge retry that sees GitHub merged returns `pr_merge_awaiting_batch` and keeps the worktree.
 `pr round` records the findings of one internal review round at the worktree head, and refuses a third round or a second round at the first round's head.
 Both review commands read markdown from a file or stdin and refuse JSON.
 A round with no findings uses the heading without bullets:
@@ -475,8 +515,17 @@ EOF
 Disposition bullets read `- 1.1 applied` or `- 1.1 declined: <reason>`.
 The first number selects the round; the second selects its finding, starting at 1.
 Malformed bullets report their line number and the next command. A refusal changes nothing.
+`pr ready` ends the review launch and starts fresh `pr-feedback` in the same worktree.
+Ready-PR association with internal review off does the same.
+Both transitions require a clean worktree at the pushed PR head.
+The first feedback brief and replacements include recorded rounds, dispositions, decline reasons, the ready head, and the summary link.
+Optional `--note <file|->` copies up to 60 lines into assignment device files and quotes them in feedback briefs.
+Review briefs receive no note.
+Only one of `--file` and `--note` can select stdin.
+`internal-review skip --person-instructed` records permission only.
+The live reviewer then runs `operator pr ready --json` without rounds or a summary comment.
 
-The SuperAgent runs `handoff` from the controlling checkout when `next` shows `retry_handoff`.
+The SuperAgent runs `dispatch` from the controlling checkout when `next` shows a failed kind handoff.
 Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.
 A plan's `internalReview` field sets it for all its assignments, and a PR assignment's `internalReview` field sets it for that assignment.
 The most specific value wins.
@@ -514,7 +563,7 @@ Changed provenance, ended sources or reviews, incompatible owners, existing unre
 Launch snapshots and existing review requests remain unchanged.
 No review rounds, approval, or ready metadata are fabricated.
 The ordinary fresh-reviewer handoff and genuine GitHub approval remain required.
-If the handoff stops, use `operator handoff --source <source-id> --assignment <key> --json` after inspecting its recorded failure.
+If the handoff stops, use `operator dispatch --source <source-id> --assignment <key> --json` after inspecting its recorded failure.
 Recovered handoffs recheck the authorization, active review, draft, branch, clean worktree, and exact pushed head before closing the implementer.
 
 ### Reviews
@@ -522,7 +571,7 @@ Recovered handoffs recheck the authorization, active review, draft, branch, clea
 ```sh
 operator review add <pr-url> --json
 operator review start <pr-url> --json
-operator review wait --json
+operator next --wait --json
 operator review next --json
 operator review post <pr-url> --json
 operator review skip <pr-url> --json
@@ -538,3 +587,5 @@ On request, the SuperAgent searches GitHub for requested reviews or reads Slack 
 An optional `--slack-thread <permalink>` on `review add` keeps the thread link on each review row.
 After a post, the SuperAgent replies once in that thread with one short status line and the review link, with no draft.
 Operator schedules no Slack reads and records no reply acknowledgement or retry.
+The coordination wait runs review upkeep and returns new review events and actions.
+All three waits default to 540 seconds and accept longer `--timeout` values.

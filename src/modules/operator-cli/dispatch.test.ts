@@ -2,11 +2,12 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no platform temporary-root API.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { ErrAsync, fromSafePromise, OkAsync } from "unthrown";
+import { ErrAsync, fromSafePromise, fromPromise, OkAsync } from "unthrown";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { PullRequests } from "../pull-requests/main.ts";
 import { dispatchArgs, herdrEventWithoutState, runDispatch } from "./dispatch.ts";
 
 const paths = OperatorHome.resolve(
@@ -31,7 +32,7 @@ function quiet() {
 
 function spies() {
   return {
-    dispatch: spyOn(WorkerDispatch, "dispatch").mockReturnValue(OkAsync({ pane: "1" }) as never),
+    dispatch: spyOn(PullRequests, "dispatch").mockReturnValue(OkAsync({ pane: "1" }) as never),
     installPlugin: spyOn(WorkerDispatch, "installPlugin").mockReturnValue(
       OkAsync({ reason: "herdr_plugin_installed", data: { plugin: true } }) as never,
     ),
@@ -41,25 +42,116 @@ function spies() {
   };
 }
 
+test("a dispatch defect uses the command boundary reason and exit status rather than an operational refusal", async () => {
+  const cause = new Error("permission defect", { cause: { original: true } });
+  const defect = await fromPromise(Promise.reject(cause), (error, unexpected) => unexpected(error));
+  spyOn(PullRequests, "dispatch").mockReturnValue(defect.toAsync());
+  const { log, error } = quiet();
+  expect(
+    await runDispatch(["dispatch", "--source", "s", "--assignment", "a", "--json"], paths, true),
+  ).toBe(true);
+  expect(process.exitCode).toBe(1);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "dispatch",
+    reason: "dispatch_defect",
+    outcome: "refused",
+    blockers: [{ reason: "dispatch_defect", detail: "Error: permission defect" }],
+  });
+  expect(error).toHaveBeenCalled();
+});
+
 test("parses dispatch and Herdr commands", () => {
   expect(dispatchArgs(["abandon", "--source", "s", "--assignment", "a", "--json"])).toEqual({
     operation: "abandon",
     sourceId: "s",
     assignment: "a",
   });
-  expect(dispatchArgs(["dispatch", "--source", "s", "--assignment", "a", "--json"])).toEqual({
+  expect(dispatchArgs(["dispatch", "--source", "s", "--assignment", "a", "--json"])).toStrictEqual({
     operation: "dispatch",
     sourceId: "s",
     assignment: "a",
+    afterPid: null,
   });
+  expect(
+    dispatchArgs(["dispatch", "--source", "s", "--assignment", "a", "--kind", "research"]),
+  ).toEqual({
+    operation: "dispatch",
+    sourceId: "s",
+    assignment: "a",
+    afterPid: null,
+    kind: "research",
+  });
+  expect(
+    dispatchArgs(["abandon", "--source", "s", "--assignment", "a", "--kind", "research"]),
+  ).toBeNull();
   expect(dispatchArgs(["dispatch", "--json", "--assignment", "a", "--source", "s"])).toEqual({
     operation: "dispatch",
     sourceId: "s",
     assignment: "a",
+    afterPid: null,
   });
   expect(dispatchArgs(["herdr", "install"])).toEqual({ operation: "herdr_install" });
   expect(dispatchArgs(["herdr", "event", "--json"])).toEqual({ operation: "herdr_event" });
 });
+
+test("one-off dispatch and registered kind filling keep distinct selectors", () => {
+  expect(dispatchArgs(["dispatch", "--kind", "answer", "--brief", "task.md"])).toStrictEqual({
+    operation: "one_off_dispatch",
+    kind: "answer",
+    brief: "task.md",
+    intentFile: undefined,
+    profile: undefined,
+    trackerKey: undefined,
+    adopt: undefined,
+  });
+  for (const args of [
+    ["dispatch", "--brief", "task.md"],
+    ["dispatch", "--kind", "answer"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--profile", "careful"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--intent-file", "intent.md"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--tracker-key", "APP-1"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--kind", "answer", "--brief", "task.md"],
+  ])
+    expect(dispatchArgs(args)).toBeNull();
+});
+
+test("only registered dispatch accepts a numeric continuation publication PID", async () => {
+  const called = spies();
+  quiet();
+  expect(
+    await runDispatch(
+      ["dispatch", "--source", "s", "--assignment", "a", "--after-pid", "123"],
+      paths,
+      true,
+    ),
+  ).toBe(true);
+  expect(called.dispatch).toHaveBeenCalledWith({
+    paths,
+    cwd: process.cwd(),
+    sourceId: "s",
+    assignment: "a",
+    afterPid: 123,
+  });
+  called.dispatch.mockClear();
+  for (const args of [
+    ["dispatch", "--source", "s", "--assignment", "a", "--after-pid", "invalid"],
+    ["dispatch", "--source", "s", "--assignment", "a", "--after-pid", "12345678901"],
+    ["abandon", "--source", "s", "--assignment", "a", "--after-pid", "123"],
+    ["dispatch", "--kind", "implementation", "--brief", "task.md", "--after-pid", "123"],
+  ]) {
+    expect(dispatchArgs(args)).toBeNull();
+    expect(await runDispatch(args, paths, true)).toBe(false);
+  }
+  expect(called.dispatch).not.toHaveBeenCalled();
+});
+test.each(["41", "https://github.com/owner/one/pull/41", "feature/own"])(
+  "one-off dispatch preserves the explicit adoption selector %s",
+  (adopt) => {
+    expect(
+      dispatchArgs(["dispatch", "--kind", "implementation", "--brief", "-", "--adopt", adopt]),
+    ).toMatchObject({ operation: "one_off_dispatch", kind: "implementation", brief: "-", adopt });
+  },
+);
 
 test("abandon passes its exact selector and preserves the result and next without launching or observing a worker", async () => {
   const called = spies();
@@ -102,6 +194,9 @@ test.each([
   [["dispatch", "--source", "s", "--assignment"]],
   [["dispatch", "--source", "--assignment", "a"]],
   [["dispatch", "--source", "s", "--assignment", "a", "--other", "x"]],
+  [["dispatch", "--source", "s", "--assignment", "a", "--adopt", "41"]],
+  [["dispatch", "--kind", "implementation", "--brief", "-", "--adopt", "41", "--adopt", "42"]],
+  [["dispatch", "--kind", "implementation", "--brief", "-", "--adopt"]],
 ])("refuses %j before any dispatch operation", async (args) => {
   const called = spies();
   expect(dispatchArgs(args)).toBeNull();
@@ -118,6 +213,8 @@ test("passes each command to the matching dispatch operation", async () => {
     cwd: process.cwd(),
     sourceId: "s",
     assignment: "a",
+    afterPid: null,
+    kind: undefined,
   });
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "dispatch",
@@ -129,6 +226,21 @@ test("passes each command to the matching dispatch operation", async () => {
   await runDispatch(["herdr", "event"], paths, true);
   expect(called.observe).toHaveBeenCalledWith({ paths });
   for (const spy of Object.values(called)) expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test("recovered parking reports no worker launch", async () => {
+  spyOn(PullRequests, "dispatch").mockReturnValue(
+    OkAsync({ sourceId: "s", assignment: "a", parked: true }),
+  );
+  const { log } = quiet();
+  expect(
+    await runDispatch(["dispatch", "--source", "s", "--assignment", "a", "--json"], paths, true),
+  ).toBe(true);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    reason: "pr_parked",
+    data: { sourceId: "s", assignment: "a", parked: true },
+  });
+  expect(process.exitCode).toBe(0);
 });
 
 test("prints a completed operation as compact JSON or as indented text", async () => {
@@ -193,7 +305,7 @@ test.each([
 });
 
 test("reports a dispatch defect with exit code 1", async () => {
-  spyOn(WorkerDispatch, "dispatch").mockReturnValue(
+  spyOn(PullRequests, "dispatch").mockReturnValue(
     fromSafePromise(() => Promise.reject(new Error("boom"))),
   );
   const { log, error } = quiet();

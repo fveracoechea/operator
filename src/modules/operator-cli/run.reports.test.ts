@@ -58,6 +58,189 @@ const report = {
   ],
 };
 
+test.each([
+  { kind: "prototype", internalReview: true, missingGuide: false },
+  { kind: "research", internalReview: false, missingGuide: false },
+  { kind: "prototype", internalReview: true, missingGuide: true },
+])(
+  "promotion of $kind keeps coherent implementation context, review=$internalReview, missing guide=$missingGuide",
+  async ({ kind, internalReview, missingGuide }) => {
+    const source = await device.register({
+      trackerKey: "promotion:context",
+      internalReview,
+      assignments: [
+        {
+          key: "probe",
+          trackerKey: "APP-11",
+          instructions: "Investigate the queue.",
+          kind,
+          profile: "careful",
+          resources: "worktree",
+          branch: "report/probe",
+          dependencies: [],
+        },
+      ],
+    });
+    const worker = await device.dispatch(source, "probe");
+    const handoff = `${device.root}/drafts/handoff.md`;
+    await Bun.write(handoff, "PRIVATE HANDOFF CONTENT, reference only.", { createPath: true });
+    const submitted = await device.run(
+      [
+        "report",
+        "submit",
+        "--file",
+        await device.writeReport("promotion-report.md", { ...report, files: [handoff] }),
+      ],
+      { pane: worker.paneId, cwd: worker.worktreePath ?? "" },
+    );
+    expect(submitted.code, submitted.stderr).toBe(0);
+    const before = (await device.run(["source", "show", "--source", source])).output;
+    const recorded = z
+      .object({
+        data: z.object({
+          reports: z.array(z.object({ assignment: z.string(), files: z.array(z.string()) })),
+        }),
+      })
+      .parse(before).data.reports[0];
+    expect(recorded?.assignment).toBe("probe");
+    const storedHandoff =
+      recorded?.files[0] ?? expect.unreachable("The handoff was not persisted.");
+    expect(storedHandoff).toContain("/assignments/probe/reports/1/files/handoff.md");
+    await Bun.file(handoff).delete();
+    const calls = await device.herdrCalls();
+    if (missingGuide) await rm(`${device.root}/release/worker-agent/kinds/implementation.md`);
+    const file = await device.writeJson("promotion.json", {
+      key: "build",
+      trackerKey: "APP-12",
+      instructions: "Implement the queue.",
+      branch: "task/build",
+    });
+    const promoted = await device.run([
+      "report",
+      "accept",
+      "--source",
+      source,
+      "--assignment",
+      "probe",
+      "--promote",
+      file,
+    ]);
+    if (missingGuide) {
+      expect(promoted).toMatchObject({ code: 3, output: { reason: "invalid_settings" } });
+      expect((await device.run(["source", "show", "--source", source])).output).toEqual(before);
+      expect(await device.herdrCalls()).toEqual(calls);
+      expect(
+        (
+          await device.exec(["git", "branch", "--show-current"], worker.worktreePath ?? "")
+        ).stdout.trim(),
+      ).toBe("report/probe");
+      return;
+    }
+    expect(promoted.code, promoted.stderr).toBe(0);
+    const shown = (await device.run(["source", "show", "--source", source])).output;
+    const data = z
+      .object({
+        data: z.object({
+          launches: z.array(z.looseObject({ assignment: z.string() })),
+          reports: z.array(z.looseObject({ assignment: z.string() })),
+          assignments: z.array(
+            z.object({ key: z.string(), completion: z.string(), state: z.string() }),
+          ),
+          plan: z.object({ assignments: z.array(z.object({ key: z.string() })) }),
+        }),
+      })
+      .parse(shown).data;
+    const original = z
+      .object({ data: z.object({ launches: z.array(z.looseObject({ assignment: z.string() })) }) })
+      .parse(before).data.launches[0];
+    if (original === undefined) expect.unreachable("The original report launch is missing.");
+    expect(data.plan.assignments).toEqual([{ key: "probe" }]);
+    expect(data.assignments).toEqual([
+      { key: "probe", completion: "report", state: "completed" },
+      { key: "build", completion: "pr", state: "running" },
+    ]);
+    const planSnapshot = z.object({ data: z.object({ plan: z.unknown() }) });
+    expect(planSnapshot.parse(shown).data.plan).toEqual(planSnapshot.parse(before).data.plan);
+    const reportSnapshot = z.object({
+      data: z.object({
+        reports: z.array(
+          z.object({
+            assignment: z.string(),
+            number: z.number(),
+            submittedAt: z.string(),
+            conclusion: z.string(),
+            evidence: z.array(z.string()),
+            unresolved: z.array(z.string()),
+            decisions: z.array(z.unknown()),
+            files: z.array(z.string()),
+          }),
+        ),
+      }),
+    });
+    expect(reportSnapshot.parse(shown).data.reports).toEqual(
+      reportSnapshot.parse(before).data.reports,
+    );
+    expect(data.launches).toHaveLength(2);
+    expect(data.launches.find((row) => row.assignment === "probe")).toMatchObject({
+      kind: original.kind,
+      release: original.release,
+      skills: original.skills,
+    });
+    expect(data.launches.find((row) => row.assignment === "build")).toMatchObject({
+      paneId: worker.paneId,
+      worktreePath: worker.worktreePath,
+      profile: "careful",
+      host: original.host,
+      model: original.model,
+      reasoningEffort: original.reasoningEffort,
+      release: original.release,
+      skills: original.skills,
+      internalReview,
+      kind: {
+        name: "implementation",
+        completion: "pr",
+        nextKind: internalReview ? "review" : "pr-feedback",
+      },
+    });
+    const briefPath = z
+      .object({ data: z.object({ promoted: z.object({ brief: z.string() }) }) })
+      .parse(promoted.output).data.promoted.brief;
+    const brief = await Bun.file(briefPath).text();
+    expect(brief).toContain(`- \`${storedHandoff}\``);
+    expect(brief).toContain(`operator:example/one/sources/${source}/assignments/probe/reports/1`);
+    expect(brief).not.toContain("PRIVATE HANDOFF CONTENT");
+    expect(brief).not.toContain("## Note");
+    for (const text of [
+      "Worker kind: `implementation`",
+      "Phase: `build`",
+      "Start profile: `careful`",
+      "worker-agent/kinds/implementation.md",
+      "Completion: `pr`.",
+    ])
+      expect(brief).toContain(text);
+    expect(
+      await device.run(["message", "ack", "--key", "promoted"], {
+        pane: worker.paneId,
+        cwd: worker.worktreePath ?? "",
+      }),
+    ).toMatchObject({
+      code: 0,
+      output: {
+        kind: "implementation",
+        phase: "build",
+        next: { command: "operator pr associate" },
+      },
+    });
+    await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main);
+    const replacement = await device.dispatch(source, "build");
+    expect(replacement.worktreePath).toBe(worker.worktreePath);
+    expect(await Bun.file(replacement.brief).text()).toContain("Worker kind: `implementation`");
+    expect(await Bun.file(replacement.brief).text()).toContain(`- \`${storedHandoff}\``);
+    expect(await Bun.file(storedHandoff).text()).toBe("PRIVATE HANDOFF CONTENT, reference only.");
+  },
+  60000,
+);
+
 async function sourceLaunches(source: string) {
   const shown = await device.run(["source", "show", "--source", source]);
   return z
@@ -254,7 +437,20 @@ test("report commands refuse PR work, undecided states, and missing panes withou
 });
 
 test("returned work resumes, and a replacement keeps reports, follow-up, and current settings", async () => {
-  const source = await device.register(plan("careful"));
+  const planned = plan("careful");
+  const source = await device.register({
+    ...planned,
+    assignments: [
+      ...planned.assignments,
+      {
+        key: "other",
+        trackerKey: "github:example/one#14",
+        kind: "research",
+        instructions: "Read another module.",
+        dependencies: [],
+      },
+    ],
+  });
   const worker = await device.dispatch(source, "investigate");
   await Bun.write(`${device.root}/drafts/notes.md`, "first notes\n", { createPath: true });
   const first = await device.writeReport("first.md", {
@@ -281,10 +477,10 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(returned.code, returned.stderr).toBe(0);
   expect(returned.output).toMatchObject({
     reason: "report_returned",
-    data: { report: 1, next: "resume_worker" },
+    data: { report: 1, next: "worker_attention" },
   });
   expect(await device.next("investigate")).toMatchObject([
-    { action: "resume_worker", reason: "follow_up_returned", report: { decision: "returned" } },
+    { action: "worker_attention", reason: "follow_up_returned", report: { decision: "returned" } },
   ]);
   // A live worker resumes. A dispatch cannot start a second worker for it.
   expect(
@@ -327,6 +523,10 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(await device.next("investigate")).toMatchObject([
     { action: "replace_worker", reason: "worker_interrupted" },
   ]);
+  const other = await device.dispatch(source, "other");
+  expect(
+    (await device.run(["report", "submit", "--file", second], { pane: other.paneId })).code,
+  ).toBe(0);
 
   // The replacement uses current settings and reads every earlier report and follow-up.
   await Bun.write(
@@ -340,6 +540,8 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(replacement.attempt).toBe(2);
   const brief = await Bun.file(replacement.brief).text();
   expect(brief).toContain("Read the module and report the gaps.");
+  expect(brief).toContain("Phase: `report`");
+  expect(brief).toContain("Start profile: `careful`");
   for (const file of ["1/report.md", "1/files/notes.md", "2/report.md"])
     expect(brief).toContain(`/reports/${file}\``);
   for (const file of ["1.md", "2.md"]) expect(brief).toContain(`/follow-ups/${file}\``);
@@ -350,12 +552,117 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(history.launches).toMatchObject([
     { state: "interrupted", model: "test/reasoner", reasoningEffort: "high" },
     { state: "running", model: "test/writer", reasoningEffort: "medium" },
+    { assignment: "other", state: "running" },
   ]);
   expect(history.reports).toMatchObject([
     { number: 1, decision: "returned", followUp: "Also read b.ts and cite it." },
     { number: 2, decision: "returned", followUp: "Add the test evidence." },
+    { number: 1, decision: null },
   ]);
 }, 60000);
+
+test.each([false, true])(
+  "the assignment refuses a third report return and preserves work with replacement=%s",
+  async (replace) => {
+    const source = await device.register({
+      trackerKey: "github:example/one#40",
+      assignments: [
+        {
+          ...plan().assignments[0],
+          resources: "worktree",
+          branch: "task/report-cap",
+        },
+      ],
+    });
+    let worker = await device.dispatch(source, "investigate");
+    const worktree = worker.worktreePath ?? expect.unreachable();
+    await Bun.write(`${worktree}/kept.ts`, "export const kept = true;\n");
+    const notes = `${device.root}/drafts/cap-notes.md`;
+    await Bun.write(notes, "original supporting evidence\n", { createPath: true });
+    const file = await device.writeReport("cap-report.md", { ...report, files: [notes] });
+    const followUp = `${device.root}/drafts/cap-follow-up.md`;
+    await Bun.write(followUp, "Add evidence.\n");
+    const args = [
+      "report",
+      "return",
+      "--source",
+      source,
+      "--assignment",
+      "investigate",
+      "--file",
+      followUp,
+    ];
+
+    for (const number of [1, 2]) {
+      expect(
+        await device.run(["report", "submit", "--file", file], { pane: worker.paneId }),
+      ).toMatchObject({ code: 0, output: { data: { report: number } } });
+      expect(await device.run(args)).toMatchObject({
+        code: 0,
+        output: { reason: "report_returned" },
+      });
+      // Retrying the same decision must not consume another return.
+      expect(await device.run(args)).toMatchObject({
+        code: 3,
+        output: { reason: "report_not_submitted" },
+      });
+      if (replace) {
+        await device.exec(["herdr", "pane", "exit", worker.paneId, "w1"], device.main);
+        worker = await device.dispatch(source, "investigate");
+      } else {
+        expect(await device.run(["report", "resume"], { pane: worker.paneId })).toMatchObject({
+          code: 0,
+          output: { reason: "report_resumed" },
+        });
+      }
+    }
+    const third = await device.run(["report", "submit", "--file", file], { pane: worker.paneId });
+    expect(third).toMatchObject({ code: 0, output: { data: { report: 3 } } });
+    const stored = z.object({ data: z.object({ file: z.string() }) }).parse(third.output).data.file;
+    const database = `${device.root}/state/operator/operator.sqlite`;
+    const before = await Bun.file(database).arrayBuffer();
+    const calls = await device.herdrCalls();
+    for (const attempt of [1, 2]) {
+      expect(await device.run(args), `third return attempt ${attempt}`).toMatchObject({
+        code: 3,
+        output: {
+          reason: "report_return_limit_reached",
+          next: {
+            decider: "person",
+            question:
+              "Should this report be accepted, the assignment abandoned, or a new assignment started?",
+          },
+          state: { reportReturns: 2, limit: 2 },
+        },
+      });
+      expect(await Bun.file(database).arrayBuffer()).toEqual(before);
+    }
+    expect(await device.herdrCalls()).toEqual(calls);
+    expect(await Bun.file(`${worktree}/kept.ts`).text()).toBe("export const kept = true;\n");
+    expect(await Bun.file(stored).text()).toContain(report.conclusion);
+    const directory = stored.replace(/\/3\/report\.md$/, "");
+    expect(await Bun.file(`${directory}/1/files/cap-notes.md`).text()).toBe(
+      "original supporting evidence\n",
+    );
+    expect(await Bun.file(`${directory}/../follow-ups/3.md`).exists()).toBe(false);
+    expect((await sourceLaunches(source)).reports).toMatchObject([
+      { number: 1, decision: "returned" },
+      { number: 2, decision: "returned" },
+      { number: 3, decision: null },
+    ]);
+    expect(await device.next("investigate")).toMatchObject([
+      { action: "review_report", report: { number: 3 } },
+    ]);
+    expect(
+      await device.run(["report", "accept", "--source", source, "--assignment", "investigate"]),
+    ).toMatchObject({
+      code: 0,
+      output: { reason: "report_accepted", data: { cleanup: { state: "kept" } } },
+    });
+    expect(await Bun.file(`${worktree}/kept.ts`).exists()).toBe(true);
+  },
+  60000,
+);
 
 test("acceptance keeps a worktree with unlanded work for the person, and failed cleanup stays in next", async () => {
   const source = await device.register({
@@ -442,7 +749,7 @@ test("acceptance keeps a worktree with unlanded work for the person, and failed 
     },
   });
   expect(await device.next("probe")).toMatchObject([
-    { action: "retry_cleanup", reason: "cleanup_failed" },
+    { action: "clean_up", reason: "cleanup_failed" },
   ]);
   expect(await Bun.file(`${clean}/.env.local`).exists()).toBe(true);
   await device.setHerdr({ fail: {} });

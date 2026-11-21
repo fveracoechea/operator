@@ -29,13 +29,16 @@ type Facts = {
     cleanup: "pending" | "done" | "failed" | "kept" | null;
   };
   cleanup?: "running" | "pending" | "failed" | "done" | "unlanded_work" | "resource_mismatch";
-  /** The internal review handoff from the implementer to the reviewer, until a reviewer starts. */
+  /** The recorded kind handoff, until its next launch starts. */
   handoff?: "running" | "stopped" | "failed";
   /** A recorded internal review that has not ended. */
   reviewing?: boolean;
+  parked?: boolean;
+  prClosed?: boolean;
+  waking?: "pr_feedback" | "ci_failed" | "pr_relay_blocked";
   /** The plan's assignments with a starting or live worker reach its running cap. ADR-0006. */
   capReached?: boolean;
-  /** Kind eligibility for a plain start, not a replacement or internal review handoff. */
+  /** Kind eligibility for a plain start, not a replacement or kind handoff. */
   dispatchable?: boolean;
   resources?: {
     kind: "pane" | "worktree";
@@ -49,24 +52,20 @@ type Decision = {
   action:
     | "ready_assignment"
     | "replace_worker"
-    | "owner_attention"
+    | "resume_pr_feedback"
+    | "clean_up"
     | "worker_attention"
     | "review_report"
-    | "resume_worker"
-    | "retry_cleanup"
-    | "retry_handoff"
     | "person_decision"
     | "wait"
     | "ended";
   reason:
     | "assignment_ready"
-    | "kind_not_dispatchable"
-    | "pr_feedback_loop"
-    | "pr_wait_timed_out"
-    | "pr_wait_stopped"
-    | "pr_owner_idle"
+    | "pr_parked"
+    | "pr_feedback"
+    | "ci_failed"
+    | "pr_closed"
     | "worker_idle"
-    | "pr_not_open"
     | "pr_relay_blocked"
     | "stack_pending"
     | "stack_blocked"
@@ -85,11 +84,8 @@ type Decision = {
     | "worker_interrupted"
     | "report_submitted"
     | "follow_up_returned"
-    | "cleanup_unfinished"
-    | "internal_review_handoff"
-    | "internal_review_handoff_failed"
-    | "internal_review_handoff_stopped"
-    | "internal_review_running";
+    | "kind_handoff"
+    | "handoff_failed";
   blockers: {
     assignment: string;
     completion: "pr" | "report";
@@ -135,9 +131,9 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       report?.decision === "accepted" &&
       (report.cleanup === "failed" || report.cleanup === "pending"),
     decide: ({ report }) => ({
-      action: "retry_cleanup",
+      action: "clean_up",
       // Stryker disable next-line OptionalChaining: equivalent: this rule matches only when a report exists
-      reason: report?.cleanup === "failed" ? "cleanup_failed" : "cleanup_unfinished",
+      reason: report?.cleanup === "failed" ? "cleanup_failed" : "cleanup_stopped",
       blockers: [],
     }),
   },
@@ -168,11 +164,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   },
   {
     when: ({ cleanup }) => cleanup === "failed",
-    decide: () => ({ action: "retry_cleanup", reason: "cleanup_failed", blockers: [] }),
+    decide: () => ({ action: "clean_up", reason: "cleanup_failed", blockers: [] }),
   },
   {
     when: ({ cleanup }) => cleanup === "pending",
-    decide: () => ({ action: "retry_cleanup", reason: "cleanup_stopped", blockers: [] }),
+    decide: () => ({ action: "clean_up", reason: "cleanup_stopped", blockers: [] }),
   },
   {
     when: ({ assignment, resources }) =>
@@ -197,18 +193,18 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     when: ({ assignment, report }) => assignment.state === "reported" && report?.decision === null,
     decide: () => ({ action: "review_report", reason: "report_submitted", blockers: [] }),
   },
-  // The implementer's session ends at the handoff by design, so it is not an interrupted worker.
+  // The outgoing session ends at the handoff by design, so it is not an interrupted worker.
   {
     when: ({ assignment, handoff, stack }) =>
       assignment.state === "pr-open" && stack === undefined && handoff === "running",
-    decide: () => ({ action: "wait", reason: "internal_review_handoff", blockers: [] }),
+    decide: () => ({ action: "wait", reason: "kind_handoff", blockers: [] }),
   },
   {
     when: ({ assignment, handoff, stack }) =>
       assignment.state === "pr-open" && stack === undefined && handoff === "failed",
     decide: () => ({
-      action: "retry_handoff",
-      reason: "internal_review_handoff_failed",
+      action: "replace_worker",
+      reason: "handoff_failed",
       blockers: [],
     }),
   },
@@ -216,10 +212,27 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     when: ({ assignment, handoff, stack }) =>
       assignment.state === "pr-open" && stack === undefined && handoff === "stopped",
     decide: () => ({
-      action: "retry_handoff",
-      reason: "internal_review_handoff_stopped",
+      action: "replace_worker",
+      reason: "handoff_failed",
       blockers: [],
     }),
+  },
+  {
+    when: ({ assignment, prClosed }) => assignment.state === "pr-open" && prClosed === true,
+    decide: () => ({ action: "clean_up", reason: "pr_closed", blockers: [] }),
+  },
+  {
+    when: ({ assignment, parked, waking }) =>
+      assignment.state === "pr-open" && parked === true && waking !== undefined,
+    decide: ({ waking }) => ({
+      action: "resume_pr_feedback",
+      reason: waking ?? "pr_feedback",
+      blockers: [],
+    }),
+  },
+  {
+    when: ({ assignment, parked }) => assignment.state === "pr-open" && parked === true,
+    decide: () => ({ action: "wait", reason: "pr_parked", blockers: [] }),
   },
   {
     when: (facts) => active(facts) && facts.launch === "failed",
@@ -234,9 +247,17 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     decide: () => ({ action: "replace_worker", reason: "launch_abandoned", blockers: [] }),
   },
   {
+    when: ({ assignment, pullRequest, launch }) =>
+      assignment.state === "pr-open" &&
+      pullRequest === "stopped" &&
+      launch !== "starting" &&
+      launch !== "running",
+    decide: () => ({ action: "replace_worker", reason: "worker_interrupted", blockers: [] }),
+  },
+  {
     when: ({ assignment, report, launch }) =>
       assignment.state === "reported" && report?.decision === "returned" && launch === "running",
-    decide: () => ({ action: "resume_worker", reason: "follow_up_returned", blockers: [] }),
+    decide: () => ({ action: "worker_attention", reason: "follow_up_returned", blockers: [] }),
   },
   {
     when: ({ launch }) => launch === "starting",
@@ -246,48 +267,23 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: ({ stack }) => stack !== undefined,
     decide: ({ stack }) => ({
-      action: stack === "blocked" ? "owner_attention" : "wait",
+      action: stack === "blocked" ? "worker_attention" : "wait",
       reason: stack === "blocked" ? "stack_blocked" : "stack_pending",
       blockers: [],
     }),
   },
-  {
-    when: ({ assignment, relay }) => assignment.state === "pr-open" && relay === "blocked",
-    decide: () => ({ action: "owner_attention", reason: "pr_relay_blocked", blockers: [] }),
-  },
-  // A timeout or a PR that is no longer open never proves completion. The SuperAgent decides.
-  {
-    when: ({ assignment, pullRequest }) =>
-      assignment.state === "pr-open" && pullRequest === "timed_out",
-    decide: () => ({ action: "owner_attention", reason: "pr_wait_timed_out", blockers: [] }),
-  },
-  {
-    when: ({ assignment, pullRequest }) =>
-      assignment.state === "pr-open" && pullRequest === "not_open",
-    decide: () => ({ action: "owner_attention", reason: "pr_not_open", blockers: [] }),
-  },
-  {
-    when: ({ assignment, pullRequest }) =>
-      assignment.state === "pr-open" && pullRequest === "stopped",
-    decide: () => ({ action: "owner_attention", reason: "pr_wait_stopped", blockers: [] }),
-  },
   // Between waits the owner works on a result. An idle or done host has left its loop.
   {
-    when: ({ assignment, pullRequest, activity }) =>
+    when: ({ assignment, launch, pullRequest, activity }) =>
       assignment.state === "pr-open" &&
+      launch === "running" &&
       pullRequest !== "waiting" &&
       (activity === "idle" || activity === "done"),
-    decide: () => ({ action: "owner_attention", reason: "pr_owner_idle", blockers: [] }),
-  },
-  // The reviewer waits on the PR only after it marks the draft ready.
-  {
-    when: ({ assignment, reviewing, pullRequest }) =>
-      assignment.state === "pr-open" && reviewing === true && pullRequest === "idle",
-    decide: () => ({ action: "wait", reason: "internal_review_running", blockers: [] }),
+    decide: () => ({ action: "worker_attention", reason: "worker_idle", blockers: [] }),
   },
   {
     when: ({ assignment }) => assignment.state === "pr-open",
-    decide: () => ({ action: "wait", reason: "pr_feedback_loop", blockers: [] }),
+    decide: () => ({ action: "wait", reason: "assignment_active", blockers: [] }),
   },
   // Before a PR or a report exists, an idle or done host has stopped without a result.
   {
@@ -303,7 +299,7 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   },
   {
     when: ({ dispatchable }) => dispatchable === false,
-    decide: () => ({ action: "owner_attention", reason: "kind_not_dispatchable", blockers: [] }),
+    decide: () => ({ action: "wait", reason: "kind_handoff", blockers: [] }),
   },
   {
     when: ({ assignment, dependencies }) => dependencyBlockers(assignment, dependencies).length > 0,

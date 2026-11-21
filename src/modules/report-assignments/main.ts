@@ -63,6 +63,7 @@ function decide(facts: Facts, command: Command, promote?: string) {
     assignments: facts.assignments,
     launch: facts.launch,
     latest: facts.reports.at(-1) ?? null,
+    reports: facts.reports,
     caller: caller(),
     promotion:
       promote === undefined ? undefined : { sourceState: facts.source.state, key: promote },
@@ -323,7 +324,12 @@ function returnReport(input: {
         update: { decision: "returned", decidedAt: new Date().toISOString(), followUp: text },
       }));
       if (recorded.tag !== "Ok") {
-        await rm(staged);
+        const cleanup = await fromPromise(
+          () => rm(staged),
+          (cause, defect) => defect(cause),
+        );
+        if (cleanup.tag === "Defect")
+          console.error("Report follow-up cleanup failed:", String(cleanup.cause));
         return stop(recorded);
       }
       await publish(staged, followUp);
@@ -337,7 +343,7 @@ function returnReport(input: {
           report: number,
           followUp,
           // A live worker resumes with the follow-up. A stopped worker needs a replacement.
-          next: running ? "resume_worker" : "replace_worker",
+          next: running ? "worker_attention" : "replace_worker",
         },
       });
     },
@@ -487,7 +493,14 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
 /** The PR assignment's launch that takes over the running report worker's pane and worktree. */
 function handoverLaunch(
   launch: NonNullable<Facts["launch"]>,
-  change: { key: string; name: string; branch: string; at: string; internalReview: boolean },
+  change: {
+    key: string;
+    name: string;
+    branch: string;
+    at: string;
+    internalReview: boolean;
+    kind: string;
+  },
 ) {
   return {
     ...launch,
@@ -499,6 +512,7 @@ function handoverLaunch(
     resources: "worktree",
     branch: change.branch,
     internalReview: change.internalReview,
+    kind: change.kind,
     startedAt: change.at,
     endedAt: null,
     failureReason: null,
@@ -609,6 +623,21 @@ function promote(input: PromoteInput) {
           .parse(JSON.parse(facts.source.plan)).internalReview,
         device: settings.value.data.config.review?.internal,
       });
+      const host = z.enum(["opencode", "claude-code"]).parse(launch.host);
+      const definition = await DeviceSettings.kind({
+        paths: input.paths,
+        name: "implementation",
+        host,
+      });
+      if (definition.tag !== "Ok") return stop(definition);
+      const kind = JSON.stringify({
+        ...definition.value,
+        profile: launch.profile,
+        nextKind: internalReview ? definition.value.nextKind : "pr-feedback",
+        skillsToRead: definition.value.skillsToRead.map(
+          (name) => `${input.paths.upstreamSkills[host]}/${name}/SKILL.md`,
+        ),
+      });
       const handover = await WorkerDispatch.handOver({
         paths: input.paths,
         checkout,
@@ -622,7 +651,7 @@ function promote(input: PromoteInput) {
       const taken =
         name === null
           ? null
-          : handoverLaunch(launch, { key: planned.key, name, branch, at, internalReview });
+          : handoverLaunch(launch, { key: planned.key, name, branch, at, internalReview, kind });
       const state = taken === null ? "ready" : "running";
       const recorded = record(decision, decided, (current) => ({
         update: {
@@ -636,6 +665,7 @@ function promote(input: PromoteInput) {
             sourceId: current.source.id,
             key: planned.key,
             completion: "pr",
+            kind: "implementation",
             state,
           },
           promotion: {

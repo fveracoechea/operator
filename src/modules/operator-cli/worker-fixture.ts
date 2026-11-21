@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { fakeHerdrScript } from "./herdr-fixture.ts";
+import { fakeHerdrScript, retainHerdrTrace } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 import { expectRefusalOutput, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
 import {
@@ -166,7 +166,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(`${root}/home/.agents/skills`, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${root}/home/.agents/skills/code-review`);
-  await writeGuideSkills(`${root}/home/.agents/skills`);
+  await writeGuideSkills(`${root}/home/.agents/skills`, skills);
   // The claude profile launches workers on Claude Code, whose folder holds both skill kinds.
   await cp(`${root}/release`, `${root}/claude-skills`, { recursive: true });
   await mkdir(`${root}/home/.claude`, { recursive: true });
@@ -210,6 +210,11 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     const launched = await run(["dispatch", "--source", source, "--assignment", assignment], {
       cwd,
     });
+    if (launched.code !== 0) {
+      const evidence = await retainHerdrTrace(root);
+      if (evidence !== null)
+        console.error(`Controlled Herdr failure evidence: ${evidence.file}\n${evidence.tail}`);
+    }
     expect(launched.code, launched.stderr).toBe(0);
     return z
       .object({

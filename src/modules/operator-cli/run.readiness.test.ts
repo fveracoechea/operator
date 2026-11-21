@@ -95,7 +95,7 @@ async function configure(host: string) {
   );
   await Bun.write(`${upstream}/placeholder`, "", { createPath: true });
   await symlink(`${root}/independent-code-review`, `${upstream}/code-review`);
-  await writeGuideSkills(upstream);
+  await writeGuideSkills(upstream, folder);
   // The global command of a source install is Bun's link to the running release's entry point.
   await mkdir(`${root}/tools`, { recursive: true });
   await symlink(cli, `${root}/tools/operator`);

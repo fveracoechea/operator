@@ -45,7 +45,7 @@ const none = {
   sourceId: "",
   assignment: "",
   by: "super-agent" as const,
-  timeoutSeconds: 300,
+  timeoutSeconds: 540,
 };
 const selector = ["--source", "s", "--assignment", "a", "--key", "k"];
 
@@ -98,7 +98,7 @@ test("worker commands take no assignment selector, and SuperAgent commands name 
     ["question", "ask", "--file", "--json"],
     ["question", "wait"],
     ["question", "wait", "--key", "k", "--timeout", "-1"],
-    ["question", "wait", "--key", "k", "--timeout", "123456"],
+    ["question", "wait", "--key", "k", "--timeout", "9007199254740992"],
     ["question", "wait", "--key", "k", "--timeout"],
     ["question", "withdraw", "--key", "k", "--timeout", "5"],
     ["question", "escalate", "--source", "s", "--assignment", "a"],

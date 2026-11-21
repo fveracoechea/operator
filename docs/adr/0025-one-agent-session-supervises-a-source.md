@@ -5,6 +5,9 @@
 Accepted - 2026-11-11.
 Amended 2026-11-13: the turn-end guard fires only while a supervised source has a live worker launch, as decided in #373.
 Amends ADR-0022.
+Amended 2026-11-17: dispatch recovers kind handoffs; there is no separate handoff command (ADR-0029).
+Amended 2026-11-17: the CLI's recorded kind continuation preserves supervision without granting its outgoing worker coordination authority (ADR-0029).
+Amended 2026-11-20 in #392: the scoped parked merge joins the checked coordination commands.
 
 ## Context
 
@@ -35,7 +38,7 @@ Empty text names no session, and a bad value never stops the CLI from starting.
 
 A coordination command for a source refuses with `source_supervised_elsewhere` when another session supervises the source.
 The detail names the supervising session and its pane, says that nothing changed, and names the take-over.
-The commands are `dispatch`, `next --wait --source`, `report accept` and `return`, `question escalate` and `answer`, `message send`, `ring` and `close`, `cleanup`, and `handoff`.
+The commands are plan and one-off `dispatch`, `abandon`, `next --wait --source`, `report accept` and `return`, `question escalate` and `answer`, `message send`, `ring` and `close`, `cleanup`, and supervised `pr merge --source`.
 One check in front of the command handlers decides for all of them, so a new coordination command joins one list.
 Reads, worker commands, and a wait without a source are not checked.
 A command that carries `--person-instructed` is not checked, because the person ordered it.

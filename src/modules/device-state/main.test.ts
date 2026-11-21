@@ -8,6 +8,7 @@ import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { DeviceState } from "./main.ts";
+import { continuation, handoffWriteFixture } from "./handoff-write-fixture.ts";
 
 // Root ignores file modes, so a test of a denied access cannot run as root.
 const asRoot = process.getuid?.() === 0;
@@ -15,6 +16,68 @@ const asRoot = process.getuid?.() === 0;
 const root = await mkdtemp(path.join(tmpdir(), "operator-state-"));
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
+});
+
+test("the continuation facade reads, renews, finishes, and fails only its authorized handoff", async () => {
+  const paths = await home("continuation");
+  using fixture = handoffWriteFixture();
+  await Bun.write(paths.database, fixture.serialize(), { createPath: true });
+  const target = { repository: "owner/repo", sourceId: "s1", assignment: "build" };
+  const context = { pane: "worker", socket: "/fixture.sock" };
+  expect(DeviceState.readHandoffContinuation(paths, target, context, process.ppid)).toMatchObject({
+    tag: "Ok",
+    value: { identity: continuation, published: true },
+  });
+  using db = new Database(paths.database);
+  const old = "2000-01-01T00:00:00.000Z";
+  function read() {
+    return db
+      .query<{ lease: string | null; state: string; detail: string | null }, []>(
+        "SELECT lease_at AS lease, handoff_state AS state, handoff_detail AS detail FROM kind_handoffs",
+      )
+      .get();
+  }
+  expect(DeviceState.checkHandoffContinuation(paths, continuation)).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(read()).toMatchObject({
+    lease: expect.stringMatching(/^20/) as unknown,
+    state: "pending",
+    detail: null,
+  });
+  const before = db.serialize();
+  expect(
+    DeviceState.finishImplementer(paths, "implementer", { ...continuation, pane: "foreign" }).tag,
+  ).toBe("Err");
+  expect(db.serialize()).toEqual(before);
+  expect(DeviceState.finishImplementer(paths, "implementer", continuation)).toMatchObject({
+    tag: "Ok",
+    value: undefined,
+  });
+  expect(db.query("SELECT state FROM launches").get()).toEqual({ state: "finished" });
+  jest.useFakeTimers();
+  const stop = DeviceState.holdHandoff(paths, "s1", "build", continuation);
+  try {
+    db.query("UPDATE kind_handoffs SET lease_at = ?").run(
+      new Date(Date.now() - 1000).toISOString(),
+    );
+    const earlier = read();
+    jest.advanceTimersByTime(15000);
+    expect(read()).not.toEqual(earlier);
+    stop();
+    db.query("UPDATE kind_handoffs SET lease_at = ?").run(old);
+    jest.advanceTimersByTime(15000);
+    expect(read()).toMatchObject({ lease: old });
+  } finally {
+    stop();
+    jest.useRealTimers();
+  }
+  db.query("UPDATE kind_handoffs SET lease_at = ?").run(new Date(Date.now() - 1000).toISOString());
+  expect(
+    DeviceState.failHandoff(paths, "s1", "build", "successor refused", continuation),
+  ).toMatchObject({ tag: "Ok", value: undefined });
+  expect(read()).toMatchObject({ state: "failed", detail: "successor refused", lease: null });
 });
 
 test("the public recovery interface reads an empty audit and preserves authorization refusal", () => {
@@ -393,6 +456,10 @@ test("each interface operation reaches its state owner on the registered databas
   expect(DeviceState.worktreeOwners(paths)).toMatchObject({
     tag: "Ok",
     value: [{ launchId: "l1" }],
+  });
+  expect(DeviceState.checkParkedMergeOwner(paths, "l1", "h")).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_owner_inactive" },
   });
   expect(
     DeviceState.observePane(paths, {

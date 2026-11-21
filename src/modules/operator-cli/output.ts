@@ -1,5 +1,19 @@
 import type { NextStep, Refusal, ResultContext } from "../../lib/cli-result.ts";
 import { workflowRefusal } from "./workflow-refusal.ts";
+// Bun has no native invocation-local context API.
+import { AsyncLocalStorage } from "node:async_hooks";
+
+type ContextReader = () => Partial<ResultContext> & { failure?: Exclude<Outcome, { tag: "Ok" }> };
+const workerContext = new AsyncLocalStorage<ContextReader>();
+
+export function outputContext() {
+  return workerContext.getStore()?.() ?? {};
+}
+
+/** Output context is local to one invocation, including concurrent embedded CLI callers. */
+export function withOutputContext(read: ContextReader, run: () => Promise<void>) {
+  return workerContext.run(read, run);
+}
 
 // Structural, so a union of command results with different value types still fits.
 type Outcome =
@@ -36,6 +50,9 @@ export function failure(
   json: boolean,
   context: ResultContext,
 ) {
+  const defaults = outputContext();
+  if (defaults.failure !== undefined) return contextFailure(operation, defaults.failure, json);
+  context = { ...defaults, ...context, next: context.next ?? defaults.next };
   if (json)
     console.log(
       JSON.stringify({
@@ -46,9 +63,11 @@ export function failure(
         blockers: [{ reason, detail }],
         next: context.next,
         state: context.state,
+        kind: context.kind,
+        phase: context.phase,
       }),
     );
-  printRefusal(reason, detail, context);
+  printResolvedRefusal(reason, detail, context, context);
   process.exitCode = code;
 }
 
@@ -57,10 +76,24 @@ export function printRefusal(
   reason: string,
   detail: string,
   context: ResultContext | ResultContext[],
+  resolvedWorker: Partial<ResultContext> = outputContext(),
+) {
+  const grouped = Array.isArray(context);
+  const worker = grouped ? resolvedWorker : { ...resolvedWorker, ...context };
+  printResolvedRefusal(reason, detail, context, worker);
+}
+
+/** Render the checked snapshot without another state read between JSON and text. */
+function printResolvedRefusal(
+  reason: string,
+  detail: string,
+  context: ResultContext | ResultContext[],
+  worker: Partial<ResultContext>,
 ) {
   const grouped = Array.isArray(context);
   const contexts = grouped ? context : [context];
-  console.error(oneLine(`operator: ${reason}: ${detail}`));
+  const phase = worker.kind === undefined ? "" : ` [kind=${worker.kind} phase=${worker.phase}]`;
+  console.error(oneLine(`operator: ${reason}: ${detail}${phase}`));
   console.error(
     oneLine(
       `next: ${contexts
@@ -94,6 +127,30 @@ function nextText(next: NextStep) {
   return next.why;
 }
 
+/** Help and version keep their plain text while sharing the worker result contract. */
+export function printWorkerContext() {
+  const context = outputContext();
+  if (context.failure !== undefined) {
+    contextFailure("worker_context", context.failure, false);
+    return false;
+  }
+  if (context.kind === undefined) return true;
+  console.log(oneLine(`kind: ${context.kind}; phase: ${context.phase}`));
+  if (context.next !== undefined) console.log(oneLine(`next: ${nextText(context.next)}`));
+  return true;
+}
+
+export function contextFailure(
+  operation: string,
+  result: Exclude<Outcome, { tag: "Ok" }>,
+  json: boolean,
+): void {
+  return workerContext.run(
+    () => ({}),
+    () => respond({ operation, result, exitCodes: {}, defect: "worker_phase_defect", json }),
+  );
+}
+
 /** Prints one command result. A defect always exits 1 with the command's defect reason. */
 export function respond(input: {
   operation: string;
@@ -102,9 +159,28 @@ export function respond(input: {
   fallback?: number;
   defect: string;
   json: boolean;
-}) {
+  compactTimeout?: boolean;
+}): void {
   const { operation, result, json } = input;
   if (result.tag === "Ok") {
+    const defaults = outputContext();
+    if (defaults.failure !== undefined) return contextFailure(operation, defaults.failure, json);
+    const context = { ...defaults, ...result.value, next: result.value.next ?? defaults.next };
+    if (
+      !json &&
+      input.compactTimeout === true &&
+      ["next_wait_timed_out", "question_wait_timed_out"].includes(result.value.reason)
+    ) {
+      const phase =
+        context.kind === undefined ? "" : ` [kind=${context.kind} phase=${context.phase}]`;
+      console.log(
+        oneLine(
+          `operator: ${result.value.reason}${phase}; next: ${context.next === undefined ? "operator next" : nextText(context.next)}`,
+        ),
+      );
+      process.exitCode = 0;
+      return;
+    }
     console.log(
       JSON.stringify(
         {
@@ -114,8 +190,10 @@ export function respond(input: {
           reason: result.value.reason,
           blockers: [],
           data: result.value.data,
-          next: result.value.next,
-          state: result.value.state,
+          next: context.next,
+          state: context.state,
+          kind: context.kind,
+          phase: context.phase,
         },
         null,
         json ? undefined : 2,

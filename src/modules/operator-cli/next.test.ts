@@ -21,31 +21,44 @@ const cases: { row: Row; next: NextStep }[] = [
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_handoff" },
+    row: { ...assignment, reason: "handoff_failed", blockers: [], action: "replace_worker" },
     next: {
-      command: "operator handoff --source source --assignment read",
-      why: "Resume the internal review handoff.",
+      command: "operator dispatch --source source --assignment read",
+      why: "Replace the stopped worker without deleting its work.",
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_cleanup" },
+    row: { ...assignment, reason: "cleanup_failed", blockers: [], action: "clean_up" },
     next: {
       command: "operator cleanup --source source --assignment read",
       why: "Continue the recorded cleanup.",
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_cleanup", report: {} },
+    row: { ...assignment, reason: "cleanup_stopped", blockers: [], action: "clean_up", report: {} },
     next: {
       command: "operator report accept --source source --assignment read",
       why: "Continue the recorded cleanup.",
     },
   },
   {
-    row: { ...assignment, blockers: [], action: "retry_cleanup", report: undefined },
+    row: {
+      ...assignment,
+      reason: "cleanup_stopped",
+      blockers: [],
+      action: "clean_up",
+      report: undefined,
+    },
     next: {
       command: "operator cleanup --source source --assignment read",
       why: "Continue the recorded cleanup.",
+    },
+  },
+  {
+    row: { ...assignment, reason: "pr_closed", blockers: [], action: "clean_up" },
+    next: {
+      command: "operator abandon --source source --assignment read",
+      why: "The PR closed without merge; retain its unlanded work.",
     },
   },
   {
@@ -59,7 +72,7 @@ const cases: { row: Row; next: NextStep }[] = [
     row: { ...assignment, blockers: [], action: "person_decision" },
     next: { decider: "person", question: "May the retained work or resource be removed?" },
   },
-  ...(["worker_attention", "owner_attention", "resume_worker"] as const).map((action) => ({
+  ...(["worker_attention"] as const).map((action) => ({
     row: { ...assignment, blockers: [], action },
     next: {
       decider: "super-agent" as const,
@@ -93,6 +106,21 @@ test.each(cases)("next decision for $row.action preserves its row", ({ row, next
   if (next.command !== undefined) expected.command = next.command;
   expect(withNext("source", row)).toStrictEqual(expected);
   expect(row).toStrictEqual(original);
+});
+
+test.each([
+  ["ready_assignment", "assignment_ready"],
+  ["replace_worker", "launch_failed"],
+  ["replace_worker", "worker_interrupted"],
+  ["replace_worker", "handoff_failed"],
+] as const)("a null-kind %s/%s row names the same fill command in next", (action, reason) => {
+  const row = { assignment: "read", kind: null, action, reason, blockers: [] };
+  const command = "operator dispatch --source source --assignment read --kind <kind>";
+  expect(withNext("source", row)).toStrictEqual({
+    ...row,
+    command,
+    next: { command, why: "Name a worker kind for this record from before kinds." },
+  });
 });
 
 test.each([

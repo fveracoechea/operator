@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #232 and #233.
 Implemented in the role skills and CLI interfaces of #244 through #255, and audited in #258.
+Amended 2026-11-20: #373 and #396 permit a three-call read-only quick look and an open set of worker kinds, not new roles.
 
 ## Context
 
@@ -18,6 +19,8 @@ Operator names the product and its personal agentic tooling only.
 SuperAgent names the supervisor and the person's point of contact.
 WorkerAgent names an agent that receives delegated work and reports to its supervising SuperAgent.
 Task descriptions are not separate roles or a closed list.
+Worker kinds name an open set of work phases and completion contracts, not additional roles.
+The built-in kinds are research, answer, prototype, implementation, review, and pr-feedback; the person can define more.
 Herdr agent and agent session keep their runtime-process and conversation meanings.
 
 Use Operator state for stored workflow records and ready assignments for work that may start.
@@ -26,9 +29,11 @@ Product executable and plugin identifiers keep their product meaning.
 The role skills are super-agent and worker-agent, without aliases or forwarding skills.
 
 The five rules of the person govern supervision.
-A SuperAgent delegates detailed reading, investigation, implementation, review, research, triage, planning, and prototypes.
+A SuperAgent may answer a code base question within 3 read-only calls, counting reads, searches, and status calls together.
+As soon as that budget cannot suffice, it delegates with `operator ask`, never a native subagent.
+It delegates other detailed reading, investigation, implementation, review, research, triage, planning, and prototypes.
 It can run coordination commands and communicate with other SuperAgents through Herdr without taking over worker tasks.
-A PR merges only through the owner's guarded merge operation.
+A PR merges through the owner's guarded operation, or the same gate for a parked assignment's supervisor on the person's instruction.
 Unlanded work remains until the person authorizes its deletion.
 Only a SuperAgent addresses the person.
 The SuperAgent keeps context low, reads short reports, and opens details only for a coordination decision.
