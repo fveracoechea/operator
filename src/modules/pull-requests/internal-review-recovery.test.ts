@@ -325,16 +325,20 @@ test("transactional refusal never starts a handoff", async () => {
 test.each(["launchId", "sourceId", "assignment", "pullRequest"] as const)(
   "recovery refuses a current owner with a different %s after retained lookup succeeds",
   async (field) => {
-    await using device = await prDevice({ assignments: ["parent"] });
+    await using device = await prDevice({ assignments: ["parent", "other"] });
     const { input, audit, record, detach } = await setup(device);
+    const launchId = field === "launchId" ? device.start("other").launchId : input.launchId;
     const owners = DeviceState.worktreeOwners(device.paths);
     if (owners.tag !== "Ok") return expect.unreachable("Missing worktree owners");
     const current = spyOn(DeviceState, "worktreeOwners").mockReturnValue(
       Ok(
-        owners.value.map((owner) => ({
-          ...owner,
-          [field]: field === "pullRequest" ? 416 : "another-owner",
-        })),
+        owners.value
+          .filter((owner) => owner.assignment === input.assignment)
+          .map((owner) => ({
+            ...owner,
+            [field]:
+              field === "launchId" ? launchId : field === "pullRequest" ? 416 : "another-owner",
+          })),
       ),
     );
     expect(await recoverReview(input)).toMatchObject({

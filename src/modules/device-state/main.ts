@@ -1,4 +1,15 @@
 import { Err, Ok, fromThrowable, type Result } from "unthrown";
+import {
+  readStack,
+  changeStack,
+  beginStackReview,
+  restartStackReview,
+  stackIdle,
+  recordStackBase,
+  readStackBases,
+  finishStack,
+} from "./stacks.ts";
+import { stackHistory } from "./stack-history.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { createDatabase, databaseExists } from "./creation.ts";
 import { openDatabase } from "./database.ts";
@@ -169,6 +180,45 @@ function hold(renew: () => void) {
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
+  stackHistory(text: string) {
+    return stackHistory(text);
+  },
+  beginStackReview(paths: Paths, launchId: string, id: string, revision: number) {
+    return writing(paths, (client) => beginStackReview(client, launchId, id, revision));
+  },
+  finishStack(
+    paths: Paths,
+    launchId: string,
+    id: string,
+    revision: number,
+    effect: Parameters<typeof finishStack>[4],
+  ) {
+    return writing(paths, (client) => finishStack(client, launchId, id, revision, effect));
+  },
+  recordStackBase(paths: Paths, launchId: string, branch: string, data: string) {
+    return writing(paths, (client) => recordStackBase(client, launchId, branch, data));
+  },
+  readStackBases(paths: Paths, repository: string, sourceId: string) {
+    return reading(paths, (client) => readStackBases(client, repository, sourceId));
+  },
+  stackIdle(paths: Paths, launchId: string) {
+    return reading(paths, (client) => stackIdle(client, launchId));
+  },
+  restartStackReview(paths: Paths, launchId: string, id: string, revision: number) {
+    return writing(paths, (client) => restartStackReview(client, launchId, id, revision));
+  },
+  readStack(paths: Paths, launchId: string, id: string) {
+    return reading(paths, (client) => readStack(client, launchId, id));
+  },
+  changeStack(
+    paths: Paths,
+    launchId: string,
+    id: string,
+    revision: number | null,
+    decide: Parameters<typeof changeStack>[4],
+  ) {
+    return writing(paths, (client) => changeStack(client, launchId, id, revision, decide));
+  },
   recordDeliveryValidation(paths: Paths, input: Parameters<typeof recordDeliveryValidation>[1]) {
     return writing(paths, (client) => recordDeliveryValidation(client, input));
   },

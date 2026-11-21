@@ -166,22 +166,19 @@ test("only open or merged PRs and accepted reports satisfy dependencies", () => 
     { assignment: "research", completion: "report", state: "reported", required: "completed" },
   ]);
 });
-test("a PR stacks on one open parent, so several open parents wait for all but one to merge", () => {
+test("several implemented open parents permit a managed stacked start without parent merges", () => {
   function open(key: string): AssignmentState {
     return { key, completion: "pr", state: "pr-open" };
   }
   const merged: AssignmentState = { key: "done", completion: "pr", state: "merged" };
   expect(dependencyBlockers(child, [open("a"), merged])).toEqual([]);
-  expect(dependencyBlockers(child, [open("a"), open("b")])).toEqual([
-    { assignment: "a", completion: "pr", state: "pr-open", required: "merged" },
-    { assignment: "b", completion: "pr", state: "pr-open", required: "merged" },
-  ]);
+  expect(dependencyBlockers(child, [open("a"), open("b")])).toEqual([]);
   // A report reads no branch, so it can start on several open parents.
   const report: AssignmentState = { key: "read", completion: "report", state: "ready" };
   expect(dependencyBlockers(report, [open("a"), open("b")])).toEqual([]);
   expect(
     decideAssignment({ assignment: child, dependencies: [open("a"), open("b")] }),
-  ).toMatchObject({ action: "wait", reason: "dependencies_pending" });
+  ).toMatchObject({ action: "ready_assignment", reason: "assignment_ready" });
 });
 test("a blocked relay stays with its live worker, and an interrupted worker is replaced", () => {
   const owner: AssignmentState = { key: "child", completion: "pr", state: "pr-open" };

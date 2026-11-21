@@ -2,6 +2,9 @@
 
 ## Status
 
+Amended 2026-11-17 in #422: changing stack ancestry requires a fresh independent review, with earlier review records retained as history.
+Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): changed integration heads or review bases invalidate explicit readiness before effects and require a fresh kind handoff.
+
 Accepted - 2026-10-31.
 Decided in #292.
 Amended 2026-11-17: the draft-to-review handoff uses the generic kind transition and dispatch recovery (ADR-0029).
@@ -57,6 +60,13 @@ Operator keeps coordination files in device state, so the worktree carries no im
 ### Rounds and the end of the loop
 
 A round is one review of the whole PR diff against its base at a recorded head, followed by the fixes for its valid findings.
+A stack refresh that changes the integration head or review base invalidates readiness before unsafe integration effects.
+This applies even when the feature patch text stays the same.
+The old rounds, summary links, dispositions, typed readiness, and current-head evidence remain accessible as history.
+Unknown migration heads stay unknown.
+Only verified stack completion authorizes a fresh review kind through the ordinary guarded handoff.
+The earlier review and its rounds remain historical evidence and do not qualify the changed head or base.
+The normal fresh-reader handoff applies even when the earlier review used its round allowance.
 The reviewer records each round's findings and reviewed head with the CLI before it changes code.
 It checks three axes: Spec against the issue, Standards against documented standards, repository patterns, and the person's opinions, and Skills against each skill that the instructions name.
 The Skills axis lives in the review procedure of the owned worker skill, while the upstream code-review skill stays unchanged and supplies Spec and Standards.
@@ -103,7 +113,9 @@ When it is off, association of a ready PR records readiness and starts fresh pr-
 On the person's instruction, the SuperAgent can record a skip of a running internal review.
 That record alone neither marks the PR ready nor changes ownership.
 The reviewer's guarded ready operation then needs no rounds or summary comment and starts pr-feedback.
-A skip is one-way, and a second review uses a review request.
+A skip is one-way within that review, and an ordinary second review uses a review request.
+The explicit changed-integration exception starts a fresh review even after exhausted rounds, a prior skip, or a review-off ready frontier.
+An old skip, setting, or external ready flag cannot waive that fresh review.
 
 ### Relation to the assignment reviewer
 

@@ -19,6 +19,8 @@ import {
   projects,
   promotions,
   pullRequests,
+  stackOperations,
+  stackBases,
   reports,
   sources,
   workerMessages,
@@ -121,6 +123,8 @@ export function readSources(client: Database, repository: string, sourceId?: str
           assignments: AssignmentRow[];
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
+          stackOperations?: (typeof stackOperations.$inferSelect)[];
+          stackBases?: (typeof stackBases.$inferSelect)[];
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
           internalReviews: (typeof internalReviews.$inferSelect & { handoffRunning: boolean })[];
@@ -157,6 +161,16 @@ export function readSources(client: Database, repository: string, sourceId?: str
         return Ok(
           rows.map((source) => ({
             source,
+            stackOperations: db
+              .select()
+              .from(stackOperations)
+              .where(eq(stackOperations.sourceId, source.id))
+              .all(),
+            stackBases: db
+              .select()
+              .from(stackBases)
+              .where(eq(stackBases.sourceId, source.id))
+              .all(),
             assignments: db
               .select()
               .from(assignments)
@@ -558,6 +572,8 @@ export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(promotions).where(inArray(promotions.sourceId, ids)).run();
   db.delete(reports).where(inArray(reports.sourceId, ids)).run();
   db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
+  db.delete(stackOperations).where(inArray(stackOperations.sourceId, ids)).run();
+  db.delete(stackBases).where(inArray(stackBases.sourceId, ids)).run();
   db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
   db.delete(launches).where(inArray(launches.sourceId, ids)).run();
   db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();

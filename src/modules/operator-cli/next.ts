@@ -18,7 +18,25 @@ function argument(value: string) {
   return /^[a-zA-Z0-9_:/.-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+function stackNext(row: NextRow): NextStep | null {
+  if (
+    row.action !== "replace_worker" &&
+    "managedStack" in row &&
+    row.managedStack?.operation !== undefined
+  )
+    return {
+      command:
+        row.managedStack.operation.step === "cancelled"
+          ? "operator pr stack plan"
+          : `operator pr stack ${row.managedStack.operation.step === "complete" ? "review" : "apply"} --plan ${argument(row.managedStack.operation.id)}`,
+      why: "Resume the exact pinned operation in its owned worktree, or inspect it before safe cancellation.",
+    };
+  return null;
+}
+
 function rowNext(sourceId: string, row: NextRow): NextStep {
+  const stack = stackNext(row);
+  if (stack !== null) return stack;
   const source = `--source ${argument(sourceId)}`;
   const target =
     "assignment" in row ? `${source} --assignment ${argument(row.assignment)}` : source;

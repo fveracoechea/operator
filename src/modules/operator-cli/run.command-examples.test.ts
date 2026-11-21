@@ -249,11 +249,17 @@ test("bundled skills stay within their word ceilings", async () => {
       "kinds/prototype.md",
       "kinds/research.md",
       "kinds/review.md",
+      "managed-stacks.md",
     ].map((file) => `skills/worker-agent/${file}`),
   );
   for (const file of workerFiles) {
     const words = (await Bun.file(path.join(repository, file)).text()).match(/\S+/g)?.length ?? 0;
-    expect(words, file).toBeLessThanOrEqual(file.endsWith("/SKILL.md") ? 250 : 100);
+    const ceiling = file.endsWith("/SKILL.md")
+      ? 250
+      : file.endsWith("/managed-stacks.md")
+        ? 300
+        : 100;
+    expect(words, file).toBeLessThanOrEqual(ceiling);
   }
 });
 

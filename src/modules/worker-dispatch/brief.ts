@@ -26,8 +26,18 @@ type BriefInput = {
   followUps: { directory: string; files: string[] };
   pullRequest: { number: number; url: string; readiness?: { head: string | null } | null } | null;
   dependencyReports: ReturnType<typeof WorkSources.dependencyReports>;
-  stack: { assignment: string; number: number; branch: string } | null;
+  /** The open parent PR that this PR stacks on, when it has one. */
+  stack: {
+    assignment: string;
+    number: number;
+    branch: string;
+    parents?: { assignment: string; number: number; branch: string }[];
+  } | null;
+  /** The launch's resolved internal review value. Only a PR assignment uses it. ADR-0020. */
   internalReview: boolean;
+  managedStack?: ReturnType<typeof import("../pr-stacks/main.ts").PrStacks.operation>;
+  awaitingStackReview?: boolean;
+  /** The recorded internal review of the PR, which makes this start its reviewer while it runs. */
   review: {
     state: "reviewing" | "ready" | "skipped";
     rounds: { number: number; head: string; findings: (Finding & { disposition?: string })[] }[];
@@ -118,6 +128,25 @@ function handoff(input: BriefInput) {
   return "";
 }
 
+function changedStack(input: BriefInput) {
+  if (
+    input.awaitingStackReview === true &&
+    input.managedStack?.step === "complete" &&
+    input.review?.state === "reviewing" &&
+    input.review.rounds.length === 0
+  )
+    return `
+## PR feedback loop
+
+Stack operation \`${input.managedStack.id}\` changed the integration diff. Earlier review evidence does not qualify it.
+The pushed draft head is \`${input.managedStack.candidate}\` against \`${input.managedStack.targetBranch}\` at \`${input.managedStack.target}\`.
+Prerequisites: ${input.managedStack.parents.map((parent) => `\`${parent.assignment}\` PR #${parent.number} at \`${parent.head}\``).join(", ")}.
+Run \`operator pr stack review --plan ${input.managedStack.id}\` from this worktree for the fresh-reader handoff.
+Do not mark the PR ready or merge it with the old review evidence.
+`;
+  return null;
+}
+
 function adoptedHistory(history: NonNullable<BriefInput["adoptionHistory"]>) {
   const sections: string[] = [];
   for (const previous of history) {
@@ -139,6 +168,13 @@ function adoptedHistory(history: NonNullable<BriefInput["adoptionHistory"]>) {
     sections.push(section("Ended PR owner", facts.join("\n\n")));
   }
   return sections;
+}
+
+function stackFacts(stack: NonNullable<BriefInput["stack"]>) {
+  const parents = stack.parents ?? [stack];
+  if (parents.length === 1)
+    return `Parent: \`${stack.assignment}\`, PR #${stack.number}, branch \`${stack.branch}\`. The relay owns base changes; preserve unlanded work.`;
+  return `Base: \`${stack.branch}\`. Prerequisites: ${parents.map((parent) => `\`${parent.assignment}\` PR #${parent.number} (\`${parent.branch}\`)`).join(", ")}. The relay owns base changes; preserve unlanded work.`;
 }
 
 function history(input: BriefInput) {
@@ -172,13 +208,7 @@ function history(input: BriefInput) {
         `Report ${input.promotion.number} of \`${input.promotion.report}\`. The reused worktree can hold prototype changes; clean the branch before its first push.`,
       ),
     );
-  if (input.stack !== null)
-    sections.push(
-      section(
-        "Stack",
-        `Parent: \`${input.stack.assignment}\`, PR #${input.stack.number}, branch \`${input.stack.branch}\`. The relay owns base changes; preserve unlanded work.`,
-      ),
-    );
+  if (input.stack !== null) sections.push(section("Stack", stackFacts(input.stack)));
   if (input.adoption !== null && input.adoption.number !== null)
     sections.push(
       section(
@@ -221,7 +251,7 @@ function history(input: BriefInput) {
 export function renderBrief(input: BriefInput) {
   const sections = [headerFacts(input), section("Task", input.instructions)];
   if (input.intent !== null) sections.push(section("Acceptance criteria", quote(input.intent)));
-  sections.push(handoff(input));
+  sections.push(handoff(input), changedStack(input) ?? "");
   const note = input.note ?? null;
   if (
     note !== null &&

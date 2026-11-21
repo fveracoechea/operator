@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
@@ -12,6 +12,7 @@ import {
   projects,
   pullRequests,
   sources,
+  stackOperations,
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { activeOwner, type PullRequestFailure } from "./pull-requests.ts";
@@ -149,6 +150,26 @@ export function claimHandoff(
               detail: `Assignment ${assignment} has no recorded kind handoff. Nothing was changed.`,
             });
           const { handoff, implementer } = recorded;
+          const stack = db
+            .select()
+            .from(stackOperations)
+            .where(
+              and(
+                eq(stackOperations.sourceId, sourceId),
+                eq(stackOperations.assignment, assignment),
+                notInArray(stackOperations.state, ["complete", "cancelled"]),
+              ),
+            )
+            .get();
+          if (stack !== undefined)
+            return Err({
+              reason: "handoff_running",
+              detail: "Complete the pinned stack before handing off its review.",
+              next: {
+                command: `operator pr stack apply --plan ${stack.id}`,
+                why: "Resume the exact integration first.",
+              },
+            });
           const facts = { implementer, latest, checkout: project.checkout };
           if (handoff.handoffState === "done") return Ok({ handoff, ...facts });
           // The association holds the handoff until it records the process that it started, and

@@ -156,8 +156,18 @@ It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent
 An assignment whose implementation, review, and pr-feedback launches carry one pull request through review, feedback, CI, and merge.
 The ready transition ends the reviewer launch and starts a fresh pr-feedback launch in the same worktree.
 A dependent can start when the dependency's PR is open or merged.
-It stacks on the branch of one open parent PR, and it waits while more than one parent PR is open.
+It stacks on an open prerequisite that contains the required heads, or on its own dependency-only base for independent prerequisites.
 A parked PR assignment keeps its worktree and PR-open state without a live launch.
+
+**Dependency-only base**:
+An integration of pinned prerequisite heads that excludes the child's work.
+It belongs to one child and does not transfer ownership of prerequisite branches.
+
+**Stack operation**:
+An owner-scoped change from a proven old dependency cut to pinned prerequisite heads.
+It retains interrupted progress, failures, and historical review evidence until completion or safe cancellation.
+Supplemental sibling prerequisites extend integration obligations without changing the registered source plan.
+Changed integration head or review base requires a fresh independent review.
 
 **Report assignment**:
 An assignment that completes through SuperAgent acceptance of a durable report rather than a PR.

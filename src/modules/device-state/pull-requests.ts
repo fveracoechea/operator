@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, notInArray } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, fromThrowable, type Result } from "unthrown";
 import { z } from "zod";
@@ -18,6 +18,7 @@ import {
   projects,
   pullRequests,
   sources,
+  stackOperations,
 } from "./schema.ts";
 import { stateFailure, type StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
@@ -33,6 +34,8 @@ export type PullRequestFailure =
   | (RefusalContext & {
       reason:
         | "pr_owner_inactive"
+        | "stack_incomplete"
+        | "stack_review_required"
         | "pr_already_associated"
         | "pr_owned_elsewhere"
         | "pr_not_associated"
@@ -137,7 +140,7 @@ export function worktreeOwners(client: Database) {
 export function activeOwner(
   db: Db,
   launchId: string,
-  options: { adopting?: boolean; parkedMergeHead?: string } = {},
+  options: { adopting?: boolean; parkedMergeHead?: string; stackOperation?: boolean } = {},
 ) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
@@ -180,7 +183,109 @@ export function activeOwner(
       detail:
         "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
     });
-  return Ok(owner);
+  return stackOwnerFence(db, owner, launchId, options.stackOperation);
+}
+
+function stackOwnerFence(
+  db: Db,
+  owner: {
+    source: typeof sources.$inferSelect;
+    assignment: typeof assignments.$inferSelect;
+    launch: typeof launches.$inferSelect;
+  },
+  launchId: string,
+  stackOperation = false,
+) {
+  return (
+    stackOperation ? stackEffectFence(db, owner) : ordinaryStackFence(db, owner, launchId)
+  ).as(owner);
+}
+
+function stackEffectFence(
+  db: Db,
+  owner: Parameters<typeof stackOwnerFence>[1],
+): Result<void, PullRequestFailure> {
+  const pr = db
+    .select()
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.sourceId, owner.source.id),
+        eq(pullRequests.assignment, owner.assignment.key),
+      ),
+    )
+    .get();
+  if (
+    pr?.waitState === "waiting" &&
+    pr.waitOwnerPid !== process.pid &&
+    !ownerGone({ ownerPid: pr.waitOwnerPid, leaseAt: pr.waitLeaseAt }, Date.now())
+  )
+    return Err<PullRequestFailure>({
+      reason: "stack_incomplete",
+      detail: "A live PR wait owns this branch. Stop or finish that wait before a stack change.",
+      next: {
+        command: "operator next",
+        why: "Inspect the recorded wait without a competing branch effect.",
+      },
+    });
+  return deliveryIdle(db, owner.source.id, owner.assignment.key);
+}
+
+function ordinaryStackFence(
+  db: Db,
+  owner: Parameters<typeof stackOwnerFence>[1],
+  launchId: string,
+): Result<void, PullRequestFailure> {
+  return stackIdle(db, owner.source.id, owner.assignment.key).flatMap(() =>
+    stackReviewFence(db, owner, launchId),
+  );
+}
+
+function stackReviewFence(
+  db: Db,
+  owner: Parameters<typeof stackOwnerFence>[1],
+  launchId: string,
+): Result<void, PullRequestFailure> {
+  const review = db
+    .select()
+    .from(internalReviews)
+    .where(
+      and(
+        eq(internalReviews.sourceId, owner.source.id),
+        eq(internalReviews.assignment, owner.assignment.key),
+      ),
+    )
+    .get();
+  const integration = db
+    .select()
+    .from(stackOperations)
+    .where(
+      and(
+        eq(stackOperations.sourceId, owner.source.id),
+        eq(stackOperations.assignment, owner.assignment.key),
+        eq(stackOperations.launchId, launchId),
+        notInArray(stackOperations.state, ["planned", "blocked"]),
+        isNotNull(stackOperations.reviewHistory),
+      ),
+    )
+    .get();
+  if (
+    integration !== undefined &&
+    review?.state === "reviewing" &&
+    review.implementerLaunchId === launchId
+  )
+    return Err<PullRequestFailure>({
+      reason: "stack_review_required",
+      detail: "The changed integration needs a fresh independent reviewer, not the outgoing owner.",
+      next: {
+        command:
+          integration.state === "cancelled"
+            ? "operator pr stack plan"
+            : `operator pr stack review --plan ${integration.id}`,
+        why: "Hand the verified integration to its fresh review kind.",
+      },
+    });
+  return Ok(undefined);
 }
 
 /** A finished parked launch may only record the verified merge of its retained pushed head. */

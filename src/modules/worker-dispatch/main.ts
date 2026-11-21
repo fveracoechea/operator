@@ -19,6 +19,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
+import { PrStacks } from "../pr-stacks/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import type { NextStep, ResultContext } from "../../lib/cli-result.ts";
 import { prepareBranch, readAdoption } from "./adoption.ts";
@@ -253,21 +254,37 @@ function assignmentFacts(input: DispatchRequest, actions = dispatchActions) {
                 }),
               ),
       )
-      // An associated PR keeps its recorded parent base until its relay finishes.
+      // Several open prerequisites get a per-child dependency-only base, never a parent's ref rewrite.
       .let("stack", ({ source, planned, pullRequest }) => {
-        if (pullRequest !== null) {
+        if (pullRequest?.relay !== undefined && pullRequest !== null) {
           const relay = pullRequest.relay;
-          return relay === null || relay.state === "relayed" ? null : relay.parent;
+          if (relay === null || relay.state === "relayed") return null;
+          return { ...relay.parent, parents: relay.prerequisites ?? [relay.parent] };
         }
-        // Next waits while several parents are open, before a PR is associated.
+        const recorded = source.stackBases.find((row) => row.assignment === planned.key);
+        if (recorded !== undefined) {
+          const base = recorded.data;
+          const first = base.parents[0];
+          if (first !== undefined)
+            return {
+              assignment: first.assignment,
+              number: first.number,
+              branch: base.branch,
+              parents: base.parents,
+            };
+        }
         const open = source.assignments.filter(
           (row) => planned.dependencies.includes(row.key) && row.state === "pr-open",
         );
         const parent = source.pullRequests.find((pr) => pr.assignment === open[0]?.key);
         // Stryker disable next-line ConditionalExpression, LogicalOperator: equivalent: next gives no dispatch action while several parents are open, and an open parent always has its PR
-        const one = open.length === 1 && parent !== undefined;
+        const one = open.length > 0 && parent !== undefined;
+        const openKeys = new Set(open.map((row) => row.key));
+        const parents = source.pullRequests
+          .filter((row) => openKeys.has(row.assignment))
+          .map((row) => ({ assignment: row.assignment, number: row.number, branch: row.branch }));
         return planned.completion === "pr" && one
-          ? { assignment: parent.assignment, number: parent.number, branch: parent.branch }
+          ? { assignment: parent.assignment, number: parent.number, branch: parent.branch, parents }
           : null;
       })
       .flatTap(({ adoption, stack, planned }) => {
@@ -354,10 +371,26 @@ function chooseResources(input: Request, facts: Facts) {
         return Ok(reuse);
       }),
     )
-    .bind("base", ({ reuse }) =>
-      facts.stack === null || reuse !== null
-        ? OkAsync(undefined)
-        : parentBase(checkout, facts.stack.branch),
+    .bind("preparedStack", ({ reuse }) =>
+      facts.stack !== null && facts.stack.parents.length > 1 && reuse === null
+        ? PrStacks.start({
+            cwd: checkout,
+            repository: facts.project.repository,
+            parents: facts.stack.parents,
+            namespace: `${input.sourceId}/${input.assignment}`,
+            previous: facts.source.stackBases.find(
+              (row) =>
+                row.assignment === input.assignment && row.data.publication?.state === "intent",
+            )?.data,
+          })
+        : OkAsync(null),
+    )
+    .bind("base", ({ reuse, preparedStack }) =>
+      preparedStack !== null
+        ? OkAsync(preparedStack.head)
+        : facts.stack === null || reuse !== null
+          ? OkAsync(undefined)
+          : parentBase(checkout, facts.stack.branch),
     )
     .bind("names", ({ workspace, agents, tabs, recorded, branches, reuse }) => {
       const takenNames = new Set([...agents, ...tabs, ...workspace.labels, ...recorded]);
@@ -457,6 +490,7 @@ function writeBrief(
   directEntry:
     | (Parameters<typeof DeviceState.adoptPullRequest>[2] & { mergedAt: null })
     | null = null,
+  awaitingStackReview = false,
 ) {
   const files = OperatorHome.assignmentFiles(request.paths, {
     repository: settings.project.repository,
@@ -465,6 +499,9 @@ function writeBrief(
   });
   const promotion = settings.planned.promotion;
   const phasePr = settings.pullRequest ?? directEntry;
+  const managedStack = settings.source.stackOperations.findLast(
+    (row) => row.assignment === settings.planned.key,
+  )?.data;
   return fromPromise(
     async () => {
       const questions: NonNullable<Parameters<typeof renderBrief>[0]["questions"]> = [];
@@ -524,6 +561,8 @@ function writeBrief(
         pullRequest: settings.pullRequest,
         dependencyReports: settings.planned.dependencyReports,
         stack: settings.stack,
+        managedStack,
+        awaitingStackReview,
         internalReview: settings.internalReview,
         review: settings.review,
         note: await reviewerNote(settings),
@@ -539,6 +578,45 @@ function writeBrief(
     // Stryker disable next-line ConditionalExpression: equivalent: qualify passes any cause without an I/O code to defect, as the other branch does
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   );
+}
+
+function publishStackStart(
+  request: Request,
+  id: string,
+  branch: string | null,
+  base: Resources["preparedStack"],
+  checkout: string,
+) {
+  if (base === null || branch === null) return OkAsync(undefined);
+  function save(data: NonNullable<typeof base>) {
+    return DeviceState.recordStackBase(request.paths, id, branch ?? "", JSON.stringify(data)).as(
+      undefined,
+    );
+  }
+  if (!base.managed) return save(base).toAsync();
+  const remote = base.remote ?? base.publication?.remote;
+  if (remote === undefined)
+    return ErrAsync<Failure>({
+      reason: "stack_parent",
+      detail: "The pinned managed start has no publication remote. Nothing was published.",
+      next: {
+        decider: "super-agent",
+        question: "How should this incomplete start's remote identity be recovered?",
+      },
+    });
+  const publication = base.publication ?? {
+    remote,
+    state: "intent" as const,
+    at: new Date().toISOString(),
+    expected: "absent" as const,
+  };
+  return PrStacks.publish({
+    cwd: checkout,
+    remote,
+    base,
+    attempted: base.publication !== undefined,
+    beforePush: () => save({ ...base, publication }),
+  }).flatMap(() => save({ ...base, publication: { ...publication, state: "verified" } }));
 }
 
 /** Herdr effects run with no database transaction open. Each returned resource is recorded. */
@@ -557,6 +635,9 @@ function launchEffects(input: {
   }
   return (
     DoAsync()
+      .flatTap(() =>
+        publishStackStart(request, input.id, branch, resources.preparedStack, checkout),
+      )
       .bind("workspaceId", () =>
         ensureWorkspace(checkout, repository, resources.workspace.workspaceId),
       )
@@ -626,7 +707,22 @@ function launchEffects(input: {
         });
       })
       .bind("brief", ({ placement, adopted }) =>
-        writeBrief(request, settings, placement, branch, adopted),
+        writeBrief(
+          request,
+          resources.preparedStack === null || settings.stack === null
+            ? settings
+            : {
+                ...settings,
+                stack: {
+                  ...settings.stack,
+                  branch: resources.preparedStack.branch,
+                  parents: resources.preparedStack.parents,
+                },
+              },
+          placement,
+          branch,
+          adopted,
+        ),
       )
       .flatTap(({ placement }) =>
         AgentHosts.start({
@@ -899,6 +995,30 @@ function refreshBrief(request: Request) {
 
 /** Launches WorkerAgents through Herdr and handles the stable plugin hooks. */
 export const WorkerDispatch = {
+  /** Only the running owner can refresh a stack brief after a durable stack transition. */
+  refreshStackBrief(request: Request & { launchId: string }) {
+    return assignmentFacts(request, ["wait", "worker_attention", "replace_worker"]).flatMap(
+      (facts) => {
+        const launch = facts.source.launches.findLast(
+          (row) => row.assignment === request.assignment,
+        );
+        if (
+          launch?.id !== request.launchId ||
+          launch.state !== "running" ||
+          launch.worktreePath === null
+        )
+          return notDispatchable(request.assignment, { briefRefreshAllowed: false });
+        return writeBrief(
+          request,
+          { ...facts, launch: { profile: launch.profile }, kind: launch.kind },
+          { workingDirectory: launch.worktreePath },
+          launch.branch,
+          null,
+          true,
+        );
+      },
+    );
+  },
   /** Reuses launch policy before a kind handoff claims state or closes its outgoing pane. */
   checkHandoff(input: Request) {
     return assignmentFacts({ ...input, handoff: true })
