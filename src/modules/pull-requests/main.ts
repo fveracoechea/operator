@@ -369,6 +369,7 @@ function rememberQueueMembership(
     observed.queueEntry === undefined ||
     parking?.queueHead === null ||
     parking?.queueHead === undefined ||
+    parking.queueHead !== observed.head ||
     parking.queueAttempt === null ||
     parking.queueAttempt === undefined
   )

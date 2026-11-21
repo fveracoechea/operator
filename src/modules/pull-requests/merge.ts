@@ -1,4 +1,4 @@
-import { ErrAsync, OkAsync, P, fromPromise, type AsyncResult, type Result } from "unthrown";
+import { ErrAsync, Ok, OkAsync, P, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
@@ -180,66 +180,90 @@ function guarded(
   if (decision.result === "verify") {
     if (queueHead !== null) return awaitBatch(input, owner, number, observed);
     if (input.sourceId === undefined) return verify(input, owner, number, null, null);
-    return readMergeQueue(owner.repository, number).flatMap(
-      (queue): AsyncResult<Outcome, Failure> =>
-        queue.enabled
-          ? OkAsync({
-              reason: "pr_merge_awaiting_batch",
-              data: {
-                sourceId: owner.sourceId,
-                assignment: owner.assignment,
-                number,
-                head: observed.head,
-                state: "pr-open",
-              },
-              next: {
-                command: `operator next --source ${owner.sourceId} --wait`,
-                why: "Only the parked batch records the queued merge and starts cleanup.",
-              },
-            })
-          : verify(input, owner, number, null, null),
+    return readQueue(input, owner, number).flatMap((queue): AsyncResult<Outcome, Failure> =>
+      queue.enabled
+        ? OkAsync({
+            reason: "pr_merge_awaiting_batch",
+            data: {
+              sourceId: owner.sourceId,
+              assignment: owner.assignment,
+              number,
+              head: observed.head,
+              state: "pr-open",
+            },
+            next: {
+              command: `operator next --source ${owner.sourceId} --wait`,
+              why: "Only the parked batch records the queued merge and starts cleanup.",
+            },
+          })
+        : verify(input, owner, number, null, null),
     );
   }
   return fromPromise(() => mergePhase(owner), qualify).flatMap(
     (phase): AsyncResult<Outcome, Failure> => {
       if (phase !== null) return ErrAsync(phase);
-      return readMergeQueue(owner.repository, number).flatMap(
-        (queue): AsyncResult<Outcome, Failure> => {
-          if (queueHead !== null && queue.entry === null)
-            return recoverQueueRefusal(input, owner, number, observed, queue);
-          if (queue.enabled || queue.entry !== null)
-            return queuedMerge(input, owner, number, observed, decision.head, queue);
-          if (queueHead !== null) return awaitBatch(input, owner, number, observed);
-          // A refused or lost answer can follow a merge that landed, so every answer is verified.
-          return DeviceState.admitDelivery(input.paths, {
-            launchId: owner.launchId,
-            head: decision.head,
-            selected: input.sourceId !== undefined,
-            session: Environment.caller().session,
-          })
-            .toAsync()
-            .flatMap((delivery): AsyncResult<Outcome, Failure> => {
-              if (delivery === null)
-                return ErrAsync({
-                  reason: "pr_delivery_running",
-                  detail: "No direct intent was recorded.",
-                  next: { command: mergeCommand(input), why: "Read the delivery state." },
-                });
-              return directDelivery({
-                paths: input.paths,
-                owner,
-                number,
-                delivery,
-                method: decision.method,
-              }).flatMap((merged) => record(input, owner, number, merged));
-            });
-        },
-      );
+      return readQueue(input, owner, number).flatMap((queue): AsyncResult<Outcome, Failure> => {
+        if (queueHead !== null && queue.entry === null)
+          return recoverQueueRefusal(input, owner, number, observed, queue);
+        if (queue.enabled || queue.entry !== null)
+          return queuedMerge(input, owner, number, observed, decision.head, queue);
+        if (queueHead !== null) return awaitBatch(input, owner, number, observed);
+        // A refused or lost answer can follow a merge that landed, so every answer is verified.
+        return DeviceState.admitDelivery(input.paths, {
+          launchId: owner.launchId,
+          head: decision.head,
+          selected: input.sourceId !== undefined,
+          session: Environment.caller().session,
+        })
+          .toAsync()
+          .flatMap((delivery): AsyncResult<Outcome, Failure> => {
+            if (delivery === null)
+              return ErrAsync({
+                reason: "pr_delivery_running",
+                detail: "No direct intent was recorded.",
+                next: { command: mergeCommand(input), why: "Read the delivery state." },
+              });
+            return directDelivery({
+              paths: input.paths,
+              owner,
+              number,
+              delivery,
+              method: decision.method,
+            }).flatMap((merged) => record(input, owner, number, merged));
+          });
+      });
     },
   );
 }
 
 type Queue = Extract<Awaited<ReturnType<typeof readMergeQueue>>, { tag: "Ok" }>["value"];
+
+/** Membership must invalidate old refusal proof before another read can report absence. */
+function rememberMembership(
+  input: Request,
+  owner: Owner,
+  observed: { head: string; state: string; entry: string | null },
+): Result<undefined, Failure> {
+  if (observed.entry === null) return Ok(undefined);
+  const parking =
+    owner.parking === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(owner.parking));
+  if (parking?.queueHead === undefined || parking.queueHead === null) return Ok(undefined);
+  return recordQueueObservation(
+    input,
+    owner,
+    parking.queueHead,
+    parking.queueAttempt,
+    Ok(observed),
+  );
+}
+
+function readQueue(input: Request, owner: Owner, number: number) {
+  return readMergeQueue(owner.repository, number).flatMap((queue) =>
+    rememberMembership(input, owner, queue)
+      .toAsync()
+      .map(() => queue),
+  );
+}
 
 function awaitBatch(
   input: Request,
@@ -332,22 +356,28 @@ function queuedMerge(
         }).toAsync()
   ).flatMap((attempt) => {
     if (attempt === null && queue.entry === null) return awaitBatch(input, owner, number, observed);
+    if (queue.entry !== null) {
+      const remembered = recordQueueObservation(
+        input,
+        owner,
+        head,
+        attempt ?? parking?.queueAttempt,
+        Ok(queue),
+      );
+      if (remembered.tag !== "Ok")
+        return remembered.map<Outcome>(() => enqueued(owner, number, head, null)).toAsync();
+    }
     return fromPromise(async () => {
       const requested = queue.entry === null ? await enqueuePullRequest(queue.id, head) : null;
       saveQueueRefusal(input, owner, head, attempt, requested);
-      const verification = await readMergeQueue(owner.repository, number);
-      if (requested !== null && requested.tag !== "Ok" && verification.tag !== "Ok") {
-        reportQueueFailure("enqueue_verification", verification);
-        return requested.map<Outcome>(() => enqueued(owner, number, head, null));
-      }
-      if (requested?.tag === "Defect") {
-        if (verification.tag !== "Ok") reportQueueFailure("enqueue_verification", verification);
-        return requested.map<Outcome>(() => enqueued(owner, number, head, null));
-      }
-      recordQueueObservation(input, owner, head, attempt ?? parking?.queueAttempt, verification);
-      if (requested?.tag === "Err" && requested.error.state?.notApplied === true) {
-        return requested.map<Outcome>(() => enqueued(owner, number, head, null));
-      }
+      const verification = await queueReadback(
+        input,
+        owner,
+        number,
+        head,
+        attempt ?? parking?.queueAttempt,
+        requested,
+      );
       return verification.toAsync().flatMap((confirmed): AsyncResult<Outcome, Failure> => {
         // A lost answer can follow an accepted enqueue; membership, not the answer, proves it.
         if (confirmed.entry === null || confirmed.head !== head) {
@@ -375,6 +405,33 @@ function queuedMerge(
 }
 
 type EnqueueAnswer = Awaited<ReturnType<typeof enqueuePullRequest>> | null;
+
+function queueReadback(
+  input: Request,
+  owner: Owner,
+  number: number,
+  head: string,
+  attempt: string | null | undefined,
+  requested: EnqueueAnswer,
+): AsyncResult<Queue, Failure> {
+  return fromPromise(async () => {
+    const verification = await readMergeQueue(owner.repository, number);
+    const recorded = recordQueueObservation(input, owner, head, attempt, verification);
+    if (requested !== null && requested.tag !== "Ok") {
+      if (recorded.tag !== "Ok") reportQueueFailure("enqueue_release", recorded);
+      if (verification.tag !== "Ok") reportQueueFailure("enqueue_verification", verification);
+      if (
+        recorded.tag !== "Ok" ||
+        verification.tag !== "Ok" ||
+        requested.tag === "Defect" ||
+        requested.error.state?.notApplied === true
+      )
+        return requested.flatMap(() => verification);
+    }
+    return recorded.flatMap(() => verification);
+  }, qualify).flatMap((result) => result);
+}
+
 function saveQueueRefusal(
   input: Request,
   owner: Owner,
@@ -399,17 +456,16 @@ function recordQueueObservation(
   owner: Owner,
   head: string,
   attempt: string | null | undefined,
-  verification: Awaited<ReturnType<typeof readMergeQueue>>,
-) {
-  if (attempt === null || attempt === undefined || verification.tag !== "Ok") return;
-  const recorded = DeviceState.refusePullRequestQueue(
+  verification: Result<{ head: string; state: string; entry: string | null }, Failure>,
+): Result<undefined, Failure> {
+  if (attempt === null || attempt === undefined || verification.tag !== "Ok") return Ok(undefined);
+  return DeviceState.refusePullRequestQueue(
     input.paths,
     owner.launchId,
     head,
     attempt,
     verification.value,
-  );
-  if (recorded.tag !== "Ok") reportQueueFailure("enqueue_release", recorded);
+  ).map(() => undefined);
 }
 
 function reportQueueFailure<T>(phase: string, secondary: Result<T, Failure>) {
@@ -525,9 +581,17 @@ export function merge(input: Request): AsyncResult<Outcome, Failure> {
                 ),
               );
           return observePullRequest(owner.repository, number).flatMap((observed) =>
-            fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
-              guarded(input, owner, number, observed, local),
-            ),
+            rememberMembership(input, owner, {
+              head: observed.head,
+              state: observed.state,
+              entry: observed.queueEntry ?? null,
+            })
+              .toAsync()
+              .flatMap(() =>
+                fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
+                  guarded(input, owner, number, observed, local),
+                ),
+              ),
           );
         });
     })

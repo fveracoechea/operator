@@ -150,6 +150,27 @@ test("queue refusal proof survives parking, but accepted membership permanently 
   expect(db.serialize()).toEqual(accepted);
 });
 
+test.each(["head", "attempt", "launch"] as const)(
+  "membership with a contradictory %s cannot confirm or change an attempt",
+  (contradiction) => {
+    using db = fixture();
+    const attempt = recordPullRequestQueue(db, "l", "h").getOr(null);
+    if (attempt === null) return expect.unreachable("The new attempt must be owned.");
+    expect(recordPullRequestQueueRefusal(db, "l", "h", attempt, "Typed refusal.").tag).toBe("Ok");
+    const before = db.serialize();
+    expect(
+      refusePullRequestQueue(
+        db,
+        contradiction === "launch" ? "foreign" : "l",
+        "h",
+        contradiction === "attempt" ? "foreign" : attempt,
+        { head: contradiction === "head" ? "foreign" : "h", state: "OPEN", entry: "Q7" },
+      ).tag,
+    ).toBe("Err");
+    expect(db.serialize()).toEqual(before);
+  },
+);
+
 test.each([
   "DELETE FROM pull_requests",
   "UPDATE assignments SET state = 'running'",

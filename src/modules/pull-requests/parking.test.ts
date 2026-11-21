@@ -526,6 +526,16 @@ test("a parked batch retains accepted membership against an earlier typed refusa
     queueRefusal: null,
   });
   expect(result.parking.events).toEqual([]);
+  const changed = parkedObservation(pending, {
+    observed: { ...observed, head: "changed", queueEntry: "Q_OTHER" },
+    parent: null,
+  });
+  expect(changed.parking).toMatchObject({
+    queueHead: "h",
+    queueAttempt: "attempt-7",
+    queueRefusal: pending.parking.queueRefusal,
+  });
+  expect(changed.parking.queueConfirmed).not.toBe(true);
 });
 
 test("new feedback and CI failures commit their independent cursors with durable events once", () => {

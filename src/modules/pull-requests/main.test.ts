@@ -457,6 +457,30 @@ test("a durable queue receipt permits feedback observation but refuses a relay c
   expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
 });
 
+test("queued correction observation does not confirm membership for a different head", async () => {
+  await using device = await prDevice();
+  const { input, launchId, worktree } = waiting(device);
+  const head = git(worktree, "rev-parse", "HEAD");
+  const attempt = DeviceState.recordPullRequestQueue(device.paths, launchId, head).getOr(null);
+  if (attempt === null) return expect.unreachable("The attempt must be newly recorded.");
+  expect(
+    DeviceState.recordPullRequestQueueRefusal(
+      device.paths,
+      launchId,
+      head,
+      attempt,
+      "Typed refusal.",
+    ).tag,
+  ).toBe("Ok");
+  const before = device.pullRequestRow("other")?.parking;
+  device.answer(() =>
+    succeeded(pullRequestBody({ head: "changed", queueEnabled: true, queueEntry: "Q_OTHER" })),
+  );
+  expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
+  expect(device.pullRequestRow("other")?.parking).toBe(before);
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+});
+
 test.each(["null", "incomplete"] as const)(
   "a live %s check read preserves prior eligibility and all cursors",
   async (kind) => {

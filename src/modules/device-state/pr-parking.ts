@@ -216,6 +216,7 @@ export function refusePullRequestQueue(
         if (row === undefined || parking?.queueHead !== head || parking.queueAttempt !== attempt)
           return Err(refused());
         if (observed.entry !== null) {
+          if (observed.head !== head) return Err(refused());
           db.update(pullRequests)
             .set({
               parking: JSON.stringify({ ...parking, queueConfirmed: true, queueRefusal: null }),

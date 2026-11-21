@@ -84,3 +84,26 @@ Later numbered development receipts distinguish failed controls from passing res
 The follow-up's final static, scoped, full-quality, smoke, and independent-review evidence must name its actual descendant head.
 Neither the clean 750aaea Spec verdict nor its full-quality pass qualifies that descendant.
 No storage migration, new command, guide authority, release publication, or mutation gate was added.
+
+## Membership observation ordering follow-up
+
+The frozen full-quality run at `b7c0fb907a6a528e4c35a10420fdeb56e166bd9c` passed 4,885 tests with 37,152 assertions across 362 files.
+Its unchanged-tree receipt is `/tmp/opencode/issue373-qualification/runs/pr415-refusal-final-quality.json`.
+Both fresh reviews reproduced the same remaining defect, not two separate blockers.
+An initial PR observation or first queue-facts read could observe membership without saving it before another read reported absence or failed.
+The reports are `/tmp/opencode/operator-next-release-415-refusal-standards.md` and `/tmp/opencode/operator-next-release-415-refusal-spec.md`.
+
+The correction saves each membership observation against the recorded head and exact attempt before another read or admission decision.
+Initial PR observations and first queue-facts reads now invalidate refusal evidence before later absent, lost, or defective readbacks.
+Persistence failure stops the invocation, unless an earlier enqueue failure must remain the primary result.
+Contradictory membership heads or attempt identities refuse without changing the receipt.
+Live waits still observe validated feedback corrections; different-head membership does not confirm the earlier attempt.
+Parked batches also confirm only matching-head membership.
+Historical receipts without an attempt remain unknown.
+Parking, live wait, batch completion ownership, and direct/stack exclusion remain unchanged.
+
+`pr415-ordering-red.json` records six module and three separate-process CLI failures before the production correction.
+`pr415-ordering-controls-red.json` records five persistence/identity failures and two passing identity controls.
+These receipts remain under `/tmp/opencode/issue373-qualification/runs/`.
+Final qualification and both new independent reviews must name the corrected descendant, not b7c0fb9.
+No new mutation campaign, consumer note, command, migration, or release action belongs to this correction.

@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { Ok, fromPromise } from "unthrown";
+import { Err, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { Environment } from "../environment/main.ts";
@@ -497,6 +497,219 @@ test.each(["changed-head", "closed", "merged", "partial", "lost", "member"] as c
       queueHead: head,
       queueAttempt: attempt,
     });
+    expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
+  },
+);
+
+async function pendingQueueRefusal() {
+  const fixture = await owner(null, undefined, true);
+  const { device, input, head } = fixture;
+  spyOn(process.stderr, "write").mockImplementation(() => true);
+  let submitted = false;
+  device.answer((args) => {
+    if (requestKind(args) === "enqueue") {
+      submitted = true;
+      return succeeded({
+        data: { enqueuePullRequest: null },
+        errors: [
+          { type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Typed refusal." },
+        ],
+      });
+    }
+    return submitted && requestKind(args) === "merge_queue"
+      ? uncertain("First verification lost.")
+      : succeeded(pullRequestBody({ head, queueEnabled: true }));
+  });
+  expect(await merge(input)).toMatchObject({ tag: "Err", error: { reason: "pr_enqueue_refused" } });
+  function parking() {
+    return DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    );
+  }
+  expect(parking().queueRefusal).toMatchObject({ head, attempt: parking().queueAttempt });
+  return { ...fixture, parking };
+}
+
+test("a newly recorded attempt retains first membership before a lost second read", async () => {
+  const { device, input, head } = await owner(null, undefined, true);
+  await using _ = device;
+  let queueReads = 0;
+  device.answer((args) => {
+    if (requestKind(args) === "merge_queue" && ++queueReads > 1)
+      return uncertain("Second membership read lost.");
+    return succeeded(
+      pullRequestBody({
+        head,
+        queueEnabled: true,
+        queueEntry: requestKind(args) === "merge_queue" ? "Q7" : null,
+      }),
+    );
+  });
+  expect(await merge(input)).toMatchObject({ tag: "Err", error: { reason: "github_uncertain" } });
+  const accepted = DeviceState.prParkingSchema().parse(
+    JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+  );
+  expect(accepted).toMatchObject({
+    queueHead: head,
+    queueConfirmed: true,
+    queueRefusal: null,
+  });
+  expect(accepted.queueAttempt).toBeTruthy();
+  device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true })));
+  await merge(input);
+  expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(0);
+  expect(
+    DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    ),
+  ).toMatchObject({ queueHead: head, queueAttempt: accepted.queueAttempt, queueConfirmed: true });
+});
+
+test.each([
+  ["pull_request", "absent"],
+  ["pull_request", "lost"],
+  ["pull_request", "defect"],
+  ["merge_queue", "absent"],
+  ["merge_queue", "lost"],
+  ["merge_queue", "defect"],
+] as const)(
+  "membership in %s persists before a later %s read can release the attempt",
+  async (membershipRead, laterRead) => {
+    const { device, input, head, parking } = await pendingQueueRefusal();
+    await using _ = device;
+    const attempt = parking().queueAttempt;
+    const cause = new TypeError("Later membership read failed.");
+    let queueReads = 0;
+    device.answer((args) => {
+      const kind = requestKind(args);
+      if (kind === "merge_queue") queueReads++;
+      const member =
+        membershipRead === "pull_request"
+          ? kind === "pull_request"
+          : kind === "merge_queue" && queueReads === 1;
+      if (kind === "merge_queue" && !member) {
+        if (laterRead === "lost") return uncertain("Later membership read lost.");
+        if (laterRead === "defect") return Promise.reject(cause);
+      }
+      return succeeded(
+        pullRequestBody({ head, queueEnabled: true, queueEntry: member ? "Q7" : null }),
+      );
+    });
+    const result = await merge(input);
+    const accepted = parking();
+    if (laterRead === "defect") {
+      expect(result.tag).toBe("Defect");
+      if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    }
+    if (laterRead === "lost")
+      expect(result).toMatchObject({ tag: "Err", error: { reason: "github_uncertain" } });
+    device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true })));
+    await merge(input);
+    await merge(input);
+    expect(accepted).toMatchObject({
+      queueHead: head,
+      queueAttempt: attempt,
+      queueConfirmed: true,
+      queueRefusal: null,
+    });
+    expect(parking()).toMatchObject({
+      queueHead: head,
+      queueAttempt: attempt,
+      queueConfirmed: true,
+      queueRefusal: null,
+    });
+    expect(device.pullRequestRow("other")).toMatchObject({
+      sourceId: device.sourceId,
+      assignment: "other",
+    });
+    expect(assignmentState(device)).toBe("pr-open");
+    expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
+  },
+);
+
+test.each([
+  ["pull_request", "err"],
+  ["pull_request", "defect"],
+  ["merge_queue", "err"],
+  ["merge_queue", "defect"],
+] as const)(
+  "failed %s membership persistence stops before another read or admission: %s",
+  async (membershipRead, failure) => {
+    const { device, input, head, parking } = await pendingQueueRefusal();
+    await using _ = device;
+    const before = parking();
+    const cause = new TypeError("Membership persistence failed.");
+    const defect = await fromPromise(
+      () => Promise.reject(cause),
+      (_cause, unexpected) => unexpected(cause),
+    );
+    const refusal = {
+      reason: "pr_resume_refused" as const,
+      detail: "Membership persistence refused.",
+      next: { command: "operator next", why: "Read the owner." },
+    };
+    spyOn(DeviceState, "refusePullRequestQueue").mockReturnValue(
+      failure === "err" ? Err(refusal) : defect.map(() => false),
+    );
+    const start = device.calls.length;
+    device.answer((args) =>
+      succeeded(
+        pullRequestBody({
+          head,
+          queueEnabled: true,
+          queueEntry: requestKind(args) === membershipRead ? "Q7" : null,
+        }),
+      ),
+    );
+    const result = await merge(input);
+    if (failure === "err") expect(result).toMatchObject({ tag: "Err", error: refusal });
+    else {
+      expect(result.tag).toBe("Defect");
+      if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    }
+    expect(device.calls.slice(start).map(requestKind)).toEqual(
+      membershipRead === "pull_request" ? ["pull_request"] : ["pull_request", "merge_queue"],
+    );
+    expect(parking()).toEqual(before);
+  },
+);
+
+test.each(["err", "defect"] as const)(
+  "final membership persistence failure cannot report enqueue success: %s",
+  async (failure) => {
+    const { device, input, head } = await owner(null, undefined, true);
+    await using _ = device;
+    const cause = new TypeError("Final membership persistence failed.");
+    const defect = await fromPromise(
+      () => Promise.reject(cause),
+      (_cause, unexpected) => unexpected(cause),
+    );
+    const refusal = {
+      reason: "pr_resume_refused" as const,
+      detail: "Final membership persistence refused.",
+      next: { command: "operator next", why: "Read the owner." },
+    };
+    spyOn(DeviceState, "refusePullRequestQueue").mockReturnValue(
+      failure === "err" ? Err(refusal) : defect.map(() => false),
+    );
+    let submitted = false;
+    device.answer((args) => {
+      if (requestKind(args) === "enqueue") {
+        submitted = true;
+        return succeeded({ data: { enqueuePullRequest: { mergeQueueEntry: { id: "Q7" } } } });
+      }
+      return succeeded(
+        pullRequestBody({ head, queueEnabled: true, queueEntry: submitted ? "Q7" : null }),
+      );
+    });
+    const result = await merge(input);
+    if (failure === "err") expect(result).toMatchObject({ tag: "Err", error: refusal });
+    else {
+      expect(result.tag).toBe("Defect");
+      if (result.tag === "Defect") expect(result.cause).toBe(cause);
+    }
+    device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true })));
+    await merge(input);
     expect(device.calls.filter((args) => requestKind(args) === "enqueue")).toHaveLength(1);
   },
 );

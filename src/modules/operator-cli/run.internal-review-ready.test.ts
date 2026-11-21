@@ -251,6 +251,7 @@ async function github(change: {
   mergeSubmitLost?: boolean;
   enqueueTypedRefuse?: boolean;
   enqueueVerificationLost?: boolean;
+  queueMembershipReads?: ("Q7" | "lost" | null)[];
   pulls?: Pull[];
   commentLost?: boolean;
   readyLost?: boolean;
@@ -924,6 +925,64 @@ test("a typed queue refusal survives a lost verification and a new CLI process w
   expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(2);
   expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
 }, 120000);
+
+test.each([
+  ["pull_request", "absent"],
+  ["merge_queue", "absent"],
+  ["merge_queue", "lost"],
+] as const)(
+  "membership in %s survives a later %s read and separate CLI processes",
+  async (membershipRead, laterRead) => {
+    const { source, head } = await parkedFixture();
+    const facts = {
+      head,
+      reviewDecision: "APPROVED",
+      checks: [{ name: "ci", conclusion: "SUCCESS" }],
+      isMergeQueueEnabled: true,
+    };
+    await github({
+      pulls: [pull(facts)],
+      enqueueTypedRefuse: true,
+      enqueueVerificationLost: true,
+    });
+    const command = ["pr", "merge", "--source", source, "--assignment", "implement"];
+    expect(await run(command)).toMatchObject({
+      code: 1,
+      output: { reason: "pr_enqueue_refused", state: { notApplied: true } },
+    });
+    const before = z
+      .looseObject({ queueAttempt: z.string() })
+      .parse((await shown(source)).pullRequests[0]?.parking);
+    await github({
+      enqueueTypedRefuse: false,
+      pulls: [pull({ ...facts, queueEntry: membershipRead === "pull_request" ? "Q7" : null })],
+      queueMembershipReads:
+        membershipRead === "pull_request" ? [null] : ["Q7", laterRead === "lost" ? "lost" : null],
+    });
+    await run(command);
+    const accepted = (await shown(source)).pullRequests[0]?.parking;
+    await github({ pulls: [pull(facts)] });
+    await run(command);
+    await run(command);
+    const after = await shown(source);
+    expect(accepted).toMatchObject({
+      queueHead: head,
+      queueAttempt: before.queueAttempt,
+      queueConfirmed: true,
+      queueRefusal: null,
+    });
+    expect(after.pullRequests[0]?.parking).toMatchObject({
+      queueHead: head,
+      queueAttempt: before.queueAttempt,
+      queueConfirmed: true,
+      queueRefusal: null,
+    });
+    expect(after.assignments.find((row) => row.key === "implement")?.state).toBe("pr-open");
+    expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(1);
+    expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+  },
+  120000,
+);
 
 test("an omitted queue field preserves parked cursors and the batch retry schedule", async () => {
   const { source, head } = await parkedFixture();
