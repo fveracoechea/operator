@@ -65,6 +65,13 @@ import {
   startHandoff,
 } from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
+import {
+  admitDelivery,
+  readDelivery,
+  recoverDelivery,
+  changeDelivery,
+  recordDeliveryValidation,
+} from "./deliveries.ts";
 import { checkAdoption, type AdoptionTarget } from "./adoptions.ts";
 import { prReadinessSchema, storedPrReadinessSchema } from "./pr-readiness.ts";
 import {
@@ -209,11 +216,31 @@ export const DeviceState = {
   ) {
     return writing(paths, (client) => changeStack(client, launchId, id, revision, decide));
   },
+  recordDeliveryValidation(paths: Paths, input: Parameters<typeof recordDeliveryValidation>[1]) {
+    return writing(paths, (client) => recordDeliveryValidation(client, input));
+  },
+  admitDelivery(paths: Paths, input: Parameters<typeof admitDelivery>[1]) {
+    return writing(paths, (client) => admitDelivery(client, input, true));
+  },
+  readDelivery(paths: Paths, launchId: string) {
+    return reading(paths, (client) => readDelivery(client, launchId));
+  },
+  recoverDelivery(paths: Paths, input: Parameters<typeof recoverDelivery>[1], id: string) {
+    return writing(paths, (client) => recoverDelivery(client, input, id));
+  },
+  changeDelivery(paths: Paths, id: string, change: Parameters<typeof changeDelivery>[2]) {
+    return writing(paths, (client) => changeDelivery(client, id, change));
+  },
   prParkingSchema() {
     return prParkingSchema;
   },
-  recordPullRequestQueue(paths: Paths, launchId: string, head: string) {
-    return writing(paths, (client) => recordPullRequestQueue(client, launchId, head));
+  recordPullRequestQueue(
+    paths: Paths,
+    launchId: string,
+    head: string,
+    actor?: Parameters<typeof recordPullRequestQueue>[3],
+  ) {
+    return writing(paths, (client) => recordPullRequestQueue(client, launchId, head, actor));
   },
   parkPullRequest(paths: Paths, launchId: string, input: Parameters<typeof parkPullRequest>[2]) {
     return writing(paths, (client) => parkPullRequest(client, launchId, input));

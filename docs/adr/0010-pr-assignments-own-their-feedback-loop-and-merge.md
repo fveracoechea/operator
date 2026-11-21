@@ -13,6 +13,7 @@ Amended 2026-11-04 in #320: the guarded merge uses GitHub's asynchronous merge e
 Amended 2026-11-17 in #389: a fresh pr-feedback launch takes over at ready, and the merge requires the recorded ready transition.
 Amended 2026-11-18 in #390: quiet feedback waits park the assignment and changes resume a fresh launch.
 Amended 2026-11-20 in #392: the supervisor may merge parked work on the person's instruction, and a queue retains parking until observed merge.
+Amended 2026-11-21 in [#414's approved scope](https://github.com/fveracoechea/operator/issues/414#issuecomment-7067082608): source holds, durable direct recovery, and mandatory correction evidence retain parked-only selection.
 
 ## Context
 
@@ -65,6 +66,19 @@ When the PR's base requires a merge queue, the same passed gate enqueues the gua
 Observed queue membership prevents a retry from enqueueing the same PR again, including after a lost response.
 Enqueueing proves no completion. The assignment stays PR-open and parked, with its worktree retained, until a batch read verifies its merge.
 GitHub CI and GitHub reviews are the gates, not a separate local gate declaration or a supervisor's claim.
+
+An open merge hold blocks new delivery across its source, regardless of an optional PR reference.
+Hold creation and new delivery admission exclude each other.
+An accepted request or queue entry can still apply, so a later hold cannot claim to stop it.
+Direct delivery retains its original actor, guarded head, readiness provenance, and remote request identity beyond process exit or owner replacement.
+Recovery reads the original request; an uncertain request without an identity cannot be blindly resubmitted.
+Observation of an already applied merge needs neither new approval nor absence of a later hold.
+Cleanup still independently protects unlanded work.
+
+After a changed known ready head, the current feedback owner must record exact-head correction scope and targeted evidence.
+That evidence belongs to the current readiness provenance, not a launch or a broad review round.
+It survives parking and replacement, but cannot satisfy GitHub approval or a fresh integration review.
+Readiness with an unknown migration head keeps its accepted compatibility without an invented baseline.
 
 After verified merge, the CLI deletes the remote branch, closes the worker pane, and removes the worktree in that order without a separate approval grant.
 Failed cleanup remains visible in next actions.

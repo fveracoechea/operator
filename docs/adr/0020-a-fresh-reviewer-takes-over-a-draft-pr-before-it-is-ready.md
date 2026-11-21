@@ -15,6 +15,7 @@ Amended 2026-11-04 in #305 with the answers to its open questions, below.
 Amended 2026-11-11: an adopted PR that is ready for review gets no internal review, whatever the setting (ADR-0024).
 Implemented: the draft merge condition in #316, the handoff and rounds in #324, and the ready step, summary comment, and skip in #328.
 Amended 2026-11-16 by ADR-0033: explicitly authorized recovery can record a missing promoted review without a schema migration.
+Amended 2026-11-21 in [#414's approved scope](https://github.com/fveracoechea/operator/issues/414#issuecomment-7067082608): later known-head corrections require separate feedback-owner validation, not another broad review or ready transition.
 
 ## Context
 
@@ -38,6 +39,10 @@ The reviewer is the PR owner from the draft handoff to ready.
 It reviews, applies the valid findings, pushes to the same draft, and moves the PR to ready.
 Ready ends that launch and starts fresh pr-feedback in the same assignment and worktree.
 Feedback corrections do not each require another handoff.
+Changed known ready heads require the current feedback owner's exact-head correction scope and targeted evidence, bound to the current readiness.
+This evidence does not rewrite review rounds, repeat readiness, or supply independent approval.
+The same readiness rule covers review-off, skipped, and adopted-ready work; unknown migration heads stay unknown.
+Changed managed-stack integration follows its distinct fresh-review requirement rather than this bounded-correction path.
 
 The CLI starts the reviewer, because the CLI owns agent launch and the implementer cannot start a WorkerAgent that the SuperAgent supervises.
 The reviewer is a WorkerAgent under the same SuperAgent, and a failed or interrupted start appears in next actions like every other launch.

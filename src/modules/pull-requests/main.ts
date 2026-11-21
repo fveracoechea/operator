@@ -37,6 +37,7 @@ import {
 import { ready, skip } from "./internal-review-ready.ts";
 import { recoverReview } from "./internal-review-recovery.ts";
 import type { Refusal, NextStep } from "../../lib/cli-result.ts";
+import { validate } from "./validation.ts";
 import { parkQuietWait, readParkNote, observeParked } from "./parking.ts";
 
 type Request = { paths: Paths; cwd: string; parkNote?: string | null };
@@ -639,6 +640,9 @@ function waitWithNote(input: Request & { timeoutSeconds: number }) {
 export const PullRequests = {
   stack(input: Parameters<typeof stack>[0]) {
     return stack(input);
+  },
+  validate(input: Parameters<typeof validate>[0]) {
+    return validate(input);
   },
   /** The canonical validated PR command target, shared with worker-phase guards. */
   workerTarget(input: Request & { stackOperation?: boolean }) {

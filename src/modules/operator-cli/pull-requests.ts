@@ -101,24 +101,30 @@ function proseArgs(flags: string[], allowed: string[]) {
 }
 
 /** Worker commands select by worktree; a supervised parked merge names its assignment. */
+function fileArgs(name: string, flags: string[]) {
+  const parsed = proseArgs(flags, ["--file"]);
+  if (parsed?.file === undefined) return null;
+  return name === "round"
+    ? { operation: "pr_round" as const, file: parsed.file }
+    : { operation: "pr_validate" as const, file: parsed.file };
+}
+
 export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
   if (group === "pr" && name === "stack") return stackArgs(flags);
   if (group === "cleanup") return cleanupArgs(args.slice(1));
   if (group === "internal-review")
     return name === "recover" ? recoveryArgs(flags) : skipArgs(args.slice(1));
-  if (group === "pr" && ["round", "ready"].includes(name ?? "")) return reviewArgs(name, flags);
+  if (group === "pr" && ["round", "ready", "validate"].includes(name ?? ""))
+    return reviewArgs(name, flags);
   const command = ownerCommands.find((known) => known === name);
   if (group !== "pr" || command === undefined) return null;
   return ownerArgs(command, flags);
 }
 
 function reviewArgs(name: string | undefined, flags: string[]) {
-  if (name === "round") {
-    const parsed = proseArgs(flags, ["--file"]);
-    return parsed?.file === undefined
-      ? null
-      : { operation: "pr_round" as const, file: parsed.file };
+  if (name === "round" || name === "validate") {
+    return fileArgs(name, flags);
   }
   if (name === "ready") {
     const parsed = proseArgs(flags, ["--file", "--note"]);
@@ -188,6 +194,12 @@ export const pullRequestExitCodes = {
   pr_merge_unverified: 1,
   pr_enqueue_unverified: 1,
   pr_enqueue_refused: 1,
+  pr_validation_stale: 4,
+  pr_validation_blocked: 4,
+  pr_merge_held: 4,
+  pr_delivery_running: 4,
+  pr_stack_running: 4,
+  pr_owner_busy: 4,
   source_supervised_elsewhere: 4,
   cleanup_failed: 1,
   relay_fetch_failed: 1,
@@ -223,31 +235,33 @@ export async function runPullRequests(
   const parsed = pullRequestArgs(args);
   if (parsed === null) return false;
   const input = { paths, cwd: process.cwd() };
-  const result = await (parsed.operation === "cleanup"
-    ? PullRequests.cleanup({ ...input, ...parsed })
-    : parsed.operation === "pr_stack"
-      ? PullRequests.stack({ ...input, ...parsed })
-      : parsed.operation === "internal_review_recover"
-        ? PullRequests.recoverReview({ ...input, ...parsed })
-        : parsed.operation === "internal_review_skip"
-          ? PullRequests.skipReview({ ...input, ...parsed })
-          : parsed.operation === "pr_round"
-            ? PullRequests.round({ ...input, file: parsed.file })
-            : parsed.operation === "pr_ready"
-              ? PullRequests.ready({ ...input, ...readyInput(parsed) })
-              : parsed.operation === "pr_merge"
-                ? PullRequests.merge(
-                    parsed.sourceId !== undefined
-                      ? { ...input, sourceId: parsed.sourceId, assignment: parsed.assignment }
-                      : input,
-                  )
-                : parsed.operation === "pr_associate"
-                  ? PullRequests.associate(input)
-                  : PullRequests.wait({
-                      ...input,
-                      timeoutSeconds: parsed.timeoutSeconds,
-                      ...readyInput(parsed),
-                    }));
+  const result = await (parsed.operation === "pr_validate"
+    ? PullRequests.validate({ ...input, file: parsed.file })
+    : parsed.operation === "cleanup"
+      ? PullRequests.cleanup({ ...input, ...parsed })
+      : parsed.operation === "pr_stack"
+        ? PullRequests.stack({ ...input, ...parsed })
+        : parsed.operation === "internal_review_recover"
+          ? PullRequests.recoverReview({ ...input, ...parsed })
+          : parsed.operation === "internal_review_skip"
+            ? PullRequests.skipReview({ ...input, ...parsed })
+            : parsed.operation === "pr_round"
+              ? PullRequests.round({ ...input, file: parsed.file })
+              : parsed.operation === "pr_ready"
+                ? PullRequests.ready({ ...input, ...readyInput(parsed) })
+                : parsed.operation === "pr_merge"
+                  ? PullRequests.merge(
+                      parsed.sourceId !== undefined
+                        ? { ...input, sourceId: parsed.sourceId, assignment: parsed.assignment }
+                        : input,
+                    )
+                  : parsed.operation === "pr_associate"
+                    ? PullRequests.associate(input)
+                    : PullRequests.wait({
+                        ...input,
+                        timeoutSeconds: parsed.timeoutSeconds,
+                        ...readyInput(parsed),
+                      }));
   respond({
     operation: parsed.operation,
     result,

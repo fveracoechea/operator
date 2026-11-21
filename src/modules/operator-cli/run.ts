@@ -21,6 +21,7 @@ import { runQuestions } from "./questions.ts";
 import { runMessages } from "./messages.ts";
 import { runObligations } from "./obligations.ts";
 import { runReviews } from "./reviews.ts";
+import { runWebPages } from "./web-pages.ts";
 import { projectArgs, runProject } from "./projects.ts";
 import { runSettings } from "./settings.ts";
 import { startup } from "./startup.ts";
@@ -207,6 +208,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
 function usesWorktree(pr: ReturnType<typeof pullRequestArgs>, event: Event | undefined) {
   return (
     pr?.operation === "pr_stack" ||
+    pr?.operation === "pr_validate" ||
     (event !== undefined && event !== "submit" && event !== "resume")
   );
 }
@@ -284,6 +286,7 @@ export async function run(args: string[]): Promise<void> {
 
 async function handle(args: string[], paths: OperatorPaths, json: boolean) {
   for (const handler of [
+    async (input: string[], _paths: OperatorPaths, flag: boolean) => runWebPages(input, flag),
     async (input: string[], _paths: OperatorPaths, flag: boolean) => runLauncher(input, flag),
     runSkills,
     runReadiness,

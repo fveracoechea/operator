@@ -247,6 +247,59 @@ export const parkedPrReads = sqliteTable("parked_pr_reads", {
   leaseAt: text("lease_at"),
 });
 
+// A direct request outlives its process. Recovery retains the original actor and ready frontier.
+export const deliveries = sqliteTable(
+  "deliveries",
+  {
+    id: text().primaryKey(),
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    head: text().notNull(),
+    readiness: text(),
+    selected: integer({ mode: "boolean" }).notNull(),
+    session: text(),
+    requestUuid: text("request_uuid"),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at"),
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+  },
+  (table) => [
+    uniqueIndex("one_unfinished_delivery")
+      .on(table.sourceId, table.assignment)
+      .where(sql`${table.endedAt} IS NULL`),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
+export const deliveryValidations = sqliteTable(
+  "delivery_validations",
+  {
+    id: text().primaryKey(),
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    head: text().notNull(),
+    readiness: text().notNull(),
+    summary: text().notNull(),
+    validatedAt: text("validated_at").notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
 // The ordered disposal after a verified merge. A failure stays recorded until a retry finishes it.
 export const cleanups = sqliteTable(
   "cleanups",

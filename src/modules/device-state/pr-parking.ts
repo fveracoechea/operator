@@ -11,6 +11,7 @@ import { recordKindHandoff } from "./kind-handoff-record.ts";
 import { validateContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 import { ownerGone } from "./leases.ts";
 import { migrationParkingFacts } from "./migration-receipts.ts";
+import { deliveryAdmission } from "./deliveries.ts";
 import { decideParking, type ParkingFacts } from "./pr-parking-machine.ts";
 import {
   assignments,
@@ -95,7 +96,12 @@ function facts(state: PrParking["state"] | null): ParkingFacts {
 }
 
 /** Persist the batch-owned lifecycle before an enqueue can take effect or lose its response. */
-export function recordPullRequestQueue(client: Database, launchId: string, head: string) {
+export function recordPullRequestQueue(
+  client: Database,
+  launchId: string,
+  head: string,
+  actor = { selected: false, session: null as string | null },
+) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
       activeOwner(db, launchId, { parkedMergeHead: head }).flatMap(
@@ -109,20 +115,23 @@ export function recordPullRequestQueue(client: Database, launchId: string, head:
             return Err(refused());
           const previous =
             row.parking === null ? null : prParkingSchema.parse(JSON.parse(row.parking));
-          const parking: PrParking = previous ?? {
-            launchId,
-            head,
-            at: new Date().toISOString(),
-            note: null,
-            state: "active",
-            events: [],
-            parentSeen: false,
-          };
-          db.update(pullRequests)
-            .set({ parking: JSON.stringify({ ...parking, queueHead: head }) })
-            .where(key(row))
-            .run();
-          return Ok(undefined);
+          if (previous?.queueHead === head) return Ok(undefined);
+          return deliveryAdmission(db, { launchId, head, ...actor }, false).map(() => {
+            const parking: PrParking = previous ?? {
+              launchId,
+              head,
+              at: new Date().toISOString(),
+              note: null,
+              state: "active",
+              events: [],
+              parentSeen: false,
+            };
+            db.update(pullRequests)
+              .set({ parking: JSON.stringify({ ...parking, queueHead: head }) })
+              .where(key(row))
+              .run();
+            return undefined;
+          });
         },
       ),
     ),
@@ -159,6 +168,8 @@ export function parkPullRequest(
             db,
             { sourceId: owner.source.id, assignment: owner.assignment.key, launchId },
             "pr-feedback",
+            undefined,
+            true,
           ).map(() => {
             const parking: PrParking = {
               launchId,
@@ -359,15 +370,19 @@ export function resumeParkedPullRequest(
             .run();
           return Ok(undefined);
         }
-        return recordKindHandoff(db, { ...target, launchId: parking.launchId }, "pr-feedback").map(
-          () => {
-            db.update(pullRequests)
-              .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
-              .where(key(target))
-              .run();
-            return undefined;
-          },
-        );
+        return recordKindHandoff(
+          db,
+          { ...target, launchId: parking.launchId },
+          "pr-feedback",
+          undefined,
+          true,
+        ).map(() => {
+          db.update(pullRequests)
+            .set({ parking: JSON.stringify({ ...parking, state: decision.state }) })
+            .where(key(target))
+            .run();
+          return undefined;
+        });
       });
     }),
   );

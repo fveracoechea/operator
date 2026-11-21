@@ -3,6 +3,7 @@ import { Err, Ok, type Result } from "unthrown";
 import type { Db } from "./database.ts";
 import { kindHandoffs } from "./schema.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
+import { deliveryIdle } from "./delivery-guards.ts";
 
 /** All closing transitions reserve the same outgoing launch and next-kind identity. */
 export function recordKindHandoff(
@@ -10,7 +11,10 @@ export function recordKindHandoff(
   target: { sourceId: string; assignment: string; launchId: string },
   nextKind: string,
   at = new Date().toISOString(),
-): Result<undefined, Refusal & { reason: "handoff_running" }> {
+  queuedParking = false,
+): Result<undefined, Refusal & { reason: "handoff_running" | "pr_delivery_running" }> {
+  const idle = deliveryIdle(db, target.sourceId, target.assignment, queuedParking);
+  if (idle.tag !== "Ok") return idle;
   const key = and(
     eq(kindHandoffs.sourceId, target.sourceId),
     eq(kindHandoffs.assignment, target.assignment),

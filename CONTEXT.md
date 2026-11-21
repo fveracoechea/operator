@@ -281,6 +281,19 @@ The PR owner and the instructed supervisor of a parked assignment use the same g
 A passed gate enqueues a PR whose base requires a merge queue, but completion still requires an observed merge.
 _Avoid_: project gate
 
+**Merge hold**:
+The person's instruction to prevent new delivery across a work source until its explicit release.
+It cannot cancel an already accepted merge request or queue entry.
+
+**Direct delivery**:
+A head-pinned merge request whose outcome can remain unresolved after its requester stops.
+Recovery preserves the original requester and observes the same request rather than assuming it did not apply.
+
+**Correction validation**:
+The current feedback owner's exact-head account of correction scope and targeted evidence after a changed known ready head.
+It applies to the readiness that established the correction baseline, independently of review rounds and GitHub approval.
+Ordinary corrections preserve readiness; changed stack integration requires fresh review instead.
+
 **Internal review**:
 The unpublished review of a draft PR by a fresh WorkerAgent that takes over the PR assignment from its implementer.
 The reviewer applies the valid findings and moves the PR to ready with one summary comment.
