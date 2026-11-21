@@ -583,6 +583,12 @@ test("a managed parked batch waits for every parent and retains the final event 
   ];
   const managed = {
     ...row,
+    parking: {
+      ...row.parking,
+      queueHead: "h",
+      queueAttempt: "exact-enqueue-attempt",
+      parentsSeen: ["previous all-parent observation"],
+    },
     relay: JSON.stringify({
       parent: prerequisites[0],
       prerequisites,
@@ -598,6 +604,12 @@ test("a managed parked batch waits for every parent and retains the final event 
   const a = { number: 6, state: "MERGED" as const, head: "a1", base: "main" };
   const b = { number: 9, state: "OPEN" as const, head: "b1", base: "main" };
   const first = parkedObservation(managed, { observed, parent: a, parents: [a, b] });
+  expect(first.previous).toBe(managed.parkingRaw);
+  expect(first.parking).toMatchObject({
+    queueHead: "h",
+    queueAttempt: "exact-enqueue-attempt",
+    parentsSeen: ["previous all-parent observation"],
+  });
   expect(first.parking.events).toEqual([]);
   const reparked = {
     ...managed,
@@ -606,6 +618,15 @@ test("a managed parked batch waits for every parent and retains the final event 
   };
   const finalFacts = { observed, parent: a, parents: [a, { ...b, state: "MERGED" as const }] };
   const final = parkedObservation(reparked, finalFacts);
+  expect(final.parking).toMatchObject({
+    queueHead: "h",
+    queueAttempt: "exact-enqueue-attempt",
+    parentSeen: true,
+  });
+  expect(final.parking.parentsSeen).toEqual([
+    "previous all-parent observation",
+    '[[6,"MERGED","a1","main"],[9,"MERGED","b1","main"]]',
+  ]);
   expect(final.parking.events).toHaveLength(1);
   expect(JSON.parse(final.parking.events[0] ?? "null")).toMatchObject({
     kind: "parent_merged",

@@ -67,11 +67,16 @@ function fixture() {
 
 test("queue disposition belongs to the PR receipt and survives parking again", () => {
   using db = fixture();
-  expect(recordPullRequestQueue(db, "l", "h")).toMatchObject({ tag: "Ok" });
+  const attempt = recordPullRequestQueue(db, "l", "h").getOr(null);
+  expect(attempt).not.toBeNull();
+  const cursors = { parentSeen: true, parentsSeen: ["previous all-parent observation"] };
+  db.query(
+    "UPDATE pull_requests SET parking = json_set(parking, '$.parentSeen', json('true'), '$.parentsSeen', json(?))",
+  ).run(JSON.stringify(cursors.parentsSeen));
   expect(db.query("SELECT COUNT(*) AS count FROM kind_handoffs").get()).toEqual({ count: 0 });
   expect(parkPullRequest(db, "l", { head: "h", note: "/park.md" })).toMatchObject({
     tag: "Ok",
-    value: { queueHead: "h", state: "parking" },
+    value: { queueHead: "h", queueAttempt: attempt, state: "parking", ...cursors },
   });
   db.exec("UPDATE launches SET state = 'finished'");
   const target = { repository: "owner/repo", sourceId: "s", assignment: "a" };
@@ -81,7 +86,13 @@ test("queue disposition belongs to the PR receipt and survives parking again", (
   expect(recordPullRequestQueue(db, "l", "different").tag).toBe("Err");
   expect(db.serialize()).toEqual(before);
   const claim = claimParkedRead(db, Date.now()).getOr(null);
-  expect(claim?.rows[0]?.parking).toMatchObject({ queueHead: "h", head: "h", state: "parked" });
+  expect(claim?.rows[0]?.parking).toMatchObject({
+    queueHead: "h",
+    queueAttempt: attempt,
+    head: "h",
+    state: "parked",
+    ...cursors,
+  });
 });
 
 test("a proven refusal releases only its exact queue attempt, never a later attempt at the same head", () => {
