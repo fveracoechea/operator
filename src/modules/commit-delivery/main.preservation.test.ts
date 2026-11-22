@@ -212,6 +212,93 @@ test("an interrupted candidate tree-installation receipt recovers the exact pend
   expect(after.journal.slice(0, before.journal.length)).toEqual(before.journal);
 });
 
+test("a lost candidate-creation receipt reconciles before review and delivery without another commit", async () => {
+  fixture = await commitFixture();
+  await fixture.change();
+  const write = DeviceState.changeCommitDelivery.bind(DeviceState);
+  const save = spyOn(DeviceState, "changeCommitDelivery").mockImplementation(
+    (paths, target, change) => {
+      const data = DeviceState.commitDeliverySchema().parse(JSON.parse(change.data));
+      const last = data.journal.at(-1);
+      if (last?.effect === "candidate_creation" && last.state === "verified") {
+        // Reproduce the older durable window even when newer creation writes become atomic.
+        expect(
+          write(paths, target, {
+            ...change,
+            data: JSON.stringify({ ...data, journal: data.journal.slice(0, -1) }),
+          }).tag,
+        ).toBe("Ok");
+        return Err({
+          reason: "state_busy",
+          detail: "Interrupted candidate creation receipt.",
+          next: { command: "operator next", why: "Retry." },
+        });
+      }
+      return write(paths, target, change);
+    },
+  );
+  expect((await CommitDelivery.review(fixture.input)).tag).toBe("Err");
+  save.mockRestore();
+  const pending = fixture.data().data;
+  const candidate = pending.candidate ?? expect.unreachable();
+  const head = fixture.git(candidate.path, "rev-parse", "HEAD");
+  const index = fixture.git(candidate.path, "ls-files", "--stage");
+  await fixture.review();
+  const reviewed = fixture.data().data;
+  expect((await CommitDelivery.round({ ...fixture.input, text: "## Findings" })).tag).toBe("Ok");
+  const delivery = { ...fixture.input, text: "## Dispositions" };
+  expect((await CommitDelivery.deliver(delivery)).tag).toBe("Ok");
+  expect(
+    reviewed.journal.some((row) => row.effect === "candidate_creation" && row.state === "verified"),
+  ).toBe(true);
+  expect((await CommitDelivery.deliver(delivery)).tag).toBe("Ok");
+  expect(fixture.data().data.history).toEqual([head]);
+  expect(fixture.data().data.candidate).toMatchObject({ ...candidate, head });
+  expect(fixture.git(candidate.path, "ls-files", "--stage")).toBe(index);
+  expect(fixture.git(candidate.path, "rev-list", "--count", `${fixture.base}..HEAD`)).toBe("1");
+  expect(fixture.git(fixture.checkout, "rev-parse", "main")).toBe(head);
+  expect(fixture.git(fixture.root, "--git-dir", fixture.origin, "rev-parse", "main")).toBe(head);
+  expect(fixture.data().data.journal.slice(0, pending.journal.length)).toEqual(pending.journal);
+});
+
+test("delivery reconciles an older reviewed candidate with a missing creation observation", async () => {
+  fixture = await commitFixture();
+  await fixture.change();
+  const write = DeviceState.changeCommitDelivery.bind(DeviceState);
+  const save = spyOn(DeviceState, "changeCommitDelivery").mockImplementation(
+    (paths, target, change) => {
+      const data = DeviceState.commitDeliverySchema().parse(JSON.parse(change.data));
+      return write(paths, target, {
+        ...change,
+        data: JSON.stringify({
+          ...data,
+          journal: data.journal.filter(
+            (row) => !(row.effect === "candidate_creation" && row.state === "verified"),
+          ),
+        }),
+      });
+    },
+  );
+  await fixture.review();
+  expect((await CommitDelivery.round({ ...fixture.input, text: "## Findings" })).tag).toBe("Ok");
+  save.mockRestore();
+  const before = fixture.data().data;
+  expect(before.stage).toBe("review");
+  expect(
+    before.journal.some((row) => row.effect === "candidate_creation" && row.state === "verified"),
+  ).toBe(false);
+  expect((await CommitDelivery.deliver({ ...fixture.input, text: "## Dispositions" })).tag).toBe(
+    "Ok",
+  );
+  expect(fixture.data().data.history).toEqual(before.history);
+  expect(fixture.data().data.journal.slice(0, before.journal.length)).toEqual(before.journal);
+  expect(fixture.data().data.journal).toContainEqual({
+    effect: "candidate_creation",
+    state: "verified",
+    at: expect.any(String) as string,
+  });
+});
+
 test("an ignored obstruction created after the clean observation is not overwritten", async () => {
   fixture = await commitFixture();
   await fixture.change();

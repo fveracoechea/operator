@@ -73,7 +73,17 @@ process.exit(code);
               [
                 process.execPath,
                 "-e",
-                "if (!(await Bun.file('feature').exists())) process.exit(1)",
+                `if (!(await Bun.file('feature').exists())) process.exit(1); if (await Bun.file(${JSON.stringify(`${root}/mutating-check`)}).exists()) await Bun.write('feature', 'repaired\\n')`,
+              ],
+              [
+                process.execPath,
+                "-e",
+                `if (await Bun.file(${JSON.stringify(`${root}/mutating-check`)}).exists()) { if ((await Bun.file('feature').text()) !== 'repaired\\n') process.exit(1); await Bun.write(${JSON.stringify(`${root}/later-check`)}, 'ran'); }`,
+              ],
+              [
+                process.execPath,
+                "-e",
+                `if (await Bun.file(${JSON.stringify(`${root}/mutating-check`)}).exists()) process.exit(await Bun.spawn(['git', 'restore', '--worktree', '.']).exited)`,
               ],
             ],
           },
@@ -161,6 +171,21 @@ process.exit(code);
         )
       ).code,
     ).toBe(0);
+    await Bun.write(`${root}/crash-on`, "commit");
+    const candidateCrash = await device.runRaw(["commit", "review"], {
+      cwd: worktree,
+      pane: implementer.paneId,
+    });
+    expect(candidateCrash.code).not.toBe(0);
+    expect(await Bun.file(`${root}/crash-on`).exists()).toBe(false);
+    const created = (
+      await device.exec(["git", "rev-parse", "HEAD"], pending.candidate.path)
+    ).stdout.trim();
+    expect(
+      (
+        await device.exec(["git", "rev-list", "--count", "HEAD"], pending.candidate.path)
+      ).stdout.trim(),
+    ).toBe("2");
     const started = await device.run(["commit", "review"], {
       cwd: worktree,
       pane: implementer.paneId,
@@ -202,7 +227,7 @@ process.exit(code);
             z.object({
               data: z.object({
                 base: z.string(),
-                candidate: z.object({ head: z.string(), tree: z.string() }),
+                candidate: z.object({ head: z.string(), tree: z.string(), path: z.string() }),
               }),
             }),
           ),
@@ -229,6 +254,29 @@ process.exit(code);
     ]);
     const dispositions = await device.writeText("delivery.md", "## Dispositions\n");
     const base = (await device.exec(["git", "rev-parse", "main"], device.main)).stdout.trim();
+    expect(target?.data.candidate.head).toBe(created);
+    const candidatePath = z.string().parse(target?.data.candidate.path);
+    await Bun.write(`${root}/mutating-check`, "mutate");
+    const staleChecks = await device.run(["commit", "deliver", "--file", dispositions], {
+      cwd: worktree,
+      pane: reviewPane,
+    });
+    expect(staleChecks.output.reason).toBe("commit_worktree_unclean");
+    expect(await Bun.file(`${root}/later-check`).exists()).toBe(false);
+    expect(await Bun.file(`${candidatePath}/feature`).text()).toBe("repaired\n");
+    expect((await device.exec(["git", "rev-parse", "main"], device.main)).stdout.trim()).toBe(base);
+    expect(
+      (
+        await device.exec([gitPath, "--git-dir", bare, "rev-parse", "main"], device.main)
+      ).stdout.trim(),
+    ).toBe(base);
+    expect((await device.run(["source", "show", "--source", source])).output.data).toMatchObject({
+      commitDeliveries: [{ data: { checks: null, publishedHead: null, stage: "review" } }],
+    });
+    await Bun.file(`${root}/mutating-check`).delete();
+    expect(
+      (await device.exec(["git", "restore", "--worktree", "feature"], candidatePath)).code,
+    ).toBe(0);
     // Even coincidentally identical staged work belongs to the person, not this operation.
     await Bun.write(`${device.main}/feature`, "ticket change\n");
     expect((await device.exec(["git", "add", "feature"], device.main)).code).toBe(0);

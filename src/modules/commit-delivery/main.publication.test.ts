@@ -4,6 +4,8 @@ import { z } from "zod";
 import { CommitDelivery } from "./main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { commitFixture } from "../../../tools/commit-delivery-fixture.ts";
+// Bun has no assertion error constructor.
+import { AssertionError } from "node:assert";
 
 let fixture: Awaited<ReturnType<typeof commitFixture>> | undefined;
 afterEach(async () => {
@@ -11,6 +13,42 @@ afterEach(async () => {
   fixture = undefined;
   jest.restoreAllMocks();
 });
+
+test.each(["ERR_ASSERTION", "EUNKNOWN"])(
+  "an unknown coded %s error after publication remains a defect",
+  async (code) => {
+    fixture = await commitFixture();
+    await fixture.change();
+    await fixture.review();
+    expect((await CommitDelivery.round({ ...fixture.input, text: "## Findings" })).tag).toBe("Ok");
+    const current = fixture;
+    const transport = current.transport.getMockImplementation() ?? expect.unreachable();
+    current.transport.mockImplementation(async (input) => {
+      const result = await transport(input);
+      if (input.tool === "git" && input.args[0] === "push") {
+        const cause =
+          code === "ERR_ASSERTION"
+            ? new AssertionError({ message: "Post-push invariant failed." })
+            : Object.assign(new Error("Unknown coded defect"), { code });
+        // oxlint-disable-next-line unthrown/no-throw -- Inject a coded programming defect after real disposable publication.
+        throw cause;
+      }
+      return result;
+    });
+    expect((await CommitDelivery.deliver({ ...current.input, text: "## Dispositions" })).tag).toBe(
+      "Defect",
+    );
+    const after = current.data().data;
+    expect(after.stage).toBe("finalize");
+    expect(after.publishedHead).toBe(after.candidate?.head ?? "");
+    expect(after.journal.at(-1)).toMatchObject({ effect: "remote_publication", state: "verified" });
+    expect(after.journal.some((row) => row.effect === "database_finalization")).toBe(false);
+    expect(current.git(current.checkout, "rev-parse", "main")).toBe(after.candidate?.head ?? "");
+    expect(current.git(current.root, "--git-dir", current.origin, "rev-parse", "main")).toBe(
+      after.candidate?.head ?? "",
+    );
+  },
+);
 
 test.each(["not-applied", "unobservable", "receipt-failed"])(
   "a push defect remains a defect when reconciliation is %s",

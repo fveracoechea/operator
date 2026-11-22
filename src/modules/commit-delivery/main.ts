@@ -11,6 +11,7 @@ import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
 import { CommitReview } from "../commit-review/main.ts";
+import { isCodedError, type CodedError } from "../../lib/coded-error.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 type Data = z.infer<ReturnType<typeof DeviceState.commitDeliverySchema>>;
@@ -58,17 +59,46 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
         why: "Correct the supplied commit-delivery input.",
       },
     };
-  if (cause instanceof Error && "code" in cause)
-    return {
-      reason: "commit_io_failed",
-      detail: String(cause),
-      next: {
-        decider: "person" as const,
-        question:
-          "How should the filesystem failure be recovered without discarding partial effects?",
-      },
-    };
   return defect(cause);
+}
+
+const ioCodes = new Set([
+  "EACCES",
+  "ENOENT",
+  "ENOTDIR",
+  "EEXIST",
+  "EPERM",
+  "EROFS",
+  "ENOSPC",
+  "EIO",
+  "EMFILE",
+  "ENFILE",
+  "EPIPE",
+]);
+
+function isIoError(cause: unknown): cause is CodedError {
+  return isCodedError(cause) && ioCodes.has(cause.code);
+}
+
+function ioFailure(cause: Error): Refusal {
+  return {
+    reason: "commit_io_failed",
+    detail: String(cause),
+    next: {
+      decider: "person" as const,
+      question:
+        "How should the filesystem failure be recovered without discarding partial effects?",
+    },
+  };
+}
+
+function invoke(
+  input: Parameters<typeof ToolInvocation.run>[0],
+): AsyncResult<Awaited<ReturnType<typeof ToolInvocation.run>>, Refusal> {
+  return fromPromise(
+    () => ToolInvocation.run(input),
+    (cause, defect) => (isIoError(cause) ? ioFailure(cause) : defect(cause)),
+  );
 }
 
 function git(
@@ -76,24 +106,20 @@ function git(
   args: string[],
   options: { input?: string; raw?: boolean } = {},
 ): AsyncResult<string, Refusal> {
-  return fromPromise(
-    async () => {
-      const observed = await ToolInvocation.run({
-        tool: "git",
-        args,
-        cwd,
-        input: options.input,
-        timeoutMs: 120000,
-      });
-      return observed.status === "completed" && observed.exitCode === 0
-        ? Ok(options.raw ? observed.stdout : observed.stdout.trim())
-        : refuse(
-            "git_failed",
-            `git ${args[0]} did not succeed: ${JSON.stringify(observed)}. Earlier journaled effects may remain.`,
-          );
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((result) => result);
+  return invoke({
+    tool: "git",
+    args,
+    cwd,
+    input: options.input,
+    timeoutMs: 120000,
+  }).flatMap((observed) =>
+    observed.status === "completed" && observed.exitCode === 0
+      ? Ok(options.raw ? observed.stdout : observed.stdout.trim())
+      : refuse(
+          "git_failed",
+          `git ${args[0]} did not succeed: ${JSON.stringify(observed)}. Earlier journaled effects may remain.`,
+        ),
+  );
 }
 
 function clean(cwd: string): AsyncResult<undefined, Refusal> {
@@ -317,7 +343,8 @@ function prepareCandidate(ctx: Context): AsyncResult<string, Refusal> {
       }
       const candidate = ctx.data.candidate;
       if (candidate === null) return refuse("candidate_missing", "Candidate intent is missing.");
-      if (candidate.head !== null) return Ok(candidate.head);
+      const pinned = candidate.head;
+      if (pinned !== null) return reconcileCandidateReceipt(ctx, candidate).map(() => pinned);
       const intent = receipt(ctx, "candidate_creation", "intent", ctx.data.stage);
       if (intent.tag !== "Ok") return stopped(intent);
       return await createCandidate(ctx, candidate);
@@ -332,9 +359,14 @@ function createCandidate(
 ): AsyncResult<string, Refusal> {
   return fromPromise(
     async () => {
-      await mkdir(OperatorHome.commitCandidateRoot(ctx.paths), { recursive: true });
-      const exists = await Bun.file(`${candidate.path}/.git`).exists();
-      if (!exists) {
+      const directory = await fromPromise(
+        () => mkdir(OperatorHome.commitCandidateRoot(ctx.paths), { recursive: true }),
+        (cause, defect) => (isIoError(cause) ? ioFailure(cause) : defect(cause)),
+      );
+      if (directory.tag !== "Ok") return stopped(directory);
+      const exists = await pathExists(`${candidate.path}/.git`);
+      if (exists.tag !== "Ok") return stopped(exists);
+      if (!exists.value) {
         const added = await git(ctx.data.checkout, [
           "worktree",
           "add",
@@ -363,12 +395,27 @@ function createCandidate(
         ...ctx.data,
         candidate: { ...candidate, head: verified.value },
         history: [...ctx.data.history, verified.value],
-      })
-        .flatMap(() => receipt(ctx, "candidate_creation", "verified", ctx.data.stage))
-        .map(() => verified.value);
+        journal: [
+          ...ctx.data.journal,
+          { effect: "candidate_creation", state: "verified", at: new Date().toISOString() },
+        ],
+      }).map(() => verified.value);
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
+}
+
+function reconcileCandidateReceipt(
+  ctx: Context,
+  candidate: NonNullable<Data["candidate"]>,
+): AsyncResult<undefined, Refusal> {
+  const last = ctx.data.journal.findLast((entry) => entry.effect === "candidate_creation");
+  if (last?.state === "verified") return OkAsync(undefined);
+  return verifyCandidate(ctx, candidate).flatMap((head) =>
+    head === candidate.head
+      ? receipt(ctx, "candidate_creation", "verified", ctx.data.stage)
+      : refuse("candidate_changed", "The pinned candidate no longer matches its creation intent."),
+  );
 }
 
 function candidateIndex(
@@ -531,13 +578,20 @@ function runChecks(ctx: Context): AsyncResult<undefined, Refusal> {
         return refuse("candidate_missing", "No pinned candidate exists.");
       const results: NonNullable<Data["checks"]>["results"] = [];
       for (const argv of ctx.data.policy.checks) {
+        const before = await checkedCandidate(candidate);
+        if (before.tag !== "Ok") return before;
         const [tool, ...args] = argv;
-        const result = await ToolInvocation.run({
+        const invoked = await invoke({
           tool: tool ?? "",
           args,
           cwd: candidate.path,
           timeoutMs: 120000,
         });
+        const after = await checkedCandidate(candidate);
+        if (invoked.tag === "Defect") return stopped(invoked);
+        if (after.tag !== "Ok") return after;
+        if (invoked.tag !== "Ok") return stopped(invoked);
+        const result = invoked.value;
         if (result.status !== "completed")
           return refuse(
             "checks_failed",
@@ -550,10 +604,6 @@ function runChecks(ctx: Context): AsyncResult<undefined, Refusal> {
             `Configured check failed: ${JSON.stringify({ argv, result })}`,
           );
       }
-      const verified = await verifyCandidate(ctx, candidate);
-      if (verified.tag !== "Ok") return stopped(verified);
-      if (verified.value !== candidate.head)
-        return refuse("candidate_changed", "A configured check changed the candidate.");
       return save(ctx, {
         ...ctx.data,
         checks: {
@@ -567,6 +617,23 @@ function runChecks(ctx: Context): AsyncResult<undefined, Refusal> {
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
+}
+
+function checkedCandidate(
+  candidate: NonNullable<Data["candidate"]>,
+): AsyncResult<undefined, Refusal> {
+  return git(candidate.path, ["rev-parse", "HEAD"]).flatMap((head) =>
+    head !== candidate.head
+      ? refuse("candidate_changed", "A configured check changed the candidate.")
+      : matchesTree(candidate.path, candidate.tree).flatMap((matches) =>
+          matches
+            ? Ok(undefined)
+            : refuse(
+                "worktree_unclean",
+                "Tracked or untracked work is present. Nothing was discarded.",
+              ),
+        ),
+  );
 }
 
 function targetCheckout(ctx: Context): AsyncResult<undefined, Refusal> {
@@ -613,6 +680,22 @@ function sameRepository(ctx: Context): AsyncResult<undefined, Refusal> {
   );
 }
 
+function pathExists(path: string): AsyncResult<boolean, Refusal> {
+  return fromPromise(
+    async () => {
+      try {
+        await stat(path);
+        return true;
+      } catch (cause) {
+        if (isCodedError(cause) && cause.code === "ENOENT") return false;
+        // oxlint-disable-next-line unthrown/no-throw -- The adjacent filesystem boundary qualifies only known I/O failures.
+        throw cause;
+      }
+    },
+    (cause, defect) => (isIoError(cause) ? ioFailure(cause) : defect(cause)),
+  );
+}
+
 function busyCheckout(ctx: Context): AsyncResult<undefined, Refusal> {
   return fromPromise(
     async () => {
@@ -632,17 +715,9 @@ function busyCheckout(ctx: Context): AsyncResult<undefined, Refusal> {
         const absolute = file.value.startsWith("/")
           ? file.value
           : `${ctx.data.checkout}/${file.value}`;
-        let found = false;
-        try {
-          await stat(absolute);
-          found = true;
-        } catch (cause) {
-          if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) {
-            // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
-            throw cause;
-          }
-        }
-        if (found)
+        const found = await pathExists(absolute);
+        if (found.tag !== "Ok") return stopped(found);
+        if (found.value)
           return refuse(
             "checkout_busy",
             `The controlling checkout is busy at ${name}. Nothing was overwritten.`,
@@ -769,12 +844,14 @@ function remoteContains(ctx: Context, observed: string): AsyncResult<boolean, Re
   return git(ctx.data.checkout, ["fetch", "--no-tags", "origin", observed]).flatMap(() =>
     fromPromise(
       async () => {
-        const result = await ToolInvocation.run({
+        const invoked = await invoke({
           tool: "git",
           args: ["merge-base", "--is-ancestor", ctx.data.candidate?.head ?? "", observed],
           cwd: ctx.data.checkout,
           timeoutMs: 10000,
         });
+        if (invoked.tag !== "Ok") return stopped(invoked);
+        const result = invoked.value;
         return result.status === "completed" && (result.exitCode === 0 || result.exitCode === 1)
           ? Ok(result.exitCode === 0)
           : refuse(
@@ -867,6 +944,8 @@ function deliver(input: Input & { text: string }): AsyncResult<Data, Refusal> {
       const candidate = ctx.data.candidate;
       if (candidate?.head === null || candidate === null)
         return refuse("candidate_missing", "No pinned candidate exists.");
+      const reconciled = await reconcileCandidateReceipt(ctx, candidate);
+      if (reconciled.tag !== "Ok") return stopped(reconciled);
       const qualified = qualifyReview(ctx, parsed.value, candidate.head);
       if (qualified.tag !== "Ok") return stopped(qualified);
       const claimed = save(ctx, {
