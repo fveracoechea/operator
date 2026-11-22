@@ -257,7 +257,7 @@ test("a parked feedback successor receives durable events but never substitutes 
       },
     ]).tag,
   ).toBe("Ok");
-  expect(DeviceState.resumeParkedPullRequest(device.paths, target).tag).toBe("Ok");
+  expect(DeviceState.resumeParkedPullRequest(device.paths, target)).toMatchObject({ tag: "Ok" });
   const resumed = await WorkerDispatch.dispatch({ ...device.request("impl"), handoff: true });
   if (resumed.tag !== "Ok") expect.unreachable("No resumed feedback");
   expect(resumed.value.kind?.name).toBe("pr-feedback");

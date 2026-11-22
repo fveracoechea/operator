@@ -41,7 +41,10 @@ export function recordPrReady(
   target: { sourceId: string; assignment: string; launchId: string },
   readiness: PrReadiness,
   nextKind: string,
-): Result<undefined, Refusal & { reason: "handoff_running" | "pr_delivery_running" }> {
+): Result<
+  undefined,
+  Refusal & { reason: "handoff_running" | "pr_delivery_running" | "commit_delivery_running" }
+> {
   return recordKindHandoff(db, target, nextKind, readiness.at).map(() => {
     db.update(pullRequests)
       .set({ readiness: JSON.stringify(readiness) })

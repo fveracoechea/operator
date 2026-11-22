@@ -1,5 +1,6 @@
 import { afterAll, expect, jest, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import type { z } from "zod";
 import { Ok } from "unthrown";
 // Bun has no temporary-directory, listing, mode, symlink, or recursive removal API.
 import { chmod, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
@@ -9,6 +10,7 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { DeviceState } from "./main.ts";
 import { continuation, handoffWriteFixture } from "./handoff-write-fixture.ts";
+import { deliveryFixture } from "./delivery-fixture.ts";
 
 // Root ignores file modes, so a test of a denied access cannot run as root.
 const asRoot = process.getuid?.() === 0;
@@ -16,6 +18,61 @@ const asRoot = process.getuid?.() === 0;
 const root = await mkdtemp(path.join(tmpdir(), "operator-state-"));
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
+});
+
+test("the commit facade validates and persists revisioned evidence without borrowing PR completion", async () => {
+  const paths = await home("commit-evidence");
+  using fixture = deliveryFixture();
+  fixture.exec(
+    "DELETE FROM pull_requests; UPDATE assignments SET completion = 'commit', state = 'running'",
+  );
+  await Bun.write(paths.database, fixture.serialize(), { createPath: true });
+  const data: z.infer<ReturnType<typeof DeviceState.commitDeliverySchema>> = {
+    repository: "o/r",
+    ticket: "#411",
+    checkout: "/repo",
+    localRef: "refs/heads/main",
+    remoteRef: "refs/heads/main",
+    remote: "https://github.com/o/r.git",
+    base: "a".repeat(40),
+    publishedHead: null,
+    policy: {
+      checks: [["git", "diff", "--exit-code"]],
+      review: "required",
+      publication: "local-and-origin",
+    },
+    candidate: null,
+    history: [],
+    implementer: null,
+    rounds: [],
+    dispositions: [],
+    checks: null,
+    journal: [],
+    stage: "build",
+    ownerPid: null,
+    leaseAt: null,
+  };
+  expect(DeviceState.commitDeliverySchema().parse(data)).toEqual(data);
+  expect(DeviceState.commitDeliverySchema().safeParse({ ...data, base: "invalid" }).success).toBe(
+    false,
+  );
+  const target = { sourceId: "s", assignment: "a" };
+  expect(
+    DeviceState.changeCommitDelivery(paths, target, { revision: null, data: JSON.stringify(data) }),
+  ).toMatchObject({ tag: "Ok", value: 1 });
+  expect(DeviceState.readSources(paths, "o/r", "s")).toMatchObject({
+    tag: "Ok",
+    value: [
+      {
+        commitDeliveries: [{ ...target, revision: 1, data: JSON.stringify(data) }],
+        pullRequests: [],
+        assignments: [{ completion: "commit", state: "running" }],
+      },
+    ],
+  });
+  expect(
+    DeviceState.changeCommitDelivery(paths, target, { revision: null, data: JSON.stringify(data) }),
+  ).toMatchObject({ tag: "Err", error: { reason: "commit_state_changed" } });
 });
 
 test("the continuation facade reads, renews, finishes, and fails only its authorized handoff", async () => {

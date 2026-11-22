@@ -46,6 +46,25 @@ const refusal = {
   },
 };
 
+test.each([
+  ["commit", "running", true],
+  ["commit", "ready", false],
+  ["commit", "completed", false],
+  ["commit", "pr-open", false],
+  ["report", "running", false],
+  ["pr", "running", false],
+] as const)(
+  "commit continuation with %s/%s is authorized=%s without writes",
+  (completion, state, allowed) => {
+    using client = new Database(":memory:");
+    const db = seed(client, null, "review");
+    client.query("UPDATE assignments SET completion = ?, state = ?").run(completion, state);
+    const before = client.serialize();
+    expect(inspectContinuation(db, target, context).tag).toBe(allowed ? "Ok" : "Err");
+    expect(client.serialize()).toEqual(before);
+  },
+);
+
 test("same-kind feedback continuation needs the exact durable parking or resume receipt", () => {
   using client = new Database(":memory:");
   const db = seed(client, JSON.stringify(WorkerKinds.resolve("pr-feedback")), "pr-feedback");

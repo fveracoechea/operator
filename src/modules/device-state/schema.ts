@@ -52,6 +52,23 @@ export const assignments = sqliteTable(
   (table) => [primaryKey({ columns: [table.sourceId, table.key] })],
 );
 
+export const commitDeliveries = sqliteTable(
+  "commit_deliveries",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    revision: integer().notNull(),
+    data: text().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
 // This obligation must outlive the project and all of its source records.
 export const projectRemovals = sqliteTable("project_removals", {
   repository: text().primaryKey(),

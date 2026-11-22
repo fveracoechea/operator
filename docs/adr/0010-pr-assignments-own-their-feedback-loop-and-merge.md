@@ -6,6 +6,7 @@ Amended 2026-11-17 in #422: an owner can refresh open prerequisites and use a pe
 Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): all prerequisite consumers use the complete graph, including parked observations.
 
 Accepted - 2026-10-24.
+Amended 2026-11-21: optional commit completion is separate and changes no PR approval guard (ADR-0034).
 Decided in #228, #231, #232, and #233.
 Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
 Amended 2026-11-04 in #305: the merge also requires that an internal review of the PR ended ready or was skipped (ADR-0020).

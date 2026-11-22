@@ -90,6 +90,8 @@ test("release guides include each built-in kind and its skill instructions", asy
     "worker-agent/kinds/implementation.md",
     "worker-agent/kinds/review.md",
     "worker-agent/kinds/pr-feedback.md",
+    "worker-agent/kinds/commit-implementation.md",
+    "worker-agent/kinds/commit-review.md",
   ]);
   expect(guides.map(({ text }) => text.split("\n")[0])).toEqual([
     "# Research",
@@ -98,6 +100,8 @@ test("release guides include each built-in kind and its skill instructions", asy
     "# Implementation",
     "# Review",
     "# PR feedback",
+    "# Commit implementation",
+    "# Commit review",
   ]);
   expect(guides[1]?.text).toContain("../../show-me/SKILL.md");
   expect(guides[5]?.text).toContain("Use `resolving-merge-conflicts` for conflicts");

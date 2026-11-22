@@ -390,6 +390,7 @@ function retention(
     launches: { state: string; abandoned: boolean }[];
     cleanups: { state: string }[];
     reports: { cleanupState: string | null }[];
+    commitDeliveries?: object[];
   },
   now: number,
 ) {
@@ -398,6 +399,7 @@ function retention(
     endedAt: facts.endedAt,
     now,
     cleanupOpen:
+      (facts.commitDeliveries?.length ?? 0) > 0 ||
       facts.cleanups.some((cleanup) => cleanup.state !== "done") ||
       facts.reports.some(
         (report) => report.cleanupState !== null && report.cleanupState !== "done",
@@ -1422,6 +1424,14 @@ function assignmentResources(
   return { resources, retained: current.state === "abandoned" ? [...retained.values()] : [] };
 }
 
+function commitFacts(source: Source, assignment: string) {
+  const row = source.commitDeliveries.find((item) => item.assignment === assignment);
+  return {
+    commitReview: row?.data,
+    commitHistoryRetained: row?.data.stage === "complete",
+  };
+}
+
 function decideAssignmentRow(
   input: Input,
   source: Source,
@@ -1446,6 +1456,7 @@ function decideAssignmentRow(
   const { resources, retained } = assignmentResources(source, current, launch, missing);
   const decision = decideAssignment({
     assignment: current,
+    ...commitFacts(source, assignment.key),
     dependencies,
     dispatchable:
       WorkerKinds.dispatchable(assignment.kind) ||
@@ -1509,6 +1520,18 @@ function currentStack(source: Source, assignment: string) {
   );
 }
 
+function handoffSummary(handoff: Source["handoffs"][number]) {
+  return {
+    outgoingLaunchId: handoff.outgoingLaunchId,
+    nextKind: handoff.nextKind,
+    state:
+      handoff.handoffState === "pending" && !handoff.handoffRunning
+        ? "stopped"
+        : handoff.handoffState,
+    detail: handoff.handoffDetail,
+  };
+}
+
 function described<T extends object>(
   input: Input,
   source: Source,
@@ -1528,6 +1551,7 @@ function described<T extends object>(
     report?: object;
     cleanup?: object;
     internalReview?: object;
+    commitDelivery?: object;
     managedStack?: {
       base?: Source["stackBases"][number]["data"];
       operation?: Source["stackOperations"][number]["data"];
@@ -1542,20 +1566,14 @@ function described<T extends object>(
     row.managedStack = { base: base?.data, operation: operation?.data };
   if (launch !== undefined) row.launch = launchSummary(launch);
   if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
+  row.commitDelivery = source.commitDeliveries.find(
+    (item) => item.assignment === records.assignment,
+  )?.data;
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
   if (records.review !== undefined) row.internalReview = reviewSummary(source, records.review);
   const handoff = source.handoffs.find((entry) => entry.assignment === records.assignment);
-  if (handoff !== undefined)
-    row.handoff = {
-      outgoingLaunchId: handoff.outgoingLaunchId,
-      nextKind: handoff.nextKind,
-      state:
-        handoff.handoffState === "pending" && !handoff.handoffRunning
-          ? "stopped"
-          : handoff.handoffState,
-      detail: handoff.handoffDetail,
-    };
+  if (handoff !== undefined) row.handoff = handoffSummary(handoff);
   // Gaps of accepted dependency work stay visible until the dependent itself ends.
   const carried = dependencyReports(source, records.assignment);
   if (carried.length > 0) row.dependencyReports = carried;

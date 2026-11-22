@@ -29,6 +29,9 @@ function validBranch(value: string) {
 // The person's own words, kept apart from the SuperAgent's instructions. An assignment's value
 // wins over the plan's.
 const intent = z.string().trim().min(1).optional();
+const delivery = z.strictObject({
+  checks: z.array(z.array(z.string().min(1)).min(1)).min(1),
+});
 const shared = {
   key,
   trackerKey: key,
@@ -50,6 +53,14 @@ export const storedPlanSchema = z
     maxRunning: z.number().int().min(1).optional(),
     assignments: z.array(
       z.union([
+        z.strictObject({
+          ...shared,
+          kind: z.string(),
+          completion: z.literal("commit"),
+          resources: z.literal("worktree"),
+          branch,
+          delivery,
+        }),
         z
           .strictObject({
             ...shared,
@@ -143,6 +154,7 @@ export function configuredPlanSchema(
           resources: z.enum(["pane", "worktree"]).optional(),
           branch: branch.optional(),
           internalReview: z.boolean().optional(),
+          delivery: delivery.optional(),
           adopt: (oneOff
             ? z.union([z.number().int().min(1), z.string().min(1)])
             : z.number().int().min(1)
@@ -155,6 +167,11 @@ export function configuredPlanSchema(
         ...plan,
         assignments: plan.assignments.map((assignment) => {
           const kind = WorkerKinds.resolve(assignment.kind, definitions);
+          if (kind.completion === "commit" && plan.internalReview === false)
+            context.addIssue({
+              code: "custom",
+              message: "Commit delivery always requires fresh review.",
+            });
           const resolved = {
             ...assignment,
             completion: kind.completion,

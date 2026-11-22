@@ -4,6 +4,36 @@ import { deliveryFixture } from "./delivery-fixture.ts";
 import { deliveryIdle, stackIdle } from "./delivery-guards.ts";
 import { insertRow } from "./state-fixture.ts";
 
+test("commit effects hold only their own assignment and stay held until reconciliation", () => {
+  using client = deliveryFixture();
+  const db = drizzle(client);
+  insertRow(client, "commit_deliveries", {
+    source_id: "s",
+    assignment: "commit",
+    revision: 1,
+    data: JSON.stringify({ stage: "checkout" }),
+  });
+  expect(deliveryIdle(db, "s")).toMatchObject({
+    error: {
+      reason: "commit_delivery_running",
+      detail: expect.stringMatching(/\S/) as string,
+    },
+  });
+  expect(deliveryIdle(db, "s", "commit")).toMatchObject({
+    error: { reason: "commit_delivery_running" },
+  });
+  expect(deliveryIdle(db, "s", "unrelated").tag).toBe("Ok");
+  expect(deliveryIdle(db, "other").tag).toBe("Ok");
+  for (const stage of ["build", "review", "complete"]) {
+    client.query("UPDATE commit_deliveries SET data = ?").run(JSON.stringify({ stage }));
+    expect(deliveryIdle(db, "s").tag, stage).toBe("Ok");
+  }
+  for (const stage of ["local", "remote", "finalize"]) {
+    client.query("UPDATE commit_deliveries SET data = ?").run(JSON.stringify({ stage }));
+    expect(deliveryIdle(db, "s")).toMatchObject({ error: { reason: "commit_delivery_running" } });
+  }
+});
+
 test("durable queue attempts hold source effects until merged or confirmed closed, but allow queue parking", () => {
   using client = deliveryFixture();
   const db = drizzle(client);

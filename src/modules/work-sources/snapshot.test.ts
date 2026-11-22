@@ -56,6 +56,112 @@ test("decodes persisted plans and strips storage-only assignment fields", () => 
   expect(decodeSource(input).assignments[0]).not.toHaveProperty("sourceId");
 });
 
+test("commit assignments cannot complete from a state flag without delivery evidence", () => {
+  const source = {
+    ...input,
+    source: {
+      ...input.source,
+      state: "finished",
+      endedAt: "now",
+      plan: JSON.stringify({
+        trackerKey: "APP-1",
+        assignments: [
+          {
+            key: "read",
+            trackerKey: "#411",
+            instructions: "Build.",
+            kind: "commit-implementation",
+            completion: "commit",
+            resources: "worktree",
+            branch: "ticket/411",
+            dependencies: [],
+            delivery: { checks: [["git", "diff", "--exit-code"]] },
+          },
+        ],
+      }),
+    },
+    assignments: [
+      {
+        sourceId: "one",
+        key: "read",
+        kind: "commit-implementation",
+        completion: "commit",
+        state: "completed",
+      },
+    ],
+  };
+  expect(() => decodeSource(source)).toThrow();
+});
+
+test("commit evidence stays bound to its source, assignment, target and immutable plan policy", () => {
+  const planned = {
+    key: "read",
+    trackerKey: "#411",
+    instructions: "Build.",
+    kind: "commit-implementation",
+    completion: "commit",
+    resources: "worktree",
+    branch: "ticket/411",
+    dependencies: [],
+    delivery: { checks: [["git", "diff", "--exit-code"]] },
+  };
+  const data = {
+    repository: "example/one",
+    ticket: "#411",
+    checkout: "/isolated/checkout",
+    localRef: "refs/heads/main",
+    remoteRef: "refs/heads/main",
+    remote: "https://github.com/example/one.git",
+    base: "a".repeat(40),
+    publishedHead: null,
+    policy: {
+      checks: planned.delivery.checks,
+      review: "required",
+      publication: "local-and-origin",
+    },
+    candidate: null,
+    history: [],
+    implementer: null,
+    rounds: [],
+    dispositions: [],
+    checks: null,
+    journal: [],
+    stage: "build",
+    ownerPid: null,
+    leaseAt: null,
+  };
+  const row = { sourceId: "one", assignment: "read", revision: 1, data: JSON.stringify(data) };
+  const source = {
+    ...input,
+    source: {
+      ...input.source,
+      plan: JSON.stringify({ trackerKey: "APP-1", assignments: [planned] }),
+    },
+    assignments: [
+      {
+        sourceId: "one",
+        key: "read",
+        kind: "commit-implementation",
+        completion: "commit",
+        state: "running",
+      },
+    ],
+    commitDeliveries: [row],
+  };
+  expect<unknown>(decodeSource(source).commitDeliveries[0]?.data).toEqual(data);
+  for (const change of [
+    { sourceId: "other" },
+    { assignment: "other" },
+    { revision: 0 },
+    { revision: 1.5 },
+    { data: JSON.stringify({ ...data, repository: "another/repo" }) },
+    { data: JSON.stringify({ ...data, ticket: "#412" }) },
+    { data: JSON.stringify({ ...data, policy: { ...data.policy, checks: [["true"]] } }) },
+    { data: JSON.stringify({ ...data, implementer: "missing-launch" }) },
+  ])
+    expect(() => decodeSource({ ...source, commitDeliveries: [{ ...row, ...change }] })).toThrow();
+});
+
 test("decodes a non-null ready receipt with complete dispositions and rejects malformed receipts", () => {
   const receipt = {
     head: "pushed-head",

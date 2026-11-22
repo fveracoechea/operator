@@ -118,6 +118,60 @@ The existing trusted-device PID, lease, and pane records do not authenticate pro
 Strict pane matching can refuse safely on a stale-pane host topology. External pane closure is not atomic with SQLite, and lease renewal is not fencing against arbitrary process suspension.
 `pr merge` refuses until the internal review is `ready` or `skipped`.
 
+### Optional commit delivery
+
+New work can select `commit-implementation` instead of the default `implementation` PR kind.
+Register a source whose assignment includes an explicit check policy:
+
+```json
+{
+  "trackerKey": "#411",
+  "assignments": [{
+    "key": "ticket",
+    "trackerKey": "#411",
+    "kind": "commit-implementation",
+    "branch": "ticket/411",
+    "instructions": "Implement the ticket.",
+    "dependencies": [],
+    "delivery": { "checks": [["bun", "install", "--frozen-lockfile"], ["bun", "run", "quality"]] }
+  }]
+}
+```
+
+Use `operator source register --file <plan.json>`, then the returned dispatch command.
+The assignment records its repository, main refs, base and policy before launching the ticket worktree.
+Local main and origin/main must agree at that point.
+Checks run in a separate candidate worktree.
+Include any required dependency installation in the configured commands.
+Operator preserves configured Git identity, signing and commit hooks.
+
+The implementer commits intermediate work and runs `operator commit review`.
+A fresh reviewer reads recorded facts and intent without an implementer note.
+It records findings with `operator commit round --file <findings.md>`.
+Finding files use the same `## Findings` format as internal PR review.
+Two rounds are the maximum.
+An applied blocker in the final round stops automatic delivery.
+
+The reviewer supplies `## Dispositions`, with `- 1.1 applied` or `- 1.2 declined: <reason>`.
+It runs `operator commit deliver --file <dispositions.md>`.
+Every finding needs one disposition.
+Passing configured checks qualify the exact candidate, base, tree and policy.
+Operator advances a clean controlling checkout on main and publishes the pinned commit to origin/main.
+Dirty, untracked, busy, foreign and additional main checkouts refuse delivery.
+Concurrent advancement can stop delivery; Operator does not rebase the reviewed candidate or force-push.
+
+Git, checkout files, SQLite and the remote are not one atomic transaction.
+A failed push can leave local main advanced.
+Read the journal through `operator source show --source <id>`.
+Retry the same delivery command to reconcile the pinned candidate.
+Dependents wait for verified remote delivery.
+The ticket branch, intermediate commits and candidate worktrees remain retained.
+Squash tree equality is not permission to delete their history.
+
+Existing assignments, adoptions and promotions keep their completion type.
+PR approval, ready, CI and merge guards are unchanged.
+See [commit-delivery compatibility](docs/commit-delivery-compatibility.md) for migration, test and qualification evidence.
+
 ## Install
 
 Bun 1.4.0 or later is required, except with Nix, which brings its own Bun.

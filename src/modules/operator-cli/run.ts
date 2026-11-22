@@ -16,6 +16,8 @@ import { dispatchArgs, runDispatch } from "./dispatch.ts";
 import { runAsk } from "./ask.ts";
 import { pullRequestArgs, pullRequestExitCodes, runPullRequests } from "./pull-requests.ts";
 import { reportArgs, runReports } from "./reports.ts";
+import { runCommitDelivery } from "./commit-delivery.ts";
+import { commitEvent, commitPhase, worktreeEvent } from "./commit-context.ts";
 import { runQuestions } from "./questions.ts";
 import { runMessages } from "./messages.ts";
 import { runObligations } from "./obligations.ts";
@@ -66,7 +68,7 @@ function eventOf(args: string[]): Event | undefined {
   if (pr === "pr_wait") return "wait";
   if (pr === "pr_merge") return "observe-merge";
   if (report === "submit" || report === "resume") return report;
-  return undefined;
+  return commitEvent(args);
 }
 
 /** Locate by the recorded pane, never by an arbitrary directory or a guessed kind. */
@@ -152,6 +154,7 @@ function recorded(paths: OperatorPaths, selected: Worker, clean: boolean): Resul
         source.handoffs.some((row) => row.outgoingLaunchId === selected.launch.id) ||
         (review?.implementerLaunchId === selected.launch.id && selected.kind.name !== "review"),
       worktreeClean: clean,
+      commit: commitPhase(source, key),
     });
   });
 }
@@ -206,11 +209,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
 }
 
 function usesWorktree(pr: ReturnType<typeof pullRequestArgs>, event: Event | undefined) {
-  return (
-    pr?.operation === "pr_stack" ||
-    pr?.operation === "pr_validate" ||
-    (event !== undefined && event !== "submit" && event !== "resume")
-  );
+  return pr?.operation === "pr_stack" || pr?.operation === "pr_validate" || worktreeEvent(event);
 }
 
 function phaseReadFailure(
@@ -276,6 +275,7 @@ async function handle(args: string[], paths: OperatorPaths, json: boolean) {
     runAsk,
     runPullRequests,
     runReports,
+    runCommitDelivery,
     runQuestions,
     runMessages,
     runObligations,

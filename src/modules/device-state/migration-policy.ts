@@ -21,6 +21,15 @@ function found(client: Database, query: string) {
 /** Each guard applies once the migration that adds its records has run. */
 const idleGuards: { applied: number; busy: (client: Database) => boolean; detail: string }[] = [
   {
+    applied: 30,
+    busy: (client) =>
+      found(
+        client,
+        "SELECT 1 FROM commit_deliveries WHERE json_extract(data, '$.stage') NOT IN ('build', 'review', 'complete') LIMIT 1",
+      ),
+    detail: "Reconcile unfinished commit delivery before an upgrade. No handler ran.",
+  },
+  {
     applied: 29,
     busy: (client) => found(client, "SELECT 1 FROM deliveries WHERE ended_at IS NULL LIMIT 1"),
     detail: "Reconcile unfinished direct delivery requests before an upgrade. No handler ran.",
@@ -140,6 +149,7 @@ const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
   [1795125600000, []],
   [1795177553070, []],
   [1795284910302, []],
+  [1795305600000, []],
 ]);
 
 /** Each policy names queries that find records the migration must not run past. */

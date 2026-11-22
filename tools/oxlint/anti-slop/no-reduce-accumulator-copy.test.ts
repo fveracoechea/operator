@@ -18,9 +18,12 @@ test.each([
 test("accepts an owned mutable accumulator and does not follow reassigned arrays", async () => {
   const valid = await check(`
 export const value = [1].reduce<number[]>((acc, item) => { acc.push(item); return acc; }, []);
+
 let initial: number[] = [1]; initial = [2];
 export const copied = [1].reduce((acc, item) => acc.concat([item]), initial);
+
 export const fresh = [1].reduce<number[]>((acc, item) => Array.from([item, ...acc.keys()]), []);
+
 export const empty = [1].reduce<number[]>((acc) => { Array.from(); return acc; }, []);
 `);
   expect(valid.codes).toEqual([]);

@@ -159,14 +159,22 @@ for (const path of ["jsr", "source"] as const) {
 
   for (const workflow of [
     {
+      name: "commit review, crash recovery, and verified delivery",
+      file: "src/modules/operator-cli/run.commit-delivery.test.ts",
+      filter: "commit completion reviews",
+      passes: 2,
+    },
+    {
       name: "dispatch, report, and PR workflows on both hosts",
       file: "src/modules/operator-cli/run.delegated-run.test.ts",
       filter: "finish with no human stop",
+      passes: 2,
     },
     {
       name: "non-Slack review operations on both hosts",
       file: "src/modules/operator-cli/run.reviews.test.ts",
       filter: "a manual request reviews the PR repository",
+      passes: 2,
     },
   ])
     test(`${path}: ${workflow.name} run through the installed command`, async () => {
@@ -186,7 +194,7 @@ for (const path of ["jsr", "source"] as const) {
       );
       const output = `${result.stdout}${result.stderr}`;
       expect(result.exitCode, output).toBe(0);
-      expect(output).toMatch(/\b2 pass\b/);
+      expect(output).toMatch(new RegExp(`\\b${workflow.passes} pass\\b`));
       expect(output).toMatch(/\b0 fail\b/);
     }, 240_000);
 }

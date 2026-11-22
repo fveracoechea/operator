@@ -141,14 +141,14 @@ Native subagents remain within their parent WorkerAgent's assignment unless thei
 
 **Worker kind**:
 A named set of work phases, one kind guide, one completion type, default resources, a default start profile, and the next kind that a WorkerAgent follows.
-The built-in kinds are research, answer, prototype, implementation, review, and pr-feedback.
+The built-in kinds are research, answer, prototype, implementation, review, pr-feedback, commit-implementation, and commit-review.
 The person can define more kinds in device settings.
 The release maps in-flight PR assignments from recorded facts only.
 An assignment that still has a null kind names one at its next dispatch.
 _Avoid_: role, task type, general kind
 
 **Completion type**:
-The worker kind's fixed choice of PR merge or accepted report as the assignment's completion contract.
+The worker kind's fixed choice of PR merge, accepted report, or verified commit delivery as the assignment's completion contract.
 Resources and the start profile can be overridden, but completion cannot.
 It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent may do.
 
@@ -173,6 +173,19 @@ Changed integration head or review base requires a fresh independent review.
 An assignment that completes through SuperAgent acceptance of a durable report rather than a PR.
 Its dependents wait for that acceptance, and read-only report work needs no branch or worktree.
 
+**Commit assignment**:
+An explicitly selected assignment that delivers one ticket commit to local and remote main without a PR.
+It requires an isolated ticket worktree, fresh internal review, and configured exact-candidate checks.
+Its dependents wait for verified delivery, and its intermediate implementation history remains retained.
+
+**Commit candidate**:
+A pinned, nonempty, single-parent ticket commit whose tree is the subject of review and checks.
+Publication recovery retries this commit rather than creating another.
+
+**Commit-delivery evidence**:
+The separate durable facts of candidate creation, checkout/index transition, local advancement, remote publication and finalization.
+Partial effects remain distinct from completion.
+
 **Ready assignments**:
 Assignments whose recorded state and completion-type-specific dependency rules permit dispatch.
 _Avoid_: Crew frontier
@@ -194,7 +207,7 @@ A durable worker submission with a short conclusion, evidence references, unreso
 It awaits SuperAgent acceptance and is not proven by host activity or a Herdr completion event.
 
 **Completion**:
-The verified merge of a PR assignment or the SuperAgent's acceptance of a report assignment.
+The verified merge of a PR assignment, the SuperAgent's acceptance of a report assignment, or verified local and remote commit delivery.
 Submission alone is not completion.
 
 **Follow-up**:

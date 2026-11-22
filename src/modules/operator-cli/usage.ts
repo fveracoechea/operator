@@ -12,6 +12,7 @@ const workflowGroups = new Set([
   "obligation",
   "cleanup",
   "abandon",
+  "commit",
 ]);
 
 export function workflowArguments(args: string[]) {
@@ -45,6 +46,8 @@ const usage = `Usage: operator --help | --version [--json]
        operator herdr install [--json]
        operator herdr event [--json]
        operator pr associate [--json]
+       operator commit review [--json]
+       operator commit round | deliver --file path|- [--json]
        operator pr stack plan [--parent assignment]... [--cut sha] [--json]
        operator pr stack apply | review | cancel --plan id [--json]
        operator pr wait [--timeout seconds] [--note path|-] [--json]

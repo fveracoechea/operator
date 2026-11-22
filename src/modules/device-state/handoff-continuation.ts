@@ -178,8 +178,10 @@ function continuationFacts(db: Db, facts: ContinuationFacts) {
   const { source, assignment, handoff, latest } = facts;
   if (
     source.state !== "open" ||
-    assignment.completion !== "pr" ||
-    assignment.state !== "pr-open" ||
+    !(
+      (assignment.completion === "pr" && assignment.state === "pr-open") ||
+      (assignment.completion === "commit" && assignment.state === "running")
+    ) ||
     handoff.handoffState !== "pending"
   )
     return false;

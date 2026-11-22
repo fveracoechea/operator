@@ -48,6 +48,8 @@ test("the migration renames the slack origin to manual", async () => {
       "INSERT INTO review_requests (id, repository, number, url, origin, state, requested_at, slack_channel, slack_ts) VALUES ('manual', 'example/one', 7, 'https://github.com/example/one/pull/7', 'slack', 'queued', 'now', 'C0123', '1234.000005'), ('assignment', 'example/one', 8, 'https://github.com/example/one/pull/8', 'assignment', 'queued', 'now', NULL, NULL)",
     );
   }
+  const migrated = await device.run(["review", "next"]);
+  expect(migrated.code, migrated.stderr).toBe(0);
   expect(await device.next()).toMatchObject([
     { id: "manual", origin: "manual", slackThread: "https://slack.com/archives/C0123/p1234000005" },
     { id: "assignment", origin: "assignment", slackThread: null },

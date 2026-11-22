@@ -7,6 +7,7 @@ import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
   assignments,
+  commitDeliveries,
   cleanups,
   coordinationWaits,
   deliveries,
@@ -45,7 +46,11 @@ export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
   | (ResultContext & {
-      reason: "source_parent_open" | "source_not_found" | "pr_delivery_running";
+      reason:
+        | "source_parent_open"
+        | "source_not_found"
+        | "pr_delivery_running"
+        | "commit_delivery_running";
       detail: string;
     });
 
@@ -125,6 +130,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
         {
           source: StoredSource;
           assignments: AssignmentRow[];
+          commitDeliveries?: (typeof commitDeliveries.$inferSelect)[];
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
           stackOperations?: (typeof stackOperations.$inferSelect)[];
@@ -165,6 +171,11 @@ export function readSources(client: Database, repository: string, sourceId?: str
         return Ok(
           rows.map((source) => ({
             source,
+            commitDeliveries: db
+              .select()
+              .from(commitDeliveries)
+              .where(eq(commitDeliveries.sourceId, source.id))
+              .all(),
             stackOperations: db
               .select()
               .from(stackOperations)
@@ -564,6 +575,7 @@ export function pruneSource(
  * keeps its own lifecycle, so it stays.
  */
 export function deleteSourceRecords(db: Db, ids: string[]) {
+  db.delete(commitDeliveries).where(inArray(commitDeliveries.sourceId, ids)).run();
   db.delete(deliveryValidations).where(inArray(deliveryValidations.sourceId, ids)).run();
   db.delete(deliveries).where(inArray(deliveries.sourceId, ids)).run();
   db.delete(obligations).where(inArray(obligations.sourceId, ids)).run();

@@ -3,7 +3,7 @@ import { Err, Ok, type Result } from "unthrown";
 import type { Refusal } from "../../lib/cli-result.ts";
 import type { Db } from "./database.ts";
 import { z } from "zod";
-import { deliveries, pullRequests, stackOperations } from "./schema.ts";
+import { commitDeliveries, deliveries, pullRequests, stackOperations } from "./schema.ts";
 import { ownerGone } from "./leases.ts";
 
 export function deliveryRefusal<R extends string>(reason: R, detail: string) {
@@ -24,7 +24,26 @@ export function deliveryIdle(
   sourceId: string,
   assignment?: string,
   allowQueuedParking = false,
-): Result<undefined, Refusal & { reason: "pr_delivery_running" }> {
+): Result<undefined, Refusal & { reason: "pr_delivery_running" | "commit_delivery_running" }> {
+  const commit = db
+    .select()
+    .from(commitDeliveries)
+    .where(
+      and(
+        eq(commitDeliveries.sourceId, sourceId),
+        assignment === undefined ? undefined : eq(commitDeliveries.assignment, assignment),
+      ),
+    )
+    .all()
+    .some((row) => {
+      const data = z.object({ stage: z.string() }).parse(JSON.parse(row.data));
+      return !["build", "review", "complete"].includes(data.stage);
+    });
+  if (commit)
+    return deliveryRefusal(
+      "commit_delivery_running",
+      "A pinned commit delivery has partial or uncertain effects. Reconcile that candidate before ending its work or creating a hold.",
+    );
   const delivery = db
     .select()
     .from(deliveries)

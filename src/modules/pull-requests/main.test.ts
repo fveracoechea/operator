@@ -16,7 +16,7 @@ import { PullRequests } from "./main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { Environment } from "../environment/main.ts";
-import { Err, ErrAsync, OkAsync } from "unthrown";
+import { Err, ErrAsync, Ok, OkAsync } from "unthrown";
 import { stacked } from "./relay.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 
@@ -60,6 +60,33 @@ test("worker phase selection uses the same validated worktree owner as PR effect
   expect<unknown>(
     await PullRequests.workerTarget({ paths: device.paths, cwd: device.checkout }),
   ).toMatchObject({ tag: "Err", error: { reason: "pr_worktree_unrecorded" } });
+});
+
+test("the shared kind-handoff facade starts a detached continuation and records its exact owner", async () => {
+  await using device = await prDevice();
+  const detach = spyOn(ToolInvocation, "detach").mockReturnValue(12345);
+  const recorded = spyOn(DeviceState, "startHandoff").mockReturnValue(Ok(undefined));
+  const target = { sourceId: device.sourceId, assignment: "parent", checkout: device.checkout };
+  expect(await PullRequests.startKindHandoff(device.paths, target)).toMatchObject({
+    tag: "Ok",
+    value: "started",
+  });
+  expect(recorded).toHaveBeenCalledWith(device.paths, device.sourceId, "parent", 12345);
+  expect(detach).toHaveBeenCalledWith({
+    tool: process.execPath,
+    cwd: device.checkout,
+    args: [
+      expect.stringMatching(/cli\.ts$/) as string,
+      "dispatch",
+      "--source",
+      device.sourceId,
+      "--assignment",
+      "parent",
+      "--after-pid",
+      String(process.pid),
+      "--json",
+    ],
+  });
 });
 
 test("the public recovery action refuses missing person authorization before external reads", async () => {

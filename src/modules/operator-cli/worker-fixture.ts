@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
+import type { WorkerKinds } from "../worker-kinds/main.ts";
 import { fakeHerdrScript, retainHerdrTrace } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 import { expectRefusalOutput, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
@@ -80,7 +81,9 @@ if (args[1] === "post") {
  * The SuperAgent runs in pane `super:p0`. A WorkerAgent command runs with its launch's pane.
  * With `github`, the controlled GitHub tool answers PR reads and merges from `github.json`.
  */
-export async function workerDevice(options: { github?: boolean } = {}) {
+export async function workerDevice(
+  options: { github?: boolean; kinds?: Parameters<typeof WorkerKinds.resolve>[1] } = {},
+) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-reports-")));
 
   function environment(pane = "super:p0", socket = `${root}/herdr.sock`) {
@@ -92,6 +95,8 @@ export async function workerDevice(options: { github?: boolean } = {}) {
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       HERDR_SOCKET_PATH: socket,
       HERDR_PANE_ID: pane,
+      OPENCODE_SESSION_ID: undefined,
+      CLAUDE_CODE_SESSION_ID: undefined,
       PATH: `${root}/tools:${Environment.read().PATH}`,
     });
   }
@@ -152,6 +157,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
       superAgent: { host: "opencode", model: "test/reasoner" },
       // Internal review has its own tests, so these devices associate without it. ADR-0020.
       review: { internal: false },
+      kinds: options.kinds,
       profiles: {
         careful: { reasoningEffort: "high" },
         claude: { host: "claude-code", model: "precise-model", reasoningEffort: "medium" },
@@ -181,16 +187,23 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   const main = await checkout("checkout", "example/one");
 
   /** Run the public CLI as the SuperAgent, or in a worker pane when `pane` is set. */
-  async function run(
+  async function runRaw(
     args: string[],
     options: { cwd?: string; pane?: string; socket?: string; stdin?: string } = {},
   ) {
-    const result = await exec(
+    return exec(
       [...command.argv, ...args, "--json"],
       options.cwd ?? main,
       environment(options.pane, options.socket),
       options.stdin,
     );
+  }
+
+  async function run(
+    args: string[],
+    options: { cwd?: string; pane?: string; socket?: string; stdin?: string } = {},
+  ) {
+    const result = await runRaw(args, options);
     const output = workflowOutputSchema.parse(JSON.parse(result.stdout));
     expectWorkflowRefusal(args, output, result.stderr);
     return {
@@ -299,6 +312,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     root,
     main,
     run,
+    runRaw,
     exec,
     checkout,
     register,

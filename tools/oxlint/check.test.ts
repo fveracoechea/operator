@@ -44,10 +44,11 @@ test("removes a new probe and restores a replaced file before the next probe", a
     'import { probe } from "./lint-probe-a.ts";',
     'import { sha256 } from "./sha256.ts";',
     "export const text: string = probe;",
+    "",
     'export const digest: string = sha256("a");',
   ].join("\n");
 
-  // Line 5 reads the removed probe through an unresolved import. Line 6 reads the restored file.
+  // Line 5 reads the removed probe through an unresolved import. Line 7 reads the restored file.
   expect((await check(`${consumer}\n`)).findings).toEqual(["5 typescript(no-unsafe-assignment)"]);
 });
 

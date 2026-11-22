@@ -12,6 +12,7 @@ import {
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { PrEntry } from "../pr-entry/main.ts";
+import { CommitDelivery } from "../commit-delivery/main.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
@@ -388,9 +389,17 @@ function chooseResources(input: Request, facts: Facts) {
     .bind("base", ({ reuse, preparedStack }) =>
       preparedStack !== null
         ? OkAsync(preparedStack.head)
-        : facts.stack === null || reuse !== null
-          ? OkAsync(undefined)
-          : parentBase(checkout, facts.stack.branch),
+        : facts.planned.completion === "commit" && reuse === null
+          ? CommitDelivery.initialize({
+              ...input,
+              repository: facts.project.repository,
+              checkout,
+              checks: facts.planned.delivery.checks,
+              ticket: facts.planned.trackerKey,
+            }).map((target) => target.base)
+          : facts.stack === null || reuse !== null
+            ? OkAsync(undefined)
+            : parentBase(checkout, facts.stack.branch),
     )
     .bind("names", ({ workspace, agents, tabs, recorded, branches, reuse }) => {
       const takenNames = new Set([...agents, ...tabs, ...workspace.labels, ...recorded]);
@@ -499,6 +508,9 @@ function writeBrief(
   });
   const promotion = settings.planned.promotion;
   const phasePr = settings.pullRequest ?? directEntry;
+  const commitDelivery = settings.source.commitDeliveries.find(
+    (row) => row.assignment === settings.planned.key,
+  )?.data;
   const managedStack = settings.source.stackOperations.findLast(
     (row) => row.assignment === settings.planned.key,
   )?.data;
@@ -536,6 +548,7 @@ function writeBrief(
         assignment: settings.planned.key,
         trackerKey: settings.planned.trackerKey,
         completion: settings.planned.completion,
+        commitDelivery,
         kind: settings.kind,
         phase: briefPhase({
           kind: settings.kind,
@@ -548,6 +561,7 @@ function writeBrief(
               ? null
               : { state: settings.review.state, rounds: settings.review.rounds.length },
           internalReview: settings.internalReview,
+          commitDelivery,
         }),
         head: commit?.status === "completed" && commit.exitCode === 0 ? commit.stdout.trim() : null,
         questions,

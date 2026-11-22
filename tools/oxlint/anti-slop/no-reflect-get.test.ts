@@ -14,7 +14,7 @@ test.each(['Reflect.get({ id: 1 }, "id")', 'Reflect["get"]({ id: 1 }, "id")'])(
 
 test("accepts typed access and a shadowed Reflect binding", async () => {
   const valid = await check(
-    "const item = { id: 1 }; export const id = item.id; export function read(Reflect: { get(): number }) { return Reflect.get(); }",
+    "const item = { id: 1 }; export const id = item.id;\n\nexport function read(Reflect: { get(): number }) { return Reflect.get(); }",
   );
   expect(valid.codes).toEqual([]);
 });

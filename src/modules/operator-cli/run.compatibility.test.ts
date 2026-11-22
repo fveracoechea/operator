@@ -234,7 +234,7 @@ test("the question receipt upgrade preserves the kind migration and historical q
   expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 27").all()).toEqual(
     history,
   );
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(29);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(30);
   expect(db.query("SELECT * FROM worker_questions").all()).toEqual(
     questions.map((row) => ({ ...row, awaiting_person_seen_at: null })),
   );
@@ -470,7 +470,7 @@ test.each(["live", "stale", "unowned"] as const)(
     expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 26").all()).toEqual(
       history,
     );
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(30);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(31);
     const copies = await backups();
     expect(copies).toHaveLength(1);
     using backup = new Database(`${root}/state/operator/backups/${copies[0]}`, { readonly: true });
@@ -513,7 +513,7 @@ test.each(["live", "stale", "stopped", "unowned"] as const)(
     expect(db.query("SELECT * FROM __drizzle_migrations ORDER BY id LIMIT 24").all()).toEqual(
       history,
     );
-    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(30);
+    expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(31);
     expect(db.query("SELECT id, state, data FROM stack_operations").all()).toEqual([
       { id: "effect", state: "planned", data: "{}" },
     ]);
@@ -676,7 +676,7 @@ test("skipped releases apply each fixed migration in order with one pre-migratio
   );
   expect(await run(["--version"], entry)).toMatchObject({ code: 0 });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(30);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(31);
   expect(db.query("SELECT * FROM later").all()).toEqual([{ repository: "example/one" }]);
   expect(await backups()).toHaveLength(1);
 });

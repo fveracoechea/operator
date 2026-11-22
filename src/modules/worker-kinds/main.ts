@@ -9,11 +9,13 @@ const nameSchema = z.enum([
   "implementation",
   "review",
   "pr-feedback",
+  "commit-implementation",
+  "commit-review",
 ]);
 const kindNameSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 const definitionSchema = z.object({
   name: kindNameSchema,
-  completion: z.enum(["report", "pr"]),
+  completion: z.enum(["report", "pr", "commit"]),
   resources: z.enum(["pane", "worktree"]),
   profile: z.string().nullable(),
   nextKind: kindNameSchema.nullable(),
@@ -33,6 +35,9 @@ const definitionSchema = z.object({
           "pr_ready",
           "worktree_clean",
           "pr_merged",
+          "commit_candidate",
+          "commit_reviewed",
+          "commit_delivered",
         ])
         .optional(),
     }),
@@ -90,6 +95,30 @@ const customKindsSchema = z.preprocess(
 );
 
 const kinds: Record<z.infer<typeof nameSchema>, WorkerKind> = {
+  "commit-implementation": {
+    name: "commit-implementation",
+    completion: "commit",
+    resources: "worktree",
+    profile: null,
+    nextKind: "commit-review",
+    readsNote: false,
+    guide: "worker-agent/kinds/commit-implementation.md",
+    skillsToRead: [],
+    dispatchable: true,
+    workPhases: [{ name: "build", goal: "Implement the ticket without publishing a PR." }],
+  },
+  "commit-review": {
+    name: "commit-review",
+    completion: "commit",
+    resources: "worktree",
+    profile: null,
+    nextKind: null,
+    readsNote: false,
+    guide: "worker-agent/kinds/commit-review.md",
+    skillsToRead: [],
+    dispatchable: false,
+    workPhases: [],
+  },
   research: {
     name: "research",
     completion: "report",

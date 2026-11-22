@@ -333,10 +333,7 @@ test.each([
     name: "implemented open parents need no prerequisite merge",
     file: "work-sources/assignment-machine.ts",
     replacements: [
-      [
-        'dependency.state !== "pr-open" && dependency.state !== "merged"',
-        'dependency.state !== "merged"',
-      ],
+      ['assignment.completion === "commit" || dependency.state !== "pr-open"', "true"],
     ],
     testFile: "work-sources/assignment-machine.test.ts",
     pattern:

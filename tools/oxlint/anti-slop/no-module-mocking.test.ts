@@ -13,7 +13,7 @@ test.each([
 
 test("accepts function mocks and unrelated objects", async () => {
   const valid = await check(
-    'import { mock } from "bun:test"; export const call = mock(() => 1); export const other = { module() { return 1; } }; other.module();',
+    'import { mock } from "bun:test"; export const call = mock(() => 1);\n\nexport const other = { module() { return 1; } };\n\nother.module();',
   );
   expect(valid.codes).toEqual([]);
 });

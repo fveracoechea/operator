@@ -1,4 +1,5 @@
 import { Err, Ok, fromThrowable, type Result } from "unthrown";
+import { changeCommitDelivery, commitDeliverySchema } from "./commit-deliveries.ts";
 import {
   readStack,
   changeStack,
@@ -180,6 +181,16 @@ function hold(renew: () => void) {
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
+  commitDeliverySchema() {
+    return commitDeliverySchema;
+  },
+  changeCommitDelivery(
+    paths: Paths,
+    target: Parameters<typeof changeCommitDelivery>[1],
+    change: Parameters<typeof changeCommitDelivery>[2],
+  ) {
+    return writing(paths, (client) => changeCommitDelivery(client, target, change));
+  },
   stackHistory(text: string) {
     return stackHistory(text);
   },

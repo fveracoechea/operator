@@ -19,6 +19,18 @@ test("uses the same home defaults on Linux and macOS without creating them", asy
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root }))).toEqual([]);
 });
 
+test("commit candidates stay under the device state root without creating their directories", async () => {
+  const paths = { stateRoot: `${root}/commit-state` };
+  expect(OperatorHome.commitCandidateRoot(paths)).toBe(`${root}/commit-state/commit-candidates`);
+  expect(OperatorHome.commitCandidate(paths, "first")).toBe(
+    `${root}/commit-state/commit-candidates/first`,
+  );
+  expect(OperatorHome.commitCandidate(paths, "second")).toBe(
+    `${root}/commit-state/commit-candidates/second`,
+  );
+  expect(await Array.fromAsync(new Bun.Glob("commit-state/**/*").scan({ cwd: root }))).toEqual([]);
+});
+
 test("owns separate XDG settings, receipts, and lock paths", () => {
   const paths = OperatorHome.resolve(
     Environment.parse({
