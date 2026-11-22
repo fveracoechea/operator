@@ -3,42 +3,19 @@ import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { parseMutationArgs, selectMutationUnits, type MutationUnit } from "./mutation-selection.ts";
 import { mutationGuidance } from "./mutation-policy.ts";
+import { runMutationUnits, type MutationResult } from "./mutation-run.ts";
 import { z } from "zod";
 
 const usage = "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...]";
-type Counts = {
-  survivors: number;
-  untested: number;
-  incomplete: number;
-  killed: number;
-  ignored: number;
-};
 const storedReport = z.looseObject({
   files: z.record(
     z.string(),
     z.looseObject({ mutants: z.array(z.looseObject({ status: z.string() })) }),
   ),
 });
-type Location = { start: { line: number; column: number }; end: { line: number; column: number } };
 
 function quote(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
-}
-
-function originalText(source: string, { start, end }: Location): string {
-  // Stryker results use one-based report locations, including columns.
-  return source
-    .split("\n")
-    .slice(start.line - 1, end.line)
-    .map((line, index) =>
-      line.slice(
-        index === 0 ? start.column - 1 : 0,
-        start.line + index === end.line ? end.column - 1 : undefined,
-      ),
-    )
-    .join("\n")
-    .replaceAll("\n", "\\n")
-    .replaceAll("`", "\\`");
 }
 
 /**
@@ -62,7 +39,7 @@ async function incrementalFile(unit: MutationUnit, inputFiles: string[]): Promis
   return file;
 }
 
-async function runUnit(unit: MutationUnit, counts: Counts): Promise<void> {
+async function executeMutationUnit(unit: MutationUnit): Promise<MutationResult[]> {
   const temporary = await mkdtemp(path.join(process.cwd(), ".mutation-"));
   try {
     const configFile = path.join(temporary, "config.json");
@@ -73,7 +50,7 @@ async function runUnit(unit: MutationUnit, counts: Counts): Promise<void> {
     const ownRunner = await Bun.file(runner).exists();
     const test = ownRunner ? [runner] : ["run", "test"];
     const { Stryker } = await import("@stryker-mutator/core");
-    const mutants = await new Stryker({
+    return await new Stryker({
       configFile,
       mutate: unit.patterns,
       testRunner: "command",
@@ -108,43 +85,6 @@ async function runUnit(unit: MutationUnit, counts: Counts): Promise<void> {
       // Never copy legacy state or host skill links into a sandbox.
       ignorePatterns: [".operator", ".mutation-*", ".claude", ".agents"],
     }).runMutationTest();
-    for (const mutant of mutants) {
-      const location = `${unit.name}:${mutant.location.start.line}`;
-      // Stryker disable next-line ConditionalExpression, StringLiteral, BlockStatement: equivalent: coverage analysis is off, so Stryker runs every mutant and reports no NoCoverage status
-      if (mutant.status === "NoCoverage") {
-        // Stryker disable next-line UpdateOperator: equivalent: no NoCoverage status occurs with coverage analysis off
-        counts.untested++;
-        // Stryker disable next-line StringLiteral, CallExpression: equivalent: no NoCoverage status occurs with coverage analysis off
-        console.log(`${location}: untested: ${mutant.mutatorName}`);
-      } else if (mutant.status === "Survived") {
-        counts.survivors++;
-        console.log(
-          `${location}: survived: ${mutant.mutatorName}: \`${originalText(unit.source, mutant.location)}\` to \`${mutant.replacement.replaceAll("\n", "\\n").replaceAll("`", "\\`")}\``,
-        );
-      } else if (mutant.status === "Killed") {
-        counts.killed++;
-      } else if (mutant.status === "Ignored") {
-        counts.ignored++;
-        console.log(
-          JSON.stringify({
-            unit: unit.name,
-            id: mutant.id,
-            status: mutant.status,
-            mutatorName: mutant.mutatorName,
-            location: mutant.location,
-            replacement: mutant.replacement,
-            original: originalText(unit.source, mutant.location),
-            statusReason: mutant.statusReason,
-          }),
-        );
-      } else {
-        // A timeout, runtime error, compile error, or pending result has no verdict.
-        counts.incomplete++;
-        console.error(
-          `${location}: incomplete: ${mutant.status}: ${mutant.statusReason ?? "no result"}`,
-        );
-      }
-    }
   } finally {
     await rm(temporary, { recursive: true });
   }
@@ -165,20 +105,7 @@ async function main(args: string[]): Promise<number> {
     console.error(selected.error);
     return 1;
   }
-  const counts: Counts = { survivors: 0, untested: 0, incomplete: 0, killed: 0, ignored: 0 };
-  for (const unit of selected.units) {
-    if (unit.tests.length === 0) {
-      console.log(`${unit.name}: untested. Add a direct beside-test.`);
-      counts.untested++;
-    } else {
-      await runUnit(unit, counts);
-    }
-  }
-  console.log(
-    `Mutation summary: ${counts.survivors} survivors, ${counts.untested} untested, ${counts.incomplete} incomplete, ${counts.killed} killed, ${counts.ignored} ignored, ${selected.skipped} skipped. See ${mutationGuidance}.`,
-  );
-  if (counts.incomplete > 0) return 3;
-  return counts.survivors + counts.untested > 0 ? 2 : 0;
+  return runMutationUnits(selected, executeMutationUnit, console);
 }
 
 try {
