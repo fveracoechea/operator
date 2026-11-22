@@ -9,8 +9,11 @@ import { writeFile } from "../../lib/write-file.ts";
 import type { RefusalContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
+
 export type Host = keyof Paths["skillHosts"];
+
 export type Request = { paths: Paths; hosts: Host[]; check: boolean; source: string };
+
 function isText(value: unknown): value is string {
   return typeof value === "string";
 }

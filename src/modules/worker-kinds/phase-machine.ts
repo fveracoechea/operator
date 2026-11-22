@@ -8,6 +8,7 @@ export type PhaseGuard =
   | "pr_ready"
   | "worktree_clean"
   | "pr_merged";
+
 export type PhaseEvent =
   | "submit"
   | "resume"
@@ -17,6 +18,7 @@ export type PhaseEvent =
   | "wait"
   | "observe-merge"
   | "merge";
+
 export type PhaseFacts = {
   kind: {
     name: string;
@@ -31,6 +33,7 @@ export type PhaseFacts = {
   handedOff?: boolean;
   worktreeClean: boolean;
 };
+
 type Phase = { phase: string; next: NextStep };
 type Rule = { when: (facts: PhaseFacts) => boolean; phase: (facts: PhaseFacts) => Phase };
 

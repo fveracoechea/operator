@@ -31,6 +31,7 @@ export const noUnknownParametersRule = defineRule({
         });
       }
     }
+
     return parameterOwnerVisitor(check);
   },
 });

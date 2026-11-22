@@ -23,6 +23,7 @@ const receiptFields = z.record(z.string(), z.unknown());
 async function readReceipt(file: string) {
   return receiptFields.parse(await Bun.file(file).json());
 }
+
 function paths(name: string) {
   return OperatorHome.resolve(
     Environment.parse({
@@ -133,6 +134,7 @@ test("discovery skips unreadable receipts and foreign identities, and newest bac
   function receipt(identity = "") {
     return OperatorHome.migrationBackup(target, identity).receipt;
   }
+
   await Bun.write(receipt(second), "{not json");
   const foreign = await readReceipt(receipt(third));
   await Bun.write(receipt(third), JSON.stringify({ ...foreign, identity: "other" }));

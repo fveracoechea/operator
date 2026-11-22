@@ -8,6 +8,7 @@ import type { Refusal } from "../../lib/cli-result.ts";
 function text(max: number) {
   return z.string().trim().min(1).max(max);
 }
+
 /** One spelling of a repository path, so a changed file cannot pass under another one. */
 function repositoryPath() {
   return text(500)
@@ -17,6 +18,7 @@ function repositoryPath() {
     )
     .transform((value) => path.posix.normalize(value).replace(/^\.\//, ""));
 }
+
 const location = {
   path: repositoryPath().optional(),
   line: z.number().int().positive().optional(),
@@ -83,6 +85,7 @@ export const draftSchema = z
           message: "Give a finding both path and line, or neither.",
         });
   });
+
 export type Draft = z.infer<typeof draftSchema>;
 
 /**
@@ -94,7 +97,9 @@ export const storedFindingsSchema = z.object({
   blockers: z.array(z.object(blocker.shape)).default([]),
   niceToHaves: z.array(z.object(niceToHave.shape).partial({ short: true })).default([]),
 });
+
 export type Findings = z.infer<typeof storedFindingsSchema>;
+
 export type AcceptedDraft = {
   draft: Draft;
   /** Failing required CI checks that no valid noise claim covers. They are blocker facts. */
@@ -103,6 +108,7 @@ export type AcceptedDraft = {
   /** False when the PR has more check contexts than one read returns. */
   checksComplete: boolean;
 };
+
 const draftRecovery = {
   command: "operator review next",
   why: "Read the current head and draft path, correct the draft, then post again.",

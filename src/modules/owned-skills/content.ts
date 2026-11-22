@@ -47,6 +47,7 @@ export async function contents(directory: string, followLinks = false): Promise<
       result[relative] = sha256(await Bun.file(current).bytes());
     } else result[relative] = "special";
   }
+
   await visit(directory, "", new Set());
   // An existing directory, file, or link always records at least one entry.
   return Object.keys(result).length === 0 ? null : result;

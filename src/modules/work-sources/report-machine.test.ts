@@ -33,6 +33,7 @@ function facts(input: {
     promotion: input.promotion,
   };
 }
+
 const submitted = { number: 1, decision: null, cleanupState: null };
 
 test.each([

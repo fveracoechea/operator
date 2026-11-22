@@ -170,6 +170,7 @@ test("several implemented open parents permit a managed stacked start without pa
   function open(key: string): AssignmentState {
     return { key, completion: "pr", state: "pr-open" };
   }
+
   const merged: AssignmentState = { key: "done", completion: "pr", state: "merged" };
   expect(dependencyBlockers(child, [open("a"), merged])).toEqual([]);
   expect(dependencyBlockers(child, [open("a"), open("b")])).toEqual([]);

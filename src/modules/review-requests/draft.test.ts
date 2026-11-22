@@ -17,6 +17,7 @@ function thread(change: Record<string, unknown> = {}) {
     ...change,
   };
 }
+
 function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
   return {
     state: "OPEN",
@@ -34,6 +35,7 @@ function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
     ...change,
   };
 }
+
 function draft(change: Record<string, unknown> = {}) {
   return draftSchema.parse({ reviewedCommit: head, summary: "One line.", ...change });
 }

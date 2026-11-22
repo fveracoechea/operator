@@ -12,7 +12,9 @@ export const assignmentStateSchema = z.discriminatedUnion("completion", [
     state: z.enum(["ready", "running", "reported", "completed", "abandoned"]),
   }),
 ]);
+
 export type AssignmentState = z.infer<typeof assignmentStateSchema>;
+
 type Facts = {
   assignment: AssignmentState;
   dependencies: AssignmentState[];

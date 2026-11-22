@@ -56,6 +56,7 @@ test("qualifies each known filesystem failure and leaves every other cause a def
   function defect(cause: Error) {
     return { defect: String(cause) };
   }
+
   for (const code of ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR"])
     expect(qualify(Object.assign(new Error(`failed ${code}`), { code }), defect)).toEqual({
       reason: "dispatch_io_failed",
@@ -235,6 +236,7 @@ test("a workspace with no checkout is the project workspace when each of its pan
       agentSession: null,
     };
   }
+
   spyOn(Herdr, "panes").mockReturnValue(
     OkAsync([
       pane("w2", checkout),
@@ -334,6 +336,7 @@ function paths() {
     XDG_STATE_HOME: `${root}/state`,
   });
 }
+
 const since = "2026-01-01T00:00:00.000Z";
 type Row = { state: string; detail: string; startedAt: string; abandoned: boolean };
 

@@ -33,6 +33,7 @@ function accepted(change: Partial<AcceptedDraft["draft"]> = {}, failing = 0): Ac
     checksComplete: true,
   };
 }
+
 const blocker = { short: "Guard untested", detail: "Add a test." };
 const breaking = { ...blocker, impact: "breaking" as const };
 const security = { ...blocker, impact: "security" as const };

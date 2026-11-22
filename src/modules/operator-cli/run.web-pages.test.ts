@@ -49,6 +49,7 @@ test("the public CLI opens only an explicitly requested safe page through a cont
       const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
       return { code, output: JSON.parse(stdout) as unknown };
     }
+
     const url = "https://example.invalid/a?literal=$(not-a-command)&one=1";
     expect(await run(["--url", url])).toMatchObject({
       code: 4,

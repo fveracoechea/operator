@@ -34,6 +34,7 @@ export type SettingsFailure =
         | "settings_write_unconfirmed";
       detail: string;
     });
+
 export type SettingsOutcome =
   | {
       reason:
@@ -45,6 +46,7 @@ export type SettingsOutcome =
       data: unknown;
     }
   | SettingsFailure;
+
 export type ChangeRequest = {
   paths: OperatorPaths;
   sets: string[];

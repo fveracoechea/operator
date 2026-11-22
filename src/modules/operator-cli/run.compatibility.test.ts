@@ -19,6 +19,7 @@ function shippedHistory() {
     created_at: folderMillis,
   }));
 }
+
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-compatibility-"));
 });

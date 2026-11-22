@@ -2,8 +2,11 @@ import { Err, Ok, type Result } from "unthrown";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type QuestionCommand = "ask" | "withdraw" | "escalate" | "answer";
+
 export type QuestionState = "open" | "awaiting_person" | "answered" | "withdrawn" | "abandoned";
+
 export type AnswerAuthority = "super-agent" | "person";
+
 type Pane = { socket: string | null; paneId: string | null };
 type Facts = {
   command: QuestionCommand;

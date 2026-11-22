@@ -670,10 +670,12 @@ test("a running wait holds a lease that its result releases, and a gone owner re
   function lease() {
     return db.query("SELECT wait_owner_pid AS pid, wait_lease_at AS at FROM pull_requests").get();
   }
+
   function stopped() {
     const read = readSources(db, "owner/one");
     return read.tag === "Ok" ? read.value[0]?.pullRequests[0]?.waitStopped : undefined;
   }
+
   recordPullRequestWait(db, "l1", (row) => ({ progress: row.progress, waitState: "waiting" }));
   expect(lease()).toMatchObject({ pid: process.pid });
   expect(stopped()).toBe(false);
@@ -715,6 +717,7 @@ test("a stacked PR keeps its relay record, and only another live process holds i
       return { progress: row.progress, waitState: row.waitState, relay: '{"state":"relayed"}' };
     });
   }
+
   const gone = Bun.spawnSync([process.execPath, "--version"]).pid;
   const other = Bun.spawn([process.execPath, "-e", "await Bun.sleep(5000)"]);
   try {
@@ -746,6 +749,7 @@ test("a relay renews only its own claim, so a slow relay is not taken over", () 
     const row = db.query("SELECT relay FROM pull_requests").get() as { relay: string };
     return (JSON.parse(row.relay) as { leaseAt: string }).leaseAt;
   }
+
   expect(claim(process.pid)).not.toBe(old);
   expect(claim(process.pid + 1)).toBe(old);
 });
@@ -1042,6 +1046,7 @@ test("a merge refuses an unknown launch, an unassociated PR, another PR number, 
       },
     };
   }
+
   expect(recordPullRequestMerge(db, "l1", merge, () => "open")).toMatchObject(notOpen(7));
   // A PR open state without its PR record is still no associated PR.
   db.exec("UPDATE assignments SET state = 'pr-open' WHERE key = 'change'");

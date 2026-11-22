@@ -29,6 +29,7 @@ async function captureContinuationOutput(
       remaining -= record.length + 1;
     }
   }
+
   for await (const bytes of stream) {
     const chunk = decoder.decode(bytes, { stream: true });
     // Keep the original complete assertion output; only incremental diagnostics are capped.
@@ -79,6 +80,7 @@ test("stopped-control", async () => {
     diagnostics.push(line);
     if (line.includes(" start stopped-control") && child.exitCode === null) child.kill("SIGKILL");
   }
+
   try {
     const [code, stdout, stderr] = await Promise.all([
       child.exited,

@@ -61,5 +61,6 @@ export function resolvedTypeMatches(
     }
     return matcher(current, (child) => evaluate(child, substitutions, resolving));
   }
+
   return evaluate(type, new Map(), new Set());
 }

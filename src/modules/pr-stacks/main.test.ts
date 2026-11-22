@@ -25,6 +25,7 @@ test("independent prerequisites produce a deterministic dependency-only base wit
     expect(answer.exitCode, answer.stderr).toBe(0);
     return answer.stdout.trim();
   }
+
   await git("init", "-q", "-b", "main");
   await git("config", "user.name", "Fixture");
   await git("config", "user.email", "fixture@example.com");

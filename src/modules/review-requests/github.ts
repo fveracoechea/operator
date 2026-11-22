@@ -7,12 +7,15 @@ export type GithubFailure = RefusalContext & {
   reason: "github_failed" | "github_uncertain" | "github_invalid_response";
   detail: string;
 };
+
 export type Target = { repository: string; number: number; url: string };
+
 export type RequiredCheck = {
   name: string;
   state: "pending" | "passing" | "failing";
   url: string | null;
 };
+
 export type PullRequestFacts = {
   state: "OPEN" | "MERGED" | "CLOSED";
   head: string;
@@ -31,6 +34,7 @@ export type PullRequestFacts = {
   /** Review requests for a user, newest last. A renewed request names the posting account. */
   reviewRequests: { reviewer: string; createdAt: string }[];
 };
+
 type ThreadComment = {
   id: string;
   author: string | null;

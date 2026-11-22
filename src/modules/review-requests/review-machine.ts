@@ -24,7 +24,9 @@ export type ReviewCommand =
   | "synced"
   | "close"
   | "skip";
+
 export type RoundTrigger = "commits" | "reply" | "resolved" | "re-request";
+
 type Request = {
   state: string;
   launchState: string | null;
@@ -47,6 +49,7 @@ export type ReviewFacts = {
   /** This process holds the request's lease. */
   ownLease?: boolean;
 };
+
 /** The state part of a transition. The operation adds the recorded resources and round. */
 export type ReviewTransition = {
   insert?: true;
@@ -68,6 +71,7 @@ export type ReviewTransition = {
   /** Reviewer cleanup starts. */
   cleanup?: true;
 };
+
 type Rule = {
   when: (facts: ReviewFacts) => boolean;
   decide: (facts: ReviewFacts) => Result<ReviewTransition, Refusal>;

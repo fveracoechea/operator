@@ -59,6 +59,7 @@ test.each(["\n", "\r\n", "\r"])(
     function finding(claim: string) {
       return { axis: "Spec", severity: "nice-to-have", location: "owner.ts:1", claim };
     }
+
     expect(
       DeviceState.recordInternalReviewRound(device.paths, review.id, () =>
         Ok({

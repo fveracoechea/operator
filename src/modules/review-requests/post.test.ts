@@ -17,6 +17,7 @@ function thread(change: Partial<Thread> = {}): Thread {
     ...change,
   };
 }
+
 function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
   return {
     state: "OPEN",
@@ -34,6 +35,7 @@ function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
     ...change,
   };
 }
+
 function request(change: Partial<Row>): Row {
   return {
     id: "r1",
@@ -73,6 +75,7 @@ function request(change: Partial<Row>): Row {
     ...change,
   };
 }
+
 function draft(commit: string, change: Record<string, unknown> = {}) {
   return draftSchema.parse({ reviewedCommit: commit, summary: "S.", ...change });
 }

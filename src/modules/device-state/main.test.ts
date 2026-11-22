@@ -37,6 +37,7 @@ test("the continuation facade reads, renews, finishes, and fails only its author
       )
       .get();
   }
+
   expect(DeviceState.checkHandoffContinuation(paths, continuation)).toMatchObject({
     tag: "Ok",
     value: undefined,
@@ -333,6 +334,7 @@ test("missing state refuses each operation with its own detail and writes nothin
   function missing(detail: string) {
     return { tag: "Err", error: { reason: "state_missing", detail } };
   }
+
   const operation = missing("Register the project explicitly before this operation.");
   expect(DeviceState.launchNames(paths)).toMatchObject(operation);
   expect(DeviceState.readReviewRequests(paths)).toMatchObject(operation);
@@ -621,6 +623,7 @@ test("each hold renews its lease on the renewal interval until it stops", async 
       )
       .get();
   }
+
   function aged(fresh: number) {
     return {
       launch: fresh,
@@ -631,11 +634,13 @@ test("each hold renews its lease on the renewal interval until it stops", async 
       cleanup: fresh,
     };
   }
+
   function reset() {
     db.exec(
       `UPDATE launches SET lease_at = '${old}'; UPDATE worktree_preparations SET lease_at = '${old}'; UPDATE review_requests SET lease_at = '${old}'; UPDATE pull_requests SET wait_lease_at = '${old}', relay = json_set(relay, '$.leaseAt', '${old}'); UPDATE cleanups SET lease_at = '${old}'`,
     );
   }
+
   reset();
   jest.useFakeTimers();
   try {

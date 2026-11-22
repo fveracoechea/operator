@@ -27,9 +27,11 @@ test("sorts edits and changes only the selected role fields", () => {
 function unsupported(raw: string) {
   return `Unsupported settings field: ${raw}.`;
 }
+
 function repeated(key: string) {
   return `Settings field ${key} was named more than once.`;
 }
+
 function empty(key: string) {
   return `Set ${key} with a non-empty path=value argument.`;
 }

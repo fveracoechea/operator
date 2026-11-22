@@ -109,6 +109,7 @@ export const noReduceAccumulatorCopyRule = defineRule({
             expression !== undefined && referencesAccumulator(context.sourceCode, expression, owned)
           );
         }
+
         let copiesAccumulator = false;
         if (
           method.name === "assign" &&

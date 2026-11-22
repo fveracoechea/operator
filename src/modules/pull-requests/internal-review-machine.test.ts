@@ -81,6 +81,7 @@ test("the handoff closes a live implementer's pane and starts the reviewer once"
       reviewerStarted,
     });
   }
+
   expect(handoff("running", "p1", false)).toEqual({
     result: "handoff",
     closePane: true,
@@ -200,6 +201,7 @@ test("one round without an applied blocker ends the review", () => {
       dispositions: [{ round: 1, finding: 1, disposition }],
     });
   }
+
   expect(one("nice-to-have", "applied")).toMatchObject({ result: "ready" });
   // A declined blocker moves no code, so its reason in the comment is the end.
   expect(one("blocker", "declined")).toMatchObject({ result: "ready" });
@@ -224,6 +226,7 @@ test("one round without an applied blocker ends the review", () => {
       ],
     });
   }
+
   expect(mixed("declined", "applied")).toMatchObject({ result: "ready" });
   expect(mixed("applied", "declined")).toMatchObject({
     reason: "internal_review_second_round_required",

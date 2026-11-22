@@ -47,6 +47,7 @@ function decide(
 function reportRow(state: Extract<AssignmentState, { completion: "report" }>["state"]) {
   return { key: "a", completion: "report" as const, state };
 }
+
 function prRow(state: Extract<AssignmentState, { completion: "pr" }>["state"]) {
   return { key: "a", completion: "pr" as const, state };
 }

@@ -194,9 +194,11 @@ test("check runs and status contexts map to pending, passing, or failing", () =>
   function run(name: string, status: string, conclusion: string | null) {
     return { __typename: "CheckRun" as const, name, status, conclusion, detailsUrl: null };
   }
+
   function status(context: string, state: string) {
     return { __typename: "StatusContext" as const, context, state, targetUrl: "t" };
   }
+
   const observed = observation(
     answer({
       commits: {
@@ -1316,6 +1318,7 @@ describe("GitHub answers in the expected form", () => {
     function check(context: Record<string, unknown>) {
       return { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [context] } } } }] };
     }
+
     const changes: Record<string, unknown>[] = [
       { comments: { nodes: [{ ...node, author: {} }] } },
       { comments: { nodes: [{ ...node, body: undefined }] } },
@@ -1388,6 +1391,7 @@ test("an unfinished check run or one without a conclusion is pending", () => {
       },
     };
   }
+
   expect(observation(answer(rollup("IN_PROGRESS", "FAILURE"))).checks[0]?.state).toBe("pending");
   expect(observation(answer(rollup("COMPLETED", null))).checks[0]?.state).toBe("pending");
   expect(observation(answer(rollup("COMPLETED", "FAILURE"))).checks[0]?.state).toBe("failing");

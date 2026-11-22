@@ -251,6 +251,7 @@ test.each([false, true])(
       ]);
       return { code, diagnostic: `${stdout}${stderr}` };
     }
+
     try {
       if (outerStrykerPreamble && !originalAssertions.startsWith(preamble))
         await Bun.write(assertions, `${preamble}${originalAssertions}`);

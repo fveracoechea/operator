@@ -22,6 +22,7 @@ function facts(
 ): ReviewFacts {
   return { command, request, registered: true, ownerActive: false, ...change };
 }
+
 const queued = { state: "queued", launchState: null };
 
 test("an unregistered repository is refused before any other rule", () => {

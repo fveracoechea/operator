@@ -217,6 +217,7 @@ function otherCleanup(db: Database) {
     "INSERT INTO cleanups (source_id, assignment, launch_id, step, state, updated_at) VALUES ('s1', 'other', 'l1', 'remote_branch', 'pending', 'then')",
   );
 }
+
 function otherRow(db: Database) {
   return db
     .query(
@@ -224,6 +225,7 @@ function otherRow(db: Database) {
     )
     .get();
 }
+
 const untouched = {
   step: "remote_branch",
   state: "pending",

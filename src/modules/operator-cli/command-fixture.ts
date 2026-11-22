@@ -40,6 +40,7 @@ export async function writeClaudeHookSettings(home: string) {
 export async function writeOpenCodePlugin(config: string) {
   await Bun.write(`${config}/opencode/plugins/operator.ts`, Bun.file(plugin), { createPath: true });
 }
+
 /** Test stand-ins, including the deliberately unprovisioned real conflict skill. Never installs skills. */
 export async function writeGuideSkills(upstream: string, hostSkills = upstream) {
   for (const name of [

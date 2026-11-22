@@ -66,6 +66,7 @@ function github(handlers: Handlers) {
     function field(name: string) {
       return request.args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1) ?? "";
     }
+
     if (request.args[0] !== "graphql") {
       posts.push(payloadSchema.parse(JSON.parse(request.input ?? "{}")));
       return (handlers.post ?? (() => answered(review("COMMENTED"))))();

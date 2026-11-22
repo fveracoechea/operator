@@ -11,7 +11,9 @@ import { PACKAGE_NAMES } from "./registry-install.ts";
 import { jsrSchema, releaseSchema } from "./schemas-fixture.ts";
 
 export const sourceRoot = new URL("../../../", import.meta.url).pathname.replace(/\/$/, "");
+
 export const launcherPackage = PACKAGE_NAMES.installed;
+
 export const registryPackage = PACKAGE_NAMES.registry;
 
 export type BuiltRelease = {

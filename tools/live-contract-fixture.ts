@@ -80,6 +80,7 @@ export async function startHerdrServer() {
         .exitCode === 0
     );
   }
+
   const deadline = Date.now() + 15000;
   while (!answers(herdr)) {
     if (server.exitCode !== null || Date.now() > deadline) {

@@ -1,6 +1,9 @@
 export const RELEASE_MANIFEST_PATH = "release.json";
+
 export const SETTINGS_SCHEMA_PATH = "schemas/config.schema.json";
+
 export const HERDR_PLUGIN_PATH = "modules/worker-dispatch/herdr-plugin.toml";
+
 export const OPENCODE_PLUGIN_PATH = "modules/opencode-plugin/plugin.ts";
 
 /** Lists every file under a directory, treating a missing directory as empty. */

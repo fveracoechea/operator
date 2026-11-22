@@ -18,6 +18,7 @@ export type WatchFacts = {
   pr: PullRequestFacts;
   now: number;
 };
+
 export type WatchDecision =
   | { kind: "close" }
   | { kind: "round"; trigger: RoundTrigger; head: string }

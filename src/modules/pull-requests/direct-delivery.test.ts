@@ -36,6 +36,7 @@ function value<T, E>(result: Result<T, E>): T {
   if (result.tag !== "Ok") throw new Error("Fixture operation failed.");
   return result.value;
 }
+
 async function intent(uuid: string | null) {
   const device = await prDevice();
   const outgoing = device.start("other");

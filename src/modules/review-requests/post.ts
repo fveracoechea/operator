@@ -592,6 +592,7 @@ function retryPost(paths: Paths, target: Target, request: Row, snapshot: Snapsho
               function next(posted: Round) {
                 return threads(paths, target, owner, posted, pr, operations, {});
               }
+
               if (round.outcome === "posted") return next(round);
               const found = pr.reviews.find(
                 (review) => review.byViewer && review.body.includes(round.marker),

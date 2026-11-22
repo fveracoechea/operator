@@ -9,6 +9,7 @@ export function reportInput(value: {
   function list(items: string[]) {
     return items.length ? items.map((item) => `- ${item}`).join("\n") : "- None.";
   }
+
   function answers(by: string) {
     return list(
       (value.decisions ?? [])
@@ -16,5 +17,6 @@ export function reportInput(value: {
         .map((item) => `${item.question} Answer: ${item.answer}`),
     );
   }
+
   return `## Conclusion\n${value.conclusion}\n\n## Evidence\n${list(value.evidence)}\n\n## Unresolved points\n${list(value.unresolved)}\n\n## Supporting files\n${list(value.files ?? [])}\n\n## Human answers\n${answers("person")}\n\n## SuperAgent decisions\n${answers("super-agent")}\n`;
 }

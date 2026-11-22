@@ -18,9 +18,11 @@ function quiet() {
     error: spyOn(console, "error").mockImplementation(() => {}),
   };
 }
+
 function completed(reason: string) {
   return OkAsync({ reason, data: { review: 1 } }) as never;
 }
+
 function spies() {
   return {
     add: spyOn(ReviewRequests, "add").mockReturnValue(completed("review_added")),
@@ -31,6 +33,7 @@ function spies() {
     next: spyOn(ReviewRequests, "next").mockReturnValue(completed("review_next")),
   };
 }
+
 test("parses each review command with its own flags and defaults", () => {
   const defaults = { profile: undefined, slackThread: undefined };
   for (const command of ["add", "post", "skip", "cleanup", "start"] as const)
