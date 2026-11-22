@@ -5,7 +5,15 @@ type PrGuard =
 
 /** Phase output and imperative owners use the same PR safety policy. */
 export function refusesPrGuard(facts: PrGuard): boolean {
-  if (facts.guard === "ownership") return facts.handedOff;
-  if (facts.guard === "round") return facts.rounds >= 2;
-  return facts.changed;
+  switch (facts.guard) {
+    case "ownership": {
+      return facts.handedOff;
+    }
+    case "round": {
+      return facts.rounds >= 2;
+    }
+    case "worktree_clean": {
+      return facts.changed;
+    }
+  }
 }

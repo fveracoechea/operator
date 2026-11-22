@@ -245,7 +245,7 @@ function guardFacts(facts: PhaseFacts): Record<PhaseGuard, boolean> {
     pr_associated: facts.pr.associated,
     round_recorded: facts.pr.rounds > 0,
     pr_ready: facts.pr.ready,
-    worktree_clean: facts.worktreeClean,
+    worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),
     pr_merged: facts.pr.merged,
     commit_candidate: facts.commit?.reviewing === true,
     commit_reviewed: (facts.commit?.rounds ?? 0) > 0,

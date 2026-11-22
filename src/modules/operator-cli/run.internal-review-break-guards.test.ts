@@ -73,8 +73,8 @@ test.each([
     file: "worker-kinds/pr-policy.ts",
     replacements: [
       [
-        'if (facts.guard === "ownership") return facts.handedOff;',
-        'if (facts.guard === "ownership") return false;',
+        'case "ownership": {\n      return facts.handedOff;',
+        'case "ownership": {\n      return false;',
       ],
     ],
     testFile: guards,
@@ -86,8 +86,8 @@ test.each([
     file: "worker-kinds/pr-policy.ts",
     replacements: [
       [
-        'if (facts.guard === "ownership") return facts.handedOff;',
-        'if (facts.guard === "ownership") return false;',
+        'case "ownership": {\n      return facts.handedOff;',
+        'case "ownership": {\n      return false;',
       ],
     ],
     testFile: "worker-kinds/pr-policy.test.ts",
@@ -118,8 +118,8 @@ test.each([
     file: "worker-kinds/pr-policy.ts",
     replacements: [
       [
-        'if (facts.guard === "round") return facts.rounds >= 2;',
-        'if (facts.guard === "round") return facts.rounds >= 3;',
+        'case "round": {\n      return facts.rounds >= 2;',
+        'case "round": {\n      return facts.rounds >= 3;',
       ],
     ],
     testFile: "worker-kinds/pr-policy.test.ts",
@@ -131,8 +131,8 @@ test.each([
     file: "worker-kinds/pr-policy.ts",
     replacements: [
       [
-        'if (facts.guard === "round") return facts.rounds >= 2;',
-        'if (facts.guard === "round") return facts.rounds >= 3;',
+        'case "round": {\n      return facts.rounds >= 2;',
+        'case "round": {\n      return facts.rounds >= 3;',
       ],
     ],
     testFile: flow,
