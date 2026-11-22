@@ -23,6 +23,9 @@ test("kind snapshots preserve ordered free work and validate the closed exit gua
     "pr_ready",
     "worktree_clean",
     "pr_merged",
+    "commit_candidate",
+    "commit_reviewed",
+    "commit_delivered",
   ] as const) {
     expect(
       WorkerKinds.snapshotSchema().parse({
@@ -170,7 +173,15 @@ test("a resolved kind is independent of another launch's copy", () => {
 
 test("only answer launches name an optional visual skill fallback", () => {
   expect(WorkerKinds.resolve("answer").skillsToRead).toEqual(["show-me"]);
-  for (const name of ["research", "prototype", "implementation", "review", "pr-feedback"] as const)
+  for (const name of [
+    "research",
+    "prototype",
+    "implementation",
+    "review",
+    "pr-feedback",
+    "commit-implementation",
+    "commit-review",
+  ] as const)
     expect(WorkerKinds.resolve(name).skillsToRead).toEqual([]);
 });
 

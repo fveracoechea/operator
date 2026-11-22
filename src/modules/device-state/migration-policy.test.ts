@@ -17,7 +17,12 @@ test("commit delivery holds upgrades across process death until partial effects 
     data: JSON.stringify({ stage: "remote" }),
   });
   expect(idleForMigration(db, 29).tag).toBe("Ok");
-  expect(idleForMigration(db, 30)).toMatchObject({ error: { reason: "state_migration_blocked" } });
+  expect(idleForMigration(db, 30)).toMatchObject({
+    error: {
+      reason: "state_migration_blocked",
+      detail: "Reconcile unfinished commit delivery before an upgrade. No handler ran.",
+    },
+  });
   db.query("UPDATE commit_deliveries SET data = ?").run(JSON.stringify({ stage: "complete" }));
   expect(idleForMigration(db, 30).tag).toBe("Ok");
 });

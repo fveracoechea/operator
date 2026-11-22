@@ -30,9 +30,13 @@ Git, checkout files and remote publication remain separate effects.
 - `src/modules/operator-cli/run.commit-delivery.test.ts` runs real Git and SQLite through disposable CLI fixtures.
 - `src/modules/commit-delivery/main.test.ts` checks partial publication, failed receipts, checkout refusals and configured Git behavior.
 - `src/modules/work-sources/main.commit.test.ts` retains commit evidence beyond normal source pruning.
+- `src/modules/operator-cli/next.test.ts` names the person decision after exhausted commit review.
 
 The public CLI scenario kills delivery after checkout/index, local ref and remote publication effects.
 Retries reuse the recorded candidate.
+Both built-in and custom commit kinds complete the workflow and unblock dependents only after verified publication.
+Worker replacement reuses the pinned evidence.
+A missing ticket worktree refuses replacement without creating a new candidate or deleting implementation history.
 The installed workflow suite runs that scenario through isolated source and registry installations.
 Both installation paths passed locally.
 The registry is a local fixture, not a publication.
@@ -45,8 +49,9 @@ No remote CI run is claimed by this document.
 ## Qualification limits
 
 Feature qualification is not complete.
-The changed-production mutation run reported surviving mutants and stopped at a failed baseline.
-A narrower run also reported survivors in the new decision, storage and command units.
-These results are not an accepted mutation waiver.
+The four-unit mutation rerun passed with 516 killed mutants and no survivors, untested units or incomplete results.
+The remaining changed-production units still require a completed mutation verdict.
+An earlier full-quality run passed 5,067 tests.
+Later tests and workflow changes require a fresh full-quality result.
 The external implementation evidence records exact commands, logs and outstanding work.
 Full quality and fresh independent review remain delivery gates.

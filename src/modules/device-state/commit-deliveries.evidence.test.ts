@@ -83,12 +83,33 @@ test("late commit evidence validates the exact review, candidate, checks and pol
   ]);
 });
 
+test.each([`z${base}`, `${base}z`])("object IDs reject surrounding non-hex text: %s", (invalid) => {
+  const data = complete();
+  expect(
+    commitDeliverySchema.safeParse({
+      ...data,
+      base: invalid,
+      checks: { ...data.checks, base: invalid },
+    }).success,
+  ).toBe(false);
+});
+
+test("a shape-valid record with missing publication evidence explains its corruption", () => {
+  const result = commitDeliverySchema.safeParse({ ...complete(), publishedHead: null });
+  expect(result.success).toBe(false);
+  if (!result.success)
+    expect(result.error.issues.map((issue) => issue.message)).toContain(
+      "Commit completion needs exact-candidate review, checks and verified delivery evidence.",
+    );
+});
+
 test("malformed or stale review evidence cannot claim completed commit work", () => {
   const data = complete();
   const invalid: object[] = [
     { candidate: null },
     { implementer: null },
     { history: [] },
+    { history: [base] },
     { rounds: [] },
     { candidate: { ...data.candidate, head: null } },
     { candidate: { ...data.candidate, head: `z${head}` } },

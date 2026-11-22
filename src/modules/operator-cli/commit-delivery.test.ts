@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { ErrAsync, OkAsync } from "unthrown";
+import { ErrAsync, OkAsync, fromPromise } from "unthrown";
 // Bun has no temporary directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
 import { Environment } from "../environment/main.ts";
@@ -63,6 +63,48 @@ test("a review refusal is returned without launching a handoff", async () => {
   });
   expect(process.exitCode).not.toBe(0);
 });
+
+test("a successful review starts the recorded handoff and returns its receipt", async () => {
+  const target = { sourceId: "s", assignment: "a", checkout: "/isolated/repo" };
+  spyOn(CommitDelivery, "review").mockReturnValue(OkAsync(target));
+  const handoff = spyOn(PullRequests, "startKindHandoff").mockReturnValue(OkAsync("started"));
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  spyOn(console, "error").mockImplementation(() => {});
+  expect(await runCommitDelivery(["commit", "review"], paths, true)).toBe(true);
+  expect(handoff).toHaveBeenCalledWith(paths, target);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "commit_review",
+    reason: "commit_review_started",
+    data: { handoff: "started" },
+  });
+});
+
+test.each(["review", "round"])(
+  "%s preserves a defect as a commit_defect result",
+  async (command) => {
+    root = await mkdtemp("/tmp/opencode/commit-command-");
+    const file = `${root}/input.md`;
+    await Bun.write(file, "input");
+    const failure = fromPromise(Promise.reject(new Error("injected defect")), (cause, defect) =>
+      defect(cause),
+    );
+    spyOn(CommitDelivery, "review").mockReturnValue(failure);
+    spyOn(CommitDelivery, "round").mockReturnValue(failure);
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    spyOn(console, "error").mockImplementation(() => {});
+    expect(
+      await runCommitDelivery(
+        command === "review" ? ["commit", "review"] : ["commit", "round", "--file", file],
+        paths,
+        true,
+      ),
+    ).toBe(true);
+    expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+      operation: `commit_${command}`,
+      reason: "commit_defect",
+    });
+  },
+);
 
 test.each(["round", "deliver"])(
   "%s reads the supplied file and returns the matching result envelope",

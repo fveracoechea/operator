@@ -92,7 +92,11 @@ function rowNext(sourceId: string, row: NextRow): NextStep {
     person_decision: {
       decider: "person",
       question:
-        "question" in row ? row.question.question : "May the retained work or resource be removed?",
+        row.reason === "commit_review_limit"
+          ? "How should this ticket continue after its two review rounds are exhausted?"
+          : "question" in row
+            ? row.question.question
+            : "May the retained work or resource be removed?",
     },
     worker_attention: steering,
     prune_source: {

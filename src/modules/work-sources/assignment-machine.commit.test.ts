@@ -40,3 +40,34 @@ test("commit handoffs and retained squash history have explicit next actions wit
     }),
   ).toMatchObject({ action: "person_decision", reason: "cleanup_unlanded_work" });
 });
+
+test("exhausted review requires a person only for applied final blockers", () => {
+  const assignment: AssignmentState = { key: "ticket", completion: "commit", state: "running" };
+  const rounds = [{ findings: [{ severity: "blocker" }] }, { findings: [{ severity: "blocker" }] }];
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      commitReview: {
+        rounds,
+        dispositions: [
+          { round: 1, finding: 1, disposition: "applied" },
+          { round: 2, finding: 1, disposition: "applied" },
+        ],
+      },
+    }),
+  ).toMatchObject({ action: "person_decision", reason: "commit_review_limit" });
+  expect(
+    decideAssignment({
+      assignment,
+      dependencies: [],
+      commitReview: {
+        rounds,
+        dispositions: [
+          { round: 1, finding: 1, disposition: "applied" },
+          { round: 2, finding: 1, disposition: "declined" },
+        ],
+      },
+    }),
+  ).toMatchObject({ action: "wait", reason: "assignment_active" });
+});

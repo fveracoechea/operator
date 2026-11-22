@@ -534,6 +534,12 @@ test("prune deletes files and records together, and a refused path keeps both", 
     handoff_state: "failed",
     handoff_detail: "kept until prune",
   });
+  insertRow(db, "commit_deliveries", {
+    source_id: "one",
+    assignment: "open",
+    revision: 1,
+    data: '{"stage":"build"}',
+  });
   const unchanged = db.serialize();
   expect(pruneSource(db, paths, target, () => false)).toEqual(Ok(null));
   expect(db.serialize()).toEqual(unchanged);
@@ -566,6 +572,7 @@ test("prune deletes files and records together, and a refused path keeps both", 
     },
   });
   for (const table of [
+    "commit_deliveries",
     "sources",
     "assignments",
     "launches",

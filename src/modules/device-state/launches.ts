@@ -161,7 +161,7 @@ function startRefusal(
   const migrated = migrationStart(db, source.id, key, facts.latest);
   // A reviewer start after the implementer's handoff ended it is not an ordinary dispatch.
   const handoff =
-    ["pr-open", "running"].includes(assignmentState ?? "") &&
+    (assignmentState === "pr-open" || assignmentState === "running") &&
     handoffDispatchable(db, facts.latest, facts.now);
   if (
     source.state !== "open" ||

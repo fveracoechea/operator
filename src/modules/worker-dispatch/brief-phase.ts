@@ -6,7 +6,7 @@ type Facts = {
   pullRequest: { mergedAt: string | null; readiness?: object | null } | null;
   review: { state: "reviewing" | "ready" | "skipped"; rounds: number } | null;
   internalReview: boolean;
-  commitDelivery?: { implementer: string | null; rounds: object[]; stage: string };
+  commitDelivery?: { implementer: string | null; rounds: readonly object[]; stage: string };
 };
 
 // Decoded record facts need not describe a reachable command history. This projection preserves

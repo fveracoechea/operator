@@ -72,6 +72,13 @@ const cases: { row: Row; next: NextStep }[] = [
     row: { ...assignment, blockers: [], action: "person_decision" },
     next: { decider: "person", question: "May the retained work or resource be removed?" },
   },
+  {
+    row: { ...assignment, reason: "commit_review_limit", blockers: [], action: "person_decision" },
+    next: {
+      decider: "person",
+      question: "How should this ticket continue after its two review rounds are exhausted?",
+    },
+  },
   ...(["worker_attention"] as const).map((action) => ({
     row: { ...assignment, blockers: [], action },
     next: {

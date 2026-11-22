@@ -1,8 +1,10 @@
-import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
+import { afterEach, expect, jest, setSystemTime, spyOn, test } from "bun:test";
+import { OkAsync } from "unthrown";
 import { CommitDelivery } from "../commit-delivery/main.ts";
 import { commitFixture } from "../../../tools/commit-delivery-fixture.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkSources } from "./main.ts";
+import { Herdr } from "../herdr/main.ts";
 
 let fixture: Awaited<ReturnType<typeof commitFixture>> | undefined;
 afterEach(async () => {
@@ -36,4 +38,52 @@ test("completed commit sources retain delivery and intermediate-history evidence
     },
   });
   expect(fixture.git(fixture.checkout, "show", "ticket/411:feature")).toBe("feature");
+});
+
+test("an exhausted commit review wakes a person decision once, without any PR observation", async () => {
+  fixture = await commitFixture();
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["reviewer"]));
+  spyOn(Herdr, "pane").mockReturnValue(OkAsync(null));
+  await fixture.change();
+  await fixture.review();
+  const text = "## Findings\n- blocker, Spec, feature: The behavior is incomplete.";
+  expect((await CommitDelivery.round({ ...fixture.input, text })).tag).toBe("Ok");
+  await fixture.change("fixed feature\n");
+  expect((await CommitDelivery.round({ ...fixture.input, text })).tag).toBe("Ok");
+  const input = {
+    paths: fixture.paths,
+    cwd: fixture.checkout,
+    sourceId: "source",
+    timeoutSeconds: 0,
+  };
+  expect(await WorkSources.wait(input)).toMatchObject({
+    tag: "Ok",
+    value: { reason: "next_wait_timed_out" },
+  });
+  expect(
+    await CommitDelivery.deliver({
+      ...fixture.input,
+      text: "## Dispositions\n- 1.1 applied\n- 2.1 applied",
+    }),
+  ).toMatchObject({ error: { reason: "commit_review_limit", next: { decider: "person" } } });
+  expect(await WorkSources.wait(input)).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "next_actions_changed",
+      data: {
+        sources: [
+          {
+            actions: [
+              { assignment: "ticket", action: "person_decision", reason: "commit_review_limit" },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  expect(await WorkSources.wait(input)).toMatchObject({
+    tag: "Ok",
+    value: { reason: "next_wait_timed_out" },
+  });
+  expect(fixture.git(fixture.checkout, "rev-parse", "main")).toBe(fixture.base);
 });

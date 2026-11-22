@@ -1422,6 +1422,14 @@ function assignmentResources(
   return { resources, retained: current.state === "abandoned" ? [...retained.values()] : [] };
 }
 
+function commitFacts(source: Source, assignment: string) {
+  const row = source.commitDeliveries.find((item) => item.assignment === assignment);
+  return {
+    commitReview: row?.data,
+    commitHistoryRetained: row?.data.stage === "complete",
+  };
+}
+
 function decideAssignmentRow(
   input: Input,
   source: Source,
@@ -1446,9 +1454,7 @@ function decideAssignmentRow(
   const { resources, retained } = assignmentResources(source, current, launch, missing);
   const decision = decideAssignment({
     assignment: current,
-    commitHistoryRetained: source.commitDeliveries.some(
-      (row) => row.assignment === assignment.key && row.data.stage === "complete",
-    ),
+    ...commitFacts(source, assignment.key),
     dependencies,
     dispatchable:
       WorkerKinds.dispatchable(assignment.kind) ||

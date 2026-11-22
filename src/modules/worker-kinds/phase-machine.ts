@@ -149,10 +149,9 @@ const commitTail: Rule[] = [
     phase: (facts) => ({
       phase: "commit-review",
       next: {
-        command:
-          facts.commit?.rounds === 0
-            ? "operator commit round --file <file>"
-            : "operator commit deliver --file <file>",
+        command: guardFacts(facts).commit_reviewed
+          ? "operator commit deliver --file <file>"
+          : "operator commit round --file <file>",
         why: "Review the exact ticket candidate before automatic delivery.",
       },
     }),
@@ -246,7 +245,7 @@ function guardFacts(facts: PhaseFacts): Record<PhaseGuard, boolean> {
     pr_associated: facts.pr.associated,
     round_recorded: facts.pr.rounds > 0,
     pr_ready: facts.pr.ready,
-    worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),
+    worktree_clean: facts.worktreeClean,
     pr_merged: facts.pr.merged,
     commit_candidate: facts.commit?.reviewing === true,
     commit_reviewed: (facts.commit?.rounds ?? 0) > 0,
@@ -271,8 +270,11 @@ export function decidePhase(facts: PhaseFacts, event?: PhaseEvent) {
       kind: facts.kind.name,
       ...current,
       refusal: {
-        reason: "pr_handed_off",
-        detail: "This launch no longer owns the PR.",
+        reason: facts.kind.completion === "commit" ? "commit_handed_off" : "pr_handed_off",
+        detail:
+          facts.kind.completion === "commit"
+            ? "This launch no longer owns the ticket."
+            : "This launch no longer owns the PR.",
         state: { handedOff: true },
       },
     };

@@ -12,7 +12,7 @@ export async function runCommitDelivery(
 ) {
   if (args[0] !== "commit") return false;
   const flags = args.filter((flag) => flag !== "--json");
-  const command = flags[1];
+  const [, command, option, file, ...extra] = flags;
   if (command === "review" && flags.length === 2) {
     const result = await CommitDelivery.review({ paths, cwd: process.cwd() })
       .flatMap((target) => PullRequests.startKindHandoff(paths, target))
@@ -20,10 +20,15 @@ export async function runCommitDelivery(
     respond({ operation: "commit_review", result, exitCodes: {}, defect: "commit_defect", json });
     return true;
   }
-  if ((command !== "round" && command !== "deliver") || flags.length !== 4 || flags[2] !== "--file")
+  if (
+    (command !== "round" && command !== "deliver") ||
+    option !== "--file" ||
+    file === undefined ||
+    extra.length > 0
+  )
     return false;
   const result = await fromPromise(
-    () => readTextInput(flags[3] ?? ""),
+    () => readTextInput(file),
     (cause) => ({
       reason: "commit_input_invalid",
       detail: String(cause),

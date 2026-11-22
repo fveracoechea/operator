@@ -172,6 +172,26 @@ const reviewer = {
   kind: JSON.stringify(WorkerKinds.resolve("review")),
 };
 
+test("a commit reviewer reservation consumes its handoff while the assignment remains running", () => {
+  using db = handoffWriteFixture();
+  db.exec(
+    "UPDATE assignments SET completion = 'commit', state = 'running'; UPDATE launches SET state = 'finished'; UPDATE kind_handoffs SET next_kind = 'commit-review'",
+  );
+  db.query("UPDATE launches SET kind = ?").run(
+    JSON.stringify(WorkerKinds.resolve("commit-implementation")),
+  );
+  expect(
+    reserveLaunch(db, "/checkout", "owner/repo", {
+      ...reviewer,
+      kind: JSON.stringify(WorkerKinds.resolve("commit-review")),
+    }),
+  ).toMatchObject({ tag: "Ok", value: { id: "reviewer", attempt: 2, state: "starting" } });
+  expect(state(db)).toEqual({ state: "running" });
+  expect(db.query("SELECT handoff_state FROM kind_handoffs").get()).toEqual({
+    handoff_state: "done",
+  });
+});
+
 test.each(["continuation", "supervisor recovery"])(
   "%s reservation starts the reviewer, consumes the hold, and preserves supervision",
   (mode) => {

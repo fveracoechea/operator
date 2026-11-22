@@ -68,35 +68,35 @@ const deliveryRecord = z.strictObject({
 });
 type Data = z.infer<typeof deliveryRecord>;
 
-function reviewed(data: Data) {
+function reviewed(data: Data, candidate: NonNullable<Data["candidate"]>) {
   const latest = data.rounds.at(-1);
+  if (latest === undefined) return false;
   const places = data.rounds.flatMap((round, index) =>
     round.findings.map((_, finding) => `${index + 1}.${finding + 1}`),
   );
   const dispositions = new Map(
-    data.dispositions.map((row) => [`${row.round}.${row.finding}`, row]),
+    data.dispositions.map((row) => [`${row.round}.${row.finding}`, row.disposition]),
   );
   return (
-    latest?.head === data.candidate?.head &&
-    latest?.tree === data.candidate?.tree &&
+    latest.head === candidate.head &&
+    latest.tree === candidate.tree &&
     places.length === data.dispositions.length &&
-    dispositions.size === places.length &&
     places.every((key) => dispositions.has(key)) &&
     data.dispositions.every((row) => row.disposition !== "declined" || row.reason !== undefined) &&
-    !latest?.findings.some(
+    !latest.findings.some(
       (finding, index) =>
         finding.severity === "blocker" &&
-        dispositions.get(`${data.rounds.length}.${index + 1}`)?.disposition === "applied",
+        dispositions.get(`${data.rounds.length}.${index + 1}`) === "applied",
     )
   );
 }
 
-function checked(data: Data) {
+function checked(data: Data, candidate: NonNullable<Data["candidate"]>) {
   const checks = data.checks;
   return (
     checks !== null &&
-    checks.candidate === data.candidate?.head &&
-    checks.tree === data.candidate?.tree &&
+    checks.candidate === candidate.head &&
+    checks.tree === candidate.tree &&
     checks.base === data.base &&
     checks.policy === JSON.stringify(data.policy) &&
     checks.results.length === data.policy.checks.length &&
@@ -110,10 +110,11 @@ function checked(data: Data) {
 
 function evidenceValid(data: Data) {
   if (data.stage === "build") return true;
-  if (data.implementer === null || data.candidate === null) return false;
+  const candidate = data.candidate;
+  if (data.implementer === null || candidate === null) return false;
   if (data.stage === "review") return true;
-  if (data.candidate.head === null || !data.history.includes(data.candidate.head)) return false;
-  if (!reviewed(data) || !checked(data)) return false;
+  if (!data.history.some((head) => head === candidate.head)) return false;
+  if (!reviewed(data, candidate) || !checked(data, candidate)) return false;
   if (data.stage !== "complete") return true;
   const effects = [
     "candidate_creation",
@@ -198,12 +199,7 @@ function deliveryGuard(
         why: "Recover the pinned assignment instead of changing its target.",
       },
     });
-  if (
-    previous !== null &&
-    previous.ownerPid !== null &&
-    previous.ownerPid !== process.pid &&
-    !ownerGone(previous, Date.now())
-  )
+  if (previous !== null && previous.ownerPid !== process.pid && !ownerGone(previous, Date.now()))
     return Err({
       reason: "commit_delivery_running",
       detail: "Another process holds the pinned commit candidate.",
@@ -227,6 +223,17 @@ function deliveryGuard(
         next: { decider: "person", question: "Should the merge hold be released?" },
       })
     : Ok(undefined);
+}
+
+function reserveHandoff(db: Db, target: Target, change: Change) {
+  if (change.handoff === undefined) return Ok(undefined);
+  if (change.launchId === undefined)
+    return Err({
+      reason: "commit_owner_inactive",
+      detail: "Only the current running commit worker may write.",
+      next: { command: "operator next", why: "Recover the recorded worker." },
+    });
+  return recordKindHandoff(db, { ...target, launchId: change.launchId }, change.handoff);
 }
 
 /** Only the current commit worker can change evidence; a revision guards concurrent processes. */
@@ -269,10 +276,7 @@ export function changeCommitDelivery(client: Database, target: Target, change: C
         current === undefined ? null : commitDeliverySchema.parse(JSON.parse(current.data));
       const guarded = deliveryGuard(db, target, previous, data);
       if (guarded.tag !== "Ok") return guarded.as(0);
-      const handoff =
-        change.handoff === undefined
-          ? Ok(undefined)
-          : recordKindHandoff(db, { ...target, launchId: change.launchId ?? "" }, change.handoff);
+      const handoff = reserveHandoff(db, target, change);
       return handoff.map(() => {
         const revision = (change.revision ?? 0) + 1;
         db.insert(commitDeliveries)

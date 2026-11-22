@@ -73,7 +73,12 @@ test("two rounds do not waive review of final blocker fixes", async () => {
       ...fixture.input,
       text: "## Dispositions\n- 1.1 applied",
     }),
-  ).toMatchObject({ error: { reason: "commit_blocker_requires_review" } });
+  ).toMatchObject({
+    error: {
+      reason: "commit_blocker_requires_review",
+      next: { command: "operator commit round --file <file>" },
+    },
+  });
   await fixture.change("corrected\n");
   expect((await CommitDelivery.round({ ...fixture.input, text: blocker })).tag).toBe("Ok");
   expect(
@@ -81,7 +86,7 @@ test("two rounds do not waive review of final blocker fixes", async () => {
       ...fixture.input,
       text: "## Dispositions\n- 1.1 applied\n- 2.1 applied",
     }),
-  ).toMatchObject({ error: { reason: "commit_review_limit" } });
+  ).toMatchObject({ error: { reason: "commit_review_limit", next: { decider: "person" } } });
   expect(await CommitDelivery.round({ ...fixture.input, text: "## Findings" })).toMatchObject({
     error: { reason: "commit_review_limit" },
   });

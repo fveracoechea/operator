@@ -162,7 +162,7 @@ for (const path of ["jsr", "source"] as const) {
       name: "commit review, crash recovery, and verified delivery",
       file: "src/modules/operator-cli/run.commit-delivery.test.ts",
       filter: "commit completion reviews",
-      passes: 1,
+      passes: 2,
     },
     {
       name: "dispatch, report, and PR workflows on both hosts",

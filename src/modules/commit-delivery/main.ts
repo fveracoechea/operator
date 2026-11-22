@@ -23,10 +23,21 @@ function refuse(reason: string, detail: string): Result<never, Refusal> {
   return Err({
     reason: `commit_${reason}`,
     detail,
-    next: {
-      command: "operator next",
-      why: "Read the recorded commit-delivery state. Preserve partial effects and retained history.",
-    },
+    next:
+      reason === "review_limit"
+        ? {
+            decider: "person",
+            question: "How should this ticket continue after its two review rounds are exhausted?",
+          }
+        : reason === "blocker_requires_review"
+          ? {
+              command: "operator commit round --file <file>",
+              why: "Commit the blocker fixes, then review the newer candidate.",
+            }
+          : {
+              command: "operator next",
+              why: "Read the recorded commit-delivery state. Preserve partial effects and retained history.",
+            },
   });
 }
 
@@ -424,6 +435,11 @@ function recordRound(input: Input & { text: string }): AsyncResult<Data, Refusal
       if (ctx.data.rounds.length === 2)
         return refuse("review_limit", "Two review rounds are exhausted. Automatic delivery stops.");
       const findings = WorkSources.parseFindings(input.text);
+      if (findings.tag === "Err")
+        return Err<Refusal>({
+          ...findings.error,
+          next: { ...findings.error.next, command: "operator commit round --file <path|->" },
+        });
       if (findings.tag !== "Ok") return stopped(findings);
       const head = await prepareCandidate(ctx);
       if (head.tag !== "Ok") return stopped(head);
@@ -760,6 +776,25 @@ function publish(ctx: Context): AsyncResult<undefined, Refusal> {
   ).flatMap((result) => result);
 }
 
+function qualifyReview(
+  ctx: Context,
+  dispositions: Data["dispositions"],
+  candidate: string,
+): Result<undefined, Refusal> {
+  const gate = reviewGate(ctx.data.rounds, dispositions, candidate);
+  if (gate === null) return Ok(undefined);
+  const recorded =
+    gate === "review_limit" || gate === "blocker_requires_review"
+      ? save(ctx, { ...ctx.data, dispositions })
+      : Ok(undefined);
+  return recorded.flatMap(() =>
+    refuse(
+      gate,
+      "Automatic delivery requires complete dispositions and a clean final round on the exact candidate. Preserve work and ask the person when two rounds are exhausted.",
+    ),
+  );
+}
+
 function deliver(input: Input & { text: string }): AsyncResult<Data, Refusal> {
   return fromPromise(
     async () => {
@@ -774,12 +809,8 @@ function deliver(input: Input & { text: string }): AsyncResult<Data, Refusal> {
       const candidate = ctx.data.candidate;
       if (candidate?.head === null || candidate === null)
         return refuse("candidate_missing", "No pinned candidate exists.");
-      const gate = reviewGate(ctx.data.rounds, parsed.value, candidate.head);
-      if (gate !== null)
-        return refuse(
-          gate,
-          "Automatic delivery requires complete dispositions and a clean final round on the exact candidate. Preserve work and ask the person when two rounds are exhausted.",
-        );
+      const qualified = qualifyReview(ctx, parsed.value, candidate.head);
+      if (qualified.tag !== "Ok") return stopped(qualified);
       const claimed = save(ctx, {
         ...ctx.data,
         dispositions: parsed.value,

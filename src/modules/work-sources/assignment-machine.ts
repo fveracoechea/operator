@@ -47,6 +47,10 @@ type Facts = {
   dispatchable?: boolean;
   /** Squash delivery does not prove ancestry of retained implementation history. */
   commitHistoryRetained?: boolean;
+  commitReview?: {
+    rounds: { findings: { severity: string }[] }[];
+    dispositions: { round: number; finding: number; disposition: string }[];
+  };
   resources?: {
     kind: "pane" | "worktree";
     workerGone: boolean;
@@ -92,7 +96,8 @@ type Decision = {
     | "report_submitted"
     | "follow_up_returned"
     | "kind_handoff"
-    | "handoff_failed";
+    | "handoff_failed"
+    | "commit_review_limit";
   blockers: {
     assignment: string;
     completion: "pr" | "report" | "commit";
@@ -137,6 +142,20 @@ function active({ assignment, report }: Facts) {
 }
 
 const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decision }[] = [
+  {
+    when: ({ assignment, commitReview }) =>
+      assignment.completion === "commit" &&
+      assignment.state === "running" &&
+      commitReview?.rounds.length === 2 &&
+      commitReview.rounds[1]?.findings.some(
+        (finding, index) =>
+          finding.severity === "blocker" &&
+          commitReview.dispositions.some(
+            (row) => row.round === 2 && row.finding === index + 1 && row.disposition === "applied",
+          ),
+      ) === true,
+    decide: () => ({ action: "person_decision", reason: "commit_review_limit", blockers: [] }),
+  },
   // Cleanup that an acceptance did not finish stays visible after the assignment ends.
   {
     when: ({ assignment, commitHistoryRetained }) =>

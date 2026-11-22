@@ -2,6 +2,28 @@ import { expect, test } from "bun:test";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { briefPhase } from "./brief-phase.ts";
 
+test.each([
+  { delivery: undefined, phase: "build" },
+  { delivery: { implementer: null, rounds: [], stage: "build" }, phase: "build" },
+  { delivery: { implementer: "builder", rounds: [], stage: "review" }, phase: "commit-review" },
+  { delivery: { implementer: "builder", rounds: [{}], stage: "review" }, phase: "commit-review" },
+  { delivery: { implementer: "builder", rounds: [{}], stage: "complete" }, phase: "complete" },
+])(
+  "a commit brief observes $phase from recorded delivery rather than PR facts",
+  ({ delivery, phase }) => {
+    expect(
+      briefPhase({
+        kind: WorkerKinds.resolve("commit-implementation"),
+        report: null,
+        pullRequest: { mergedAt: "not commit proof", readiness: {} },
+        review: { state: "ready", rounds: 2 },
+        internalReview: false,
+        commitDelivery: delivery,
+      }),
+    ).toBe(phase);
+  },
+);
+
 test("a decoded pending own report renders acceptance even when its assignment still runs", () => {
   expect(
     briefPhase({

@@ -13,7 +13,12 @@ test("commit effects hold only their own assignment and stay held until reconcil
     revision: 1,
     data: JSON.stringify({ stage: "checkout" }),
   });
-  expect(deliveryIdle(db, "s")).toMatchObject({ error: { reason: "commit_delivery_running" } });
+  expect(deliveryIdle(db, "s")).toMatchObject({
+    error: {
+      reason: "commit_delivery_running",
+      detail: expect.stringMatching(/\S/) as string,
+    },
+  });
   expect(deliveryIdle(db, "s", "commit")).toMatchObject({
     error: { reason: "commit_delivery_running" },
   });

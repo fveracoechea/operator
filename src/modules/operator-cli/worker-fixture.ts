@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
+import type { WorkerKinds } from "../worker-kinds/main.ts";
 import { fakeHerdrScript, retainHerdrTrace } from "./herdr-fixture.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 import { expectRefusalOutput, workflowOutputSchema } from "../../lib/cli-result-fixture.ts";
@@ -79,7 +80,9 @@ if (args[1] === "post") {
  * The SuperAgent runs in pane `super:p0`. A WorkerAgent command runs with its launch's pane.
  * With `github`, the controlled GitHub tool answers PR reads and merges from `github.json`.
  */
-export async function workerDevice(options: { github?: boolean } = {}) {
+export async function workerDevice(
+  options: { github?: boolean; kinds?: Parameters<typeof WorkerKinds.resolve>[1] } = {},
+) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-reports-")));
 
   function environment(pane = "super:p0", socket = `${root}/herdr.sock`) {
@@ -152,6 +155,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
       superAgent: { host: "opencode", model: "test/reasoner" },
       // Internal review has its own tests, so these devices associate without it. ADR-0020.
       review: { internal: false },
+      kinds: options.kinds,
       profiles: {
         careful: { reasoningEffort: "high" },
         claude: { host: "claude-code", model: "precise-model", reasoningEffort: "medium" },
