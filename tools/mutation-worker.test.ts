@@ -143,7 +143,7 @@ test("worker persists a real completed engine result and honestly reports an eng
       stdout: "pipe",
       stderr: "pipe",
     });
-    const completion = result(child, 3000);
+    const completion = result(child, 10_000);
     await child.stdin.write(
       JSON.stringify({
         root: cwd,

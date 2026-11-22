@@ -36,6 +36,39 @@ test("an empty selection qualifies without provisioning an engine", async () => 
 });
 
 test.each([
+  { status: "Killed", expected: "reused", code: 0 },
+  { status: "Survived", expected: "failed", code: 2 },
+  { status: "NoCoverage", expected: "failed", code: 2 },
+])(
+  "whole-unit $status reuse retains truthful terminal outcomes",
+  async ({ status, expected, code }) => {
+    const events: MutationEvent[] = [];
+    const result = await runMutationUnits(
+      { units: [unit], skipped: 0 },
+      () => expect.unreachable("completed reusable work must not execute"),
+      { log() {}, error() {} },
+      {
+        reuse: async () => [{ ...killed, status }],
+        event: (event) => events.push(event),
+      },
+    );
+    expect(result).toBe(code);
+    expect(events.at(-1)?.state).toMatchObject({
+      completedUnits: 1,
+      activeUnit: null,
+      status: code === 0 ? "passed" : "failed",
+      units: [
+        {
+          status: expected,
+          mutants: [{ status }],
+          progress: { total: 1, completed: 1, reused: 1 },
+        },
+      ],
+    });
+  },
+);
+
+test.each([
   {
     status: "Killed",
     code: 0,

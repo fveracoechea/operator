@@ -98,9 +98,10 @@ test("public planning launches no tests, preflight records only a baseline, and 
   const cwd = await fixture({
     "count.ts": "export function count(n: number) { return n + 1; }\n",
     "count.test.ts": `import {expect, test} from "bun:test";
+import {appendFileSync} from "node:fs";
 import {count} from "./count.ts";
-test("count", async () => {
-  await Bun.write(${JSON.stringify(receipt)}, (await Bun.file(${JSON.stringify(receipt)}).text().catch(() => "")) + "run\\n");
+test("count", () => {
+  appendFileSync(${JSON.stringify(receipt)}, "run\\n");
   expect(count(1)).toBe(2);
 });`,
   });
@@ -147,6 +148,21 @@ test("count", async () => {
   expect(
     await Array.fromAsync(new Bun.Glob(".mutation-incremental/*").scan({ cwd, dot: true })),
   ).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob(".mutation-reuse/*").scan({ cwd, dot: true }))).toEqual(
+    [],
+  );
+  const preflightRun = z
+    .object({ runId: z.string() })
+    .parse(JSON.parse(measured.stdout.trim().split("\n").at(-1) ?? ""));
+  const resumePreflight = await mutate(cwd, ["--resume", preflightRun.runId]);
+  expect(resumePreflight.code, resumePreflight.stderr).toBe(1);
+  expect(resumePreflight.stderr).toContain(
+    "Preflight evidence cannot resume mutation qualification.",
+  );
+  expect(await Bun.file(receipt).text()).toBe("run\n");
+  const qualified = await mutate(cwd, ["count.ts"]);
+  expect(qualified.code, qualified.stderr).toBe(0);
+  expect(await Bun.file(receipt).text()).toBe("run\n".repeat(4));
 });
 
 test("public claim recovery preserves evidence and refuses active or uncertain owners", async () => {
@@ -229,6 +245,122 @@ test("actual snapshot execution", async () => {
   const fixtureEdit = await mutate(cwd, ["count.ts"]);
   expect(fixtureEdit.code, fixtureEdit.stdout + fixtureEdit.stderr).toBe(0);
   expect(await Bun.file(receipt).text()).toBe("executed\n".repeat(9));
+});
+
+test("dependency edits rerun affected units without executing unchanged units", async () => {
+  const firstReceipt = `${root}/${crypto.randomUUID()}-affected`;
+  const otherReceipt = `${root}/${crypto.randomUUID()}-unaffected`;
+  const cwd = await fixture({
+    "helper.ts": "export const offset = 1;\n",
+    "data.txt": "first",
+    "count.ts":
+      'import { offset } from "./helper.ts"; export function count(n: number) { return n + offset; }\n',
+    "other.ts": "export function other(n: number) { return n + 1; }\n",
+    "count.test.ts": `import { expect, test } from "bun:test";
+import { appendFileSync } from "node:fs";
+import { count } from "./count.ts";
+test("count", async () => { appendFileSync(${JSON.stringify(firstReceipt)}, "run\\n"); expect(["first", "second"]).toContain(await Bun.file("data.txt").text()); expect(count(1)).toBe(2); });`,
+    "other.test.ts": `import { expect, test } from "bun:test";
+import { appendFileSync } from "node:fs";
+import { other } from "./other.ts";
+test("other", () => { appendFileSync(${JSON.stringify(otherReceipt)}, "run\\n"); expect(other(1)).toBe(2); });`,
+  });
+  const first = await mutate(cwd, ["count.ts", "other.ts"]);
+  expect(first.code, first.stdout + first.stderr).toBe(0);
+  const affected = await Bun.file(firstReceipt).text();
+  const unaffected = await Bun.file(otherReceipt).text();
+  expect(affected).toBe("run\n".repeat(3));
+  expect(unaffected).toBe("run\n".repeat(3));
+  const unchanged = await mutate(cwd, ["count.ts", "other.ts", "--json"]);
+  expect(unchanged.code, unchanged.stdout + unchanged.stderr).toBe(0);
+  expect(await Bun.file(firstReceipt).text()).toBe(affected);
+  expect(await Bun.file(otherReceipt).text()).toBe(unaffected);
+  expect(unchanged.stderr).toContain("count.ts (reused)");
+  await Bun.write(`${cwd}/helper.ts`, "export const offset = 1; // changed dependency\n");
+  const changed = await mutate(cwd, ["count.ts", "other.ts", "--json"]);
+  expect(changed.code, changed.stdout + changed.stderr).toBe(0);
+  expect(await Bun.file(firstReceipt).text()).toBe(affected.repeat(2));
+  expect(await Bun.file(otherReceipt).text()).toBe(unaffected);
+  expect(changed.stderr).toContain("other.ts (reused)");
+  await Bun.write(`${cwd}/data.txt`, "second");
+  const fixtureChanged = await mutate(cwd, ["count.ts", "other.ts", "--json"]);
+  expect(fixtureChanged.code, fixtureChanged.stdout + fixtureChanged.stderr).toBe(0);
+  expect(await Bun.file(firstReceipt).text()).toBe(affected.repeat(3));
+  expect(await Bun.file(otherReceipt).text()).toBe(unaffected);
+  await Bun.write(`${cwd}/bunfig.toml`, "[test]\ntimeout = 5001\n");
+  const configurationChanged = await mutate(cwd, ["count.ts", "other.ts", "--json"]);
+  expect(configurationChanged.code, configurationChanged.stdout + configurationChanged.stderr).toBe(
+    0,
+  );
+  expect(await Bun.file(firstReceipt).text()).toBe(affected.repeat(4));
+  expect(await Bun.file(otherReceipt).text()).toBe(unaffected.repeat(2));
+});
+
+test("resume reuses completed work but executes repaired unfinished work", async () => {
+  const firstReceipt = `${root}/${crypto.randomUUID()}-completed`;
+  const secondReceipt = `${root}/${crypto.randomUUID()}-unfinished`;
+  const cwd = await fixture({
+    "first.ts": "export function first(n: number) { return n + 1; }\n",
+    "second.ts": "export function second(n: number) { return n + 1; }\n",
+    "first.test.ts": `import { expect, test } from "bun:test";
+import { appendFileSync } from "node:fs";
+import { first } from "./first.ts";
+test("first", () => { appendFileSync(${JSON.stringify(firstReceipt)}, "run\\n"); expect(first(1)).toBe(2); });`,
+    "second.test.ts": `import { expect, test } from "bun:test";
+import { appendFileSync } from "node:fs";
+import { second } from "./second.ts";
+test("second", () => { appendFileSync(${JSON.stringify(secondReceipt)}, "run\\n"); expect(second(1)).toBe(99); });`,
+  });
+  const initial = await mutate(cwd, ["first.ts", "second.ts", "--json"]);
+  expect(initial.code, initial.stdout + initial.stderr).toBe(3);
+  const run = z
+    .object({ runId: z.string() })
+    .parse(JSON.parse(initial.stdout.split("\n")[0] ?? ""));
+  const completed = await Bun.file(firstReceipt).text();
+  expect(completed).toBe("run\n".repeat(3));
+  expect(await Bun.file(secondReceipt).text()).toBe("run\n");
+  const unchanged = await mutate(cwd, ["--resume", run.runId, "--json"]);
+  expect(unchanged.code, unchanged.stdout + unchanged.stderr).toBe(3);
+  expect(await Bun.file(firstReceipt).text()).toBe(completed);
+  expect(await Bun.file(secondReceipt).text()).toBe("run\n".repeat(2));
+  const testFile = Bun.file(`${cwd}/second.test.ts`);
+  await Bun.write(testFile, (await testFile.text()).replace("toBe(99)", "toBe(2)"));
+  const resumed = await mutate(cwd, ["--resume", run.runId, "--json"]);
+  expect(resumed.code, resumed.stdout + resumed.stderr).toBe(0);
+  expect(await Bun.file(firstReceipt).text()).toBe(completed);
+  expect(await Bun.file(secondReceipt).text()).toBe("run\n".repeat(5));
+  expect(resumed.stderr).toContain("first.ts (reused)");
+  expect(resumed.stderr).toContain("second.ts (passed)");
+});
+
+test("dynamic inputs execute again and partial completed receipts cannot pass by reuse", async () => {
+  const receipt = `${root}/${crypto.randomUUID()}-dynamic`;
+  const cwd = await fixture({
+    "count.ts": "export function count(n: number) { return n + 1; }\n",
+    "helper.ts": "export const value = 1;\n",
+    "count.test.ts": `import { expect, test } from "bun:test";
+import { appendFileSync } from "node:fs";
+import { count } from "./count.ts";
+test("count", async () => {
+  appendFileSync(${JSON.stringify(receipt)}, "run\\n");
+  const { value } = await import("./helper.ts");
+  expect(count(value)).toBe(2);
+});`,
+  });
+  for (const expected of [3, 6]) {
+    const result = await mutate(cwd, ["count.ts"]);
+    expect(result.code, result.stdout + result.stderr).toBe(0);
+    expect(await Bun.file(receipt).text()).toBe("run\n".repeat(expected));
+  }
+  const file = Bun.file(`${cwd}/count.test.ts`);
+  await Bun.write(file, (await file.text()).replace('await import("./helper.ts")', "{ value: 1 }"));
+  expect((await mutate(cwd, ["count.ts"])).code).toBe(0);
+  const records = await Array.fromAsync(new Bun.Glob("*.json").scan(`${cwd}/.mutation-reuse`));
+  expect(records).toHaveLength(1);
+  await Bun.write(`${cwd}/.mutation-reuse/${records[0]}`, '{"version":1,"results":[]}');
+  const rerun = await mutate(cwd, ["count.ts"]);
+  expect(rerun.code, rerun.stdout + rerun.stderr).toBe(0);
+  expect(await Bun.file(receipt).text()).toBe("run\n".repeat(12));
 });
 
 test("sandbox tests can execute the source CLI that Stryker copies without its executable mode", async () => {
@@ -474,7 +606,7 @@ test("completed command evidence survives a later engine interruption and JSON s
   const last: unknown = JSON.parse(reused.stdout.trim().split("\n").at(-1) ?? "null");
   expect(last).toMatchObject({
     state: {
-      units: [{ status: "passed", progress: { completed: 2, total: 2, reused: 2 } }],
+      units: [{ status: "reused", progress: { completed: 2, total: 2, reused: 2 } }],
     },
   });
   expect(reused.stderr).toContain("2 reused");

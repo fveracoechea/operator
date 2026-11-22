@@ -56,6 +56,7 @@ export type MutationEvent = {
 };
 
 type RunOptions = {
+  reuse?: (unit: MutationUnit) => Promise<MutationResult[] | undefined>;
   keepGoing?: boolean;
   runId?: string;
   now?: () => number;
@@ -64,6 +65,23 @@ type RunOptions = {
 };
 type Counts = Record<Verdict["count"], number>;
 type Output = { log: (line: string) => void; error: (line: string) => void };
+
+async function executeOrReuse(
+  unit: MutationUnit,
+  execute: (
+    unit: MutationUnit,
+    progress: (progress: MutationProgress) => void,
+  ) => Promise<MutationResult[]>,
+  options: RunOptions,
+  evidence: UnitEvidence,
+  progress: (progress: MutationProgress) => void,
+): Promise<MutationResult[]> {
+  const reused = await options.reuse?.(unit);
+  if (!reused) return execute(unit, progress);
+  evidence.progress.reused = reused.length;
+  evidence.status = "reused";
+  return reused;
+}
 
 function campaignVerdict(counts: Counts): {
   status: "passed" | "failed" | "incomplete";
@@ -93,6 +111,17 @@ function recordResults(
       status = "failed";
   }
   return status;
+}
+
+function completeUnitResults(
+  unit: MutationUnit,
+  evidence: UnitEvidence,
+  mutants: MutationResult[],
+  counts: Counts,
+  output: Output,
+): void {
+  const status = recordResults(unit, mutants, counts, output);
+  if (status === "failed" || evidence.status !== "reused") evidence.status = status;
 }
 
 function originalText(source: string, { start, end }: Location): string {
@@ -205,7 +234,7 @@ export async function runMutationUnits(
       const heartbeat = setInterval(() => publish("progress"), options.progressIntervalMs ?? 1000);
       let mutants: MutationResult[];
       try {
-        mutants = await execute(unit, (progress) => {
+        mutants = await executeOrReuse(unit, execute, options, evidence, (progress) => {
           evidence.progress = progress;
           publish("progress");
         });
@@ -231,7 +260,7 @@ export async function runMutationUnits(
         completed: mutants.length,
         total: mutants.length,
       };
-      evidence.status = recordResults(unit, mutants, counts, output);
+      completeUnitResults(unit, evidence, mutants, counts, output);
     }
     state.completedUnits++;
     state.activeUnit = null;

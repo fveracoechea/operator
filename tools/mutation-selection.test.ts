@@ -6,6 +6,37 @@ import path from "node:path";
 import { Environment } from "../src/modules/environment/main.ts";
 import { changedRanges, parseMutationArgs, selectMutationUnits } from "./mutation-selection.ts";
 
+test("resume accepts execution options but rejects ambiguous modes and targets", () => {
+  expect(
+    parseMutationArgs(["--resume", "run-id", "--json", "--keep-going", "--budget", "2"]),
+  ).toEqual({
+    paths: [],
+    resume: "run-id",
+    json: true,
+    keepGoing: true,
+    budgetMs: 2000,
+  });
+  for (const args of [
+    ["--resume"],
+    ["--resume", ""],
+    ["--resume", "--json"],
+    ["--resume", "one", "--resume", "two"],
+  ])
+    expect(parseMutationArgs(args)).toEqual({ error: "--resume needs one run ID." });
+  for (const args of [
+    ["--resume", "one", "a.ts"],
+    ["--resume", "one", "--since", "HEAD"],
+  ])
+    expect(parseMutationArgs(args)).toEqual({
+      error: "--resume cannot be combined with targets or --since.",
+    });
+  for (const mode of ["--plan", "--preflight"])
+    expect(parseMutationArgs(["--resume", "one", mode])).toEqual({
+      error: "--resume cannot be combined with --plan or --preflight.",
+    });
+  expect(parseMutationArgs(["--", "--resume"])).toEqual({ paths: ["--resume"] });
+});
+
 test("campaign options extend selection without consuming positional file names", () => {
   expect(parseMutationArgs(["--since", ""])).toEqual({
     error: "--since needs one explicit Git ref.",

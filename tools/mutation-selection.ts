@@ -7,6 +7,7 @@ type Range = { start: number; end: number };
 type Arguments = {
   paths: string[];
   since?: string;
+  resume?: string;
   keepGoing?: boolean;
   json?: boolean;
   plan?: boolean;
@@ -16,10 +17,14 @@ type Arguments = {
 type Problem = { error: string };
 export type MutationUnit = { name: string; source: string; tests: string[]; patterns: string[] };
 
-function parsedRef(ref: string | undefined, existing?: string): { since: string } | Problem {
+function parsedRef(
+  ref: string | undefined,
+  existing: string | undefined,
+  option: string,
+): { value: string } | Problem {
   return existing || ref === undefined || ref === "" || ref.startsWith("-")
-    ? { error: "--since needs one explicit Git ref." }
-    : { since: ref };
+    ? { error: `${option} needs one ${option === "--since" ? "explicit Git ref" : "run ID"}.` }
+    : { value: ref };
 }
 
 function parsedBudget(
@@ -42,14 +47,12 @@ export function parseMutationArgs(args: string[]): Arguments | Problem {
   if ("error" in parsed) return parsed;
   if (parsed.plan && parsed.preflight)
     return { error: "--plan and --preflight are separate operations." };
-  return parsed.paths.length > 0 || parsed.since
-    ? parsed
-    : { error: "Select a unit or --since <ref>." };
+  return validatedMutationArgs(parsed);
 }
 
 function parseSelectionArgs(args: string[]): Arguments | Problem {
   const paths: string[] = [];
-  let since: string | undefined;
+  const values: { since?: string; resume?: string } = {};
   let positional = false;
   const flags: {
     keepGoing?: boolean;
@@ -64,24 +67,39 @@ function parseSelectionArgs(args: string[]): Arguments | Problem {
     ["--plan", "plan"],
     ["--preflight", "preflight"],
   ]);
+  const valueNames = new Map<string, "since" | "resume">([
+    ["--since", "since"],
+    ["--resume", "resume"],
+  ]);
   // The loop and the option value read one iterator, so --since consumes its ref.
   const remaining = args.values();
   for (const arg of remaining) {
     const flag = positional ? undefined : flagNames.get(arg);
+    const value = positional ? undefined : valueNames.get(arg);
     if (flag) flags[flag] = true;
     else if (!positional && arg === "--") positional = true;
-    else if (!positional && arg === "--since") {
-      const ref = parsedRef(remaining.next().value, since);
-      if ("error" in ref) return ref;
-      since = ref.since;
-    } else if (!positional && arg === "--budget") {
+    else if (!positional && arg === "--budget") {
       const budget = parsedBudget(remaining.next().value, flags.budgetMs);
       if ("error" in budget) return budget;
       flags.budgetMs = budget.budgetMs;
+    } else if (value) {
+      const ref = parsedRef(remaining.next().value, values[value], arg);
+      if ("error" in ref) return ref;
+      values[value] = ref.value;
     } else if (!positional && arg.startsWith("-")) return { error: `Unknown option: ${arg}` };
     else paths.push(arg);
   }
-  return { paths, since, ...flags };
+  return { paths, ...values, ...flags };
+}
+
+function validatedMutationArgs(args: Arguments): Arguments | Problem {
+  if (args.resume && (args.since || args.paths.length > 0))
+    return { error: "--resume cannot be combined with targets or --since." };
+  if (args.resume && (args.plan || args.preflight))
+    return { error: "--resume cannot be combined with --plan or --preflight." };
+  return args.paths.length > 0 || args.since || args.resume
+    ? args
+    : { error: "Select a unit or --since <ref>." };
 }
 
 export function changedRanges(diff: string): Range[] {

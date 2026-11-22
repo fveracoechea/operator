@@ -11,9 +11,10 @@ import { z } from "zod";
 import { reportMutationProgress, type MutationProgress } from "./mutation-engine-progress.ts";
 import { printMutationPlan } from "./mutation-plan.ts";
 import { mutationBudget } from "./mutation-budget.ts";
+import { resumeMutationSelection } from "./mutation-resume.ts";
 
 const usage =
-  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--plan|--preflight] [--budget <seconds>] [--keep-going] [--json] | --recover-claim";
+  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--plan|--preflight] [--budget <seconds>] [--keep-going] [--json] | --resume <run-id> | --recover-claim";
 const storedReport = z.looseObject({
   files: z.record(
     z.string(),
@@ -27,8 +28,8 @@ function quote(arg: string): string {
 
 /**
  * The command runner has no per-test coverage, so Stryker reuses unchanged stored verdicts.
- * The filename binds reuse to the admitted snapshot, ranges, tests, and runner.
- * Any admitted input edit reruns the unit. Only killed and survived verdicts are kept.
+ * The worker supplies a validated dependency identity, or a fresh identity for uncertain inputs.
+ * Only killed and survived per-mutant verdicts remain eligible after an incomplete run.
  */
 async function incrementalFile(
   unit: MutationUnit,
@@ -37,7 +38,9 @@ async function incrementalFile(
   identity: string,
 ): Promise<string> {
   const inputs = await Promise.all(inputFiles.map((file) => Bun.file(file).text()));
-  const hash = Bun.hash(JSON.stringify([identity, unit.patterns, inputs])).toString(16);
+  const hash = new Bun.CryptoHasher("sha256")
+    .update(JSON.stringify([identity, unit.patterns, inputs]))
+    .digest("hex");
   const file = path.join(root, ".mutation-incremental", `${unit.name}.${hash}.json`);
   const stored = Bun.file(file);
   if (!(await stored.exists())) return file;
@@ -144,7 +147,9 @@ async function main(args: string[]): Promise<number> {
       ? undefined
       : await mutationInputIdentity(process.cwd(), budget.signal);
     budget.check();
-    const selected = await selectMutationUnits(parsed, process.cwd());
+    const selected = parsed.resume
+      ? await resumeMutationSelection(process.cwd(), parsed.resume)
+      : await selectMutationUnits(parsed, process.cwd());
     if ("error" in selected) {
       console.error(selected.error);
       return 1;

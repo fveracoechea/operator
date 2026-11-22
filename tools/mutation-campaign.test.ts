@@ -240,6 +240,10 @@ test("expiry before the first worker event persists selected work as unrun", asy
   ])
     await Bun.write(`${cwd}/tools/${name}.ts`, Bun.file(`${import.meta.dir}/${name}.ts`));
   await Bun.write(
+    `${cwd}/tools/mutation-resume.ts`,
+    Bun.file(`${import.meta.dir}/mutation-resume.ts`),
+  );
+  await Bun.write(
     `${cwd}/tools/mutation-worker.ts`,
     `await Bun.write(${JSON.stringify(entered)}, "entered");
 await Bun.sleep(30_000);
@@ -563,6 +567,10 @@ test("a repository-owned runner executes its admitted tooling copy rather than m
     "mutation-plan",
     "mutation-budget",
     "mutation-preflight",
+    "mutation-dependencies",
+    "mutation-toolchain",
+    "mutation-reuse",
+    "mutation-resume",
   ])
     await Bun.write(`${cwd}/tools/${name}.ts`, Bun.file(`${import.meta.dir}/${name}.ts`));
   const worker = `${cwd}/tools/mutation-worker.ts`;
