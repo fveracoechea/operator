@@ -1,5 +1,5 @@
 import type { MutationUnit } from "./mutation-selection.ts";
-import type { MutationEvent, MutationResult } from "./mutation-run.ts";
+import { initialMutationRun, type MutationEvent, type MutationResult } from "./mutation-run.ts";
 import type { MutationProgress } from "./mutation-engine-progress.ts";
 import { mutationEstimate } from "./mutation-plan.ts";
 
@@ -14,27 +14,7 @@ export async function runMutationPreflight(
 ): Promise<number> {
   const started = Date.now();
   let sequence = 0;
-  const work = selected.units.map<{
-    unit: MutationUnit;
-    evidence: MutationEvent["state"]["units"][number];
-  }>((unit) => ({
-    unit,
-    evidence: {
-      name: unit.name,
-      tests: unit.tests,
-      patterns: unit.patterns,
-      status: "unrun",
-      mutants: null,
-      progress: { completed: 0, total: null, reused: 0 },
-    },
-  }));
-  const state: MutationEvent["state"] = {
-    status: "running",
-    activeUnit: null,
-    completedUnits: 0,
-    skipped: selected.skipped,
-    units: work.map(({ evidence }) => evidence),
-  };
+  const { work, state } = initialMutationRun(selected);
   function publish(type: MutationEvent["type"]) {
     event({
       version: 1,

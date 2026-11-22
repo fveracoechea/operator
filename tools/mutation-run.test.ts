@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { runMutationUnits, type MutationResult, type MutationEvent } from "./mutation-run.ts";
+import {
+  mutationEventSchema,
+  runMutationUnits,
+  type MutationResult,
+  type MutationEvent,
+} from "./mutation-run.ts";
 
 const unit = {
   name: "count.ts",
@@ -14,6 +19,141 @@ const killed: MutationResult = {
   location: { start: { line: 1, column: 18 }, end: { line: 1, column: 19 } },
   replacement: "0",
 };
+
+test("worker event schema validates every evidence field including optional nested measurements", async () => {
+  const events: MutationEvent[] = [];
+  await runMutationUnits(
+    { units: [unit], skipped: 0 },
+    async () => [killed],
+    { log() {}, error() {} },
+    { event: (event) => events.push(event) },
+  );
+  for (const event of events) expect(mutationEventSchema.safeParse(event).success).toBe(true);
+  const terminal = events.at(-1);
+  if (!terminal) return expect.unreachable("missing terminal event");
+  const rich = {
+    ...terminal,
+    mode: "preflight",
+    admission: { identity: "identity", current: null, reason: "measured" },
+    state: {
+      ...terminal.state,
+      units: [
+        {
+          ...terminal.state.units[0],
+          error: "diagnostic",
+          progress: { completed: 1, total: 1, reused: 1, baselineMs: 1, overheadMs: 2 },
+          preflight: {
+            baselineMs: 1,
+            overheadMs: 2,
+            mutationCount: 3,
+            estimatedMs: 4,
+            assumptions: ["sequential"],
+          },
+        },
+      ],
+    },
+  };
+  expect(mutationEventSchema.safeParse(rich).success).toBe(true);
+  expect(
+    mutationEventSchema.safeParse({ ...rich, admission: { identity: "i", current: true } }).success,
+  ).toBe(true);
+  expect(
+    mutationEventSchema.safeParse({ ...rich, admission: { identity: "i", current: false } })
+      .success,
+  ).toBe(true);
+  for (const status of ["running", "passed", "failed", "incomplete"])
+    expect(
+      mutationEventSchema.safeParse({ ...rich, state: { ...rich.state, status } }).success,
+      status,
+    ).toBe(true);
+  for (const status of ["unrun", "running", "passed", "failed", "interrupted", "reused"])
+    expect(
+      mutationEventSchema.safeParse({
+        ...rich,
+        state: { ...rich.state, units: [{ ...rich.state.units[0], status }] },
+      }).success,
+      status,
+    ).toBe(true);
+  for (const type of [
+    "run-started",
+    "unit-started",
+    "progress",
+    "unit-completed",
+    "unit-interrupted",
+    "run-completed",
+  ])
+    expect(mutationEventSchema.safeParse({ ...rich, type }).success, type).toBe(true);
+  for (const key of [
+    "version",
+    "runId",
+    "sequence",
+    "type",
+    "elapsedMs",
+    "state",
+    "status",
+    "activeUnit",
+    "completedUnits",
+    "skipped",
+    "units",
+    "name",
+    "tests",
+    "patterns",
+    "mutants",
+    "progress",
+    "completed",
+    "total",
+    "reused",
+    "id",
+    "mutatorName",
+    "location",
+    "start",
+    "end",
+    "line",
+    "column",
+    "replacement",
+  ]) {
+    const missing: unknown = JSON.parse(
+      JSON.stringify(terminal).replaceAll(new RegExp(`"${key}":`, "g"), `"missing-${key}":`),
+    );
+    expect(mutationEventSchema.safeParse(missing).success, key).toBe(false);
+  }
+  for (const value of [
+    { ...terminal, mode: "mutation" },
+    { ...terminal, admission: { identity: "id", current: "yes" } },
+    {
+      ...terminal,
+      state: { ...terminal.state, units: [{ ...terminal.state.units[0], error: 1 }] },
+    },
+    {
+      ...terminal,
+      state: {
+        ...terminal.state,
+        units: [
+          {
+            ...terminal.state.units[0],
+            preflight: {
+              baselineMs: 1,
+              overheadMs: 1,
+              mutationCount: 1,
+              estimatedMs: "unknown",
+              assumptions: [],
+            },
+          },
+        ],
+      },
+    },
+    {
+      ...terminal,
+      state: {
+        ...terminal.state,
+        units: [
+          { ...terminal.state.units[0], progress: { completed: -1, total: null, reused: 0 } },
+        ],
+      },
+    },
+  ])
+    expect(mutationEventSchema.safeParse(value).success).toBe(false);
+});
 
 test("an empty selection qualifies without provisioning an engine", async () => {
   const stdout: string[] = [];

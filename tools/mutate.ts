@@ -12,6 +12,7 @@ import { reportMutationProgress, type MutationProgress } from "./mutation-engine
 import { printMutationPlan } from "./mutation-plan.ts";
 import { mutationBudget } from "./mutation-budget.ts";
 import { resumeMutationSelection } from "./mutation-resume.ts";
+import { mutationRefusal } from "./mutation-evidence.ts";
 
 const usage =
   "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--plan|--preflight] [--budget <seconds>] [--keep-going] [--json] | --resume <run-id> | --recover-claim";
@@ -142,6 +143,7 @@ async function main(args: string[]): Promise<number> {
   }
   machine = parsed.json === true;
   const budget = mutationBudget(parsed.budgetMs);
+  let delegated = false;
   try {
     const selectionIdentity = parsed.plan
       ? undefined
@@ -161,10 +163,14 @@ async function main(args: string[]): Promise<number> {
     }
     printMutationPlan(selected, false);
     budget.check();
+    delegated = true;
     return await runMutationCampaign(process.cwd(), selected, selectionIdentity, {
       ...parsed,
       budget,
     });
+  } catch (error) {
+    if (!delegated && budget.signal.aborted) mutationRefusal(machine, console, "budget-exhausted");
+    return await Promise.reject(error);
   } finally {
     budget.dispose();
   }

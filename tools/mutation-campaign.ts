@@ -1,13 +1,14 @@
 // Bun has no temporary-directory, recursive removal, or path API.
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 // Final evidence must be persisted without yielding past the budget decision.
 import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { acquireMutationClaim, mutationStateDirectory } from "./mutation-claim.ts";
 import { admitMutationSnapshot, mutationInputIdentity } from "./mutation-snapshot.ts";
 import { selectMutationUnits, type MutationUnit } from "./mutation-selection.ts";
-import type { MutationEvent } from "./mutation-run.ts";
-import { mutationEvidence } from "./mutation-evidence.ts";
+import { initialMutationRun, mutationEventSchema, type MutationEvent } from "./mutation-run.ts";
+import { mutationEvidence, mutationRefusal } from "./mutation-evidence.ts";
 import { completeMutationEvent, mutationWorkerExitCode } from "./mutation-admission.ts";
 import { mutationBudget } from "./mutation-budget.ts";
 
@@ -60,22 +61,10 @@ function unrunEvent(
     version: 1,
     runId: token,
     sequence: 0,
+    // Stryker disable next-line StringLiteral: equivalent: both tags are nonterminal; completion overwrites this unpublished tag
     type: "run-started",
     elapsedMs: 0,
-    state: {
-      status: "running",
-      activeUnit: null,
-      completedUnits: 0,
-      skipped: selected.skipped,
-      units: selected.units.map((unit) => ({
-        name: unit.name,
-        tests: unit.tests,
-        patterns: unit.patterns,
-        status: "unrun",
-        mutants: null,
-        progress: { completed: 0, total: null, reused: 0 },
-      })),
-    },
+    state: initialMutationRun(selected).state,
   };
 }
 
@@ -95,6 +84,10 @@ async function selectedSourcesMatch(directory: string, units: MutationUnit[]): P
   return JSON.stringify(prepared.units.map(inputs)) === JSON.stringify(units.map(inputs));
 }
 
+function changedInputs(error: unknown): error is Error {
+  return error instanceof Error && error.cause === "inputs-changed";
+}
+
 export async function runMutationCampaign(
   root: string,
   selected: { units: MutationUnit[]; skipped: number },
@@ -110,15 +103,17 @@ export async function runMutationCampaign(
   const claim = await acquireMutationClaim(state);
   if ("error" in claim) {
     console.error(claim.error);
-    return 3;
+    return mutationRefusal(options.json, console, "worktree-busy");
   }
   const report = path.join(state, `${claim.token}.json`);
   const budget = options.budget ?? mutationBudget();
   let interrupted = false;
+  let invalidWorker = false;
   let child: Bun.Subprocess<"pipe", "inherit", "inherit"> | undefined;
   const observed: { latest: MutationEvent } = { latest: unrunEvent(claim.token, selected) };
   const started = Date.now();
   function cancel() {
+    if (interrupted) return;
     interrupted = true;
     if (child?.exitCode === null) process.kill(-child.pid, "SIGKILL");
   }
@@ -133,20 +128,20 @@ export async function runMutationCampaign(
   process.on("SIGINT", cancel);
   process.on("SIGTERM", cancel);
   budget.signal.addEventListener("abort", cancel);
-  const temporary = await mkdtemp(path.join(root, ".mutation-"));
+  const temporary = await mkdtemp(path.join(tmpdir(), ".mutation-"));
+  let admitting = true;
   try {
     budget.check();
-    const snapshot = await admitMutationSnapshot(
-      root,
-      path.join(temporary, "snapshot"),
-      budget.signal,
-    );
+    const snapshot = await admitMutationSnapshot(root, temporary, budget.signal);
+    admitting = false;
+    // An empty install must fail resolution, not auto-install an unadmitted package.
+    await mkdir(path.join(snapshot.directory, "node_modules"), { recursive: true });
     if (
       snapshot.identity !== selectionIdentity ||
       !(await selectedSourcesMatch(snapshot.directory, selected.units))
     ) {
       console.error("Mutation inputs changed during selection.");
-      return 3;
+      return mutationRefusal(options.json, console, "inputs-changed");
     }
     await Bun.write(
       report,
@@ -164,7 +159,16 @@ export async function runMutationCampaign(
         stdin: "pipe",
         stdout: "inherit",
         stderr: "inherit",
-        ipc(event: MutationEvent, worker) {
+        ipc(message, worker) {
+          if (invalidWorker) return;
+          const parsed = mutationEventSchema.safeParse(message);
+          if (!parsed.success || parsed.data.runId !== claim.token) {
+            invalidWorker = true;
+            console.error("Invalid mutation worker event. Execution cannot qualify.");
+            cancel();
+            return;
+          }
+          const event = parsed.data;
           observed.latest = event;
           if (event.type === "run-completed") worker.send({});
           else
@@ -193,9 +197,13 @@ export async function runMutationCampaign(
       json: options.json,
     });
   } catch (error) {
+    if (admitting && changedInputs(error)) {
+      console.error(error.message);
+      return mutationRefusal(options.json, console, "inputs-changed");
+    }
     if (!budget.signal.aborted) return await Promise.reject(error);
     return finishCampaign(root, report, selectionIdentity, observed.latest, 3, {
-      interrupted: true,
+      interrupted,
       current: null,
       exhausted: true,
       elapsedMs: Date.now() - started,

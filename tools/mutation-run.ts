@@ -1,6 +1,7 @@
 import type { MutationUnit } from "./mutation-selection.ts";
 import { mutationGuidance } from "./mutation-policy.ts";
 import type { MutationProgress } from "./mutation-engine-progress.ts";
+import { z } from "zod";
 
 type Location = { start: { line: number; column: number }; end: { line: number; column: number } };
 export type MutationResult = {
@@ -16,44 +17,81 @@ type Verdict = {
   count: "survivors" | "untested" | "incomplete" | "killed" | "ignored";
 } & ({ channel: "log" | "error"; message: string } | { channel: undefined });
 
-type UnitEvidence = {
-  name: string;
-  tests: string[];
-  patterns: string[];
-  status: "unrun" | "running" | "passed" | "failed" | "interrupted" | "reused";
-  mutants: MutationResult[] | null;
-  progress: MutationProgress;
-  error?: string;
-  preflight?: {
-    baselineMs: number | null;
-    overheadMs: number | null;
-    mutationCount: number | null;
-    estimatedMs: number | null;
-    assumptions: string[];
-  };
-};
-export type MutationEvent = {
-  version: 1;
-  mode?: "preflight";
-  admission?: { identity: string; current: boolean | null; reason?: string };
-  runId: string;
-  sequence: number;
-  type:
-    | "run-started"
-    | "unit-started"
-    | "progress"
-    | "unit-completed"
-    | "unit-interrupted"
-    | "run-completed";
-  elapsedMs: number;
-  state: {
-    status: "running" | "passed" | "failed" | "incomplete";
-    activeUnit: string | null;
-    completedUnits: number;
-    skipped: number;
-    units: UnitEvidence[];
-  };
-};
+const countSchema = z.number().int().nonnegative();
+const durationSchema = z.number().nonnegative();
+const pointSchema = z.object({
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+});
+export const mutationEventSchema = z.object({
+  version: z.literal(1),
+  mode: z.literal("preflight").optional(),
+  admission: z
+    .object({
+      identity: z.string(),
+      current: z.boolean().nullable(),
+      reason: z.string().optional(),
+    })
+    .optional(),
+  runId: z.string(),
+  sequence: countSchema,
+  type: z.enum([
+    "run-started",
+    "unit-started",
+    "progress",
+    "unit-completed",
+    "unit-interrupted",
+    "run-completed",
+  ]),
+  elapsedMs: durationSchema,
+  state: z.object({
+    status: z.enum(["running", "passed", "failed", "incomplete"]),
+    activeUnit: z.string().nullable(),
+    completedUnits: countSchema,
+    skipped: countSchema,
+    units: z.array(
+      z.object({
+        name: z.string(),
+        tests: z.array(z.string()),
+        patterns: z.array(z.string()),
+        status: z.enum(["unrun", "running", "passed", "failed", "interrupted", "reused"]),
+        mutants: z
+          .array(
+            z.object({
+              id: z.string(),
+              status: z.string(),
+              mutatorName: z.string(),
+              location: z.object({ start: pointSchema, end: pointSchema }),
+              replacement: z.string(),
+              statusReason: z.string().optional(),
+            }),
+          )
+          .nullable(),
+        progress: z.object({
+          completed: countSchema,
+          total: countSchema.nullable(),
+          reused: countSchema,
+          baselineMs: durationSchema.optional(),
+          overheadMs: durationSchema.optional(),
+        }),
+        error: z.string().optional(),
+        preflight: z
+          .object({
+            baselineMs: durationSchema.nullable(),
+            overheadMs: durationSchema.nullable(),
+            mutationCount: countSchema.nullable(),
+            estimatedMs: durationSchema.nullable(),
+            assumptions: z.array(z.string()),
+          })
+          .optional(),
+      }),
+    ),
+  }),
+});
+
+export type MutationEvent = z.infer<typeof mutationEventSchema>;
+
+type UnitEvidence = MutationEvent["state"]["units"][number];
 
 type RunOptions = {
   reuse?: (unit: MutationUnit) => Promise<MutationResult[] | undefined>;
@@ -65,6 +103,28 @@ type RunOptions = {
 };
 type Counts = Record<Verdict["count"], number>;
 type Output = { log: (line: string) => void; error: (line: string) => void };
+
+export function initialMutationRun(selected: { units: MutationUnit[]; skipped: number }) {
+  const work = selected.units.map<{ unit: MutationUnit; evidence: UnitEvidence }>((unit) => ({
+    unit,
+    evidence: {
+      name: unit.name,
+      tests: unit.tests,
+      patterns: unit.patterns,
+      status: "unrun",
+      mutants: null,
+      progress: { completed: 0, total: null, reused: 0 },
+    },
+  }));
+  const state: MutationEvent["state"] = {
+    status: "running",
+    activeUnit: null,
+    completedUnits: 0,
+    skipped: selected.skipped,
+    units: work.map(({ evidence }) => evidence),
+  };
+  return { work, state };
+}
 
 async function executeOrReuse(
   unit: MutationUnit,
@@ -192,24 +252,7 @@ export async function runMutationUnits(
   const started = now();
   const runId = options.runId ?? crypto.randomUUID();
   let sequence = 0;
-  const work = selected.units.map<{ unit: MutationUnit; evidence: UnitEvidence }>((unit) => ({
-    unit,
-    evidence: {
-      name: unit.name,
-      tests: unit.tests,
-      patterns: unit.patterns,
-      status: "unrun",
-      mutants: null,
-      progress: { completed: 0, total: null, reused: 0 },
-    },
-  }));
-  const state: MutationEvent["state"] = {
-    status: "running",
-    activeUnit: null,
-    completedUnits: 0,
-    skipped: selected.skipped,
-    units: work.map(({ evidence }) => evidence),
-  };
+  const { work, state } = initialMutationRun(selected);
   function publish(type: MutationEvent["type"]) {
     options.event?.({
       version: 1,

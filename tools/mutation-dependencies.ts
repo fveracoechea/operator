@@ -125,6 +125,8 @@ export async function mutationUnitIdentity(
     }
     inputs.set(name, `${stat.mode}:${new Bun.CryptoHasher("sha256").update(bytes).digest("hex")}`);
     if (!/\.[cm]?[jt]sx?$/.test(file)) return;
+    const snapshot = path.join(path.dirname(file), "__snapshots__", `${path.basename(file)}.snap`);
+    if (await Bun.file(snapshot).exists()) await visit(snapshot);
     const graph = dependencies(contents);
     uncertain ||= graph.uncertain;
     for (const fixture of graph.fixtures) await visit(path.resolve(root, fixture));

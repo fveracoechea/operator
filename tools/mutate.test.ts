@@ -5,7 +5,8 @@ import { chmod, cp, lstat, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import { mutationStateDirectory } from "./mutation-claim.ts";
+import { acquireMutationClaim, mutationStateDirectory } from "./mutation-claim.ts";
+import { mutationEventSchema } from "./mutation-run.ts";
 
 // Most tests run Stryker, which starts several Bun processes, so a busy machine needs time.
 setDefaultTimeout(60_000);
@@ -17,18 +18,21 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function mutate(cwd: string, args: string[]) {
-  const child = Bun.spawn([process.execPath, script, ...args], {
-    cwd,
-    env: {
-      ...Environment.child(),
-      HOME: root,
-      XDG_CONFIG_HOME: `${root}/config`,
-      XDG_STATE_HOME: `${root}/state`,
+async function mutate(cwd: string, args: string[], entry = script, preload?: string) {
+  const child = Bun.spawn(
+    [process.execPath, ...(preload ? ["--preload", preload] : []), entry, ...args],
+    {
+      cwd,
+      env: {
+        ...Environment.child(),
+        HOME: root,
+        XDG_CONFIG_HOME: `${root}/config`,
+        XDG_STATE_HOME: `${root}/state`,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
     },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  );
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -46,7 +50,7 @@ async function fixture(files: Record<string, string>): Promise<string> {
       scripts: { test: "bun test --isolate" },
     }),
   );
-  await symlink(path.resolve(import.meta.dir, "../node_modules"), path.join(cwd, "node_modules"));
+  await mkdir(path.join(cwd, "node_modules"));
   await Promise.all(
     Object.entries(files).map(([name, text]) => Bun.write(path.join(cwd, name), text)),
   );
@@ -72,6 +76,215 @@ function git(cwd: string, ...args: string[]): string {
   expect(child.exitCode).toBe(0);
   return child.stdout.toString().trim();
 }
+
+async function refusalFixture(receipt: string) {
+  const cwd = await fixture({
+    "count.ts": "export const count = 1;\n",
+    "count.test.ts": `await Bun.write(${JSON.stringify(receipt)}, "forbidden test");`,
+  });
+  for await (const name of new Bun.Glob("mutation*.ts").scan(import.meta.dir))
+    if (!name.endsWith(".test.ts"))
+      await Bun.write(`${cwd}/tools/${name}`, Bun.file(`${import.meta.dir}/${name}`));
+  await Bun.write(`${cwd}/tools/mutate.ts`, Bun.file(script));
+  await Bun.write(
+    `${cwd}/tools/mutation-worker.ts`,
+    `await Bun.write(${JSON.stringify(receipt)}, "forbidden worker"); process.exit(91);`,
+  );
+  for (const name of ["zod", "@babel/parser"])
+    await cp(
+      path.dirname(Bun.resolveSync(`${name}/package.json`, import.meta.dir)),
+      `${cwd}/node_modules/${name}`,
+      { recursive: true, dereference: true },
+    );
+  git(cwd, "init", "-q");
+  return cwd;
+}
+
+test.each(["copy-drift", "untagged-error", "non-error-cause", "post-admission-tag"] as const)(
+  "public JSON admission classifies only a tagged Error during %s",
+  async (mode) => {
+    const receipt = `${root}/${crypto.randomUUID()}-forbidden-worker`;
+    const cwd = await refusalFixture(receipt);
+    const state = await mutationStateDirectory(cwd);
+    const checkpoint = `${root}/${crypto.randomUUID()}-copy.json`;
+    const preload = `${root}/${crypto.randomUUID()}-copy-edit.ts`;
+    await Bun.write(
+      preload,
+      `
+import path from "node:path";
+const write = Bun.write;
+Bun.write = async (file, data, ...options) => {
+  const result = await write(file, data, ...options);
+  if (typeof file === "string" && file.endsWith("/count.ts") && file !== ${JSON.stringify(`${cwd}/count.ts`)}) {
+    await write(${JSON.stringify(checkpoint)}, JSON.stringify({
+      directory: path.dirname(file), copied: await Bun.file(file).text()
+    }));
+    if (${JSON.stringify(mode)} === "untagged-error")
+      throw new Error("Mutation inputs changed during snapshot admission.");
+    if (${JSON.stringify(mode)} === "non-error-cause") throw {cause: "inputs-changed"};
+    if (${JSON.stringify(mode)} === "copy-drift")
+      await write(${JSON.stringify(`${cwd}/count.ts`)}, "changed during copy");
+  }
+  if (${JSON.stringify(mode)} === "post-admission-tag" && typeof file === "string" &&
+      file.startsWith(${JSON.stringify(`${state}/`)}) && typeof data === "string" && JSON.parse(data).status === "running") {
+    throw new Error("failure after admission", {cause: "inputs-changed"});
+  }
+  return result;
+};
+`,
+    );
+    const result = await mutate(cwd, ["--json", "count.ts"], `${cwd}/tools/mutate.ts`, preload);
+    expect(result.code, result.stderr).toBe(3);
+    const copied = z
+      .object({ directory: z.string(), copied: z.string() })
+      .parse(await Bun.file(checkpoint).json());
+    expect(copied.copied).toBe("export const count = 1;\n");
+    if (mode === "copy-drift") {
+      expect(await Bun.file(`${cwd}/count.ts`).text()).toBe("changed during copy");
+      expect(result.stdout.trim().split("\n")).toEqual([
+        JSON.stringify({ version: 1, type: "refusal", reason: "inputs-changed", code: 3 }),
+      ]);
+      expect(result.stderr).toContain("Mutation inputs changed during snapshot admission.");
+    } else expect(result.stdout).toBe("");
+    expect(await Bun.file(receipt).exists()).toBe(false);
+    expect(await Bun.file(`${state}/claim/owner.json`).exists()).toBe(false);
+    const reports = await Array.fromAsync(new Bun.Glob("*.json").scan(state));
+    if (mode === "post-admission-tag") {
+      expect(reports).toHaveLength(1);
+      expect(await Bun.file(`${state}/${reports[0]}`).json()).toMatchObject({ status: "running" });
+    } else expect(reports).toEqual([]);
+    expect(
+      await Array.fromAsync(new Bun.Glob(".mutation-runs/*").scan({ cwd, dot: true })),
+    ).toEqual([]);
+    await expect(lstat(copied.directory)).rejects.toHaveProperty("code", "ENOENT");
+  },
+);
+
+test.each(["worktree-busy", "budget-exhausted"] as const)(
+  "public JSON refusal reports %s without changing ownership or launching work",
+  async (reason) => {
+    const receipt = `${root}/${crypto.randomUUID()}-forbidden-worker`;
+    const cwd = await refusalFixture(receipt);
+    const state = await mutationStateDirectory(cwd);
+    const claim = await acquireMutationClaim(state);
+    if ("error" in claim) return expect.unreachable(claim.error);
+    try {
+      const owner = await Bun.file(`${state}/claim/owner.json`).text();
+      const result = await mutate(
+        cwd,
+        [
+          "--json",
+          ...(reason === "budget-exhausted" ? ["--budget", "0.000000001"] : []),
+          "count.ts",
+        ],
+        `${cwd}/tools/mutate.ts`,
+      );
+      expect(result.code, result.stderr).toBe(3);
+      expect(
+        result.stdout
+          .trim()
+          .split("\n")
+          .map((line) =>
+            z
+              .strictObject({
+                version: z.literal(1),
+                type: z.literal("refusal"),
+                reason: z.literal(reason),
+                code: z.literal(3),
+              })
+              .parse(JSON.parse(line)),
+          ),
+      ).toEqual([{ version: 1, type: "refusal", reason, code: 3 }]);
+      expect(result.stderr).toContain(
+        reason === "worktree-busy" ? "Mutation worktree busy." : "budget-exhausted",
+      );
+      expect(await Bun.file(`${state}/claim/owner.json`).text()).toBe(owner);
+      expect(await Bun.file(receipt).exists()).toBe(false);
+      expect(await Array.fromAsync(new Bun.Glob(".mutation-*").scan({ cwd, dot: true }))).toEqual(
+        [],
+      );
+      expect(await Array.fromAsync(new Bun.Glob("*.json").scan(state))).toEqual([]);
+    } finally {
+      await claim.release();
+    }
+  },
+);
+
+test("public JSON completion is not duplicated by a refusal after campaign handoff fails", async () => {
+  const receipt = `${root}/${crypto.randomUUID()}-forbidden-worker`;
+  const cwd = await refusalFixture(receipt);
+  const state = await mutationStateDirectory(cwd);
+  const preload = `${root}/${crypto.randomUUID()}-report-failure.ts`;
+  await Bun.write(
+    preload,
+    `
+import {rm, mkdir} from "node:fs/promises";
+let clock = 0;
+performance.now = () => clock;
+const write = Bun.write;
+Bun.write = async (file, data, ...options) => {
+  const result = await write(file, data, ...options);
+  if (typeof file === "string" && file.startsWith(${JSON.stringify(`${state}/`)}) &&
+      typeof data === "string" && JSON.parse(data).status === "running") {
+    await rm(file);
+    await mkdir(file);
+    clock = 60000;
+  }
+  return result;
+};
+`,
+  );
+  const result = await mutate(
+    cwd,
+    ["--json", "--budget", "60", "count.ts"],
+    `${cwd}/tools/mutate.ts`,
+    preload,
+  );
+  expect(result.code, result.stderr).toBe(3);
+  expect(result.stderr).toContain("EISDIR");
+  const events = result.stdout
+    .trim()
+    .split("\n")
+    .map((line) => mutationEventSchema.parse(JSON.parse(line)));
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    type: "run-completed",
+    admission: { current: null, reason: "budget-exhausted" },
+    state: { status: "incomplete", units: [{ status: "unrun" }] },
+  });
+  expect(await Bun.file(receipt).exists()).toBe(false);
+  expect(await Bun.file(`${state}/claim/owner.json`).exists()).toBe(false);
+});
+
+test("external snapshot edits invalidate passing reuse without invalidating unrelated units", async () => {
+  const cwd = await fixture({
+    "count.ts": "export const count = 1;\n",
+    "count.test.ts":
+      'import {expect,test} from "bun:test"; import {count} from "./count.ts"; test("count", () => expect(count).toMatchSnapshot());',
+    "other.ts": "export const other = 2;\n",
+    "other.test.ts":
+      'import {expect,test} from "bun:test"; import {other} from "./other.ts"; test("other", () => expect(other).toBe(2));',
+  });
+  function ordinary() {
+    return Bun.spawnSync([process.execPath, "test", "./count.test.ts"], { cwd });
+  }
+
+  expect(ordinary().exitCode).toBe(0);
+  const first = await mutate(cwd, ["--json", "count.ts", "other.ts"]);
+  expect(first.code, first.stderr).toBe(0);
+  const unchanged = await mutate(cwd, ["--json", "count.ts", "other.ts"]);
+  expect(unchanged.code, unchanged.stderr).toBe(0);
+  expect(unchanged.stdout).toContain('"status":"reused"');
+  const snapshot = `${cwd}/__snapshots__/count.test.ts.snap`;
+  await Bun.write(snapshot, (await Bun.file(snapshot).text()).replace("= `1`", "= `2`"));
+  expect(ordinary().exitCode).toBe(1);
+  const changed = await mutate(cwd, ["--json", "--keep-going", "count.ts", "other.ts"]);
+  expect(changed.code, changed.stderr).toBe(3);
+  const final = z
+    .object({ state: z.object({ units: z.array(z.object({ status: z.string() })) }) })
+    .parse(JSON.parse(changed.stdout.trim().split("\n").at(-1) ?? ""));
+  expect(final.state.units.map((unit) => unit.status)).toEqual(["interrupted", "reused"]);
+});
 
 test("no target refuses without running tests or writing files", async () => {
   const cwd = await mkdtemp(`${root}/empty-`);
@@ -206,7 +419,9 @@ test("unsupported snapshot inputs report incomplete execution without starting t
     "count.ts": "export const count = 1;\n",
     "count.test.ts": `await Bun.write(${JSON.stringify(receipt)}, "forbidden");`,
   });
-  await symlink(`${cwd}/count.ts`, `${cwd}/external-link`);
+  const outside = `${root}/${crypto.randomUUID()}-outside-source`;
+  await Bun.write(outside, "unadmitted source\n");
+  await symlink(outside, `${cwd}/external-link`);
   const result = await mutate(cwd, ["count.ts"]);
   expect(result.code).toBe(3);
   expect(result.stdout).toBe(
@@ -296,7 +511,7 @@ test("other", () => { appendFileSync(${JSON.stringify(otherReceipt)}, "run\\n");
   expect(await Bun.file(otherReceipt).text()).toBe(unaffected.repeat(2));
 });
 
-test("resume reuses completed work but executes repaired unfinished work", async () => {
+test("a disposable candidate plans, fails fast, repairs and resumes without trusting stale qualification", async () => {
   const firstReceipt = `${root}/${crypto.randomUUID()}-completed`;
   const secondReceipt = `${root}/${crypto.randomUUID()}-unfinished`;
   const cwd = await fixture({
@@ -311,6 +526,18 @@ import { appendFileSync } from "node:fs";
 import { second } from "./second.ts";
 test("second", () => { appendFileSync(${JSON.stringify(secondReceipt)}, "run\\n"); expect(second(1)).toBe(99); });`,
   });
+  git(cwd, "init", "-q");
+  git(cwd, "add", "first.ts", "first.test.ts", "second.ts", "second.test.ts", "package.json");
+  git(cwd, "commit", "-qm", "candidate with an unfinished assertion");
+  const planned = await mutate(cwd, ["--plan", "--json", "first.ts", "second.ts"]);
+  expect(planned.code, planned.stderr).toBe(0);
+  expect(JSON.parse(planned.stdout)).toMatchObject({
+    type: "selection-plan",
+    selectedUnits: 2,
+    selectedTestFiles: 2,
+  });
+  expect(await Bun.file(firstReceipt).exists()).toBe(false);
+  expect(await Bun.file(secondReceipt).exists()).toBe(false);
   const initial = await mutate(cwd, ["first.ts", "second.ts", "--json"]);
   expect(initial.code, initial.stdout + initial.stderr).toBe(3);
   const run = z
@@ -331,6 +558,39 @@ test("second", () => { appendFileSync(${JSON.stringify(secondReceipt)}, "run\\n"
   expect(await Bun.file(secondReceipt).text()).toBe("run\n".repeat(5));
   expect(resumed.stderr).toContain("first.ts (reused)");
   expect(resumed.stderr).toContain("second.ts (passed)");
+  const terminal = z.object({
+    runId: z.string(),
+    admission: z.object({ identity: z.string(), current: z.boolean() }),
+    state: z.object({ status: z.string() }),
+  });
+  const qualified = terminal.parse(JSON.parse(resumed.stdout.trim().split("\n").at(-1) ?? ""));
+  expect(qualified.state.status).toBe("passed");
+  expect(qualified.admission.current).toBe(true);
+  expect(await Bun.file(`${cwd}/.mutation-runs/${qualified.runId}.json`).json()).toMatchObject(
+    qualified,
+  );
+  git(cwd, "add", "second.test.ts");
+  git(cwd, "commit", "-qm", "repaired candidate");
+  await Bun.write(`${cwd}/second.ts`, "export function second(n: number) { return n + 2; }\n");
+  const stale = await mutate(cwd, ["--resume", qualified.runId, "--json"]);
+  expect(stale.code, stale.stdout + stale.stderr).toBe(3);
+  expect(await Bun.file(firstReceipt).text()).toBe(completed);
+  expect(await Bun.file(secondReceipt).text()).toBe("run\n".repeat(6));
+  const rejected = terminal.parse(JSON.parse(stale.stdout.trim().split("\n").at(-1) ?? ""));
+  expect(rejected.admission.identity).not.toBe(qualified.admission.identity);
+  expect(rejected.state.status).toBe("incomplete");
+  expect(rejected.admission.current).toBe(true);
+  // The historical receipt remains true only for its old candidate.
+  expect(await Bun.file(`${cwd}/.mutation-runs/${qualified.runId}.json`).json()).toMatchObject(
+    qualified,
+  );
+  await Bun.write(`${cwd}/second.ts`, "export function second(n: number) { return n + 1; }\n");
+  const final = await mutate(cwd, ["--resume", rejected.runId, "--json"]);
+  expect(final.code, final.stdout + final.stderr).toBe(0);
+  expect(await Bun.file(firstReceipt).text()).toBe(completed);
+  const exact = terminal.parse(JSON.parse(final.stdout.trim().split("\n").at(-1) ?? ""));
+  expect(exact.admission).toEqual(qualified.admission);
+  expect(exact.state.status).toBe("passed");
 });
 
 test("dynamic inputs execute again and partial completed receipts cannot pass by reuse", async () => {
@@ -617,6 +877,11 @@ test.each([0o700, 0o755])(
   async (mode) => {
     const cwd = await fixture({});
     const repository = path.resolve(import.meta.dir, "..");
+    await rm(path.join(cwd, "node_modules"), { recursive: true });
+    await symlink(
+      path.dirname(path.dirname(Bun.resolveSync("zod/package.json", import.meta.dir))),
+      path.join(cwd, "node_modules"),
+    );
     const original = path.join(repository, "src/cli.ts");
     const copied = path.join(cwd, "src/cli.ts");
     const receipt = path.join(root, `${crypto.randomUUID()}-source-command-receipt.json`);
@@ -711,7 +976,7 @@ test("the actual source command passes readiness through its PATH link", async (
   const cli = Bun.fileURLToPath(new URL("../cli.ts", import.meta.url));
   const project = path.resolve(import.meta.dir, "../..");
   const expected = ${JSON.stringify({ cwd, copied, receipt, dev: before.dev, ino: before.ino, identity })};
-  expect(project === expected.cwd || (project.startsWith(expected.cwd + "/.mutation-") && project.includes("/sandbox/"))).toBe(true);
+   expect(project === expected.cwd || (project.includes("/.mutation-") && path.basename(project).startsWith("sandbox-") && project.includes("/sandbox/"))).toBe(true);
   const metadata = await lstat(cli);
   expect(metadata.isFile()).toBe(true);
   expect(metadata.isSymbolicLink()).toBe(false);
@@ -801,7 +1066,9 @@ test("the actual source command passes readiness through its PATH link", async (
       })
       .parse(await Bun.file(receipt).json());
     console.error(JSON.stringify({ phase: "retained-sandbox-receipt", ...observed }));
-    expect(observed.project).toStartWith(`${cwd}/.mutation-`);
+    expect(observed.project).not.toStartWith(cwd);
+    expect(observed.project).toContain("/.mutation-");
+    expect(path.basename(observed.project)).toStartWith("sandbox-");
     expect(observed.project).toContain("/sandbox/");
     expect(observed.mode).toBe(0o755);
     expect(observed.links).toBe(1);
@@ -1097,6 +1364,11 @@ test("removing the summary's guidance topic makes its real check fail", async ()
     ).text(),
     [topic]: await Bun.file(path.resolve(import.meta.dir, "..", topic)).text(),
   });
+  await mkdir(`${cwd}/node_modules/@babel`);
+  await symlink(
+    path.dirname(Bun.resolveSync("@babel/parser/package.json", import.meta.dir)),
+    `${cwd}/node_modules/@babel/parser`,
+  );
   async function check() {
     const child = Bun.spawn(
       [process.execPath, "run", "test", "./tools/mutation-policy.guidance.test.ts"],
@@ -1164,7 +1436,7 @@ test("exact", () => {
     .parse(JSON.parse(await Bun.file(seen).text()));
   expect(sandbox).toEqual({
     cwd: expect.stringMatching(/\/\.mutation-\w+\/sandbox\/sandbox-\w+$/) as string,
-    entries: ["docs", "package.json", "src"],
+    entries: ["docs", "node_modules", "package.json", "src"],
     guidance: "local guidance\n",
     // Stryker turns off type checks in sandbox sources, because instrumented code fails strict tsc.
     data: "// @ts-nocheck\nexport const data = 1;\n",
@@ -1249,8 +1521,9 @@ process.exit(await child.exited);\n`,
   // One dry run and one run for each of the two mutants.
   expect(runs).toHaveLength(3);
   for (const recorded of runs) {
-    expect(recorded.runner).toStartWith(`${cwd}/.mutation-`);
-    expect(recorded.runner).toEndWith("/snapshot/tools/test-watchdog.ts");
+    expect(recorded.runner).not.toStartWith(cwd);
+    expect(recorded.runner).toContain("/.mutation-");
+    expect(recorded.runner).toEndWith("/tools/test-watchdog.ts");
     expect(recorded.cwd).toMatch(/\/\.mutation-\w+\/sandbox\/sandbox-\w+$/);
     expect(recorded.args).toEqual(["--bail", "./src/lib/count.test.ts"]);
   }

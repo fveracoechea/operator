@@ -3,8 +3,22 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { mutationEvidence } from "./mutation-evidence.ts";
-import type { MutationEvent } from "./mutation-run.ts";
+import { mutationEvidence, mutationRefusal } from "./mutation-evidence.ts";
+import { mutationEventSchema, type MutationEvent } from "./mutation-run.ts";
+
+test.each(["worktree-busy", "inputs-changed", "budget-exhausted"] as const)(
+  "a %s refusal is versioned output without fabricated run identity or worker IPC",
+  (reason) => {
+    const lines: string[] = [];
+    const output = { log: (line: string) => lines.push(line) };
+    expect(mutationRefusal(false, output, reason)).toBe(3);
+    expect(mutationRefusal(undefined, output, reason)).toBe(3);
+    expect(lines).toEqual([]);
+    expect(mutationRefusal(true, output, reason)).toBe(3);
+    expect(lines).toEqual([JSON.stringify({ version: 1, type: "refusal", reason, code: 3 })]);
+    expect(mutationEventSchema.safeParse(JSON.parse(lines[0] ?? "")).success).toBe(false);
+  },
+);
 
 test("the evidence sink atomically replaces recoverable state and renders human and machine progress", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "operator-mutation-evidence-"));

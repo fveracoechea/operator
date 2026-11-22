@@ -24,9 +24,15 @@ An assertion that a result is defined or has a type rarely proves its behavior.
 For Operator workflows, use the public CLI with real Git and SQLite and isolated device roots.
 Use controlled executables or HTTP servers for external tools.
 Keep pure decisions in direct deterministic tests.
+Extract an actual private decision or protocol when its command's beside-tests provision unrelated workflows for every mutant.
+Keep the command's existing test ownership and real effect coverage.
+Measure selected files and baseline cost before and after extraction; fewer targets alone do not establish improvement.
+For budgets, use controlled clocks or bounded executables.
+Synchronize interruption with an observable receipt instead of assuming engine startup finishes within a short wall-clock window.
 Use the repository's test script so each file has an isolated global.
 Use scoped spies at public module interfaces when needed and restore them after each test.
 
 Run the selected test, then use the mutation topic to check whether its assertions distinguish changed behavior.
 Confirm a guard by breaking it and observing a failing test.
 Fix all observed test failures and flakes before completing the ticket.
+For final local qualification, follow the exact-candidate sequence in [mutation testing](mutation-testing.md).

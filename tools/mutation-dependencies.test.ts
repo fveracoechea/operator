@@ -41,6 +41,34 @@ async function boundedIdentity(directory: string, expression: string) {
   }
 }
 
+test("external snapshots invalidate only their owning unit across additions, edits and deletions", async () => {
+  const { directory, unit } = await fixture();
+  const other = {
+    name: "other.ts",
+    source: "export const other = 2;",
+    tests: ["./other.test.ts"],
+    patterns: ["other.ts"],
+  };
+  await Bun.write(`${directory}/other.ts`, other.source);
+  await Bun.write(`${directory}/other.test.ts`, 'import { other } from "./other.ts";');
+  const initial = await mutationUnitIdentity(directory, unit, "engine");
+  const unrelated = await mutationUnitIdentity(directory, other, "engine");
+  expect(initial).toMatch(/^[a-f\d]{64}$/);
+  expect(unrelated).toMatch(/^[a-f\d]{64}$/);
+  const snapshot = `${directory}/__snapshots__/unit.test.ts.snap`;
+  await Bun.write(snapshot, 'exports["value 1"] = `1`;');
+  const added = await mutationUnitIdentity(directory, unit, "engine");
+  expect(added).toMatch(/^[a-f\d]{64}$/);
+  expect(added).not.toBe(initial);
+  expect(await mutationUnitIdentity(directory, other, "engine")).toBe(unrelated);
+  await Bun.write(snapshot, 'exports["value 1"] = `2`;');
+  expect(await mutationUnitIdentity(directory, unit, "engine")).not.toBe(added);
+  expect(await mutationUnitIdentity(directory, other, "engine")).toBe(unrelated);
+  await rm(snapshot);
+  expect(await mutationUnitIdentity(directory, unit, "engine")).toBe(initial);
+  expect(await mutationUnitIdentity(directory, other, "engine")).toBe(unrelated);
+});
+
 test("unit identities follow transitive production, test, fixture, configuration and selection inputs", async () => {
   const { directory, unit } = await fixture();
   const initial = await mutationUnitIdentity(directory, unit, "engine-a");

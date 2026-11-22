@@ -9,6 +9,10 @@ bun run mutate src/lib/sha256.ts
 bun run mutate src/lib/sha256.test.ts
 bun run mutate --since HEAD
 bun run mutate --since origin/main src/lib/sha256.ts
+bun run mutate --plan --since origin/main
+bun run mutate --preflight --budget 60 src/lib/sha256.ts
+bun run mutate --json --budget 300 --since origin/main
+bun run mutate --resume <run-id> --budget 300
 ```
 
 Explicit paths select whole units.
@@ -17,7 +21,7 @@ With `--since`, the tool checks changed current lines relative to the named comm
 New untracked eligible units count as wholly changed.
 Optional paths limit that selection to matching units.
 Deleted lines and changes only to tests do not select old production lines.
-For the final delivery cleanup, pass the merge-base commit with `main` explicitly.
+For final delivery, pass the recorded comparison commit with `main` explicitly.
 No target is a usage error, never a whole-repository request.
 
 Only a unit's same-folder `stem.test.ts` and `stem.<scenario>.test.ts` run for that unit.
@@ -29,10 +33,97 @@ A no-logic file can opt out with this exact first line:
 // Stryker disable all: no logic
 ```
 
-The first failed test kills a mutant, and a hanging mutant stops soon after the time of a clean run.
-A rerun reuses a stored result when the unit, its beside-tests, and the runner did not change.
-A stored result does not see a change in an imported file, so remove `.mutation-incremental/` before the final full run.
-Mutation testing is local, not a quality gate or CI job.
+## Plan and bound execution
+
+`--plan` selects without launching tests, acquiring a claim, or changing run evidence.
+It reports ranges, selected test files, and repeated test-file executions per sweep.
+Test-case counts remain unknown.
+Inspect large selections before starting expensive work.
+
+`--preflight` explicitly measures the initial engine test run against admitted inputs.
+It returns incomplete exit 3, not mutation qualification.
+Mutation counts remain unknown unless established by the engine.
+Estimates state their sequential, no-reuse, full-suite assumptions and excluded startup overhead.
+
+`--budget` bounds owned execution in positive seconds, including admission.
+Expiry stops owned work, preserves completed verdicts, and records interrupted and unrun work separately.
+It returns exit 3 with `budget-exhausted`.
+Cleanup still stops owned descendants and releases resources.
+Continuing requires another explicit invocation.
+
+Normal execution reports progress on stderr and saves `.mutation-runs/<run-id>.json`.
+`--json` emits versioned newline-delimited events on stdout.
+Before campaign handoff, budget expiry emits one refusal frame instead of a run event.
+A busy claim, changed selection, or snapshot verification drift also emits a refusal before worker execution:
+`{"version":1,"type":"refusal","reason":"worktree-busy","code":3}`.
+The stable reasons are `worktree-busy`, `inputs-changed`, and `budget-exhausted`.
+Refusals carry no run ID, admitted identity, sequence, or ownership claim, and are not worker IPC events.
+They preserve exit 3 and the human stderr diagnostic without overwriting another owner's evidence.
+After admission, the existing run events and terminal admission reasons remain unchanged.
+Human and machine output use the same state.
+Unknown totals are distinct from zero.
+The default scheduler stops before the next unit after a failing or incomplete unit.
+`--keep-going` deliberately continues diagnostics but retains the failing outcome.
+Fail-fast occurs after a unit verdict, not at the first surviving mutant.
+Within each mutant, the first failed test still stops its test command.
+
+## Admission, reuse and resume
+
+One campaign owns each worktree.
+Independent worktrees have separate claims.
+Execution uses one admitted snapshot of actual tracked and relevant untracked inputs.
+Internal source file aliases retain private links to already admitted regular files.
+Their raw and canonical targets, target bytes and modes participate in the identity.
+External, dangling, cyclic and directory source aliases refuse admission.
+Source paths through aliased ancestors and link paths with cancelled components also refuse admission.
+The snapshot copies the installed `node_modules` tree, including undeclared packages and nested dependencies.
+Installed bytes, executable modes and binary links participate in admission and current-input identity.
+Real package directories become private copies, while internal file and directory links retain their installed resolution.
+Raw link targets, canonical private targets and the installed-root identity participate in the fingerprint.
+Cyclic directory links and links outside the installed tree refuse admission.
+An installed-root alias must resolve to a complete `node_modules` root.
+The snapshot lives outside the checkout so missing packages cannot resolve through live parent directories.
+An empty installed directory prevents automatic installation of unadmitted packages.
+Final qualification checks that the current inputs still match.
+Historical passing results cannot authorize an edited candidate.
+`--recover-claim` preserves evidence and recovers only a provably dead owner and process group.
+Live, unreadable or uncertain claims refuse recovery.
+Cancellation signals only owned processes.
+
+Completed-unit receipts include production and test dependencies, external Bun snapshots, literal fixtures, configuration, runner bytes, and installed toolchain identities.
+Changing a known import or fixture invalidates affected units while unaffected units can reuse completed evidence.
+Dynamic or unresolved imports, external packages, custom test commands, preloads, and unproved runtime effects conservatively execute fresh.
+This repository's watchdog command is such a conservative case.
+Eligible partial engine reports can reuse completed mutant verdicts without treating unfinished mutants as passed.
+Malformed or truncated completed receipts force fresh execution.
+Worker IPC events require the complete runtime schema and the owned run identity.
+Malformed or foreign-run events preserve the last valid evidence and make execution incomplete.
+Ignored results remain ignored, not killed.
+Do not clear the final cache as a substitute for validating this dependency contract.
+
+`--resume <run-id>` reselects the recorded units against current inputs and checks their reuse identities.
+It executes unfinished or invalidated work and retains eligible completed work.
+Preflight evidence cannot resume mutation qualification.
+Resume does not trust historical changed-line ranges or overwrite the old run.
+
+## Exact-candidate delivery
+
+Mutation testing is local, not a CI gate.
+A PR is not required for this local workflow.
+
+1. Implement and run focused tests.
+2. Obtain independent review and fix its findings.
+3. Record the comparison commit, candidate identity, complete production target inventory, and explicit budgets.
+4. Run full quality, scoped mutation verification, and applicable disposable installed-command smoke on final inputs.
+5. Retain commands, terminal outcomes, costs, ignored results, and reuse decisions with the delivery evidence.
+
+Failed, interrupted, stale, uncertain and unrun work never authorize qualification.
+An expired budget is a blocker, not permission to extend a campaign silently.
+Report measured bottlenecks before proposing another bounded invocation.
+Keep zero-opportunity changed owners in the inventory and verify their public regressions.
+Use an unchanged outer runner and private sandboxes when mutating runner logic.
+Retain real Git, SQLite, public-command and installed-command tests when extracting fast private seams.
+Existing production delivery guards still apply to their own workflows.
 
 ## Survivors
 
@@ -52,11 +143,11 @@ The reason must start with `equivalent:` or `no rule:` and include an explanatio
 
 Use `equivalent:` only when no input distinguishes the mutant.
 Use `no rule:` only when Operator promises no behavior for that difference.
-Record each accepted suppression in the delivery PR.
+Record each accepted suppression in the delivery evidence, whether or not delivery uses a PR.
 Broad disable comments and empty or unknown reasons are usage errors.
 
 Exit 0 means no reported survivors, untested units, or incomplete results.
 Exit 1 means a usage or suppression error.
 Survivors or untested units give exit 2.
-Exit 3 means incomplete execution, including a failed initial test run, timeout, or runtime error.
+Exit 3 means incomplete execution, including a failed baseline, timeout, runtime error, busy worktree, changed inputs, or exhausted budget.
 Fix the execution problem and rerun before claiming a clean result.

@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #229.
 Implemented in #238.
+Amended 2026-11-22 in #446: bounded snapshot campaigns reuse only input-valid evidence and support local delivery without a PR prerequisite.
 
 ## Context
 
@@ -16,7 +17,9 @@ Interface-only tests also could not satisfy a test-beside-unit mutation policy f
 ## Decision
 
 Operator independently implements local repository mutation testing with Stryker's command runner under Bun.
-Each mutant runs the repository's own tests beside its unit in a fresh process, without coverage analysis or incremental mode.
+Each executed mutant runs the repository's own tests beside its unit in a fresh process, without coverage analysis.
+Completed evidence can be reused only when its dependency and toolchain identities remain valid.
+Uncertain dependency identity requires fresh execution because elapsed-time savings cannot justify stale qualification.
 The tool is development tooling, not a command supplied to projects coordinated by Operator.
 
 A unit's same-folder tests cover that unit, including scenario tests.
@@ -27,15 +30,21 @@ Tests, fixtures, and generated content are not mutation targets.
 Files with no logic can declare that fact and opt out.
 
 Mutation testing is local and is not part of the quality or CI gate.
+Local delivery can use independent review and exact-candidate validation without requiring a PR.
 It accepts explicit units or changed lines relative to a ref and reports survivors and untested units as nonzero outcomes without blocking ordinary work.
 No implicit whole-repository run or score threshold substitutes for an explicit target.
 A development-only unit-testing skill explains test design and mutation work and does not ship with Operator's owned skills.
 Its guidance and the module-testing guidance must agree on private-file tests.
 
+Campaigns use one stable admitted input snapshot and qualify only matching current inputs.
+They expose selection cost and progress, execute sequentially, and stop after the first failing unit unless diagnostic continuation is explicit.
+A runtime budget preserves completed evidence while leaving unfinished work incomplete.
+Resuming validates current identities rather than treating historical completion as authority.
+
 The final implementation cleanup tests the changed lines of all affected units.
 It kills survivors or records justified equivalent or unspecified-behavior cases after first trying simpler code.
-Unknown suppression reasons are refused, and the PR identifies each accepted suppression.
-The cleanup finishes only with no remaining reported survivors or untested targets.
+Unknown suppression reasons are refused, and delivery evidence identifies each accepted suppression.
+The cleanup finishes only with no remaining reported survivors, untested targets or incomplete work.
 
 ## Consequences
 
@@ -44,6 +53,8 @@ The cleanup finishes only with no remaining reported survivors or untested targe
 - Direct private-file tests add maintenance alongside public module behavior tests.
 - The public implementation and skill wording need their own maintenance rather than copying private source.
 - Justified suppressions document behavior the tool cannot distinguish instead of claiming that tests killed those mutants.
+- Conservative invalidation can repeat expensive work when dependencies cannot be established safely.
+- A budget can leave qualification blocked; preserving partial evidence does not turn it into a passing result.
 
 ## Alternatives considered
 

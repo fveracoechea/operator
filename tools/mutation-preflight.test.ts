@@ -1,6 +1,7 @@
 import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
 // Bun has no temporary-directory, recursive removal, or symlink API.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 import { runMutationPreflight } from "./mutation-preflight.ts";
 import type { MutationEvent } from "./mutation-run.ts";
@@ -194,7 +195,10 @@ test("baseline", async () => {
   expect(count(1)).toBe(2);
 });`,
   );
-  await symlink(`${import.meta.dir}/../node_modules`, `${cwd}/node_modules`);
+  await symlink(
+    path.dirname(path.dirname(Bun.resolveSync("zod/package.json", import.meta.dir))),
+    `${cwd}/node_modules`,
+  );
   const child = Bun.spawn(
     [process.execPath, `${import.meta.dir}/mutate.ts`, "--preflight", "--json", "count.ts"],
     {

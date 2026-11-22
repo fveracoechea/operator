@@ -3,6 +3,15 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { MutationEvent } from "./mutation-run.ts";
 
+export function mutationRefusal(
+  machine: boolean | undefined,
+  output: { log: (line: string) => void },
+  reason: "worktree-busy" | "inputs-changed" | "budget-exhausted",
+): 3 {
+  if (machine) output.log(JSON.stringify({ version: 1, type: "refusal", reason, code: 3 }));
+  return 3;
+}
+
 export function mutationEvidence(
   root: string,
   machine: boolean | undefined,
