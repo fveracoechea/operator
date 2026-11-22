@@ -67,6 +67,24 @@ function completed() {
   };
 }
 
+function finish(db: ReturnType<typeof fixture>, data = completed()) {
+  let revision = 1;
+  for (const stage of ["review", "checkout", "local", "remote", "finalize"]) {
+    expect(
+      changeCommitDelivery(db, target, {
+        revision,
+        data: JSON.stringify({ ...data, stage }),
+      }).tag,
+    ).toBe("Ok");
+    revision++;
+  }
+  return changeCommitDelivery(db, target, {
+    revision,
+    data: JSON.stringify(data),
+    complete: true,
+  });
+}
+
 function expectRefusal(
   result: ReturnType<typeof changeCommitDelivery>,
   reason: string,
@@ -96,13 +114,7 @@ test.each([
     expect(
       changeCommitDelivery(db, target, { revision: null, data: JSON.stringify(initial) }).tag,
     ).toBe("Ok");
-    expect(
-      changeCommitDelivery(db, target, {
-        revision: 1,
-        data: JSON.stringify(completed()),
-        complete: true,
-      }).tag,
-    ).toBe("Ok");
+    expect(finish(db).tag).toBe("Ok");
     expect(db.query("SELECT state FROM sources").get()).toEqual({ state: expected });
     const row = db.query<{ ended_at: string | null }, []>("SELECT ended_at FROM sources").get();
     expect(row?.ended_at === null).toBe(expected === "open");
@@ -239,13 +251,7 @@ test("completion closes only this ticket's open conversations", () => {
   expect(
     changeCommitDelivery(db, target, { revision: null, data: JSON.stringify(initial) }).tag,
   ).toBe("Ok");
-  expect(
-    changeCommitDelivery(db, target, {
-      revision: 1,
-      data: JSON.stringify(completed()),
-      complete: true,
-    }).tag,
-  ).toBe("Ok");
+  expect(finish(db).tag).toBe("Ok");
   expect(db.query("SELECT key, state FROM worker_questions ORDER BY key").all()).toEqual([
     { key: "other-scope", state: "open" },
     { key: "scope", state: "abandoned" },
@@ -331,10 +337,7 @@ test("finalization derives source completion from current assignments in the sam
   expect(
     changeCommitDelivery(db, target, { revision: null, data: JSON.stringify(initial) }).tag,
   ).toBe("Ok");
-  expect(
-    changeCommitDelivery(db, target, { revision: 1, data: JSON.stringify(data), complete: true })
-      .tag,
-  ).toBe("Ok");
+  expect(finish(db, data).tag).toBe("Ok");
   expect(db.query("SELECT state, ended_at FROM sources").get()).toEqual({
     state: "open",
     ended_at: null,
@@ -430,9 +433,12 @@ test("an open merge hold prevents checkout admission but not recording the fresh
     },
   };
   insertRow(db, "obligations", { source_id: "s", key: "pause", kind: "merge-hold", state: "open" });
-  expect(
-    changeCommitDelivery(db, target, { revision: null, data: JSON.stringify(review) }).tag,
-  ).toBe("Ok");
+  insertRow(db, "commit_deliveries", {
+    source_id: "s",
+    assignment: "a",
+    revision: 1,
+    data: JSON.stringify(review),
+  });
   expect(changeCommitDelivery(db, target, { revision: 1, data: JSON.stringify(review) }).tag).toBe(
     "Ok",
   );

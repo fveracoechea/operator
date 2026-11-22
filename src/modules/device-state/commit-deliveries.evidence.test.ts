@@ -60,6 +60,12 @@ function complete(): Data {
 test("late commit evidence validates the exact review, candidate, checks and policy together", () => {
   const data = complete();
   expect(commitDeliverySchema.parse(data)).toEqual(data);
+  expect(
+    commitDeliverySchema.parse({
+      ...data,
+      dispositions: [{ round: 1, finding: 1, disposition: "declined", reason: "  Disproved.  " }],
+    }).dispositions,
+  ).toEqual([{ round: 1, finding: 1, disposition: "declined", reason: "Disproved." }]);
   for (const stage of ["checkout", "local", "remote", "finalize"] as const)
     expect(commitDeliverySchema.parse({ ...data, stage }).stage).toBe(stage);
   expect(commitDeliverySchema.parse({ ...data, stage: "review", checks: null }).stage).toBe(

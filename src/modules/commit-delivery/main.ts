@@ -10,7 +10,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import type { Refusal } from "../../lib/cli-result.ts";
-import { reviewGate } from "./machine.ts";
+import { CommitReview } from "../commit-review/main.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 type Data = z.infer<ReturnType<typeof DeviceState.commitDeliverySchema>>;
@@ -71,12 +71,22 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   return defect(cause);
 }
 
-function git(cwd: string, args: string[]): AsyncResult<string, Refusal> {
+function git(
+  cwd: string,
+  args: string[],
+  options: { input?: string; raw?: boolean } = {},
+): AsyncResult<string, Refusal> {
   return fromPromise(
     async () => {
-      const observed = await ToolInvocation.run({ tool: "git", args, cwd, timeoutMs: 120000 });
+      const observed = await ToolInvocation.run({
+        tool: "git",
+        args,
+        cwd,
+        input: options.input,
+        timeoutMs: 120000,
+      });
       return observed.status === "completed" && observed.exitCode === 0
-        ? Ok(observed.stdout.trim())
+        ? Ok(options.raw ? observed.stdout : observed.stdout.trim())
         : refuse(
             "git_failed",
             `git ${args[0]} did not succeed: ${JSON.stringify(observed)}. Earlier journaled effects may remain.`,
@@ -338,16 +348,8 @@ function createCandidate(
       const head = await git(candidate.path, ["rev-parse", "HEAD"]);
       if (head.tag !== "Ok") return head;
       if (head.value === ctx.data.base) {
-        const restored = await git(candidate.path, [
-          "restore",
-          "--source",
-          candidate.tree,
-          "--staged",
-          "--worktree",
-          "--",
-          ".",
-        ]);
-        if (restored.tag !== "Ok") return restored;
+        const installed = await candidateIndex(ctx, candidate);
+        if (installed.tag !== "Ok") return stopped(installed);
         const committed = await git(candidate.path, [
           "commit",
           "-m",
@@ -364,6 +366,42 @@ function createCandidate(
       })
         .flatMap(() => receipt(ctx, "candidate_creation", "verified", ctx.data.stage))
         .map(() => verified.value);
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
+}
+
+function candidateIndex(
+  ctx: Context,
+  candidate: NonNullable<Data["candidate"]>,
+): AsyncResult<undefined, Refusal> {
+  return fromPromise(
+    async () => {
+      const installed = await matchesTree(candidate.path, candidate.tree);
+      if (installed.tag !== "Ok") return stopped(installed);
+      const ownIntent = ctx.data.journal.some(
+        (entry) =>
+          entry.effect === `candidate_index:${candidate.branch}` && entry.state === "intent",
+      );
+      if (installed.value) {
+        return ownIntent
+          ? receipt(ctx, `candidate_index:${candidate.branch}`, "verified", ctx.data.stage)
+          : refuse("worktree_unclean", "Candidate index has no matching installation intent.");
+      }
+      const status = await clean(candidate.path);
+      if (status.tag !== "Ok") return status;
+      const intent = receipt(ctx, `candidate_index:${candidate.branch}`, "intent", ctx.data.stage);
+      if (intent.tag !== "Ok") return intent;
+      const applied = await installTree(ctx, candidate.path);
+      if (applied.tag !== "Ok") return stopped(applied);
+      const checked = await matchesTree(candidate.path, candidate.tree);
+      if (checked.tag !== "Ok") return stopped(checked);
+      return checked.value
+        ? receipt(ctx, `candidate_index:${candidate.branch}`, "verified", ctx.data.stage)
+        : refuse(
+            "checkout_changed",
+            "The candidate checkout/index changed during installation. Nothing was committed.",
+          );
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
@@ -616,29 +654,38 @@ function busyCheckout(ctx: Context): AsyncResult<undefined, Refusal> {
   ).flatMap((result) => result);
 }
 
-function installedTree(ctx: Context): AsyncResult<boolean, Refusal> {
+function matchesTree(cwd: string, tree: string): AsyncResult<boolean, Refusal> {
   return fromPromise(
     async () => {
-      const index = await git(ctx.data.checkout, ["write-tree"]);
+      const index = await git(cwd, ["write-tree"]);
       if (index.tag !== "Ok") return stopped(index);
-      const diff = await git(ctx.data.checkout, [
-        "diff",
-        "--name-only",
-        ctx.data.candidate?.head ?? "",
-        "--",
-      ]);
+      const diff = await git(cwd, ["diff", "--name-only", tree, "--"]);
       if (diff.tag !== "Ok") return stopped(diff);
-      const untracked = await git(ctx.data.checkout, [
-        "ls-files",
-        "--others",
-        "--exclude-standard",
-      ]);
-      return untracked.map(
-        (text) => text === "" && diff.value === "" && index.value === ctx.data.candidate?.tree,
-      );
+      const untracked = await git(cwd, ["ls-files", "--others", "--exclude-standard"]);
+      return untracked.map((text) => text === "" && diff.value === "" && index.value === tree);
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
+}
+
+// Unlike read-tree, apply --index refuses obstructing ignored files and changed index/worktree contents.
+function installTree(ctx: Context, cwd: string): AsyncResult<string, Refusal> {
+  return git(
+    cwd,
+    [
+      "diff",
+      "--binary",
+      "--full-index",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      ctx.data.base,
+      ctx.data.candidate?.tree ?? "",
+      "--",
+    ],
+    { raw: true },
+  ).flatMap((patch) => git(cwd, ["apply", "--index", "--whitespace=nowarn"], { input: patch }));
 }
 
 function transitionCheckout(ctx: Context): AsyncResult<undefined, Refusal> {
@@ -651,23 +698,17 @@ function transitionCheckout(ctx: Context): AsyncResult<undefined, Refusal> {
         const status = await clean(ctx.data.checkout);
         if (status.tag !== "Ok") return status;
       }
-      const installed = await installedTree(ctx);
+      const installed = await matchesTree(ctx.data.checkout, ctx.data.candidate?.tree ?? "");
       if (installed.tag !== "Ok") return stopped(installed);
       if (!installed.value) {
         const status = await clean(ctx.data.checkout);
         if (status.tag !== "Ok") return status;
         const intent = receipt(ctx, "checkout_index", "intent", "checkout");
         if (intent.tag !== "Ok") return intent;
-        const transitioned = await git(ctx.data.checkout, [
-          "read-tree",
-          "-m",
-          "-u",
-          ctx.data.base,
-          ctx.data.candidate?.head ?? "",
-        ]);
+        const transitioned = await installTree(ctx, ctx.data.checkout);
         if (transitioned.tag !== "Ok") return stopped(transitioned);
       }
-      const checked = await installedTree(ctx);
+      const checked = await matchesTree(ctx.data.checkout, ctx.data.candidate?.tree ?? "");
       if (checked.tag !== "Ok") return stopped(checked);
       return checked.value
         ? receipt(ctx, "checkout_index", "verified", "local")
@@ -690,7 +731,14 @@ function advanceLocal(ctx: Context): AsyncResult<undefined, Refusal> {
       if (head.tag !== "Ok") return stopped(head);
       if (head.value === candidate) {
         const status = await clean(ctx.data.checkout);
-        return status.flatMap(() => receipt(ctx, "local_ref", "verified", "remote"));
+        return status.flatMap(() =>
+          receipt(
+            ctx,
+            "local_ref",
+            "verified",
+            ctx.data.stage === "finalize" ? "finalize" : "remote",
+          ),
+        );
       }
       if (head.value !== ctx.data.base)
         return refuse(
@@ -743,7 +791,7 @@ function publish(ctx: Context): AsyncResult<undefined, Refusal> {
   return fromPromise(
     async () => {
       const candidate = ctx.data.candidate?.head ?? "";
-      let observed = await remote(ctx.data);
+      const observed = await remote(ctx.data);
       if (observed.tag !== "Ok") return stopped(observed);
       const contains = await remoteContains(ctx, observed.value);
       if (contains.tag !== "Ok") return stopped(contains);
@@ -756,24 +804,34 @@ function publish(ctx: Context): AsyncResult<undefined, Refusal> {
           "origin",
           `${candidate}:${ctx.data.remoteRef}`,
         ]);
-        observed = await remote(ctx.data);
-        if (observed.tag !== "Ok") return stopped(observed);
-        const verified = await remoteContains(ctx, observed.value);
-        if (verified.tag !== "Ok") return stopped(verified);
-        if (!verified.value) {
-          if (pushed.tag !== "Ok") return stopped(pushed);
-          return refuse(
-            "remote_uncertain",
-            "Push returned, but origin/main does not verify the pinned candidate. Local delivery may have succeeded.",
-          );
-        }
+        const reconciled = await observePublication(ctx);
+        if (pushed.tag === "Defect") return stopped(pushed);
+        if (reconciled.tag === "Err" && pushed.tag === "Err") return stopped(pushed);
+        return reconciled;
       }
-      return save(ctx, { ...ctx.data, publishedHead: observed.value }).flatMap(() =>
-        receipt(ctx, "remote_publication", "verified", "finalize"),
-      );
+      return publicationReceipt(ctx, observed.value);
     },
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
+}
+
+function publicationReceipt(ctx: Context, head: string): Result<undefined, Refusal> {
+  return save(ctx, { ...ctx.data, publishedHead: ctx.data.publishedHead ?? head }).flatMap(() =>
+    receipt(ctx, "remote_publication", "verified", "finalize"),
+  );
+}
+
+function observePublication(ctx: Context): AsyncResult<undefined, Refusal> {
+  return remote(ctx.data).flatMap((head) =>
+    remoteContains(ctx, head).flatMap((contains) =>
+      contains
+        ? publicationReceipt(ctx, head)
+        : refuse(
+            "remote_uncertain",
+            "Push returned, but origin/main does not verify the pinned candidate. Local delivery may have succeeded.",
+          ),
+    ),
+  );
 }
 
 function qualifyReview(
@@ -781,7 +839,7 @@ function qualifyReview(
   dispositions: Data["dispositions"],
   candidate: string,
 ): Result<undefined, Refusal> {
-  const gate = reviewGate(ctx.data.rounds, dispositions, candidate);
+  const gate = CommitReview.decide(ctx.data.rounds, dispositions, candidate);
   if (gate === null) return Ok(undefined);
   const recorded =
     gate === "review_limit" || gate === "blocker_requires_review"

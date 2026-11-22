@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CommitReview } from "../commit-review/main.ts";
 
 export const assignmentStateSchema = z.discriminatedUnion("completion", [
   z.object({
@@ -49,7 +50,7 @@ type Facts = {
   commitHistoryRetained?: boolean;
   commitReview?: {
     rounds: { findings: { severity: string }[] }[];
-    dispositions: { round: number; finding: number; disposition: string }[];
+    dispositions: { round: number; finding: number; disposition: string; reason?: string }[];
   };
   resources?: {
     kind: "pane" | "worktree";
@@ -146,14 +147,8 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     when: ({ assignment, commitReview }) =>
       assignment.completion === "commit" &&
       assignment.state === "running" &&
-      commitReview?.rounds.length === 2 &&
-      commitReview.rounds[1]?.findings.some(
-        (finding, index) =>
-          finding.severity === "blocker" &&
-          commitReview.dispositions.some(
-            (row) => row.round === 2 && row.finding === index + 1 && row.disposition === "applied",
-          ),
-      ) === true,
+      commitReview !== undefined &&
+      CommitReview.decide(commitReview.rounds, commitReview.dispositions) === "review_limit",
     decide: () => ({ action: "person_decision", reason: "commit_review_limit", blockers: [] }),
   },
   // Cleanup that an acceptance did not finish stays visible after the assignment ends.

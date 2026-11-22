@@ -8,6 +8,8 @@ import { assignments, commitDeliveries, launches, obligations, sources } from ".
 import { recordKindHandoff } from "./kind-handoff-record.ts";
 import { ownerGone } from "./leases.ts";
 import { abandonConversations } from "./sources.ts";
+import { decideCommitDelivery } from "./commit-delivery-machine.ts";
+import { CommitReview } from "../commit-review/main.ts";
 
 const oid = z.string().regex(/^[a-f0-9]{40,64}$/);
 const finding = z.object({
@@ -71,23 +73,9 @@ type Data = z.infer<typeof deliveryRecord>;
 function reviewed(data: Data, candidate: NonNullable<Data["candidate"]>) {
   const latest = data.rounds.at(-1);
   if (latest === undefined) return false;
-  const places = data.rounds.flatMap((round, index) =>
-    round.findings.map((_, finding) => `${index + 1}.${finding + 1}`),
-  );
-  const dispositions = new Map(
-    data.dispositions.map((row) => [`${row.round}.${row.finding}`, row.disposition]),
-  );
   return (
-    latest.head === candidate.head &&
     latest.tree === candidate.tree &&
-    places.length === data.dispositions.length &&
-    places.every((key) => dispositions.has(key)) &&
-    data.dispositions.every((row) => row.disposition !== "declined" || row.reason !== undefined) &&
-    !latest.findings.some(
-      (finding, index) =>
-        finding.severity === "blocker" &&
-        dispositions.get(`${data.rounds.length}.${index + 1}`) === "applied",
-    )
+    CommitReview.decide(data.rounds, data.dispositions, candidate.head) === null
   );
 }
 
@@ -276,6 +264,12 @@ export function changeCommitDelivery(client: Database, target: Target, change: C
         current === undefined ? null : commitDeliverySchema.parse(JSON.parse(current.data));
       const guarded = deliveryGuard(db, target, previous, data);
       if (guarded.tag !== "Ok") return guarded.as(0);
+      if (!decideCommitDelivery(previous, data))
+        return Err({
+          reason: "commit_transition_invalid",
+          detail: "Commit delivery cannot move backward, skip stages, or remove pinned evidence.",
+          next: { command: "operator next", why: "Recover the retained commit-delivery evidence." },
+        });
       const handoff = reserveHandoff(db, target, change);
       return handoff.map(() => {
         const revision = (change.revision ?? 0) + 1;

@@ -95,6 +95,72 @@ process.exit(code);
     expect(
       (await device.exec(["git", "commit", "-qm", "intermediate implementation"], worktree)).code,
     ).toBe(0);
+    const hook = `${device.main}/.git/hooks/pre-commit`;
+    await Bun.write(hook, "#!/bin/sh\nexit 1\n");
+    await chmod(hook, 0o755);
+    expect(
+      (await device.run(["commit", "review"], { cwd: worktree, pane: implementer.paneId })).code,
+    ).not.toBe(0);
+    const pending =
+      z
+        .object({
+          data: z.object({
+            commitDeliveries: z.array(
+              z.object({
+                data: z.object({
+                  candidate: z.object({ path: z.string(), head: z.null(), branch: z.string() }),
+                  history: z.array(z.string()),
+                  journal: z.array(
+                    z.object({ effect: z.string(), state: z.string(), at: z.string() }),
+                  ),
+                }),
+              }),
+            ),
+          }),
+        })
+        .parse((await device.run(["source", "show", "--source", source])).output).data
+        .commitDeliveries[0]?.data ?? expect.unreachable();
+    await Bun.write(`${pending.candidate.path}/package.json`, "personal staged work\n");
+    expect((await device.exec(["git", "add", "package.json"], pending.candidate.path)).code).toBe(
+      0,
+    );
+    const staged = (await device.exec(["git", "ls-files", "--stage"], pending.candidate.path))
+      .stdout;
+    await Bun.file(hook).delete();
+    const refused = await device.run(["commit", "review"], {
+      cwd: worktree,
+      pane: implementer.paneId,
+    });
+    expect(refused.output.reason).toBe("commit_worktree_unclean");
+    expect(await Bun.file(`${pending.candidate.path}/package.json`).text()).toBe(
+      "personal staged work\n",
+    );
+    expect((await device.exec(["git", "ls-files", "--stage"], pending.candidate.path)).stdout).toBe(
+      staged,
+    );
+    const retained: unknown = (await device.run(["source", "show", "--source", source])).output;
+    expect(retained).toMatchObject({
+      data: {
+        commitDeliveries: [
+          {
+            data: {
+              candidate: pending.candidate,
+              history: [],
+              journal: expect.arrayContaining(pending.journal) as unknown,
+            },
+          },
+        ],
+      },
+    });
+    // The fixture person removes only their staged edit. Recovery must keep the installed ticket tree.
+    expect(
+      (
+        await device.exec(
+          ["git", "restore", "--source", "HEAD", "--staged", "--worktree", "package.json"],
+          pending.candidate.path,
+        )
+      ).code,
+    ).toBe(0);
     const started = await device.run(["commit", "review"], {
       cwd: worktree,
       pane: implementer.paneId,
@@ -183,7 +249,33 @@ process.exit(code);
         )
       ).code,
     ).toBe(0);
-    for (const effect of ["read-tree", "update-ref", "push"]) {
+    await Bun.write(`${device.main}/.git/info/exclude`, "\nfeature\n");
+    await Bun.write(`${device.main}/feature`, "personal ignored work\n");
+    const ignoredIndex = (await device.exec(["git", "ls-files", "--stage"], device.main)).stdout;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ignored = await device.run(["commit", "deliver", "--file", dispositions], {
+        cwd: worktree,
+        pane: reviewPane,
+      });
+      expect(ignored.output.reason).toBe("commit_git_failed");
+      expect(await Bun.file(`${device.main}/feature`).text()).toBe("personal ignored work\n");
+      expect((await device.exec(["git", "ls-files", "--stage"], device.main)).stdout).toBe(
+        ignoredIndex,
+      );
+      expect((await device.exec(["git", "rev-parse", "main"], device.main)).stdout.trim()).toBe(
+        base,
+      );
+      expect(
+        (
+          await device.exec([gitPath, "--git-dir", bare, "rev-parse", "main"], device.main)
+        ).stdout.trim(),
+      ).toBe(base);
+      expect((await device.run(["source", "show", "--source", source])).output.data).toMatchObject({
+        commitDeliveries: [{ data: { publishedHead: null, stage: "checkout" } }],
+      });
+    }
+    await Bun.file(`${device.main}/feature`).delete();
+    for (const effect of ["apply", "update-ref", "push"]) {
       await Bun.write(`${root}/crash-on`, effect);
       const crashed = await device.runRaw(["commit", "deliver", "--file", dispositions], {
         cwd: worktree,

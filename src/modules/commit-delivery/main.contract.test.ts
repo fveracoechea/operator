@@ -117,6 +117,8 @@ test("delivery returns the exact reviewed single-parent commit, checks, disposit
   });
   expect(fixture.data().data.journal.map(({ effect, state }) => [effect, state])).toEqual([
     ["candidate_creation", "intent"],
+    [`candidate_index:${candidate.branch}`, "intent"],
+    [`candidate_index:${candidate.branch}`, "verified"],
     ["candidate_creation", "verified"],
     ["delivery_admission", "intent"],
     ["checkout_index", "intent"],
