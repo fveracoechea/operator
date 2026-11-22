@@ -39,6 +39,41 @@ test("branch-only adoption renders its branch without PR handoff facts or an Ado
   expect(text).not.toContain("Read reviews, comments, unresolved threads, and checks");
 });
 
+test("commit workers receive their pinned delivery facts in a quoted, named section", () => {
+  const commitDelivery: NonNullable<Parameters<typeof renderBrief>[0]["commitDelivery"]> = {
+    repository: "example/one",
+    ticket: "#411",
+    checkout: "/checkout",
+    localRef: "refs/heads/main",
+    remoteRef: "refs/heads/main",
+    remote: "https://github.com/example/one.git",
+    base: "a".repeat(40),
+    publishedHead: null,
+    policy: {
+      checks: [["bun", "run", "test"]],
+      review: "required",
+      publication: "local-and-origin",
+    },
+    candidate: null,
+    history: [],
+    implementer: null,
+    rounds: [],
+    dispositions: [],
+    checks: null,
+    journal: [],
+    stage: "build",
+    ownerPid: null,
+    leaseAt: null,
+  };
+  const brief = renderBrief({ ...input, completion: "commit", commitDelivery });
+  expect(brief).toContain('## Commit delivery\n\n> {\n>   "repository": "example/one",');
+  expect(brief).toContain('>   "checkout": "/checkout",');
+  expect(brief).toContain(`>   "base": "${"a".repeat(40)}",`);
+  expect(brief).toContain('>     "review": "required",');
+  expect(brief).toContain('>     "publication": "local-and-origin"');
+  expect(renderBrief(input)).not.toContain("## Commit delivery");
+});
+
 test("ended PR owners render quoted intent, issue, rounds, dispositions and summary without replacing current intent", () => {
   const text = renderBrief({
     ...input,

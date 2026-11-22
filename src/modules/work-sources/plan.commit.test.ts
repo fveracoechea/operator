@@ -12,10 +12,20 @@ const assignment = {
 };
 
 test("source-wide review opt-outs cannot weaken commit review", () => {
-  expect(
-    planSchema.safeParse({ trackerKey: "#411", internalReview: false, assignments: [assignment] })
-      .success,
-  ).toBe(false);
+  const parsed = planSchema.safeParse({
+    trackerKey: "#411",
+    internalReview: false,
+    assignments: [assignment],
+  });
+  expect(parsed.success).toBe(false);
+  if (parsed.success) return expect.unreachable();
+  expect(parsed.error.issues).toEqual([
+    {
+      code: "custom",
+      message: "Commit delivery always requires fresh review.",
+      path: [],
+    },
+  ]);
 });
 
 test("new work explicitly selects commit completion with required checks and isolated resources", () => {

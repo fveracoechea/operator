@@ -12,7 +12,7 @@ const finding = {
   location: "feature:12",
   claim: "Clarify the behavior.",
 };
-const policy = {
+const policy: Data["policy"] = {
   checks: [
     ["bun", "run", "lint"],
     ["bun", "run", "test"],
@@ -56,6 +56,20 @@ function complete(): Data {
     ].map((effect) => ({ effect, state: "verified", at: "now" })),
   };
 }
+
+test("configured checks require a nonempty tool and nonempty arguments", () => {
+  const data = { ...complete(), stage: "build", checks: null };
+  for (const checks of [[], [[]], [[""]], [["git", ""]]])
+    expect(commitDeliverySchema.safeParse({ ...data, policy: { ...policy, checks } }).success).toBe(
+      false,
+    );
+  expect(
+    commitDeliverySchema.parse({
+      ...data,
+      policy: { ...policy, checks: [["git"], ["bun", "run", "test"]] },
+    }).policy.checks,
+  ).toEqual([["git"], ["bun", "run", "test"]]);
+});
 
 test("late commit evidence validates the exact review, candidate, checks and policy together", () => {
   const data = complete();

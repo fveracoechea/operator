@@ -18,6 +18,7 @@ import { runAsk } from "./ask.ts";
 import { pullRequestArgs, pullRequestExitCodes, runPullRequests } from "./pull-requests.ts";
 import { reportArgs, runReports } from "./reports.ts";
 import { runCommitDelivery } from "./commit-delivery.ts";
+import { commitEvent, commitPhase, worktreeEvent } from "./commit-context.ts";
 import { runQuestions } from "./questions.ts";
 import { runMessages } from "./messages.ts";
 import { runObligations } from "./obligations.ts";
@@ -59,11 +60,6 @@ function missingFacts(): Result<never, Refusal> {
 }
 
 function eventOf(args: string[]): Event | undefined {
-  if (
-    args[0] === "commit" &&
-    (args[1] === "review" || args[1] === "round" || args[1] === "deliver")
-  )
-    return `commit-${args[1]}`;
   const pr = pullRequestArgs(args)?.operation;
   const report = reportArgs(args)?.command;
   if (pr === "pr_associate") return "associate";
@@ -72,7 +68,7 @@ function eventOf(args: string[]): Event | undefined {
   if (pr === "pr_wait") return "wait";
   if (pr === "pr_merge") return "observe-merge";
   if (report === "submit" || report === "resume") return report;
-  return undefined;
+  return commitEvent(args);
 }
 
 /** Locate by the recorded pane, never by an arbitrary directory or a guessed kind. */
@@ -119,20 +115,6 @@ function worktreeWorker(
       kind: WorkerKinds.snapshotSchema().parse(JSON.parse(launch.kind)),
     });
   });
-}
-
-function commitPhase(
-  source: Extract<ReturnType<typeof DeviceState.readSources>, { tag: "Ok" }>["value"][number],
-  key: string,
-): Facts["commit"] {
-  const row = source.commitDeliveries?.find((item) => item.assignment === key);
-  if (row === undefined) return undefined;
-  const data = DeviceState.commitDeliverySchema().parse(JSON.parse(row.data));
-  return {
-    reviewing: data.implementer !== null,
-    rounds: data.rounds.length,
-    delivered: data.stage === "complete",
-  };
 }
 
 function recorded(paths: OperatorPaths, selected: Worker, clean: boolean): Result<Facts, Refusal> {
@@ -227,14 +209,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
 }
 
 function usesWorktree(pr: ReturnType<typeof pullRequestArgs>, event: Event | undefined) {
-  return (
-    pr?.operation === "pr_stack" ||
-    pr?.operation === "pr_validate" ||
-    (event !== undefined &&
-      event !== "submit" &&
-      event !== "resume" &&
-      !event.startsWith("commit-"))
-  );
+  return pr?.operation === "pr_stack" || pr?.operation === "pr_validate" || worktreeEvent(event);
 }
 
 async function worktreeObservation(selected: Worker, event: Event | undefined) {

@@ -28,7 +28,7 @@ const deliveryRecord = z.strictObject({
   base: oid,
   publishedHead: oid.nullable(),
   policy: z.strictObject({
-    checks: z.array(z.array(z.string().min(1)).min(1)).min(1),
+    checks: z.array(z.tuple([z.string().min(1)]).rest(z.string().min(1))).min(1),
     review: z.literal("required"),
     publication: z.literal("local-and-origin"),
   }),
