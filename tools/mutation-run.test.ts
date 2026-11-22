@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { runMutationUnits, type MutationResult } from "./mutation-run.ts";
+import { runMutationUnits, type MutationResult, type MutationEvent } from "./mutation-run.ts";
 
 const unit = {
   name: "count.ts",
@@ -93,7 +93,7 @@ test.each([
   if (status === "Killed") expect(stdout).toHaveLength(1);
 });
 
-test("coordination awaits each engine result and continues after a failed unit", async () => {
+test("coordination awaits each engine result and stops after a failed unit by default", async () => {
   const stdout: string[] = [];
   const executed: unknown[] = [];
   const second = {
@@ -116,9 +116,9 @@ test("coordination awaits each engine result and continues after a failed unit",
     { log: (line) => stdout.push(line), error: () => {} },
   );
   expect(code).toBe(2);
-  expect(executed).toEqual([unit, second]);
+  expect(executed).toEqual([unit]);
   expect(stdout.at(-1)).toBe(
-    "Mutation summary: 1 survivors, 0 untested, 0 incomplete, 1 killed, 0 ignored, 1 skipped. See docs/agents/testing/mutation-testing.md.",
+    "Mutation summary: 1 survivors, 0 untested, 0 incomplete, 0 killed, 0 ignored, 1 skipped. See docs/agents/testing/mutation-testing.md.",
   );
 });
 
@@ -126,6 +126,7 @@ test("engine failures propagate without inventing results or starting later work
   const stdout: string[] = [];
   const executed: string[] = [];
   const failure = new Error("baseline failed");
+  const events: MutationEvent[] = [];
   await expect(
     runMutationUnits(
       { units: [unit, { ...unit, name: "later.ts" }], skipped: 0 },
@@ -134,10 +135,23 @@ test("engine failures propagate without inventing results or starting later work
         return Promise.reject(failure);
       },
       { log: (line) => stdout.push(line), error: (line) => stdout.push(line) },
+      { event: (event) => events.push(event) },
     ),
   ).rejects.toBe(failure);
   expect(executed).toEqual(["count.ts"]);
   expect(stdout).toEqual([]);
+  expect(events.at(-1)).toMatchObject({
+    type: "run-completed",
+    state: {
+      status: "incomplete",
+      completedUnits: 0,
+      activeUnit: null,
+      units: [
+        { status: "interrupted", error: "Error: baseline failed", mutants: null },
+        { status: "unrun", mutants: null },
+      ],
+    },
+  });
 });
 
 test("engine verdicts preserve counts, diagnostics, and incomplete exit precedence", async () => {
@@ -199,6 +213,7 @@ test("engine verdicts preserve counts, diagnostics, and incomplete exit preceden
 
 test("units without direct tests fail qualification without executing the engine", async () => {
   const output: string[] = [];
+  const events: MutationEvent[] = [];
   const code = await runMutationUnits(
     {
       units: [{ name: "private.ts", source: "", patterns: ["private.ts"], tests: [] }],
@@ -208,10 +223,167 @@ test("units without direct tests fail qualification without executing the engine
       return expect.unreachable("must not provision the engine");
     },
     { log: (line) => output.push(line), error: () => {} },
+    { event: (event) => events.push(event) },
   );
   expect(code).toBe(2);
   expect(output).toEqual([
     "private.ts: untested. Add a direct beside-test.",
     "Mutation summary: 0 survivors, 1 untested, 0 incomplete, 0 killed, 0 ignored, 4 skipped. See docs/agents/testing/mutation-testing.md.",
   ]);
+  expect(events.at(-1)?.state.units[0]).toMatchObject({ status: "failed" });
+});
+
+test("keep-going preserves failure and publishes recoverable selected and completed evidence", async () => {
+  const events: MutationEvent[] = [];
+  let time = 100;
+  expect(
+    await runMutationUnits(
+      { units: [unit, { ...unit, name: "later.ts" }], skipped: 2 },
+      async () => {
+        time += 25;
+        return [{ ...killed, status: "Survived" }];
+      },
+      { log: () => {}, error: () => {} },
+      { keepGoing: true, runId: "example", now: () => time, event: (event) => events.push(event) },
+    ),
+  ).toBe(2);
+  expect(events.map((event) => event.type)).toEqual([
+    "run-started",
+    "unit-started",
+    "unit-completed",
+    "unit-started",
+    "unit-completed",
+    "run-completed",
+  ]);
+  expect(events[0]).toMatchObject({
+    version: 1,
+    runId: "example",
+    sequence: 0,
+    elapsedMs: 0,
+    state: {
+      status: "running",
+      activeUnit: null,
+      completedUnits: 0,
+      skipped: 2,
+      units: [
+        { name: "count.ts", status: "unrun", tests: ["./count.test.ts"], mutants: null },
+        { name: "later.ts", status: "unrun", mutants: null },
+      ],
+    },
+  });
+  expect(events[1]).toMatchObject({ state: { activeUnit: "count.ts" } });
+  expect(events.at(-1)).toMatchObject({
+    elapsedMs: 50,
+    sequence: 5,
+    state: {
+      status: "failed",
+      activeUnit: null,
+      completedUnits: 2,
+      units: [{ status: "failed", mutants: [{ status: "Survived" }] }, { status: "failed" }],
+    },
+  });
+  expect(events[0]?.state.units[0]?.status).toBe("unrun");
+});
+
+test.each(["NoCoverage", "Timeout", "Survived"])(
+  "a %s verdict leaves later work unrun",
+  async (status) => {
+    const events: MutationEvent[] = [];
+    expect(
+      await runMutationUnits(
+        { units: [unit, { ...unit, name: "unrun.ts" }], skipped: 0 },
+        async () => [{ ...killed, status }],
+        { log: () => {}, error: () => {} },
+        { event: (event) => events.push(event) },
+      ),
+    ).toBe(status === "Timeout" ? 3 : 2);
+    expect(events.at(-1)?.state).toMatchObject({
+      status: status === "Timeout" ? "incomplete" : "failed",
+      completedUnits: 1,
+      activeUnit: null,
+      units: [{ status: "failed" }, { status: "unrun", mutants: null }],
+    });
+  },
+);
+
+test("keep-going preserves completed evidence across an interrupted unit and continues diagnostics", async () => {
+  const events: MutationEvent[] = [];
+  const errors: string[] = [];
+  expect(
+    await runMutationUnits(
+      { units: [unit, { ...unit, name: "broken.ts" }, { ...unit, name: "last.ts" }], skipped: 0 },
+      async (selected) =>
+        selected.name === "broken.ts" ? Promise.reject(new Error("baseline failed")) : [killed],
+      { log: () => {}, error: (line) => errors.push(line) },
+      { keepGoing: true, event: (event) => events.push(event) },
+    ),
+  ).toBe(3);
+  expect(events.at(-1)?.state).toMatchObject({
+    status: "incomplete",
+    completedUnits: 2,
+    activeUnit: null,
+    units: [
+      { status: "passed", mutants: [killed] },
+      { status: "interrupted", error: "Error: baseline failed", mutants: null },
+      { status: "passed", mutants: [killed] },
+    ],
+  });
+  expect(errors).toEqual(["Mutation execution incomplete: Error: baseline failed"]);
+  expect(events.filter((event) => event.type === "unit-interrupted")).toHaveLength(1);
+});
+
+test("passed units continue by default and expose engine progress without changing verdicts", async () => {
+  const events: MutationEvent[] = [];
+  expect(
+    await runMutationUnits(
+      { units: [unit, { ...unit, name: "next.ts" }], skipped: 0 },
+      async (_unit, progress) => {
+        progress({ completed: 1, total: 5, reused: 2 });
+        return [killed];
+      },
+      { log: () => {}, error: () => {} },
+      { event: (event) => events.push(event) },
+    ),
+  ).toBe(0);
+  expect(events.filter((event) => event.type === "progress")).toHaveLength(2);
+  expect(events[2]).toMatchObject({
+    state: {
+      units: [
+        { status: "running", progress: { completed: 1, total: 5, reused: 2 } },
+        { status: "unrun", progress: { completed: 0, total: null, reused: 0 } },
+      ],
+    },
+  });
+  expect(events.at(-1)?.state).toMatchObject({
+    status: "passed",
+    completedUnits: 2,
+    units: [
+      { status: "passed", progress: { completed: 1, total: 1, reused: 2 } },
+      { status: "passed" },
+    ],
+  });
+});
+
+test("active units emit timed heartbeats and stop emitting once execution ends", async () => {
+  const result = Promise.withResolvers<MutationResult[]>();
+  const events: MutationEvent[] = [];
+  const pending = runMutationUnits(
+    { units: [unit], skipped: 0 },
+    async () => result.promise,
+    { log: () => {}, error: () => {} },
+    { progressIntervalMs: 5, event: (event) => events.push(event) },
+  );
+  try {
+    await Bun.sleep(40);
+    expect(events[0]?.state.units[0]?.progress).toEqual({ completed: 0, total: null, reused: 0 });
+    expect(events[1]?.state.units[0]?.status).toBe("running");
+    expect(events.some((event) => event.type === "progress")).toBe(true);
+  } finally {
+    result.resolve([killed]);
+    await pending;
+  }
+  const count = events.length;
+  await Bun.sleep(40);
+  expect(events).toHaveLength(count);
+  expect(events.at(-1)?.state.status).toBe("passed");
 });

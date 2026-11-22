@@ -4,9 +4,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { parseMutationArgs, selectMutationUnits, type MutationUnit } from "./mutation-selection.ts";
 import { mutationGuidance } from "./mutation-policy.ts";
 import { runMutationUnits, type MutationResult } from "./mutation-run.ts";
+import { mutationEvidence } from "./mutation-evidence.ts";
 import { z } from "zod";
+import { reportMutationProgress, type MutationProgress } from "./mutation-engine-progress.ts";
 
-const usage = "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...]";
+const usage =
+  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--keep-going] [--json]";
 const storedReport = z.looseObject({
   files: z.record(
     z.string(),
@@ -39,18 +42,24 @@ async function incrementalFile(unit: MutationUnit, inputFiles: string[]): Promis
   return file;
 }
 
-async function executeMutationUnit(unit: MutationUnit): Promise<MutationResult[]> {
+async function executeMutationUnit(
+  unit: MutationUnit,
+  progress: (progress: MutationProgress) => void,
+): Promise<MutationResult[]> {
   const temporary = await mkdtemp(path.join(process.cwd(), ".mutation-"));
   try {
     const configFile = path.join(temporary, "config.json");
-    await Bun.write(configFile, JSON.stringify({ logLevel: "error", fileLogLevel: "off" }));
+    await Bun.write(
+      configFile,
+      JSON.stringify({ logLevel: machine ? "off" : "error", fileLogLevel: "off" }),
+    );
     // The checkout's own runner judges each mutant from the sandbox, so a mutant in the runner
     // never judges itself. A project without that runner uses its test script.
     const runner = path.join(process.cwd(), "tools/test-watchdog.ts");
     const ownRunner = await Bun.file(runner).exists();
     const test = ownRunner ? [runner] : ["run", "test"];
     const { Stryker } = await import("@stryker-mutator/core");
-    return await new Stryker({
+    const engine = new Stryker({
       configFile,
       mutate: unit.patterns,
       testRunner: "command",
@@ -71,9 +80,8 @@ async function executeMutationUnit(unit: MutationUnit): Promise<MutationResult[]
       timeoutFactor: 1.5,
       timeoutMS: 2000,
       concurrency: 1,
-      // Stryker disable next-line ArrayDeclaration: equivalent: Stryker skips an unknown reporter name with a warning that the error log level hides
-      reporters: [],
-      plugins: [],
+      reporters: ["operator-progress"],
+      plugins: [path.join(import.meta.dir, "mutation-engine-progress.ts")],
       // Instrumented files fail strict tsc, and the release build runs tsc over the sandbox.
       // The entry point keeps its declaration comments and file mode.
       disableTypeChecks: "{src,tools}/**/*.ts",
@@ -84,11 +92,14 @@ async function executeMutationUnit(unit: MutationUnit): Promise<MutationResult[]
       cleanTempDir: "always",
       // Never copy legacy state or host skill links into a sandbox.
       ignorePatterns: [".operator", ".mutation-*", ".claude", ".agents"],
-    }).runMutationTest();
+    });
+    return await reportMutationProgress(progress, () => engine.runMutationTest());
   } finally {
     await rm(temporary, { recursive: true });
   }
 }
+
+let machine = false;
 
 async function main(args: string[]): Promise<number> {
   if (args.length === 1 && args[0] === "--help") {
@@ -100,18 +111,32 @@ async function main(args: string[]): Promise<number> {
     console.error(`${parsed.error}\n${usage}`);
     return 1;
   }
+  machine = parsed.json === true;
   const selected = await selectMutationUnits(parsed, process.cwd());
   if ("error" in selected) {
     console.error(selected.error);
     return 1;
   }
-  return runMutationUnits(selected, executeMutationUnit, console);
+  return runMutationUnits(
+    selected,
+    executeMutationUnit,
+    parsed.json
+      ? {
+          log: (line) => console.error(line),
+          error: (line) => console.error(line),
+        }
+      : console,
+    {
+      keepGoing: parsed.keepGoing,
+      event: (event) => mutationEvidence(process.cwd(), parsed.json, console, event),
+    },
+  );
 }
 
 try {
   process.exitCode = await main(process.argv.slice(2));
 } catch (error) {
   console.error("Mutation execution incomplete:", error);
-  console.log(`Mutation summary: incomplete. See ${mutationGuidance}.`);
+  (machine ? console.error : console.log)(`Mutation summary: incomplete. See ${mutationGuidance}.`);
   process.exitCode = 3;
 }

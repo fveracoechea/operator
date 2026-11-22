@@ -160,6 +160,186 @@ test("the next test records its effect", async () => {
   expect(await Bun.file(receipt).text()).toBe("reached\n");
 });
 
+test("a failing unit forbids the later unit's real effects unless keep-going is explicit", async () => {
+  const receipt = path.join(root, crypto.randomUUID());
+  const cwd = await fixture({
+    "first.ts": "export const count = (n: number) => n + 1;\n",
+    "first.test.ts":
+      'import { expect, test } from "bun:test"; import { count } from "./first.ts"; test("weak", () => expect(typeof count(1)).toBe("number"));\n',
+    "later.ts": "export const count = (n: number) => n + 1;\n",
+    "later.test.ts": `import { expect, test } from "bun:test"; import { count } from "./later.ts";
+test("expensive later unit", async () => { await Bun.write(${JSON.stringify(receipt)}, "executed"); await Bun.sleep(100); expect(count(1)).toBe(2); });\n`,
+  });
+  const first = await mutate(cwd, ["first.ts", "later.ts"]);
+  expect(first.code, first.stdout + first.stderr).toBe(2);
+  expect(await Bun.file(receipt).exists()).toBe(false);
+  expect(first.stderr).toContain("1/2 completed");
+  expect(first.stderr).toContain("1 unrun");
+  const files = await Array.fromAsync(
+    new Bun.Glob(".mutation-runs/*.json").scan({ cwd, dot: true }),
+  );
+  expect(files).toHaveLength(1);
+  const stored = z
+    .object({
+      version: z.literal(1),
+      state: z.object({
+        status: z.literal("failed"),
+        units: z.array(z.object({ status: z.string(), mutants: z.array(z.unknown()).nullable() })),
+      }),
+    })
+    .parse(await Bun.file(path.join(cwd, String(files[0]))).json());
+  expect(stored.state.units.map((unit) => unit.status)).toEqual(["failed", "unrun"]);
+  expect(stored.state.units[0]?.mutants?.length).toBeGreaterThan(0);
+  expect(stored.state.units[1]?.mutants).toBeNull();
+  const continued = await mutate(cwd, ["--keep-going", "first.ts", "later.ts"]);
+  expect(continued.code, continued.stdout + continued.stderr).toBe(2);
+  expect(await Bun.file(receipt).text()).toBe("executed");
+  expect(continued.stderr).toContain("2/2 completed");
+});
+
+test("machine and human progress are live while a controlled real unit is active", async () => {
+  const release = path.join(root, crypto.randomUUID());
+  const ready = path.join(root, crypto.randomUUID());
+  const cwd = await fixture({
+    "count.ts": "export const count = (n: number) => n + 1;\n",
+    "count.test.ts": `import { expect, test } from "bun:test"; import { count } from "./count.ts";
+test("controlled baseline", async () => {
+  await Bun.write(${JSON.stringify(ready)}, "ready");
+  while (!(await Bun.file(${JSON.stringify(release)}).exists())) await Bun.sleep(20);
+  expect(count(1)).toBe(2);
+}, 20000);\n`,
+  });
+  const child = Bun.spawn([process.execPath, script, "--json", "count.ts"], {
+    cwd,
+    env: Environment.child({
+      HOME: root,
+      XDG_CONFIG_HOME: `${root}/config`,
+      XDG_STATE_HOME: `${root}/state`,
+    }),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stderr = new Response(child.stderr).text();
+  const events: unknown[] = [];
+  let buffer = "";
+  let released = false;
+  try {
+    for await (const chunk of child.stdout) {
+      buffer += new TextDecoder().decode(chunk);
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const raw: unknown = JSON.parse(line);
+        const event = z
+          .object({
+            version: z.literal(1),
+            runId: z.string(),
+            type: z.string(),
+            elapsedMs: z.number(),
+            state: z.object({
+              activeUnit: z.string().nullable(),
+              completedUnits: z.number(),
+              units: z.array(
+                z.object({
+                  status: z.string(),
+                  mutants: z.array(z.unknown()).nullable(),
+                  progress: z.object({ completed: z.number(), total: z.number().nullable() }),
+                }),
+              ),
+            }),
+          })
+          .parse(raw);
+        events.push(raw);
+        if (event.type === "progress" && !released && (await Bun.file(ready).exists())) {
+          expect(child.exitCode).toBeNull();
+          expect(event.state.activeUnit).toBe("count.ts");
+          expect(event.state.completedUnits).toBe(0);
+          expect(event.state.units[0]).toMatchObject({
+            status: "running",
+            mutants: null,
+            progress: { completed: 0, total: null },
+          });
+          expect(event.elapsedMs).toBeGreaterThanOrEqual(1000);
+          const stored: unknown = await Bun.file(
+            `${cwd}/.mutation-runs/${event.runId}.json`,
+          ).json();
+          expect(stored).toEqual(raw);
+          await Bun.write(release, "released");
+          released = true;
+        }
+      }
+    }
+    expect(await child.exited).toBe(0);
+    expect(await Bun.file(release).exists()).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      type: "run-completed",
+      state: {
+        activeUnit: null,
+        completedUnits: 1,
+        units: [{ status: "passed", progress: { completed: 2, total: 2 } }],
+      },
+    });
+    const human = await stderr;
+    expect(human).toContain("progress, running, 0/1 completed, active count.ts");
+    expect(human).toContain("run-completed, passed, 1/1 completed, active none");
+  } finally {
+    await Bun.write(release, "cleanup");
+    await child.exited;
+  }
+});
+
+test("completed command evidence survives a later engine interruption and JSON stays parseable", async () => {
+  const forbidden = path.join(root, crypto.randomUUID());
+  const cwd = await fixture({
+    "first.ts": "export const count = (n: number) => n + 1;\n",
+    "first.test.ts":
+      'import { expect, test } from "bun:test"; import { count } from "./first.ts"; test("exact", () => expect(count(1)).toBe(2));\n',
+    "broken.ts": "export const count = (n: number) => n + 1;\n",
+    "broken.test.ts":
+      'import { expect, test } from "bun:test"; import { count } from "./broken.ts"; test("broken", () => expect(count(1)).toBe(99));\n',
+    "last.ts": "export const count = (n: number) => n + 1;\n",
+    "last.test.ts": `import { test } from "bun:test"; test("forbidden", async () => { await Bun.write(${JSON.stringify(forbidden)}, "executed"); });\n`,
+  });
+  const result = await mutate(cwd, ["--json", "first.ts", "broken.ts", "last.ts"]);
+  expect(result.code, result.stderr).toBe(3);
+  expect(result.stderr).toContain("Mutation execution incomplete");
+  expect(result.stderr).toContain("Mutation summary: incomplete.");
+  const eventSchema = z.looseObject({ runId: z.string(), type: z.string() });
+  const events = result.stdout
+    .trim()
+    .split("\n")
+    .map((line) => eventSchema.parse(JSON.parse(line)));
+  expect(events.at(-1)).toMatchObject({
+    version: 1,
+    type: "run-completed",
+    state: {
+      status: "incomplete",
+      completedUnits: 1,
+      activeUnit: null,
+      units: [
+        { status: "passed", progress: { completed: 2 } },
+        { status: "interrupted", mutants: null },
+        { status: "unrun", mutants: null },
+      ],
+    },
+  });
+  const id = z.object({ runId: z.string() }).parse(events[0]).runId;
+  expect(await Bun.file(`${cwd}/.mutation-runs/${id}.json`).json()).toEqual(events.at(-1));
+  expect(await Bun.file(forbidden).exists()).toBe(false);
+  const reused = await mutate(cwd, ["--json", "first.ts"]);
+  expect(reused.code, reused.stderr).toBe(0);
+  expect(reused.stderr).toContain(
+    "Mutation summary: 0 survivors, 0 untested, 0 incomplete, 2 killed",
+  );
+  const last: unknown = JSON.parse(reused.stdout.trim().split("\n").at(-1) ?? "null");
+  expect(last).toMatchObject({
+    state: {
+      units: [{ status: "passed", progress: { completed: 2, total: 2, reused: 2 } }],
+    },
+  });
+  expect(reused.stderr).toContain("2 reused");
+});
+
 test.each([0o700, 0o755])(
   "sandbox tests preserve the actual source readiness command in a private copy with mode %i",
   async (mode) => {
@@ -482,7 +662,7 @@ test("missing direct tests do not borrow a module interface test", async () => {
   expect(result.stdout).toContain("src/modules/sample/private.ts: untested");
   expect(
     await Array.fromAsync(new Bun.Glob(".mutation-*").scan({ cwd, onlyFiles: false })),
-  ).toEqual([]);
+  ).toEqual([".mutation-runs"]);
 });
 
 test("scenario paths select their unit and only that unit's beside-tests run", async () => {
@@ -603,7 +783,7 @@ test("a failed initial test run is incomplete, never clean or a killed mutant", 
   );
   expect(
     await Array.fromAsync(new Bun.Glob(".mutation-*").scan({ cwd, onlyFiles: false })),
-  ).toEqual([]);
+  ).toEqual([".mutation-runs"]);
 });
 
 test("--since includes new untracked units, skips deletions, and refuses a bad ref", async () => {
@@ -717,12 +897,13 @@ test("exact", () => {
     // Stryker turns off type checks in sandbox sources, because instrumented code fails strict tsc.
     data: "// @ts-nocheck\nexport const data = 1;\n",
   });
-  // Only the ignored incremental result stays in the checkout. No report or temporary folder does.
+  // Only incremental and campaign evidence stay in the checkout, not the sandbox.
   const after = await Array.fromAsync(new Bun.Glob("**").scan({ cwd, dot: true }));
-  expect(after.filter((file) => !before.includes(file))).toEqual([
+  expect(after.filter((file) => !before.includes(file)).toSorted()).toEqual([
     expect.stringMatching(
       /^\.mutation-incremental\/src\/lib\/count\.ts\.[\da-f]+\.json$/,
     ) as string,
+    expect.stringMatching(/^\.mutation-runs\/[\da-f-]+\.json$/) as string,
   ]);
   expect(before.filter((file) => !after.includes(file))).toEqual([]);
 }, 60_000);
@@ -786,7 +967,8 @@ process.exit(await child.exited);\n`,
   });
   const result = await mutate(cwd, ["src/lib/count.ts"]);
 
-  expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: "" });
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stderr).toContain("run-completed, passed");
   const run = z.object({ runner: z.string(), cwd: z.string(), args: z.array(z.string()) });
   const runs = (await Bun.file(record).text())
     .trim()

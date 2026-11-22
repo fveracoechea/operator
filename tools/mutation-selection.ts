@@ -4,28 +4,38 @@ import { readdir, realpath } from "node:fs/promises";
 import { excludedUnit, suppressionErrors } from "./mutation-policy.ts";
 
 type Range = { start: number; end: number };
-type Arguments = { paths: string[]; since?: string };
+type Arguments = { paths: string[]; since?: string; keepGoing?: boolean; json?: boolean };
 type Problem = { error: string };
 export type MutationUnit = { name: string; source: string; tests: string[]; patterns: string[] };
+
+function validRef(ref: string | undefined): ref is string {
+  return ref !== undefined && ref !== "" && !ref.startsWith("-");
+}
 
 export function parseMutationArgs(args: string[]): Arguments | Problem {
   const paths: string[] = [];
   let since: string | undefined;
   let positional = false;
+  const flags: { keepGoing?: boolean; json?: boolean } = {};
+  const flagNames = new Map<string, "keepGoing" | "json">([
+    ["--keep-going", "keepGoing"],
+    ["--json", "json"],
+  ]);
   // The loop and the option value read one iterator, so --since consumes its ref.
   const remaining = args.values();
   for (const arg of remaining) {
-    if (!positional && arg === "--") positional = true;
+    const flag = positional ? undefined : flagNames.get(arg);
+    if (flag) flags[flag] = true;
+    else if (!positional && arg === "--") positional = true;
     else if (!positional && arg === "--since") {
       const ref = remaining.next().value;
-      if (since || !ref || ref.startsWith("-"))
-        return { error: "--since needs one explicit Git ref." };
+      if (since || !validRef(ref)) return { error: "--since needs one explicit Git ref." };
       since = ref;
     } else if (!positional && arg.startsWith("-")) return { error: `Unknown option: ${arg}` };
     else paths.push(arg);
   }
   return paths.length > 0 || since
-    ? { paths, since }
+    ? { paths, since, ...flags }
     : { error: "Select a unit or --since <ref>." };
 }
 

@@ -6,6 +6,25 @@ import path from "node:path";
 import { Environment } from "../src/modules/environment/main.ts";
 import { changedRanges, parseMutationArgs, selectMutationUnits } from "./mutation-selection.ts";
 
+test("campaign options extend selection without consuming positional file names", () => {
+  expect(parseMutationArgs(["--since", ""])).toEqual({
+    error: "--since needs one explicit Git ref.",
+  });
+  expect(parseMutationArgs(["--keep-going", "--json", "--since", "HEAD", "a.ts"])).toEqual({
+    paths: ["a.ts"],
+    since: "HEAD",
+    keepGoing: true,
+    json: true,
+  });
+  expect(parseMutationArgs(["--", "--keep-going", "--json"])).toEqual({
+    paths: ["--keep-going", "--json"],
+    since: undefined,
+  });
+  expect(parseMutationArgs(["--keep-going", "--json"])).toEqual({
+    error: "Select a unit or --since <ref>.",
+  });
+});
+
 const root = await mkdtemp(path.join(tmpdir(), "operator-mutation-selection-"));
 afterAll(async () => {
   await rm(root, { force: true, recursive: true });
