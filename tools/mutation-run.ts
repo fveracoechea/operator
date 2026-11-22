@@ -24,9 +24,17 @@ type UnitEvidence = {
   mutants: MutationResult[] | null;
   progress: MutationProgress;
   error?: string;
+  preflight?: {
+    baselineMs: number | null;
+    overheadMs: number | null;
+    mutationCount: number | null;
+    estimatedMs: number | null;
+    assumptions: string[];
+  };
 };
 export type MutationEvent = {
   version: 1;
+  mode?: "preflight";
   admission?: { identity: string; current: boolean | null; reason?: string };
   runId: string;
   sequence: number;

@@ -25,6 +25,39 @@ test("campaign options extend selection without consuming positional file names"
   });
 });
 
+test("planning and budget options are explicit and reject invalid or ambiguous deadlines", () => {
+  expect(parseMutationArgs(["--preflight", "--budget", "0.25", "a.ts"])).toEqual({
+    paths: ["a.ts"],
+    since: undefined,
+    preflight: true,
+    budgetMs: 250,
+  });
+  expect(parseMutationArgs(["--plan", "--json", "a.ts"])).toEqual({
+    paths: ["a.ts"],
+    since: undefined,
+    plan: true,
+    json: true,
+  });
+  expect(parseMutationArgs(["--plan", "--preflight", "a.ts"])).toEqual({
+    error: "--plan and --preflight are separate operations.",
+  });
+  for (const value of ["", "0", "-1", "NaN", "Infinity", "2147483.648"]) {
+    expect(parseMutationArgs(["--budget", value, "a.ts"])).toEqual({
+      error: "--budget needs one positive number of seconds (at most 2147483.647).",
+    });
+  }
+  expect(parseMutationArgs(["a.ts", "--budget"])).toHaveProperty("error");
+  expect(parseMutationArgs(["--budget", "1", "--budget", "2", "a.ts"])).toHaveProperty("error");
+  expect(parseMutationArgs(["--budget", "2147483.647", "a.ts"])).toHaveProperty(
+    "budgetMs",
+    2147483647,
+  );
+  expect(parseMutationArgs(["--", "--plan", "--preflight", "--budget"])).toEqual({
+    paths: ["--plan", "--preflight", "--budget"],
+    since: undefined,
+  });
+});
+
 const root = await mkdtemp(path.join(tmpdir(), "operator-mutation-selection-"));
 afterAll(async () => {
   await rm(root, { force: true, recursive: true });

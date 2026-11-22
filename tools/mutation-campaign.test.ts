@@ -6,6 +6,7 @@ import { afterAll, afterEach, expect, mock, setDefaultTimeout, spyOn, test } fro
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { acquireMutationClaim, mutationStateDirectory } from "./mutation-claim.ts";
 import { z } from "zod";
+import { mutationBudget } from "./mutation-budget.ts";
 
 setDefaultTimeout(60_000);
 const root = await mkdtemp("/tmp/opencode/mutation-ownership-");
@@ -87,7 +88,7 @@ async function admissionReport(state: string) {
       version: z.literal(1),
       identity: z.string(),
       status: z.string(),
-      current: z.boolean().optional(),
+      current: z.boolean().nullable().optional(),
     })
     .parse(await Bun.file(`${state}/${reports[0]}`).json());
 }
@@ -117,6 +118,152 @@ async function runEvidence(cwd: string) {
     })
     .parse(await Bun.file(`${cwd}/${files[0]}`).json());
 }
+
+test("budget expiry stops owned work, retains completed verdicts and leaves later work unrun", async () => {
+  const cwd = await fixture();
+  const entered = `${root}/budget-entered`;
+  const forbidden = `${root}/budget-forbidden`;
+  await Bun.write(
+    `${cwd}/count.test.ts`,
+    `import {expect, test} from "bun:test";
+import {count} from "./count.ts"; test("count", () => expect(count(1)).toBe(2));`,
+  );
+  await Bun.write(`${cwd}/held.ts`, "export const held = 1;\n");
+  await Bun.write(
+    `${cwd}/held.test.ts`,
+    `import {test, expect} from "bun:test";
+import {held} from "./held.ts";
+test("held", async () => {
+  await Bun.write(${JSON.stringify(entered)}, "entered");
+  await Bun.sleep(30_000);
+  await Bun.write(${JSON.stringify(forbidden)}, "forbidden");
+  expect(held).toBe(1);
+});`,
+  );
+  await Bun.write(`${cwd}/later.ts`, "export const later = 1;\n");
+  await Bun.write(
+    `${cwd}/later.test.ts`,
+    `await Bun.write(${JSON.stringify(forbidden)}, "later");`,
+  );
+  const run = start(cwd, ["--json", "--budget", "2.5", "count.ts", "held.ts", "later.ts"]);
+  try {
+    const [code, stdout, stderr] = await finishedBeforeCleanup(run, 4500);
+    expect(code, stdout + stderr).toBe(3);
+    expect(await Bun.file(entered).exists()).toBe(true);
+    expect(await Bun.file(forbidden).exists()).toBe(false);
+    expect(stderr).toContain("budget-exhausted");
+    const evidence = await runEvidence(cwd);
+    expect(evidence.admission.reason).toBe("budget-exhausted");
+    expect(evidence.state.status).toBe("incomplete");
+    expect(evidence.state.units.map((unit) => unit.status)).toEqual([
+      "passed",
+      "interrupted",
+      "unrun",
+    ]);
+    expect(evidence.state.units[0]?.mutants?.map((mutant) => mutant.status)).toEqual([
+      "Killed",
+      "Killed",
+    ]);
+    expect(evidence.state.units[1]?.mutants).toBeNull();
+    expect(evidence.state.units[2]?.mutants).toBeNull();
+    expect((await admissionReport(await mutationStateDirectory(cwd))).status).toBe(
+      "budget-exhausted",
+    );
+    await Bun.sleep(30);
+    expect(await runEvidence(cwd)).toEqual(evidence);
+    expect(await Bun.file(forbidden).exists()).toBe(false);
+  } finally {
+    await run.stop();
+  }
+});
+
+test("an exhausted admission budget records all work unrun without launching tests", async () => {
+  const cwd = await fixture();
+  const receipt = `${root}/admission-budget-forbidden`;
+  await Bun.write(
+    `${cwd}/count.test.ts`,
+    `await Bun.write(${JSON.stringify(receipt)}, "forbidden");`,
+  );
+  const identity = await mutationInputIdentity(cwd);
+  let clock = 0;
+  const budget = mutationBudget(1000, () => clock);
+  clock = 1000;
+  try {
+    const code = await runMutationCampaign(
+      cwd,
+      {
+        units: [
+          {
+            name: "count.ts",
+            source: await Bun.file(`${cwd}/count.ts`).text(),
+            patterns: ["count.ts"],
+            tests: ["./count.test.ts"],
+          },
+        ],
+        skipped: 0,
+      },
+      identity,
+      { budget },
+    );
+    expect(code).toBe(3);
+    expect(await Bun.file(receipt).exists()).toBe(false);
+    const evidence = await runEvidence(cwd);
+    expect(evidence.admission).toEqual({ identity, current: null, reason: "budget-exhausted" });
+    expect(evidence.state.status).toBe("incomplete");
+    expect(evidence.state.units.map((unit) => unit.status)).toEqual(["unrun"]);
+    expect(evidence.state.units[0]?.mutants).toBeNull();
+    expect((await admissionReport(await mutationStateDirectory(cwd))).status).toBe(
+      "budget-exhausted",
+    );
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("expiry before the first worker event persists selected work as unrun", async () => {
+  const cwd = await fixture();
+  const entered = `${root}/silent-worker-entered`;
+  const forbidden = `${root}/silent-worker-forbidden`;
+  for (const name of [
+    "mutate",
+    "mutation-campaign",
+    "mutation-claim",
+    "mutation-snapshot",
+    "mutation-run",
+    "mutation-selection",
+    "mutation-policy",
+    "mutation-admission",
+    "mutation-evidence",
+    "mutation-engine-progress",
+    "mutation-plan",
+    "mutation-budget",
+  ])
+    await Bun.write(`${cwd}/tools/${name}.ts`, Bun.file(`${import.meta.dir}/${name}.ts`));
+  await Bun.write(
+    `${cwd}/tools/mutation-worker.ts`,
+    `await Bun.write(${JSON.stringify(entered)}, "entered");
+await Bun.sleep(30_000);
+await Bun.write(${JSON.stringify(forbidden)}, "forbidden");`,
+  );
+  await Bun.write(
+    `${cwd}/count.test.ts`,
+    `await Bun.write(${JSON.stringify(forbidden)}, "tests");`,
+  );
+  const run = start(cwd, ["--json", "--budget", "1", "count.ts"], `${cwd}/tools/mutate.ts`);
+  try {
+    const [code, stdout, stderr] = await finishedBeforeCleanup(run, 2500);
+    expect(code, stdout + stderr).toBe(3);
+    expect(await Bun.file(entered).exists()).toBe(true);
+    expect(await Bun.file(forbidden).exists()).toBe(false);
+    const evidence = await runEvidence(cwd);
+    expect(evidence.admission.reason).toBe("budget-exhausted");
+    expect(evidence.state.status).toBe("incomplete");
+    expect(evidence.state.units.map((unit) => unit.status)).toEqual(["unrun"]);
+    expect(evidence.state.units[0]?.mutants).toBeNull();
+  } finally {
+    await run.stop();
+  }
+});
 
 test("a competing command refuses before tests or shared evidence changes", async () => {
   const started = Date.now();
@@ -413,6 +560,9 @@ test("a repository-owned runner executes its admitted tooling copy rather than m
     "mutation-evidence",
     "mutation-engine-progress",
     "mutation-worker",
+    "mutation-plan",
+    "mutation-budget",
+    "mutation-preflight",
   ])
     await Bun.write(`${cwd}/tools/${name}.ts`, Bun.file(`${import.meta.dir}/${name}.ts`));
   const worker = `${cwd}/tools/mutation-worker.ts`;

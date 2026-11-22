@@ -1,4 +1,10 @@
-export type MutationProgress = { completed: number; total: number | null; reused: number };
+export type MutationProgress = {
+  completed: number;
+  total: number | null;
+  reused: number;
+  baselineMs?: number;
+  overheadMs?: number;
+};
 
 // Stryker loads reporter plugins by file name. Execution is deliberately sequential.
 let listener: ((progress: MutationProgress) => void) | undefined;
@@ -20,6 +26,15 @@ function createReporter() {
   let total: number | null = null;
   let reused = 0;
   return {
+    onDryRunCompleted(event: { timing: { net: number; overhead: number } }) {
+      listener?.({
+        completed,
+        total,
+        reused,
+        baselineMs: event.timing.net,
+        overheadMs: event.timing.overhead,
+      });
+    },
     onMutationTestingPlanReady(event: {
       mutantPlans: readonly { plan: string; mutant: { status?: string } }[];
     }) {

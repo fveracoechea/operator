@@ -9,9 +9,11 @@ import { mutationStateDirectory, recoverMutationClaim } from "./mutation-claim.t
 import { mutationInputIdentity } from "./mutation-snapshot.ts";
 import { z } from "zod";
 import { reportMutationProgress, type MutationProgress } from "./mutation-engine-progress.ts";
+import { printMutationPlan } from "./mutation-plan.ts";
+import { mutationBudget } from "./mutation-budget.ts";
 
 const usage =
-  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--keep-going] [--json] | --recover-claim";
+  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--plan|--preflight] [--budget <seconds>] [--keep-going] [--json] | --recover-claim";
 const storedReport = z.looseObject({
   files: z.record(
     z.string(),
@@ -54,6 +56,7 @@ export async function executeMutationUnit(
   root: string,
   machine: boolean,
   identity: string,
+  preflight = false,
 ): Promise<MutationResult[]> {
   const temporary = await mkdtemp(path.join(process.cwd(), ".mutation-"));
   try {
@@ -79,13 +82,16 @@ export async function executeMutationUnit(
         command: `${quote(process.execPath)} -e ${quote('import { chmodSync, lstatSync, realpathSync } from "node:fs"; import { resolve } from "node:path"; const entry = "src/cli.ts"; const file = lstatSync(entry, { throwIfNoEntry: false }); if (file?.isFile() && realpathSync(entry) === resolve(entry)) chmodSync(entry, 0o755);')} && ${[process.execPath, ...test, "--bail", ...unit.tests].map(quote).join(" ")}`,
       },
       coverageAnalysis: "off",
-      incremental: true,
-      incrementalFile: await incrementalFile(
-        unit,
-        ownRunner ? [...unit.tests, runner] : unit.tests,
-        root,
-        identity,
-      ),
+      dryRunOnly: preflight,
+      incremental: !preflight,
+      incrementalFile: preflight
+        ? path.join(temporary, "unused.json")
+        : await incrementalFile(
+            unit,
+            ownRunner ? [...unit.tests, runner] : unit.tests,
+            root,
+            identity,
+          ),
       // The full CLI baseline exceeds Stryker's five-minute default.
       dryRunTimeoutMinutes: 30,
       timeoutFactor: 1.5,
@@ -132,13 +138,31 @@ async function main(args: string[]): Promise<number> {
     return 1;
   }
   machine = parsed.json === true;
-  const selectionIdentity = await mutationInputIdentity(process.cwd());
-  const selected = await selectMutationUnits(parsed, process.cwd());
-  if ("error" in selected) {
-    console.error(selected.error);
-    return 1;
+  const budget = mutationBudget(parsed.budgetMs);
+  try {
+    const selectionIdentity = parsed.plan
+      ? undefined
+      : await mutationInputIdentity(process.cwd(), budget.signal);
+    budget.check();
+    const selected = await selectMutationUnits(parsed, process.cwd());
+    if ("error" in selected) {
+      console.error(selected.error);
+      return 1;
+    }
+    budget.check();
+    if (selectionIdentity === undefined) {
+      printMutationPlan(selected, machine);
+      return 0;
+    }
+    printMutationPlan(selected, false);
+    budget.check();
+    return await runMutationCampaign(process.cwd(), selected, selectionIdentity, {
+      ...parsed,
+      budget,
+    });
+  } finally {
+    budget.dispose();
   }
-  return runMutationCampaign(process.cwd(), selected, selectionIdentity, parsed);
 }
 
 if (import.meta.main)

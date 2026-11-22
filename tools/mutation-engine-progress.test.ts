@@ -1,6 +1,21 @@
 import { expect, test } from "bun:test";
 import { reportMutationProgress, strykerPlugins } from "./mutation-engine-progress.ts";
 
+test("baseline measurements report engine net time separately from startup overhead", async () => {
+  const observed: unknown[] = [];
+  await reportMutationProgress(
+    (event) => observed.push(event),
+    async () => {
+      strykerPlugins[0].factory().onDryRunCompleted({ timing: { net: 45, overhead: 12 } });
+    },
+  );
+  expect(observed).toEqual([
+    { completed: 0, total: null, reused: 0, baselineMs: 45, overheadMs: 12 },
+  ]);
+  strykerPlugins[0].factory().onDryRunCompleted({ timing: { net: 99, overhead: 44 } });
+  expect(observed).toHaveLength(1);
+});
+
 test("the engine reporter exposes measured totals, completed results, and reused verdicts", async () => {
   const observed: unknown[] = [];
   expect(

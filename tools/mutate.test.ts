@@ -93,6 +93,62 @@ test("the repository's public script invokes the mutation CLI", async () => {
   expect(stdout).toContain("--recover-claim");
 });
 
+test("public planning launches no tests, preflight records only a baseline, and a budget refuses further execution", async () => {
+  const receipt = `${root}/${crypto.randomUUID()}-planning`;
+  const cwd = await fixture({
+    "count.ts": "export function count(n: number) { return n + 1; }\n",
+    "count.test.ts": `import {expect, test} from "bun:test";
+import {count} from "./count.ts";
+test("count", async () => {
+  await Bun.write(${JSON.stringify(receipt)}, (await Bun.file(${JSON.stringify(receipt)}).text().catch(() => "")) + "run\\n");
+  expect(count(1)).toBe(2);
+});`,
+  });
+  const plan = await mutate(cwd, ["--plan", "--json", "count.ts"]);
+  expect(plan.code, plan.stderr).toBe(0);
+  expect(
+    z
+      .object({
+        type: z.literal("selection-plan"),
+        selectedUnits: z.literal(1),
+        selectedTestFiles: z.literal(1),
+      })
+      .safeParse(JSON.parse(plan.stdout)).success,
+  ).toBe(true);
+  expect(await Bun.file(receipt).exists()).toBe(false);
+  const bounded = await mutate(cwd, ["--budget", "0.000001", "count.ts"]);
+  expect(bounded.code, bounded.stderr).toBe(3);
+  expect(bounded.stderr).toContain("budget-exhausted");
+  expect(await Bun.file(receipt).exists()).toBe(false);
+  const measured = await mutate(cwd, ["--preflight", "--json", "count.ts"]);
+  expect(measured.code, measured.stderr).toBe(3);
+  expect(await Bun.file(receipt).text()).toBe("run\n");
+  expect(
+    z
+      .object({
+        mode: z.literal("preflight"),
+        state: z.object({
+          status: z.literal("incomplete"),
+          completedUnits: z.literal(0),
+          units: z.array(
+            z.object({
+              status: z.literal("unrun"),
+              mutants: z.null(),
+              preflight: z.object({
+                baselineMs: z.number().nonnegative(),
+                mutationCount: z.null(),
+              }),
+            }),
+          ),
+        }),
+      })
+      .safeParse(JSON.parse(measured.stdout.trim().split("\n").at(-1) ?? "")).success,
+  ).toBe(true);
+  expect(
+    await Array.fromAsync(new Bun.Glob(".mutation-incremental/*").scan({ cwd, dot: true })),
+  ).toEqual([]);
+});
+
 test("public claim recovery preserves evidence and refuses active or uncertain owners", async () => {
   const cwd = await fixture({ "count.ts": "export const count = 1;\n" });
   const state = await mutationStateDirectory(cwd);

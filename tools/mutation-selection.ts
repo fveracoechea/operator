@@ -4,22 +4,65 @@ import { readdir, realpath } from "node:fs/promises";
 import { excludedUnit, suppressionErrors } from "./mutation-policy.ts";
 
 type Range = { start: number; end: number };
-type Arguments = { paths: string[]; since?: string; keepGoing?: boolean; json?: boolean };
+type Arguments = {
+  paths: string[];
+  since?: string;
+  keepGoing?: boolean;
+  json?: boolean;
+  plan?: boolean;
+  preflight?: boolean;
+  budgetMs?: number;
+};
 type Problem = { error: string };
 export type MutationUnit = { name: string; source: string; tests: string[]; patterns: string[] };
 
-function validRef(ref: string | undefined): ref is string {
-  return ref !== undefined && ref !== "" && !ref.startsWith("-");
+function parsedRef(ref: string | undefined, existing?: string): { since: string } | Problem {
+  return existing || ref === undefined || ref === "" || ref.startsWith("-")
+    ? { error: "--since needs one explicit Git ref." }
+    : { since: ref };
+}
+
+function parsedBudget(
+  value: string | undefined,
+  existing?: number,
+): { budgetMs: number } | Problem {
+  const seconds = Number(value);
+  if (
+    existing !== undefined ||
+    !Number.isFinite(seconds) ||
+    seconds <= 0 ||
+    seconds * 1000 > 2147483647
+  )
+    return { error: "--budget needs one positive number of seconds (at most 2147483.647)." };
+  return { budgetMs: seconds * 1000 };
 }
 
 export function parseMutationArgs(args: string[]): Arguments | Problem {
+  const parsed = parseSelectionArgs(args);
+  if ("error" in parsed) return parsed;
+  if (parsed.plan && parsed.preflight)
+    return { error: "--plan and --preflight are separate operations." };
+  return parsed.paths.length > 0 || parsed.since
+    ? parsed
+    : { error: "Select a unit or --since <ref>." };
+}
+
+function parseSelectionArgs(args: string[]): Arguments | Problem {
   const paths: string[] = [];
   let since: string | undefined;
   let positional = false;
-  const flags: { keepGoing?: boolean; json?: boolean } = {};
-  const flagNames = new Map<string, "keepGoing" | "json">([
+  const flags: {
+    keepGoing?: boolean;
+    json?: boolean;
+    plan?: boolean;
+    preflight?: boolean;
+    budgetMs?: number;
+  } = {};
+  const flagNames = new Map<string, "keepGoing" | "json" | "plan" | "preflight">([
     ["--keep-going", "keepGoing"],
     ["--json", "json"],
+    ["--plan", "plan"],
+    ["--preflight", "preflight"],
   ]);
   // The loop and the option value read one iterator, so --since consumes its ref.
   const remaining = args.values();
@@ -28,15 +71,17 @@ export function parseMutationArgs(args: string[]): Arguments | Problem {
     if (flag) flags[flag] = true;
     else if (!positional && arg === "--") positional = true;
     else if (!positional && arg === "--since") {
-      const ref = remaining.next().value;
-      if (since || !validRef(ref)) return { error: "--since needs one explicit Git ref." };
-      since = ref;
+      const ref = parsedRef(remaining.next().value, since);
+      if ("error" in ref) return ref;
+      since = ref.since;
+    } else if (!positional && arg === "--budget") {
+      const budget = parsedBudget(remaining.next().value, flags.budgetMs);
+      if ("error" in budget) return budget;
+      flags.budgetMs = budget.budgetMs;
     } else if (!positional && arg.startsWith("-")) return { error: `Unknown option: ${arg}` };
     else paths.push(arg);
   }
-  return paths.length > 0 || since
-    ? { paths, since, ...flags }
-    : { error: "Select a unit or --since <ref>." };
+  return { paths, since, ...flags };
 }
 
 export function changedRanges(diff: string): Range[] {

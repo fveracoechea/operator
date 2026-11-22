@@ -1,5 +1,7 @@
 // Bun has no temporary-directory, recursive removal, or path API.
 import { mkdtemp, rm } from "node:fs/promises";
+// Final evidence must be persisted without yielding past the budget decision.
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { acquireMutationClaim, mutationStateDirectory } from "./mutation-claim.ts";
 import { admitMutationSnapshot, mutationInputIdentity } from "./mutation-snapshot.ts";
@@ -7,6 +9,75 @@ import { selectMutationUnits, type MutationUnit } from "./mutation-selection.ts"
 import type { MutationEvent } from "./mutation-run.ts";
 import { mutationEvidence } from "./mutation-evidence.ts";
 import { completeMutationEvent, mutationWorkerExitCode } from "./mutation-admission.ts";
+import { mutationBudget } from "./mutation-budget.ts";
+
+function finishCampaign(
+  root: string,
+  report: string,
+  identity: string,
+  event: MutationEvent,
+  code: number,
+  outcome: {
+    interrupted: boolean;
+    current: boolean | null;
+    exhausted: boolean;
+    elapsedMs: number;
+    json?: boolean;
+  },
+): number {
+  const { interrupted, current, exhausted, elapsedMs } = outcome;
+  mutationEvidence(
+    root,
+    outcome.json,
+    console,
+    completeMutationEvent(
+      event,
+      interrupted,
+      current,
+      identity,
+      elapsedMs,
+      exhausted ? "budget-exhausted" : undefined,
+    ),
+  );
+  const status = exhausted
+    ? "budget-exhausted"
+    : completionStatus(interrupted, current === true, code);
+  const incomplete = exhausted || interrupted || !current;
+  writeFileSync(
+    report,
+    JSON.stringify({ version: 1, identity, current, status, code: incomplete ? 3 : code }),
+  );
+  if (incomplete)
+    console.error(`Mutation execution incomplete: ${status}. Historical evidence: ${report}`);
+  return incomplete ? 3 : code;
+}
+
+function unrunEvent(
+  token: string,
+  selected: { units: MutationUnit[]; skipped: number },
+): MutationEvent {
+  return {
+    version: 1,
+    runId: token,
+    sequence: 0,
+    type: "run-started",
+    elapsedMs: 0,
+    state: {
+      status: "running",
+      activeUnit: null,
+      completedUnits: 0,
+      skipped: selected.skipped,
+      units: selected.units.map((unit) => ({
+        name: unit.name,
+        tests: unit.tests,
+        patterns: unit.patterns,
+        status: "unrun",
+        mutants: null,
+        progress: { completed: 0, total: null, reused: 0 },
+      })),
+    },
+  };
+}
 
 function completionStatus(interrupted: boolean, current: boolean, code: number): string {
   if (interrupted) return "cancelled";
@@ -28,7 +99,12 @@ export async function runMutationCampaign(
   root: string,
   selected: { units: MutationUnit[]; skipped: number },
   selectionIdentity: string,
-  options: { json?: boolean; keepGoing?: boolean } = {},
+  options: {
+    json?: boolean;
+    keepGoing?: boolean;
+    preflight?: boolean;
+    budget?: ReturnType<typeof mutationBudget>;
+  } = {},
 ): Promise<number> {
   const state = await mutationStateDirectory(root);
   const claim = await acquireMutationClaim(state);
@@ -37,20 +113,34 @@ export async function runMutationCampaign(
     return 3;
   }
   const report = path.join(state, `${claim.token}.json`);
+  const budget = options.budget ?? mutationBudget();
   let interrupted = false;
   let child: Bun.Subprocess<"pipe", "inherit", "inherit"> | undefined;
-  const observed: { latest?: MutationEvent } = {};
+  const observed: { latest: MutationEvent } = { latest: unrunEvent(claim.token, selected) };
   const started = Date.now();
   function cancel() {
     interrupted = true;
     if (child?.exitCode === null) process.kill(-child.pid, "SIGKILL");
   }
 
+  async function stopWorker() {
+    if (child?.exitCode === null) {
+      cancel();
+      await child.exited;
+    }
+  }
+
   process.on("SIGINT", cancel);
   process.on("SIGTERM", cancel);
+  budget.signal.addEventListener("abort", cancel);
   const temporary = await mkdtemp(path.join(root, ".mutation-"));
   try {
-    const snapshot = await admitMutationSnapshot(root, path.join(temporary, "snapshot"));
+    budget.check();
+    const snapshot = await admitMutationSnapshot(
+      root,
+      path.join(temporary, "snapshot"),
+      budget.signal,
+    );
     if (
       snapshot.identity !== selectionIdentity ||
       !(await selectedSourcesMatch(snapshot.directory, selected.units))
@@ -62,6 +152,7 @@ export async function runMutationCampaign(
       report,
       JSON.stringify({ version: 1, identity: snapshot.identity, status: "running" }),
     );
+    budget.check();
     if (!interrupted) {
       const tools =
         path.dirname(import.meta.dir) === root
@@ -85,43 +176,36 @@ export async function runMutationCampaign(
       });
       await claim.setGroup(child.pid);
       await child.stdin.write(
-        `${JSON.stringify({ selected, root, state, token: claim.token, identity: snapshot.identity, json: options.json, keepGoing: options.keepGoing })}\n`,
+        `${JSON.stringify({ selected, root, state, token: claim.token, identity: snapshot.identity, json: options.json, keepGoing: options.keepGoing, preflight: options.preflight })}\n`,
       );
       await child.stdin.flush();
     }
     const workerCode = child ? await child.exited : 3;
     const code = mutationWorkerExitCode(observed.latest, workerCode);
-    const current = (await mutationInputIdentity(root)) === snapshot.identity;
-    if (observed.latest)
-      mutationEvidence(
-        root,
-        options.json,
-        console,
-        completeMutationEvent(
-          observed.latest,
-          interrupted,
-          current,
-          snapshot.identity,
-          Date.now() - started,
-        ),
-      );
-    const status = completionStatus(interrupted, current, code);
-    await Bun.write(
-      report,
-      JSON.stringify({ version: 1, identity: snapshot.identity, current, status, code }),
-    );
-    if (interrupted || !current) {
-      console.error(`Mutation execution incomplete: ${status}. Historical evidence: ${report}`);
-      return 3;
-    }
-    return code;
+    const current = budget.signal.aborted
+      ? null
+      : (await mutationInputIdentity(root, budget.signal)) === snapshot.identity;
+    return finishCampaign(root, report, snapshot.identity, observed.latest, code, {
+      interrupted,
+      current,
+      exhausted: budget.signal.aborted,
+      elapsedMs: Date.now() - started,
+      json: options.json,
+    });
+  } catch (error) {
+    if (!budget.signal.aborted) return await Promise.reject(error);
+    return finishCampaign(root, report, selectionIdentity, observed.latest, 3, {
+      interrupted: true,
+      current: null,
+      exhausted: true,
+      elapsedMs: Date.now() - started,
+      json: options.json,
+    });
   } finally {
-    if (child?.exitCode === null) {
-      cancel();
-      await child.exited;
-    }
+    await stopWorker();
     process.off("SIGINT", cancel);
     process.off("SIGTERM", cancel);
+    budget.signal.removeEventListener("abort", cancel);
     await rm(temporary, { recursive: true });
     await claim.release();
   }

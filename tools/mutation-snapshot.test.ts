@@ -6,6 +6,18 @@ import { admitMutationSnapshot, mutationInputIdentity } from "./mutation-snapsho
 const root = await mkdtemp("/tmp/opencode/mutation-snapshot-");
 afterAll(async () => rm(root, { recursive: true, force: true }));
 
+test("cancelled input admission refuses before reading or copying source files", async () => {
+  const cwd = `${root}/budget`;
+  await Bun.write(`${cwd}/nested/source.ts`, "source");
+  const controller = new AbortController();
+  controller.abort(new Error("budget-exhausted"));
+  await expect(mutationInputIdentity(cwd, controller.signal)).rejects.toThrow("budget-exhausted");
+  await expect(
+    admitMutationSnapshot(cwd, `${root}/budget-snapshot`, controller.signal),
+  ).rejects.toThrow("budget-exhausted");
+  expect(await Bun.file(`${root}/budget-snapshot/nested/source.ts`).exists()).toBe(false);
+});
+
 test("admission freezes actual tracked and untracked bytes and detects later source edits", async () => {
   const cwd = `${root}/project`;
   await Bun.write(`${cwd}/tracked.ts`, "original\n");

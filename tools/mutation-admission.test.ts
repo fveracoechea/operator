@@ -116,6 +116,29 @@ test("owner loss records unknown current inputs rather than asserting a candidat
   expect(completed.state.status).toBe("incomplete");
 });
 
+test("budget expiry overrides even a finished passing worker without discarding evidence", () => {
+  const terminal: MutationEvent = {
+    ...event,
+    type: "run-completed",
+    state: { ...event.state, status: "passed" },
+  };
+  const completed = completeMutationEvent(
+    terminal,
+    false,
+    true,
+    "snapshot",
+    100,
+    "budget-exhausted",
+  );
+  expect(completed.state.status).toBe("incomplete");
+  expect(completed.admission).toEqual({
+    identity: "snapshot",
+    current: true,
+    reason: "budget-exhausted",
+  });
+  expect(completed.state.units[0]).toEqual(terminal.state.units[0]);
+});
+
 test("a zero process exit without terminal evidence is incomplete, and real verdict codes remain unchanged", () => {
   expect(mutationWorkerExitCode(undefined, 0)).toBe(3);
   expect(mutationWorkerExitCode(event, 0)).toBe(3);

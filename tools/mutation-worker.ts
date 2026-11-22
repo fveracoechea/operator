@@ -6,6 +6,7 @@ import { runMutationUnits } from "./mutation-run.ts";
 import { mutationGuidance } from "./mutation-policy.ts";
 import { completeMutationEvent } from "./mutation-admission.ts";
 import { mutationEvidence } from "./mutation-evidence.ts";
+import { runMutationPreflight } from "./mutation-preflight.ts";
 
 const reader = Bun.stdin.stream().getReader();
 const decoder = new TextDecoder();
@@ -26,6 +27,7 @@ const input = z
     identity: z.string(),
     json: z.boolean().optional(),
     keepGoing: z.boolean().optional(),
+    preflight: z.boolean().optional(),
     selected: z.object({
       units: z.array(
         z.object({
@@ -61,40 +63,50 @@ const acknowledged = process.send
     })
   : undefined;
 try {
-  process.exitCode = await runMutationUnits(
-    input.selected,
-    async (unit, progress) => {
-      const results = await executeMutationUnit(
-        unit,
-        progress,
+  async function execute(
+    unit: Parameters<typeof executeMutationUnit>[0],
+    progress: Parameters<typeof executeMutationUnit>[1],
+  ) {
+    const results = await executeMutationUnit(
+      unit,
+      progress,
+      input.root,
+      machine,
+      input.identity,
+      input.preflight,
+    );
+    await Bun.write(
+      path.join(input.state, input.token, `${unit.name}.json`),
+      JSON.stringify({ unit, results }),
+    );
+    return results;
+  }
+
+  function event(event: Parameters<typeof completeMutationEvent>[0]) {
+    saveInterrupted = () =>
+      mutationEvidence(
         input.root,
         machine,
-        input.identity,
+        console,
+        completeMutationEvent(event, true, null, input.identity, Date.now() - started),
       );
-      await Bun.write(
-        path.join(input.state, input.token, `${unit.name}.json`),
-        JSON.stringify({ unit, results }),
+    process.send?.(event);
+  }
+
+  process.exitCode = input.preflight
+    ? await runMutationPreflight(input.selected, execute, input.token, event)
+    : await runMutationUnits(
+        input.selected,
+        execute,
+        machine
+          ? { log: (line) => console.error(line), error: (line) => console.error(line) }
+          : console,
+        {
+          runId: input.token,
+          keepGoing: input.keepGoing,
+          event,
+        },
       );
-      return results;
-    },
-    machine
-      ? { log: (line) => console.error(line), error: (line) => console.error(line) }
-      : console,
-    {
-      runId: input.token,
-      keepGoing: input.keepGoing,
-      event: (event) => {
-        saveInterrupted = () =>
-          mutationEvidence(
-            input.root,
-            machine,
-            console,
-            completeMutationEvent(event, true, null, input.identity, Date.now() - started),
-          );
-        process.send?.(event);
-      },
-    },
-  );
 } catch (error) {
   console.error("Mutation execution incomplete:", error);
   (machine ? console.error : console.log)(`Mutation summary: incomplete. See ${mutationGuidance}.`);

@@ -12,7 +12,8 @@ function excluded(name: string): boolean {
     );
 }
 
-async function inputNames(root: string): Promise<string[]> {
+async function inputNames(root: string, signal?: AbortSignal): Promise<string[]> {
+  signal?.throwIfAborted();
   const git = Bun.spawnSync(
     ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
     {
@@ -33,6 +34,7 @@ async function inputNames(root: string): Promise<string[]> {
   const names = new Set<string>();
   async function walk(directory: string): Promise<void> {
     for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
+      signal?.throwIfAborted();
       const name = path.join(directory, entry.name);
       if (excluded(name)) continue;
       if (entry.isDirectory()) await walk(name);
@@ -44,15 +46,17 @@ async function inputNames(root: string): Promise<string[]> {
   return [...names];
 }
 
-async function inputs(root: string, destination?: string): Promise<string> {
+async function inputs(root: string, destination?: string, signal?: AbortSignal): Promise<string> {
   const hash = new Bun.CryptoHasher("sha256");
-  for (const name of (await inputNames(root)).toSorted()) {
+  for (const name of (await inputNames(root, signal)).toSorted()) {
+    signal?.throwIfAborted();
     const file = path.join(root, name);
     const stat = await lstat(file).catch(() => undefined);
     // A tracked deletion contributes no executable input.
     if (!stat) continue;
     if (!stat.isFile()) return Promise.reject(new Error(`Unsupported snapshot input: ${name}`));
     const bytes = await Bun.file(file).bytes();
+    signal?.throwIfAborted();
     hash.update(JSON.stringify([name, stat.mode, bytes.byteLength]));
     hash.update(bytes);
     if (destination) {
@@ -64,17 +68,18 @@ async function inputs(root: string, destination?: string): Promise<string> {
   return hash.digest("hex");
 }
 
-export async function mutationInputIdentity(root: string): Promise<string> {
-  return inputs(root);
+export async function mutationInputIdentity(root: string, signal?: AbortSignal): Promise<string> {
+  return inputs(root, undefined, signal);
 }
 
 export async function admitMutationSnapshot(
   root: string,
   directory: string,
+  signal?: AbortSignal,
 ): Promise<{ directory: string; identity: string }> {
   await mkdir(directory, { recursive: true });
-  const identity = await inputs(root, directory);
-  if ((await mutationInputIdentity(root)) !== identity)
+  const identity = await inputs(root, directory, signal);
+  if ((await mutationInputIdentity(root, signal)) !== identity)
     return Promise.reject(new Error("Mutation inputs changed during snapshot admission."));
   const dependencies = path.join(root, "node_modules");
   if (await lstat(dependencies).catch(() => undefined)) {
