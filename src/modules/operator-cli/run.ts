@@ -3,7 +3,6 @@ import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 import { PullRequests } from "../pull-requests/main.ts";
-import { ToolInvocation } from "../tool-invocation/main.ts";
 import { z } from "zod";
 import { Err, Ok, type Result } from "unthrown";
 import type { Refusal } from "../../lib/cli-result.ts";
@@ -28,6 +27,7 @@ import { startup } from "./startup.ts";
 import { withOwnChanges } from "./own-changes.ts";
 import { refuseUnsupervised } from "./supervision.ts";
 import { invalidArguments, runUsage } from "./usage.ts";
+import { worktreeObservation } from "./worktree-observation.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 type Facts = Parameters<typeof WorkerKinds.decidePhase>[0];
@@ -177,7 +177,7 @@ async function withWorkerContext(args: string[], paths: OperatorPaths, run: () =
   if (selection.tag !== "Ok") return phaseReadFailure(args, event, selection);
   const selected = selection.value;
   if (selected === null) return run();
-  const { clean } = await worktreeObservation(selected, event);
+  const { clean } = await worktreeObservation(selected.launch.worktreePath, event);
   const initial = recorded(paths, selected, clean);
   if (initial.tag !== "Ok") return phaseReadFailure(args, event, initial);
   return withOutputContext(
@@ -211,28 +211,6 @@ function usesWorktree(pr: ReturnType<typeof pullRequestArgs>, event: Event | und
     pr?.operation === "pr_validate" ||
     (event !== undefined && event !== "submit" && event !== "resume")
   );
-}
-
-async function worktreeObservation(selected: Worker, event: Event | undefined) {
-  let clean = true;
-  let head: string | null = null;
-  if (selected.launch.worktreePath !== null && event !== "observe-merge") {
-    const status = await ToolInvocation.run({
-      tool: "git",
-      args: ["status", "--porcelain", "--untracked-files=normal"],
-      cwd: selected.launch.worktreePath,
-      timeoutMs: 10000,
-    });
-    clean = status.status === "completed" && status.exitCode === 0 && status.stdout === "";
-    const commit = await ToolInvocation.run({
-      tool: "git",
-      args: ["rev-parse", "--verify", "HEAD"],
-      cwd: selected.launch.worktreePath,
-      timeoutMs: 10000,
-    });
-    head = commit.status === "completed" && commit.exitCode === 0 ? commit.stdout.trim() : null;
-  }
-  return { clean, head };
 }
 
 function phaseReadFailure(
