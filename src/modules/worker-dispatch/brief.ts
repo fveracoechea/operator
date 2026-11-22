@@ -10,7 +10,10 @@ type BriefInput = {
   sourceTrackerKey: string;
   assignment: string;
   trackerKey: string;
-  completion: "pr" | "report";
+  completion: "pr" | "report" | "commit";
+  commitDelivery?: NonNullable<
+    AsyncOkOf<ReturnType<typeof WorkSources.show>>
+  >["commitDeliveries"][number]["data"];
   kind?: ReturnType<typeof WorkerKinds.resolve> | null;
   phase?: string;
   head?: string | null;
@@ -251,6 +254,8 @@ function history(input: BriefInput) {
 export function renderBrief(input: BriefInput) {
   const sections = [headerFacts(input), section("Task", input.instructions)];
   if (input.intent !== null) sections.push(section("Acceptance criteria", quote(input.intent)));
+  if (input.commitDelivery !== undefined)
+    sections.push(section("Commit delivery", quote(JSON.stringify(input.commitDelivery, null, 2))));
   sections.push(handoff(input), changedStack(input) ?? "");
   const note = input.note ?? null;
   if (

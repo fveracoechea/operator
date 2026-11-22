@@ -7,7 +7,10 @@ export type PhaseGuard =
   | "round_recorded"
   | "pr_ready"
   | "worktree_clean"
-  | "pr_merged";
+  | "pr_merged"
+  | "commit_candidate"
+  | "commit_reviewed"
+  | "commit_delivered";
 export type PhaseEvent =
   | "submit"
   | "resume"
@@ -16,11 +19,14 @@ export type PhaseEvent =
   | "ready"
   | "wait"
   | "observe-merge"
-  | "merge";
+  | "merge"
+  | "commit-review"
+  | "commit-round"
+  | "commit-deliver";
 export type PhaseFacts = {
   kind: {
     name: string;
-    completion: "report" | "pr";
+    completion: "report" | "pr" | "commit";
     workPhases: { name: string; goal?: string; guard?: PhaseGuard }[];
   };
   report: { returned: boolean; accepted: boolean; resumed?: boolean } | null;
@@ -30,6 +36,7 @@ export type PhaseFacts = {
   reviewSkipped?: boolean;
   handedOff?: boolean;
   worktreeClean: boolean;
+  commit?: { reviewing: boolean; rounds: number; delivered: boolean };
 };
 type Phase = { phase: string; next: NextStep };
 type Rule = { when: (facts: PhaseFacts) => boolean; phase: (facts: PhaseFacts) => Phase };
@@ -128,6 +135,30 @@ const prTail: Rule[] = [
   },
 ];
 
+const commitTail: Rule[] = [
+  { when: (facts) => facts.commit?.delivered === true, phase: () => complete },
+  {
+    when: (facts) => facts.handedOff === true,
+    phase: () => ({
+      phase: "handoff",
+      next: { why: "This launch handed the ticket to its fresh reviewer. Stop here." },
+    }),
+  },
+  {
+    when: (facts) => facts.commit?.reviewing === true,
+    phase: (facts) => ({
+      phase: "commit-review",
+      next: {
+        command:
+          facts.commit?.rounds === 0
+            ? "operator commit round --file <file>"
+            : "operator commit deliver --file <file>",
+        why: "Review the exact ticket candidate before automatic delivery.",
+      },
+    }),
+  },
+];
+
 const exits: Record<PhaseEvent, PhaseGuard[]> = {
   submit: [],
   resume: ["report_submitted"],
@@ -137,6 +168,9 @@ const exits: Record<PhaseEvent, PhaseGuard[]> = {
   wait: ["pr_associated"],
   "observe-merge": ["pr_associated"],
   merge: ["pr_associated", "pr_ready", "worktree_clean"],
+  "commit-review": ["worktree_clean"],
+  "commit-round": ["commit_candidate", "worktree_clean"],
+  "commit-deliver": ["commit_candidate", "commit_reviewed"],
 };
 const reasons: Record<PhaseGuard, string> = {
   report_submitted: "report_not_submitted",
@@ -145,6 +179,9 @@ const reasons: Record<PhaseGuard, string> = {
   pr_ready: "pr_not_ready",
   worktree_clean: "pr_worktree_unclean",
   pr_merged: "pr_not_merged",
+  commit_candidate: "commit_candidate_missing",
+  commit_reviewed: "commit_review_missing",
+  commit_delivered: "commit_not_delivered",
 };
 const recovery: Record<PhaseGuard, NextStep> = {
   report_submitted: report.next,
@@ -156,11 +193,27 @@ const recovery: Record<PhaseGuard, NextStep> = {
     why: "Inspect the local changes before committing or removing them.",
   },
   pr_merged: { command: "operator pr wait", why: "Wait for a verified merge." },
+  commit_candidate: {
+    command: "operator commit review",
+    why: "Pin the ticket candidate and launch its fresh reviewer.",
+  },
+  commit_reviewed: {
+    command: "operator commit round --file <file>",
+    why: "Record the exact candidate's findings.",
+  },
+  commit_delivered: {
+    command: "operator commit deliver --file <file>",
+    why: "Verify delivery to both local and remote main.",
+  },
 };
 
 function requiredGuards(facts: PhaseFacts, event: PhaseEvent | undefined) {
   if (event === undefined) return [];
-  const completion = event === "submit" || event === "resume" ? "report" : "pr";
+  const completion = event.startsWith("commit-")
+    ? "commit"
+    : event === "submit" || event === "resume"
+      ? "report"
+      : "pr";
   // The completion lifecycle owns a wrong-command refusal, before phase-specific guards.
   if (facts.kind.completion !== completion) return [];
   // An ended review owns its refusal; phase prerequisites cannot reopen its round/ready loop.
@@ -177,11 +230,35 @@ function requiredGuards(facts: PhaseFacts, event: PhaseEvent | undefined) {
   ];
 }
 
+const tails = { report: reportTail, pr: prTail, commit: commitTail };
+const closingPhases: Record<PhaseFacts["kind"]["completion"], Phase> = {
+  report,
+  pr,
+  commit: {
+    phase: "commit",
+    next: { command: "operator commit review", why: "Start the fresh reviewer." },
+  },
+};
+
+function guardFacts(facts: PhaseFacts): Record<PhaseGuard, boolean> {
+  return {
+    report_submitted: facts.report !== null,
+    pr_associated: facts.pr.associated,
+    round_recorded: facts.pr.rounds > 0,
+    pr_ready: facts.pr.ready,
+    worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),
+    pr_merged: facts.pr.merged,
+    commit_candidate: facts.commit?.reviewing === true,
+    commit_reviewed: (facts.commit?.rounds ?? 0) > 0,
+    commit_delivered: facts.commit?.delivered === true,
+  };
+}
+
 /** One worker lifecycle. Callers gather facts and perform effects; this table does neither. */
 export function decidePhase(facts: PhaseFacts, event?: PhaseEvent) {
-  const tail = facts.kind.completion === "report" ? reportTail : prTail;
+  const tail = tails[facts.kind.completion];
   const work = facts.kind.workPhases.at(-1);
-  const closing = facts.kind.completion === "report" ? report : pr;
+  const closing = closingPhases[facts.kind.completion];
   const current = tail.find((rule) => rule.when(facts))?.phase(facts) ?? {
     ...closing,
     phase: work?.name ?? closing.phase,
@@ -199,14 +276,7 @@ export function decidePhase(facts: PhaseFacts, event?: PhaseEvent) {
         state: { handedOff: true },
       },
     };
-  const guards: Record<PhaseGuard, boolean> = {
-    report_submitted: facts.report !== null,
-    pr_associated: facts.pr.associated,
-    round_recorded: facts.pr.rounds > 0,
-    pr_ready: facts.pr.ready,
-    worktree_clean: !refusesPrGuard({ guard: "worktree_clean", changed: !facts.worktreeClean }),
-    pr_merged: facts.pr.merged,
-  };
+  const guards = guardFacts(facts);
   const missing = requiredGuards(facts, event).find((guard) => !guards[guard]);
   if (missing !== undefined)
     return {

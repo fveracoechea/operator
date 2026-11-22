@@ -135,8 +135,8 @@ test.each([
   {
     name: "PR-open dependency",
     file: "work-sources/assignment-machine.ts",
-    before: 'dependency.state !== "pr-open" && dependency.state !== "merged"',
-    after: 'dependency.state !== "merged"',
+    before: 'assignment.completion === "commit" || dependency.state !== "pr-open"',
+    after: "true",
     testFile: "operator-cli/run.sources.test.ts",
     pattern: "next uses completion-type-specific",
   },

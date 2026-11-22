@@ -43,6 +43,7 @@ export type PullRequestFailure =
         | "internal_review_not_recorded"
         | "handoff_running"
         | "pr_delivery_running"
+        | "commit_delivery_running"
         | "pr_stack_running";
       detail: string;
     });

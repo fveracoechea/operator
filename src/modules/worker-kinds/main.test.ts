@@ -64,7 +64,7 @@ test("kind snapshots preserve ordered free work and validate the closed exit gua
   ).toMatchObject({ refusal: { reason: "internal_review_round_missing" } });
 });
 
-test("the six built-in kinds fix completion and their launch policy", () => {
+test("the built-in kinds fix completion and their launch policy", () => {
   expect(WorkerKinds.names()).toEqual([
     "research",
     "answer",
@@ -72,8 +72,28 @@ test("the six built-in kinds fix completion and their launch policy", () => {
     "implementation",
     "review",
     "pr-feedback",
+    "commit-implementation",
+    "commit-review",
   ]);
   const policies = [
+    {
+      name: "commit-implementation",
+      completion: "commit",
+      resources: "worktree",
+      nextKind: "commit-review",
+      readsNote: false,
+      dispatchable: true,
+      phases: ["build"],
+    },
+    {
+      name: "commit-review",
+      completion: "commit",
+      resources: "worktree",
+      nextKind: null,
+      readsNote: false,
+      dispatchable: false,
+      phases: [],
+    },
     {
       name: "research",
       completion: "report",

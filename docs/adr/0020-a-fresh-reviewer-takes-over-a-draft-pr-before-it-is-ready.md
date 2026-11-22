@@ -6,6 +6,7 @@ Amended 2026-11-17 in #422: changing stack ancestry requires a fresh independent
 Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): changed integration heads or review bases invalidate explicit readiness before effects and require a fresh kind handoff.
 
 Accepted - 2026-10-31.
+Amended 2026-11-21: commit completion uses a fresh reviewer without a PR and stops on final-round blocker fixes (ADR-0034).
 Decided in #292.
 Amended 2026-11-17: the draft-to-review handoff uses the generic kind transition and dispatch recovery (ADR-0029).
 Amended 2026-11-17 in #389: ready starts fresh pr-feedback, accepts a reviewer note, and follows a recorded skip without rounds or a comment.

@@ -3,6 +3,7 @@
 ## Status
 
 Accepted - 2026-11-13. Decided in #373.
+Amended 2026-11-21: commit completion extends the fixed tails and closed guards without changing PR guards (ADR-0034).
 Amends ADR-0003, ADR-0013, ADR-0017, and ADR-0020.
 The kind and data decision was implemented in #382; the phase decision was implemented in #383.
 Kind transitions, parking, canonical actions, and event waits are implemented through #388 to #394.
@@ -25,7 +26,7 @@ Research, implementation, and review needed distinct work phases without separat
 An assignment carries a worker kind with named work phases, one kind guide, one completion type, default resources, a default start profile, a next kind, and `readsNote`.
 Resources and the start profile can be overridden, but the kind fixes the completion type.
 Tools remain part of the start profile and host configuration, not the kind.
-The built-in kinds are `research`, `answer`, `prototype`, `implementation`, `review`, and `pr-feedback`.
+The built-in kinds are `research`, `answer`, `prototype`, `implementation`, `review`, `pr-feedback`, `commit-implementation`, and `commit-review`.
 `review` and `pr-feedback` start through transitions or adoption, not plain dispatch.
 Review of another author's PR remains a review request.
 
@@ -43,10 +44,10 @@ A later release ends the fill path with a blocker for open assignments that stil
 That later blocker is not part of this release.
 
 One worker-phase machine runs every kind.
-The code owns the report and PR tails, their bounded loops, and the closed guard catalog.
+The code owns the report, PR and commit tails, their bounded loops, and the closed guard catalog.
 A kind declares only the work phases before its tail.
 Each work phase names its goal and may name a catalog exit guard.
-The closed catalog contains `report_submitted`, `pr_associated`, `round_recorded`, `pr_ready`, `worktree_clean`, and `pr_merged`.
+The closed catalog contains `report_submitted`, `pr_associated`, `round_recorded`, `pr_ready`, `worktree_clean`, `pr_merged`, `commit_candidate`, `commit_reviewed`, and `commit_delivered`.
 The closing command refuses while its required facts are false and names the next action.
 Worker results name the launch's kind, phase, and next action.
 
@@ -57,6 +58,8 @@ A third return refuses and preserves the work while asking the person whether to
 The report-return limit is independent of the PR review-round limit.
 The PR tail associates a PR, records at most two review rounds, becomes ready, handles feedback, and ends at merge or park.
 Report acceptance and the PR merge gate remain separate lifecycle decisions.
+Commit completion independently requires exact-candidate review, configured checks, and verified local and remote publication.
+It has no PR association or report acceptance.
 The readiness guard requires an explicit recorded ready transition.
 Ready association without internal review records that transition under the clean-worktree and pushed-head guards.
 Neither an ended review nor an eligible wait observation substitutes for readiness.

@@ -244,6 +244,8 @@ test("bundled skills stay within their word ceilings", async () => {
     [
       "SKILL.md",
       "kinds/answer.md",
+      "kinds/commit-implementation.md",
+      "kinds/commit-review.md",
       "kinds/implementation.md",
       "kinds/pr-feedback.md",
       "kinds/prototype.md",
@@ -282,7 +284,7 @@ test("bundled skills use result next steps and retain their authority limits", a
   expect(implementation).toContain("stop once it succeeds");
   expect(implementation).toContain("Send no implementer note to review.");
   const guides = await OwnedSkills.guides();
-  expect(guides).toHaveLength(6);
+  expect(guides).toHaveLength(8);
   for (const { guide, text } of guides) {
     expect(text, guide).not.toContain(".json>");
     expect(text, guide).not.toContain("router's");

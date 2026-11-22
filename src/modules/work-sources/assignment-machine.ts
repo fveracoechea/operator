@@ -3,6 +3,11 @@ import { z } from "zod";
 export const assignmentStateSchema = z.discriminatedUnion("completion", [
   z.object({
     key: z.string(),
+    completion: z.literal("commit"),
+    state: z.enum(["ready", "running", "completed", "abandoned"]),
+  }),
+  z.object({
+    key: z.string(),
     completion: z.literal("pr"),
     state: z.enum(["ready", "running", "pr-open", "merged", "abandoned"]),
   }),
@@ -40,6 +45,8 @@ type Facts = {
   capReached?: boolean;
   /** Kind eligibility for a plain start, not a replacement or kind handoff. */
   dispatchable?: boolean;
+  /** Squash delivery does not prove ancestry of retained implementation history. */
+  commitHistoryRetained?: boolean;
   resources?: {
     kind: "pane" | "worktree";
     workerGone: boolean;
@@ -88,27 +95,33 @@ type Decision = {
     | "handoff_failed";
   blockers: {
     assignment: string;
-    completion: "pr" | "report";
+    completion: "pr" | "report" | "commit";
     state: AssignmentState["state"];
     required: "pr-open-or-merged" | "completed" | "merged";
   }[];
 };
 
 export function dependencyBlockers(
-  _assignment: AssignmentState,
+  assignment: AssignmentState,
   dependencies: AssignmentState[],
 ): Decision["blockers"] {
   const pending: Decision["blockers"] = dependencies
     .filter((dependency) =>
       dependency.completion === "pr"
-        ? dependency.state !== "pr-open" && dependency.state !== "merged"
+        ? dependency.state !== "merged" &&
+          (assignment.completion === "commit" || dependency.state !== "pr-open")
         : dependency.state !== "completed",
     )
     .map((dependency) => ({
       assignment: dependency.key,
       completion: dependency.completion,
       state: dependency.state,
-      required: dependency.completion === "pr" ? "pr-open-or-merged" : "completed",
+      required:
+        dependency.completion === "pr"
+          ? assignment.completion === "commit"
+            ? "merged"
+            : "pr-open-or-merged"
+          : "completed",
     }));
   return pending;
 }
@@ -125,6 +138,13 @@ function active({ assignment, report }: Facts) {
 
 const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decision }[] = [
   // Cleanup that an acceptance did not finish stays visible after the assignment ends.
+  {
+    when: ({ assignment, commitHistoryRetained }) =>
+      assignment.completion === "commit" &&
+      assignment.state === "completed" &&
+      commitHistoryRetained === true,
+    decide: () => ({ action: "person_decision", reason: "cleanup_unlanded_work", blockers: [] }),
+  },
   {
     when: ({ assignment, report }) =>
       assignment.state === "completed" &&
@@ -196,12 +216,18 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   // The outgoing session ends at the handoff by design, so it is not an interrupted worker.
   {
     when: ({ assignment, handoff, stack }) =>
-      assignment.state === "pr-open" && stack === undefined && handoff === "running",
+      (assignment.state === "pr-open" ||
+        (assignment.completion === "commit" && assignment.state === "running")) &&
+      stack === undefined &&
+      handoff === "running",
     decide: () => ({ action: "wait", reason: "kind_handoff", blockers: [] }),
   },
   {
     when: ({ assignment, handoff, stack }) =>
-      assignment.state === "pr-open" && stack === undefined && handoff === "failed",
+      (assignment.state === "pr-open" ||
+        (assignment.completion === "commit" && assignment.state === "running")) &&
+      stack === undefined &&
+      handoff === "failed",
     decide: () => ({
       action: "replace_worker",
       reason: "handoff_failed",
@@ -210,7 +236,10 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   },
   {
     when: ({ assignment, handoff, stack }) =>
-      assignment.state === "pr-open" && stack === undefined && handoff === "stopped",
+      (assignment.state === "pr-open" ||
+        (assignment.completion === "commit" && assignment.state === "running")) &&
+      stack === undefined &&
+      handoff === "stopped",
     decide: () => ({
       action: "replace_worker",
       reason: "handoff_failed",

@@ -93,7 +93,7 @@ test.each([
     }
     db.query("UPDATE assignments SET state = ?, kind = NULL").run(state);
     db.exec(
-      "DROP TABLE delivery_validations; DROP TABLE deliveries; ALTER TABLE worker_questions DROP COLUMN awaiting_person_seen_at; DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000",
+      "DROP TABLE commit_deliveries; DROP TABLE delivery_validations; DROP TABLE deliveries; ALTER TABLE worker_questions DROP COLUMN awaiting_person_seen_at; DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000",
     );
     const plan = db.query("SELECT plan FROM sources").get();
     const history = db.query("SELECT * FROM launches").all();
@@ -394,7 +394,7 @@ test.each([
     const head = (await device.exec(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
     using db = new Database(`${root}/state/operator/operator.sqlite`);
     db.exec(
-      "DROP TABLE delivery_validations; DROP TABLE deliveries; ALTER TABLE worker_questions DROP COLUMN awaiting_person_seen_at; DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000; UPDATE assignments SET state = 'pr-open', kind = NULL",
+      "DROP TABLE commit_deliveries; DROP TABLE delivery_validations; DROP TABLE deliveries; ALTER TABLE worker_questions DROP COLUMN awaiting_person_seen_at; DELETE FROM __drizzle_migrations WHERE created_at >= 1795125600000; UPDATE assignments SET state = 'pr-open', kind = NULL",
     );
     expect(db.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all()).toEqual(
       shippedHistory.filter((migration) => migration.created_at < 1795125600000),

@@ -35,6 +35,12 @@ function guardTestRoots(roots: string[]) {
 
 /** Owns every Operator path. Resolution creates no directories or project records. */
 export const OperatorHome = {
+  commitCandidateRoot(paths: { stateRoot: string }) {
+    return path.join(paths.stateRoot, "commit-candidates");
+  },
+  commitCandidate(paths: { stateRoot: string }, id: string) {
+    return path.join(paths.stateRoot, "commit-candidates", id);
+  },
   resolve(environment: ReturnType<typeof Environment.read>) {
     const configRoot = path.join(
       environment.XDG_CONFIG_HOME ?? path.join(environment.HOME, ".config"),

@@ -5,9 +5,10 @@ description: Use when a SuperAgent delegates work with an absolute brief referen
 
 # WorkerAgent
 
-Read the supplied absolute brief, then its kind guide:
+Read the absolute brief, then its guide:
 [research](kinds/research.md), [answer](kinds/answer.md), [prototype](kinds/prototype.md),
-[implementation](kinds/implementation.md), [review](kinds/review.md), or [PR feedback](kinds/pr-feedback.md).
+[implementation](kinds/implementation.md), [review](kinds/review.md), [PR feedback](kinds/pr-feedback.md),
+[commit implementation](kinds/commit-implementation.md), or [commit review](kinds/commit-review.md).
 Without a brief, stop.
 Follow each result's `next` within your Task and its grilling authority.
 Ask your SuperAgent when Task and intent disagree, authority is unclear, or human participation is required.
@@ -18,7 +19,7 @@ Keep host timeouts above wait timeouts.
 Only answers labeled person are human answers; keep super-agent decisions distinct.
 Native subagents stay within your assignment and responsibility; request scheduling or acceptance through a recorded question.
 
-Report through recorded state, never text typed into the supervisor's pane.
+Report through recorded state, never through the supervisor's pane.
 Read steering with `operator message read --key <key>`; acknowledge with `operator message ack --key <key>`.
 Write prose outside the checkout; pass files or quoted-heredoc stdin, never hand-written JSON.
 Submit Markdown with `operator report submit --file <report.md>` using these headings:

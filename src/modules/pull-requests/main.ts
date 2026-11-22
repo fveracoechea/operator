@@ -673,6 +673,13 @@ function waitWithNote(input: Request & { timeoutSeconds: number }) {
  * verified merge, and the SuperAgent can repeat it after a failure.
  */
 export const PullRequests = {
+  /** Both delivery tails use the same fresh-launch continuation and recovery machinery. */
+  startKindHandoff(
+    paths: Parameters<typeof startHandoff>[0],
+    target: Parameters<typeof startHandoff>[1],
+  ) {
+    return startHandoff(paths, target);
+  },
   stack(input: Parameters<typeof stack>[0]) {
     return stack(input);
   },

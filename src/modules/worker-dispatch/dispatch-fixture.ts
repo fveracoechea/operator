@@ -146,6 +146,8 @@ export async function removeDevices() {
 export async function dispatchDevice(options: { deferPreparation?: boolean } = {}) {
   spyOn(Environment, "read").mockReturnValue({
     ...Environment.read(),
+    OPENCODE_SESSION_ID: undefined,
+    CLAUDE_CODE_SESSION_ID: undefined,
     ...gitEnv,
     HERDR_SOCKET_PATH: socket,
   });

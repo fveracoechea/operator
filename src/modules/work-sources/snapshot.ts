@@ -349,12 +349,14 @@ function validRecords(
     reports: { assignment: string; launchId: string }[];
     questions: Question[];
     messages: Message[];
-  } & Parameters<typeof reviewsConsistent>[0],
+  } & Parameters<typeof reviewsConsistent>[0] &
+    Parameters<typeof commitRecordsValid>[0],
 ) {
   return (
     validQuestions(source) &&
     validMessages(source) &&
     reviewsConsistent(source) &&
+    commitRecordsValid(source) &&
     source.reports.every(
       (report) =>
         source.assignments.some(
@@ -556,12 +558,63 @@ function sourceStateValid(source: { state: string; assignments: AssignmentState[
     : source.state === expected;
 }
 
+function commitRecords(input: StoredSource) {
+  return (input.commitDeliveries ?? []).map((row) => ({
+    ...row,
+    data: DeviceState.commitDeliverySchema().parse(JSON.parse(row.data)),
+  }));
+}
+
+function commitRecordsValid(source: {
+  id: string;
+  repository: string;
+  plan: Plan;
+  assignments: AssignmentState[];
+  commitDeliveries: ReturnType<typeof commitRecords>;
+  launches: Launch[];
+}) {
+  return (
+    source.assignments.every(
+      (row) =>
+        row.completion !== "commit" ||
+        row.state !== "completed" ||
+        source.commitDeliveries.some(
+          (item) => item.assignment === row.key && item.data.stage === "complete",
+        ),
+    ) &&
+    source.commitDeliveries.every((row) => {
+      const planned = source.plan.assignments.find((item) => item.key === row.assignment);
+      const assignment = source.assignments.find((item) => item.key === row.assignment);
+      const implementer = row.data.implementer;
+      return (
+        planned?.completion === "commit" &&
+        assignment?.completion === "commit" &&
+        row.sourceId === source.id &&
+        row.data.repository === source.repository &&
+        row.revision > 0 &&
+        Number.isInteger(row.revision) &&
+        JSON.stringify(row.data.policy.checks) === JSON.stringify(planned.delivery.checks) &&
+        row.data.ticket === planned.trackerKey &&
+        (assignment.state === "completed") === (row.data.stage === "complete") &&
+        (implementer === null ||
+          source.launches.some(
+            (launch) =>
+              launch.id === implementer &&
+              launch.assignment === row.assignment &&
+              launch.kind?.completion === "commit",
+          ))
+      );
+    })
+  );
+}
+
 export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
     state: z.enum(["open", "finished", "reset"]).parse(input.source.state),
     plan: storedPlanSchema.parse(JSON.parse(input.source.plan)),
     assignments: z.array(assignmentStateSchema).parse(input.assignments),
+    commitDeliveries: commitRecords(input),
     launches: z.array(launchSchema).parse(input.launches),
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
     reports: z.array(reportSchema).parse(input.reports),

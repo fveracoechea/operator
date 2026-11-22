@@ -7,6 +7,21 @@ import { migrationsFolder } from "./database.ts";
 import { idleForMigration, migrationBlockers } from "./migration-policy.ts";
 import { insertRow } from "./state-fixture.ts";
 
+test("commit delivery holds upgrades across process death until partial effects are reconciled", () => {
+  using db = new Database(":memory:");
+  migrate(drizzle(db), { migrationsFolder });
+  insertRow(db, "commit_deliveries", {
+    source_id: "s",
+    assignment: "a",
+    revision: 1,
+    data: JSON.stringify({ stage: "remote" }),
+  });
+  expect(idleForMigration(db, 29).tag).toBe("Ok");
+  expect(idleForMigration(db, 30)).toMatchObject({ error: { reason: "state_migration_blocked" } });
+  db.query("UPDATE commit_deliveries SET data = ?").run(JSON.stringify({ stage: "complete" }));
+  expect(idleForMigration(db, 30).tag).toBe("Ok");
+});
+
 test("delivery migration guards are prefix-aware and keep unresolved requests after process death", () => {
   using db = new Database(":memory:");
   migrate(drizzle(db), { migrationsFolder });

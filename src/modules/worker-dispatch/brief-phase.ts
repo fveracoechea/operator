@@ -6,6 +6,7 @@ type Facts = {
   pullRequest: { mergedAt: string | null; readiness?: object | null } | null;
   review: { state: "reviewing" | "ready" | "skipped"; rounds: number } | null;
   internalReview: boolean;
+  commitDelivery?: { implementer: string | null; rounds: object[]; stage: string };
 };
 
 // Decoded record facts need not describe a reachable command history. This projection preserves
@@ -29,6 +30,14 @@ export function briefPhase(facts: Facts) {
       parked: false,
     },
     internalReview: facts.internalReview,
+    commit:
+      facts.commitDelivery === undefined
+        ? undefined
+        : {
+            reviewing: facts.commitDelivery.implementer !== null,
+            rounds: facts.commitDelivery.rounds.length,
+            delivered: facts.commitDelivery.stage === "complete",
+          },
     reviewSkipped: facts.review?.state === "skipped",
     // Stryker disable next-line BooleanLiteral: equivalent: this observation has no event, so decidePhase reads worktreeClean only in guards it does not evaluate
     worktreeClean: true,

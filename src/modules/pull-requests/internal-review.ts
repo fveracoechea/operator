@@ -51,7 +51,10 @@ export function reviewEnded(owner: Pick<Owner, "readiness">) {
  * Closing the implementer's pane ends the associate process, so the handoff runs in its own
  * process group from the controlling checkout. A start that fails stays visible as stopped.
  */
-export function startHandoff(paths: Paths, owner: Owner) {
+export function startHandoff(
+  paths: Paths,
+  owner: Pick<Owner, "sourceId" | "assignment" | "checkout">,
+) {
   return fromPromise(
     async () =>
       ToolInvocation.detach({

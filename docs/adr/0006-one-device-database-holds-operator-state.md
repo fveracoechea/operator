@@ -6,6 +6,7 @@ Amended 2026-11-17 in #422: stack effects keep durable pinned progress and refus
 Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): every stack write retains prior intent and observation-based recovery.
 
 Accepted - 2026-10-24.
+Amended 2026-11-21: commit delivery journals its pinned cross-system effects separately (ADR-0034).
 Decided in #204, #208, #231, and #232.
 Implemented in #240, with automatic compatibility in #245.
 Amended 2026-11-04: a plan can cap its own running assignments, and the device still has no agent quota.

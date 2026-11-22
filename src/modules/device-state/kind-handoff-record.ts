@@ -12,7 +12,10 @@ export function recordKindHandoff(
   nextKind: string,
   at = new Date().toISOString(),
   queuedParking = false,
-): Result<undefined, Refusal & { reason: "handoff_running" | "pr_delivery_running" }> {
+): Result<
+  undefined,
+  Refusal & { reason: "handoff_running" | "pr_delivery_running" | "commit_delivery_running" }
+> {
   const idle = deliveryIdle(db, target.sourceId, target.assignment, queuedParking);
   if (idle.tag !== "Ok") return idle;
   const key = and(
