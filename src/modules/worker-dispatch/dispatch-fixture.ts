@@ -192,6 +192,7 @@ export async function dispatchDevice(options: { deferPreparation?: boolean } = {
               detail: "fresh ready",
             });
           }
+
           // A deferred hook finishes after Herdr answers, so dispatch waits for its record.
           if (options.deferPreparation) setTimeout(finish, 300);
           else finish();

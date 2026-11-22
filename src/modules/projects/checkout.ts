@@ -14,6 +14,7 @@ export type CheckoutFailure = ResultContext & {
     | "linked_checkout";
   detail: string;
 };
+
 export type Checkout = { checkout: string; repositories: string[] };
 
 export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutFailure> {

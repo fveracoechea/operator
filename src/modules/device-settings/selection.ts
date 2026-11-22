@@ -9,6 +9,7 @@ export type SelectionRequest = {
   profile?: string;
   overrides?: Partial<LaunchSelection>;
 };
+
 export type SelectionFailure = ResultContext & {
   reason: "profile_missing" | "selection_incomplete";
   detail: string;

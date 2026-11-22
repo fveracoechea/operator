@@ -33,11 +33,15 @@ import { removeStateDirectory } from "./project-files.ts";
 import { deliveryIdle } from "./delivery-guards.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
+
 /** A source without its supervisor, which a wait or a dispatch claims later and next actions never read. */
 export type StoredSource = Omit<SourceRow, "supervisingPane" | "supervisingSession">;
+
 /** The Herdr pane and the agent session of a coordination command. Either can be unknown. */
 export type Supervisor = { pane: string | null; session: string | null };
+
 export type AssignmentRow = typeof assignments.$inferSelect;
+
 export type SourceFailure =
   | StateFailure
   | (ResultContext & {

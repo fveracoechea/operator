@@ -157,6 +157,7 @@ test("a source holds its project until it has ended with a final state", () => {
         },
       };
     }
+
     const label = `${state} ${endedAt}`;
     if (held) {
       expect(moveProject(db, "owner/one", "/alternate"), label).toMatchObject(refusal("moving"));

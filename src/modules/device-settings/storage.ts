@@ -20,6 +20,7 @@ export const receiptSchema = z.strictObject({
   nextIdentity: z.string(),
   state: z.enum(["pending", "complete", "aborted"]),
 });
+
 export type Receipt = z.infer<typeof receiptSchema>;
 
 export function isIoFailure(error: Error) {

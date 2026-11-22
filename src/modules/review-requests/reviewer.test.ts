@@ -784,6 +784,7 @@ test("a cleanup is claimed only when work is left and no other process runs it",
       },
     };
   }
+
   for (const cleanupState of [null, "done"]) {
     held({ state: "closed", cleanupState, ownerPid: null, leaseAt: null });
     expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged(cleanupState));

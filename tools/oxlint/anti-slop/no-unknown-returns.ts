@@ -38,6 +38,7 @@ export const noUnknownReturnsRule = defineRule({
       });
       if (unknown) context.report({ node: annotation, messageId: "unknownReturn" });
     }
+
     return parameterOwnerVisitor(check);
   },
 });

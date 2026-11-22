@@ -10,5 +10,6 @@ export function descendants(root: number, ps: string): number[] {
   function under(pid: number): number[] {
     return [pid, ...(children.get(pid) ?? []).flatMap(under)];
   }
+
   return under(root);
 }

@@ -307,6 +307,7 @@ function observeSources(
             ).every((key) => previous.launch[key] === launch[key])
           );
         }
+
         const changedIds = new Set(
           observed
             .filter(({ launch, resources }) => {
@@ -663,6 +664,7 @@ export const WorkSources = {
         },
       });
     }
+
     const findings: z.infer<typeof findingSchema>[] = [];
     let heading = false;
     for (const [index, raw] of text.split(/\r?\n/).entries()) {

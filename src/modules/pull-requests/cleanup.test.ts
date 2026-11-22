@@ -16,6 +16,7 @@ async function cleanup(...args: Parameters<typeof cleanupWorkflow>) {
     expectRefusalContext(result.error);
   return result;
 }
+
 import {
   commit,
   failed,
@@ -857,6 +858,7 @@ test("each recorded result releases the cleanup claim and the lease", async () =
     const row = read.tag === "Ok" ? read.value[0]?.cleanups[0] : undefined;
     return [row?.state, row?.ownerPid];
   }
+
   owner.herdr.pane.mockReturnValue(
     ErrAsync({ reason: "herdr_failed" as const, detail: "herdr exited 1", next: cleanupDecision }),
   );

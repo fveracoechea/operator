@@ -13,7 +13,7 @@ test.each([
 
 test("accepts domain types and explicit unknown parse boundaries", async () => {
   const valid = await check(
-    'export type Item = { id: string; cause?: unknown }; export function isText(input: unknown): input is string { return typeof input === "string"; }',
+    'export type Item = { id: string; cause?: unknown };\n\nexport function isText(input: unknown): input is string { return typeof input === "string"; }',
   );
   expect(valid.codes).toEqual([]);
 });

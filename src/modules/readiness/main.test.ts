@@ -66,6 +66,7 @@ function stub<T extends object, K extends keyof T>(object: T, key: K) {
   restorable.push(spy);
   return spy;
 }
+
 let scenarios = 0;
 async function scenario(input: { host?: string; tools: string[] }) {
   scenarios += 1;

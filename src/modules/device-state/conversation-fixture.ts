@@ -69,6 +69,7 @@ export function running(db: Database, assignment = "read", paneId = "w1:p1") {
 
 /** The worker's pane of `read`, and the SuperAgent's selector of the same assignment. */
 export const pane = { by: "pane", socket: "/herdr.sock", paneId: "w1:p1" } as const;
+
 export const key = {
   by: "key",
   repository: "owner/one",

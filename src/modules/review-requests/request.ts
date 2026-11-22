@@ -19,11 +19,17 @@ import {
 import { headLimitSchema } from "./review-body.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
+
 export type Failure = Refusal;
+
 export type Snapshot = OkOf<ReturnType<typeof DeviceState.readReviewRequest>>;
+
 export type Row = NonNullable<Snapshot["request"]>;
+
 export type Round = Snapshot["rounds"][number];
+
 export type Operation = Snapshot["operations"][number];
+
 type Payload = {
   insert?: Pick<Row, "id" | "repository" | "number" | "url" | "origin" | "state"> & {
     slackThread?: string | null;
@@ -45,6 +51,7 @@ const syncSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type Sync = z.infer<typeof syncSchema>;
+
 export type Outcome = { reason: string; data: object };
 
 /** A thrown file-system failure is an I/O failure. Any other cause is a defect. */

@@ -6,8 +6,11 @@ import { Projects } from "../projects/main.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
+
 export type Failure = ResultContext & { reason: string; detail: string };
+
 export type Target = Parameters<typeof DeviceState.readQuestion>[1];
+
 export type Selector = {
   paths: Paths;
   cwd: string;

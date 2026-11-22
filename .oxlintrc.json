@@ -3,12 +3,17 @@
   "categories": { "correctness": "error" },
   "options": { "typeAware": true, "typeCheck": false },
   "jsPlugins": [
+    { "name": "stylistic", "specifier": "@stylistic/eslint-plugin" },
     { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
     { "name": "unthrown", "specifier": "@unthrown/oxlint" },
     { "name": "custom-tests", "specifier": "./tools/oxlint/custom-tests/index.ts" },
     { "name": "operator", "specifier": "./tools/oxlint/operator/index.ts" }
   ],
   "rules": {
+    "stylistic/padding-line-between-statements": [
+      "error",
+      { "blankLine": "always", "prev": ["function", "export"], "next": "*" }
+    ],
     "operator/env-through-schema": [
       "error",
       {

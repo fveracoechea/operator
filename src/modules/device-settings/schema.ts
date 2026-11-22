@@ -6,10 +6,12 @@ export const selectionSchema = z.strictObject({
   model: z.string().trim().min(1).optional(),
   reasoningEffort: z.string().trim().min(1).optional(),
 });
+
 export const profileNameSchema = z
   .string()
   .regex(/^[a-z][a-z0-9-]{0,63}$/)
   .refine((name) => name !== "constructor" && name !== "prototype");
+
 /** A GitHub repository as owner/repository, in lowercase, the way a registration records it. */
 const repositorySchema = z.string().regex(/^[a-z\d][a-z\d-]{0,38}\/[a-z\d._-]{1,100}$/);
 /** A GitHub login, as `gh pr view` reports the PR author. Never a Slack name. */
@@ -42,6 +44,7 @@ export const settingsSchema = z.strictObject({
     })
     .optional(),
 });
+
 export type DeviceConfig = z.infer<typeof settingsSchema>;
 
 /** The one rendering of the editor schema, shared by the release artifact and settings edits. */

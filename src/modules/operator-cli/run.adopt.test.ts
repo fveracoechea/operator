@@ -20,6 +20,7 @@ beforeEach(async () => {
     expect(result.code, result.stderr).toBe(0);
     return result.stdout.trim();
   }
+
   await git("init", "-q", "--bare", "-b", "main", remote);
   await git("config", "url." + remote + ".insteadOf", "https://github.com/example/one.git");
   await git("remote", "add", "identity", "https://github.com/example/one");

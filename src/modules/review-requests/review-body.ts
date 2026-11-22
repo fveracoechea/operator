@@ -2,7 +2,9 @@ import { z } from "zod";
 import type { AcceptedDraft, Findings } from "./draft.ts";
 
 export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
+
 export const markerPrefix = "<!-- operator-review ";
+
 type EventFacts = {
   accepted: AcceptedDraft;
   /** The PR author is the posting account, which GitHub does not let approve or request changes. */
@@ -130,6 +132,7 @@ export const headLimitSchema = z.object({
   head: z.string(),
   moves: z.number().int(),
 });
+
 export type HeadLimit = z.infer<typeof headLimitSchema>;
 
 /**

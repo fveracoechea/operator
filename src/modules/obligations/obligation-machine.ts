@@ -3,7 +3,9 @@ import type { states } from "./content.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type ObligationCommand = "add" | "close";
+
 export type ObligationState = (typeof states)[number];
+
 type Facts = {
   command: ObligationCommand;
   source: { id: string; state: string };

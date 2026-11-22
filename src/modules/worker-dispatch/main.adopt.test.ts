@@ -135,6 +135,7 @@ async function adoptionDevice(
     const shown = await WorkSources.show(request);
     return (shown.getOr(undefined)?.launches ?? []).filter((row) => row.assignment === "adopted");
   }
+
   function brief() {
     return Bun.file(
       OperatorHome.assignmentFiles(device.paths, {
@@ -144,6 +145,7 @@ async function adoptionDevice(
       }).brief,
     ).text();
   }
+
   return Object.assign(device, { head, github, request, launches, brief });
 }
 

@@ -678,6 +678,7 @@ async function pendingQueueRefusal() {
       JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
     );
   }
+
   expect(parking().queueRefusal).toMatchObject({ head, attempt: parking().queueAttempt });
   return { ...fixture, parking };
 }

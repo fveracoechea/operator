@@ -12,11 +12,13 @@ const next = z.union([
 export function expectRefusalContext(value: Partial<ResultContext> & { reason: string }) {
   z.looseObject({ next, state: z.record(z.string(), z.unknown()).optional() }).parse(value);
 }
+
 export const workflowOutputSchema = z.looseObject({
   outcome: z.string(),
   reason: z.string(),
   next: next.optional(),
 });
+
 type WorkflowOutput = z.infer<typeof workflowOutputSchema>;
 /** A refusal envelope has a recovery instruction and at most three text lines. */
 export function expectRefusalOutput(output: WorkflowOutput, stderr: string) {

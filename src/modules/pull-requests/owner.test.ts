@@ -288,9 +288,11 @@ test("a running owner wins a reused worktree path, in either record order", asyn
         add: order === "failed first",
       });
     }
+
     function runningStart() {
       return device.start("parent", { worktree: shared, add: order !== "failed first" });
     }
+
     const first = order === "failed first" ? failedStart() : runningStart();
     const second = order === "failed first" ? runningStart() : failedStart();
     const running = order === "failed first" ? second : first;

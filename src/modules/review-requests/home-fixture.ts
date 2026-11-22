@@ -10,7 +10,9 @@ import { OperatorHome } from "../operator-home/main.ts";
 import type { Paths, Row } from "./request.ts";
 
 export const url = "https://github.com/example/one/pull/7";
+
 export const target = { repository: "example/one", number: 7, url };
+
 /** Another PR of the same project, for a second open request. */
 export function otherPr(number: number) {
   return {
@@ -19,8 +21,11 @@ export function otherPr(number: number) {
     url: `https://github.com/example/one/pull/${number}`,
   };
 }
+
 export const h1 = "1".repeat(40);
+
 export const h2 = "2".repeat(40);
+
 export const h3 = "3".repeat(40);
 
 /**

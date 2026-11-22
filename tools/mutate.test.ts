@@ -410,6 +410,7 @@ test("exact", () => {
       started: [...new Set([...logged, ...timedOut])].filter((id) => id !== "dry run").toSorted(),
     };
   }
+
   /** The killed and survived verdicts of a run, by mutant id. Only these are stored for reuse. */
   function verdicts(run: Awaited<ReturnType<typeof rerun>>) {
     return Object.fromEntries(
@@ -418,6 +419,7 @@ test("exact", () => {
         .map(({ id, status }) => [id, status]),
     );
   }
+
   const first = await rerun();
   expect(first.code).toBe(3);
   // Only the mutants without a stored killed or survived verdict run again. The loop always times out.
@@ -661,6 +663,7 @@ test("removing the summary's guidance topic makes its real check fail", async ()
     const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
     return { code, stderr };
   }
+
   expect((await check()).code).toBe(0);
   await Bun.file(path.join(cwd, topic)).delete();
   const broken = await check();

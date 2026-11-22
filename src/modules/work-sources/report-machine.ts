@@ -4,6 +4,7 @@ import { complete } from "./source-machine.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type ReportCommand = "submit" | "resume" | "accept" | "promote" | "return" | "cleanup";
+
 type Pane = { socket: string | null; paneId: string | null };
 type Facts = {
   command: ReportCommand;

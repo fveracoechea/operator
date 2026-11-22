@@ -28,6 +28,7 @@ export const submissionSchema = z
     if (new Set(names).size !== names.length)
       context.addIssue({ code: "custom", message: "Supporting file names must be unique." });
   });
+
 export type Submission = z.infer<typeof submissionSchema>;
 
 const headings = new Set([
@@ -47,6 +48,7 @@ const markdownSubmission = z
       // Stryker disable next-line StringLiteral: no rule: Zod's internal issue code is not part of the report input contract
       context.addIssue({ code: "custom", message });
     }
+
     const sections = new Map<string, string[]>();
     let current: string[] | undefined;
     for (const line of text.replaceAll("\r\n", "\n").split("\n")) {
@@ -66,6 +68,7 @@ const markdownSubmission = z
       // Stryker disable next-line ArrayDeclaration: equivalent: a missing section already records a parse issue, so fallback content cannot produce a submission
       return (sections.get(heading) ?? []).join("\n");
     }
+
     function bullets(heading: string) {
       const items: string[] = [];
       for (const line of section(heading).split("\n")) {
@@ -80,6 +83,7 @@ const markdownSubmission = z
       }
       return items.length === 1 && items[0] === "None." ? [] : items;
     }
+
     function decisions(heading: string, by: "person" | "super-agent") {
       return bullets(heading).map((item) => {
         const separator = item.indexOf(" Answer: ");
@@ -87,6 +91,7 @@ const markdownSubmission = z
         return { question: item.slice(0, separator), answer: item.slice(separator + 9), by };
       });
     }
+
     return {
       conclusion: section("Conclusion"),
       evidence: bullets("Evidence"),

@@ -23,6 +23,7 @@ function fixture() {
   registerProject(db, { repository: "owner/one", checkout: "/one", registeredAt: "now" });
   return db;
 }
+
 const target = { repository: "owner/one", number: 7 };
 const identity = {
   id: "r1",

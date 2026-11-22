@@ -2,6 +2,7 @@ import { isCodedError } from "../../lib/coded-error.ts";
 
 // The owner renews its lease while it runs. The stale limit also covers a reused process id.
 export const leaseRenewMs = 15000;
+
 const leaseStaleMs = 300000;
 
 /** A held record whose owner process is gone, or whose lease is stale, holds nothing. */

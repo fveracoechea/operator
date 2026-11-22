@@ -9,6 +9,7 @@ import type { StateFailure } from "./failures.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type ReportRow = typeof reports.$inferSelect;
+
 type LaunchRow = typeof launches.$inferSelect;
 
 /** A worker is found by its recorded pane. A SuperAgent names the assignment from its checkout. */

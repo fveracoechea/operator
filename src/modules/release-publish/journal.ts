@@ -22,6 +22,7 @@ export const journalSchema = z.strictObject({
 });
 
 export type PublicationJournal = z.infer<typeof journalSchema>;
+
 export type PathRecord = z.infer<typeof pathRecord>;
 
 export type JournalRead =

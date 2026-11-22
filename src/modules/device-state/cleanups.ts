@@ -8,12 +8,14 @@ import type { StateFailure } from "./failures.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type CleanupRow = typeof cleanups.$inferSelect;
+
 export type CleanupFailure =
   | StateFailure
   | (ResultContext & {
       reason: "source_not_found" | "cleanup_not_found" | "cleanup_running";
       detail: string;
     });
+
 type Claimed = {
   cleanup: CleanupRow;
   pullRequest: typeof pullRequests.$inferSelect;

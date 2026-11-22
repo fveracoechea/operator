@@ -14,6 +14,7 @@ function decideRemoteBranch(...args: Parameters<typeof remoteBranchDecision>) {
   if (result.action === "blocked") expectRefusalContext(result);
   return result;
 }
+
 function decideWorktree(...args: Parameters<typeof worktreeDecision>) {
   const result = worktreeDecision(...args);
   if (result.action === "blocked") expectRefusalContext(result);
@@ -153,10 +154,12 @@ test("each blocked decision explains what the person must do", () => {
   function names(count: number) {
     return Array.from({ length: count }, (_, i) => `f${i}`);
   }
+
   function listed(count: number) {
     const decision = decideWorktree({ ...clean, changed: names(count) });
     return "detail" in decision ? decision.detail : "";
   }
+
   expect(listed(20)).toBe(`/w holds changed or untracked ${names(20).join(", ")}. ${person}`);
   expect(listed(21)).toBe(
     `/w holds changed or untracked ${names(20).join(", ")}, and 1 more. ${person}`,

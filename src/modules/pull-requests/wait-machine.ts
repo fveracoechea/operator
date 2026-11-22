@@ -7,6 +7,7 @@ export const progressSchema = z.object({
   failures: z.array(z.string()),
   eligibleHead: z.string().nullable(),
 });
+
 type Progress = z.infer<typeof progressSchema>;
 
 export type MergeConditions = {
@@ -21,6 +22,7 @@ export type MergeConditions = {
   /** Compatibility wire name for the explicit pr_ready transition, not the review's end. */
   reviewEnded: boolean;
 };
+
 type WaitEvent =
   | { kind: "feedback"; items: FeedbackItem[] }
   | { kind: "checks_failed"; head: string; checks: Check[] }
@@ -82,6 +84,7 @@ function unseenFailures({ progress, observed }: Facts) {
 function feedbackKey(item: FeedbackItem) {
   return item.version === undefined ? item.id : JSON.stringify([item.id, item.version]);
 }
+
 function failureKey(head: string, check: Check) {
   return check.generation === undefined
     ? `${head}:${check.name}`

@@ -123,6 +123,7 @@ export async function verifyRegistryInstall(
         request.installTimeoutMs ?? INSTALL_TIMEOUT_MS,
       );
     }
+
     let installed = await install();
     // Each later attempt has a fixed number, so the retries are bounded.
     for (const next of Array.from({ length: request.attempts - 1 }, (_, index) => index + 2)) {

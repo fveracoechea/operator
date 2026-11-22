@@ -331,6 +331,7 @@ async function handedOff(source: string) {
       state.launches.every((launch) => launch.state !== "starting")
     );
   }
+
   let state = await shown(source);
   for (let attempt = 0; attempt < 300 && !settled(state); attempt++) {
     await Bun.sleep(100);

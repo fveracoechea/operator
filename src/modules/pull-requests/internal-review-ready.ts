@@ -57,6 +57,7 @@ function renderSummary(input: {
       .map(({ finding, item }) => findingLine(finding, item));
     return lines.length === 0 ? "- None." : lines.join("\n");
   }
+
   const count = input.rounds.length === 1 ? "1 round" : `${input.rounds.length} rounds`;
   return `**Internal review**: ${count}, at \`${input.head}\`.
 

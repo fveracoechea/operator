@@ -141,6 +141,7 @@ const reportSchema = z.object({
   cleanupDetail: z.string().nullable(),
 });
 export type Report = z.infer<typeof reportSchema>;
+
 // A verified merge records its ordered cleanup. Next actions read where it stopped.
 const cleanupSchema = z.object({
   assignment: z.string(),
@@ -186,6 +187,7 @@ export const findingSchema = z.strictObject({
   location: z.string().trim().min(1),
   claim: z.string().trim().min(1),
 });
+
 export type Finding = z.infer<typeof findingSchema>;
 
 const roundSchema = z.object({
@@ -380,6 +382,7 @@ const promotionSchema = z.object({
   promotedAt: z.string(),
 });
 export type Promotion = z.infer<typeof promotionSchema>;
+
 type Plan = z.infer<typeof storedPlanSchema>;
 
 /**
@@ -479,6 +482,7 @@ function stackRecordsValid(
       (row.branch === undefined || launch.branch === row.branch)
     );
   }
+
   function parentsValid(parents: ReturnType<typeof PrStacks.decode>["parents"]) {
     return (
       new Set(parents.map((parent) => parent.assignment)).size === parents.length &&
@@ -488,6 +492,7 @@ function stackRecordsValid(
       })
     );
   }
+
   return (
     stackGraphValid(planned, source.stackBases, source.stackOperations) &&
     source.stackBases.every(

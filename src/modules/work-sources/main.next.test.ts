@@ -270,6 +270,7 @@ test.each([
         leaseAt: null,
       };
     }
+
     stored([
       storedSource(
         [
@@ -814,6 +815,7 @@ test("an ended source with open cleanup or a live worker is not offered for prun
       reports: [storedReport("a", { decision: "accepted", decidedAt: ended, ...change })],
     });
   }
+
   expect(await prunable(report({ cleanupState: "done" }))).toBe(true);
   expect(await prunable(report({ cleanupState: null }))).toBe(true);
   expect(await prunable(report({ cleanupState: "pending" }))).toBe(false);
@@ -944,6 +946,7 @@ test("a reached running cap holds ready work as a named wait, counting each live
       capped: source?.waits.filter((row) => row.reason === "running_cap_reached"),
     };
   }
+
   expect(await held(2)).toEqual({
     ready: [],
     capped: ["a", "b"].map((assignment) => ({

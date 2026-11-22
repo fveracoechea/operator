@@ -17,6 +17,7 @@ function thread(change: Partial<Thread> = {}): Thread {
     ...change,
   };
 }
+
 function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
   return {
     state: "OPEN",
@@ -34,6 +35,7 @@ function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
     ...change,
   };
 }
+
 function facts(change: Partial<WatchFacts> = {}): WatchFacts {
   return {
     state: "watching",
