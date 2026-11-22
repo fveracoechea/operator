@@ -3,13 +3,15 @@ import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { parseMutationArgs, selectMutationUnits, type MutationUnit } from "./mutation-selection.ts";
 import { mutationGuidance } from "./mutation-policy.ts";
-import { runMutationUnits, type MutationResult } from "./mutation-run.ts";
-import { mutationEvidence } from "./mutation-evidence.ts";
+import type { MutationResult } from "./mutation-run.ts";
+import { runMutationCampaign } from "./mutation-campaign.ts";
+import { mutationStateDirectory, recoverMutationClaim } from "./mutation-claim.ts";
+import { mutationInputIdentity } from "./mutation-snapshot.ts";
 import { z } from "zod";
 import { reportMutationProgress, type MutationProgress } from "./mutation-engine-progress.ts";
 
 const usage =
-  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--keep-going] [--json]";
+  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--keep-going] [--json] | --recover-claim";
 const storedReport = z.looseObject({
   files: z.record(
     z.string(),
@@ -22,15 +24,19 @@ function quote(arg: string): string {
 }
 
 /**
- * The command runner reports no per-test coverage, so Stryker reuses every stored result whose code
- * is unchanged. The file name holds a hash of the mutated ranges, the beside-tests, and the runner,
- * so a changed test reruns the whole unit. Only killed and survived verdicts are kept: a timeout
- * from a busy machine, or a mutant that a new suppression now ignores, runs again.
+ * The command runner has no per-test coverage, so Stryker reuses unchanged stored verdicts.
+ * The filename binds reuse to the admitted snapshot, ranges, tests, and runner.
+ * Any admitted input edit reruns the unit. Only killed and survived verdicts are kept.
  */
-async function incrementalFile(unit: MutationUnit, inputFiles: string[]): Promise<string> {
+async function incrementalFile(
+  unit: MutationUnit,
+  inputFiles: string[],
+  root: string,
+  identity: string,
+): Promise<string> {
   const inputs = await Promise.all(inputFiles.map((file) => Bun.file(file).text()));
-  const hash = Bun.hash(JSON.stringify([unit.patterns, inputs])).toString(16);
-  const file = path.join(process.cwd(), ".mutation-incremental", `${unit.name}.${hash}.json`);
+  const hash = Bun.hash(JSON.stringify([identity, unit.patterns, inputs])).toString(16);
+  const file = path.join(root, ".mutation-incremental", `${unit.name}.${hash}.json`);
   const stored = Bun.file(file);
   if (!(await stored.exists())) return file;
   const report = storedReport.parse(await stored.json());
@@ -42,9 +48,12 @@ async function incrementalFile(unit: MutationUnit, inputFiles: string[]): Promis
   return file;
 }
 
-async function executeMutationUnit(
+export async function executeMutationUnit(
   unit: MutationUnit,
   progress: (progress: MutationProgress) => void,
+  root: string,
+  machine: boolean,
+  identity: string,
 ): Promise<MutationResult[]> {
   const temporary = await mkdtemp(path.join(process.cwd(), ".mutation-"));
   try {
@@ -74,6 +83,8 @@ async function executeMutationUnit(
       incrementalFile: await incrementalFile(
         unit,
         ownRunner ? [...unit.tests, runner] : unit.tests,
+        root,
+        identity,
       ),
       // The full CLI baseline exceeds Stryker's five-minute default.
       dryRunTimeoutMinutes: 30,
@@ -102,6 +113,15 @@ async function executeMutationUnit(
 let machine = false;
 
 async function main(args: string[]): Promise<number> {
+  if (args.length === 1 && args[0] === "--recover-claim") {
+    const result = await recoverMutationClaim(await mutationStateDirectory(process.cwd()));
+    if ("error" in result) {
+      console.error(result.error);
+      return 3;
+    }
+    console.log("Recovered interrupted mutation claim. Historical evidence was preserved.");
+    return 0;
+  }
   if (args.length === 1 && args[0] === "--help") {
     console.log(usage);
     return 0;
@@ -112,31 +132,22 @@ async function main(args: string[]): Promise<number> {
     return 1;
   }
   machine = parsed.json === true;
+  const selectionIdentity = await mutationInputIdentity(process.cwd());
   const selected = await selectMutationUnits(parsed, process.cwd());
   if ("error" in selected) {
     console.error(selected.error);
     return 1;
   }
-  return runMutationUnits(
-    selected,
-    executeMutationUnit,
-    parsed.json
-      ? {
-          log: (line) => console.error(line),
-          error: (line) => console.error(line),
-        }
-      : console,
-    {
-      keepGoing: parsed.keepGoing,
-      event: (event) => mutationEvidence(process.cwd(), parsed.json, console, event),
-    },
-  );
+  return runMutationCampaign(process.cwd(), selected, selectionIdentity, parsed);
 }
 
-try {
-  process.exitCode = await main(process.argv.slice(2));
-} catch (error) {
-  console.error("Mutation execution incomplete:", error);
-  (machine ? console.error : console.log)(`Mutation summary: incomplete. See ${mutationGuidance}.`);
-  process.exitCode = 3;
-}
+if (import.meta.main)
+  try {
+    process.exitCode = await main(process.argv.slice(2));
+  } catch (error) {
+    console.error("Mutation execution incomplete:", error);
+    (machine ? console.error : console.log)(
+      `Mutation summary: incomplete. See ${mutationGuidance}.`,
+    );
+    process.exitCode = 3;
+  }

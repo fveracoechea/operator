@@ -5,6 +5,7 @@ import { chmod, cp, lstat, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { mutationStateDirectory } from "./mutation-claim.ts";
 
 // Most tests run Stryker, which starts several Bun processes, so a busy machine needs time.
 setDefaultTimeout(60_000);
@@ -89,6 +90,89 @@ test("the repository's public script invokes the mutation CLI", async () => {
   const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
   expect(code).toBe(0);
   expect(stdout).toStartWith("Usage: bun run mutate");
+  expect(stdout).toContain("--recover-claim");
+});
+
+test("public claim recovery preserves evidence and refuses active or uncertain owners", async () => {
+  const cwd = await fixture({ "count.ts": "export const count = 1;\n" });
+  const state = await mutationStateDirectory(cwd);
+  await Bun.write(`${state}/claim/owner.json`, "uncertain");
+  const uncertain = await mutate(cwd, ["--recover-claim"]);
+  expect(uncertain.code).toBe(3);
+  expect(uncertain.stderr).toContain("active or uncertain");
+  expect(await Bun.file(`${state}/claim/owner.json`).text()).toBe("uncertain");
+  const extra = await mutate(cwd, ["--recover-claim", "count.ts"]);
+  expect(extra.code).toBe(1);
+  expect(extra.stderr).toContain("Unknown option: --recover-claim");
+  expect(await Bun.file(`${state}/claim/owner.json`).text()).toBe("uncertain");
+  const token = crypto.randomUUID();
+  await Bun.write(
+    `${state}/claim/owner.json`,
+    JSON.stringify({ version: 1, token, pid: process.pid }),
+  );
+  expect((await mutate(cwd, ["--recover-claim"])).code).toBe(3);
+  const dead = Bun.spawn([process.execPath, "--version"], { stdout: "ignore" });
+  await dead.exited;
+  await Bun.write(
+    `${state}/claim/owner.json`,
+    JSON.stringify({ version: 1, token, pid: dead.pid }),
+  );
+  await Bun.write(`${state}/completed.json`, '{"status":"completed"}');
+  const recovered = await mutate(cwd, ["--recover-claim"]);
+  expect(recovered.code, recovered.stderr).toBe(0);
+  expect(recovered.stdout).toBe(
+    "Recovered interrupted mutation claim. Historical evidence was preserved.\n",
+  );
+  expect(await Bun.file(`${state}/completed.json`).text()).toBe('{"status":"completed"}');
+  expect(await Bun.file(`${state}/recovered-${token}/owner.json`).exists()).toBe(true);
+  expect(await Bun.file(`${state}/claim/owner.json`).exists()).toBe(false);
+});
+
+test("unsupported snapshot inputs report incomplete execution without starting tests", async () => {
+  const receipt = `${root}/${crypto.randomUUID()}-forbidden`;
+  const cwd = await fixture({
+    "count.ts": "export const count = 1;\n",
+    "count.test.ts": `await Bun.write(${JSON.stringify(receipt)}, "forbidden");`,
+  });
+  await symlink(`${cwd}/count.ts`, `${cwd}/external-link`);
+  const result = await mutate(cwd, ["count.ts"]);
+  expect(result.code).toBe(3);
+  expect(result.stdout).toBe(
+    "Mutation summary: incomplete. See docs/agents/testing/mutation-testing.md.\n",
+  );
+  expect(result.stderr).toContain("Mutation execution incomplete:");
+  expect(result.stderr).toContain("Unsupported snapshot input: external-link");
+  expect(await Bun.file(receipt).exists()).toBe(false);
+});
+
+test("a new snapshot invalidates historical engine results after imported or fixture source edits", async () => {
+  const receipt = `${root}/${crypto.randomUUID()}-snapshot-executions`;
+  const cwd = await fixture({
+    "count.ts": "export function count(n: number) { return n + 1; }\n",
+    "helper.ts": 'export const label = "first";\n',
+    "data.txt": "first",
+    "count.test.ts": `import { expect, test } from "bun:test";
+import { appendFileSync } from "node:fs";
+import { count } from "./count.ts";
+import { label } from "./helper.ts";
+test("actual snapshot execution", async () => {
+  appendFileSync(${JSON.stringify(receipt)}, "executed\\n");
+  expect(["first", "second"]).toContain(label);
+  expect(["first", "second"]).toContain(await Bun.file("data.txt").text());
+  expect(count(1)).toBe(2);
+});`,
+  });
+  const first = await mutate(cwd, ["count.ts"]);
+  expect(first.code, first.stdout + first.stderr).toBe(0);
+  expect(await Bun.file(receipt).text()).toBe("executed\n".repeat(3));
+  await Bun.write(`${cwd}/helper.ts`, 'export const label = "second";\n');
+  const imported = await mutate(cwd, ["count.ts"]);
+  expect(imported.code, imported.stdout + imported.stderr).toBe(0);
+  expect(await Bun.file(receipt).text()).toBe("executed\n".repeat(6));
+  await Bun.write(`${cwd}/data.txt`, "second");
+  const fixtureEdit = await mutate(cwd, ["count.ts"]);
+  expect(fixtureEdit.code, fixtureEdit.stdout + fixtureEdit.stderr).toBe(0);
+  expect(await Bun.file(receipt).text()).toBe("executed\n".repeat(9));
 });
 
 test("sandbox tests can execute the source CLI that Stryker copies without its executable mode", async () => {
@@ -141,7 +225,7 @@ test("a mutant's first test failure stops before the next test's effects", async
   const cwd = await fixture({
     "count.ts": "export function count(n: number) { return n + 1; }\n",
   });
-  const receipt = path.join(cwd, "second-test-receipt.txt");
+  const receipt = path.join(root, `${crypto.randomUUID()}-second-test-receipt.txt`);
   await Bun.write(receipt, "");
   await Bun.write(
     path.join(cwd, "count.test.ts"),
@@ -347,7 +431,7 @@ test.each([0o700, 0o755])(
     const repository = path.resolve(import.meta.dir, "..");
     const original = path.join(repository, "src/cli.ts");
     const copied = path.join(cwd, "src/cli.ts");
-    const receipt = path.join(cwd, "source-command-receipt.json");
+    const receipt = path.join(root, `${crypto.randomUUID()}-source-command-receipt.json`);
     await cp(path.join(repository, "src"), path.join(cwd, "src"), { recursive: true });
     await cp(path.join(repository, "skills"), path.join(cwd, "skills"), { recursive: true });
     await Bun.write(
@@ -977,7 +1061,8 @@ process.exit(await child.exited);\n`,
   // One dry run and one run for each of the two mutants.
   expect(runs).toHaveLength(3);
   for (const recorded of runs) {
-    expect(recorded.runner).toBe(path.join(cwd, "tools/test-watchdog.ts"));
+    expect(recorded.runner).toStartWith(`${cwd}/.mutation-`);
+    expect(recorded.runner).toEndWith("/snapshot/tools/test-watchdog.ts");
     expect(recorded.cwd).toMatch(/\/\.mutation-\w+\/sandbox\/sandbox-\w+$/);
     expect(recorded.args).toEqual(["--bail", "./src/lib/count.test.ts"]);
   }

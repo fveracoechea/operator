@@ -27,6 +27,7 @@ type UnitEvidence = {
 };
 export type MutationEvent = {
   version: 1;
+  admission?: { identity: string; current: boolean | null; reason?: string };
   runId: string;
   sequence: number;
   type:
