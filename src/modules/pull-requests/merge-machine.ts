@@ -109,6 +109,7 @@ export function verifiedMerge(observed: Observation, head: string | null) {
 
 // The background merge gets two minutes of reads, one each second, before the owner repeats it.
 export const mergeRequestReads = 120;
+
 export const mergeRequestReadMs = 1000;
 
 type MergeRequestStep =

@@ -31,6 +31,7 @@ export const jsrFakeStateSchema = z.object({
   published: z.array(z.string()),
   client: z.enum(["publishes", "refuses", "publishes-then-fails"]),
 });
+
 export type JsrFakeState = z.infer<typeof jsrFakeStateSchema>;
 
 export type JsrFake = {

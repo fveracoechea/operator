@@ -5,10 +5,12 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type Host = "opencode" | "claude-code";
+
 export type HostFailure = ResultContext & {
   reason: "host_unavailable" | "host_metadata_failed" | "unsupported_model" | "unsupported_effort";
   detail: string;
 };
+
 export type Model = { model: string; resolvedModel?: string; efforts: string[] };
 
 const claudeCatalog = z.array(

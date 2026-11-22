@@ -325,6 +325,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
   function row(state: string) {
     return [{ sourceId: "one", key: "change", kind: null, completion: "pr", state }];
   }
+
   const open = {
     source,
     assignments: row("pr-open"),

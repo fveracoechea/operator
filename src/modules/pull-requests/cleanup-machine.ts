@@ -2,6 +2,7 @@ import type { ResultContext } from "../../lib/cli-result.ts";
 
 /** The declared cleanup order after a verified merge. */
 export const cleanupSteps = ["remote_branch", "pane", "worktree"] as const;
+
 export type CleanupStep = (typeof cleanupSteps)[number];
 
 export function nextStep(step: CleanupStep): CleanupStep | null {

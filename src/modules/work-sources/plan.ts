@@ -25,6 +25,7 @@ function validBranch(value: string) {
     .split("/")
     .every((part) => part !== "" && !part.startsWith(".") && !part.endsWith(".lock"));
 }
+
 // The person's own words, kept apart from the SuperAgent's instructions. An assignment's value
 // wins over the plan's.
 const intent = z.string().trim().min(1).optional();
@@ -189,6 +190,7 @@ export function configuredPlanSchema(
       return parsed.data;
     });
 }
+
 export const planSchema = configuredPlanSchema();
 
 /**

@@ -11,6 +11,7 @@ import type { ResultContext } from "../../lib/cli-result.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
+
 export type Failure = ResultContext & { reason: string; detail: string };
 
 const preparationWaitMs = 600000;
@@ -109,6 +110,7 @@ export function parentBase(checkout: string, branch: string) {
         // Stryker disable next-line ConditionalExpression: equivalent: an invocation that did not complete has no exit code, so the exit check alone refuses it
         return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
       }
+
       const ref = `refs/operator/parents/${crypto.randomUUID()}`;
       const remote = await git(["config", `branch.${branch}.remote`]);
       // A failed fetch leaves the private ref absent, so the read below fails as well.

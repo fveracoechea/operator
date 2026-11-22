@@ -137,6 +137,7 @@ test("a dependent carries the latest accepted report of each direct dependency",
       dependencies,
     };
   }
+
   function launch(assignment: string) {
     return {
       id: `l-${assignment}`,
@@ -173,6 +174,7 @@ test("a dependent carries the latest accepted report of each direct dependency",
       abandoned: false,
     };
   }
+
   function report(assignment: string, number: number, decision: string | null) {
     return {
       sourceId: "one",
@@ -192,6 +194,7 @@ test("a dependent carries the latest accepted report of each direct dependency",
       cleanupDetail: null,
     };
   }
+
   function state(key: string, value: string) {
     return {
       sourceId: "one",
@@ -201,6 +204,7 @@ test("a dependent carries the latest accepted report of each direct dependency",
       state: value,
     };
   }
+
   const source = decodeSource({
     source: {
       id: "one",

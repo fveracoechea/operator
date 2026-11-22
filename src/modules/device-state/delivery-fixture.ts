@@ -6,6 +6,7 @@ import { insertRow } from "./state-fixture.ts";
 import { WorkerKinds } from "../worker-kinds/main.ts";
 
 export const deliveryInput = { launchId: "l", head: "h", selected: false, session: null };
+
 export const deliveryReadiness = JSON.stringify({
   head: "h",
   at: "then",

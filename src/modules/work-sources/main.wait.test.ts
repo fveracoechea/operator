@@ -27,6 +27,7 @@ function endedAt(at: string) {
     endedAt: at,
   });
 }
+
 const ended = endedAt(new Date().toISOString());
 const readyKey = actionKey("one", {
   action: "ready_assignment",

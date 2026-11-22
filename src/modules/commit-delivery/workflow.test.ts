@@ -701,6 +701,7 @@ for (const operation of ["review", "round", "deliver"] as const) {
           ? Workflow.round({ ...f.input, text: "## Findings" })
           : Workflow.deliver(f.delivery);
     }
+
     f.write.mockClear();
     expect((await run()).tag).toBe("Ok");
     const writes = f.write.mock.calls.length;
@@ -1424,6 +1425,7 @@ for (const operation of ["review", "round", "deliver"] as const) {
           ? Workflow.round({ ...f.input, text: "## Findings" })
           : Workflow.deliver(f.delivery);
     }
+
     f.tools.mockClear();
     expect((await run()).tag).toBe("Ok");
     const commands = f.tools.mock.calls.map(([input]) => input.args);

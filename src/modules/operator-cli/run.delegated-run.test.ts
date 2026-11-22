@@ -35,6 +35,7 @@ function plan(profile: string | undefined) {
       dependencies: ["research"],
     };
   }
+
   const assignments: Record<string, unknown>[] = [
     {
       key: "research",
@@ -112,6 +113,7 @@ async function workPullRequest(
   function run(args: string[]) {
     return cli(args, { cwd: worktree, pane });
   }
+
   const number = key === "implement" ? 7 : 8;
   const branch = await git(worktree, "branch", "--show-current");
   await Bun.write(`${worktree}/${key}.txt`, `${key}\n`);

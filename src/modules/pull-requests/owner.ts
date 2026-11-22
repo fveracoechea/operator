@@ -12,6 +12,7 @@ import { WorkSources } from "../work-sources/main.ts";
 import type { Refusal, RefusalContext } from "../../lib/cli-result.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
+
 type OwnerFailure = RefusalContext & {
   reason:
     | "pr_worktree_unrecorded"

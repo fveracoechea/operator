@@ -6,6 +6,7 @@ import { type JournalRead, type PathRecord, readJournal } from "./journal.ts";
 import { readVersion } from "./jsr-registry.ts";
 
 export const REPOSITORY = "fveracoechea/operator";
+
 export const JSR_API = "https://api.jsr.io";
 
 export type ReleaseBlocker = {

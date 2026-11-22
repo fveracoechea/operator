@@ -91,6 +91,7 @@ function fixture(stage: "build" | "review" | "complete" = "build") {
     const row = input.commitDeliveries?.[0] ?? expect.unreachable();
     row.data = JSON.stringify(data);
   }
+
   return { input, data, replace };
 }
 

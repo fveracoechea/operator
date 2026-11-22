@@ -30,10 +30,12 @@ export type HandoffContinuation = {
   pane: string;
   socket: string;
 };
+
 export type ContinuationTarget = Pick<
   HandoffContinuation,
   "repository" | "sourceId" | "assignment"
 >;
+
 export type ContinuationContext = { pane: string | null; socket: string | null };
 
 export function continuationRefusal(): Refusal & { reason: "handoff_continuation_refused" } {

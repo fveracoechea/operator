@@ -23,7 +23,9 @@ import { migrationResume } from "./migration-receipts.ts";
 import { activateParking, prParkingSchema } from "./pr-parking.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
+
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
+
 export type LaunchFailure =
   | StateFailure
   | AdoptionFailure
@@ -40,6 +42,7 @@ export type LaunchFailure =
         | "handoff_continuation_refused";
       detail: string;
     });
+
 type LaunchResources = Partial<
   Pick<
     LaunchRow,

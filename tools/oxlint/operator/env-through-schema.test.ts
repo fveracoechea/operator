@@ -52,7 +52,7 @@ test.each([
 
 test("accepts the validated boundary and shadowed application names", async () => {
   const result = await check(
-    'import { Environment } from "../modules/environment/main.ts"; export const path = Environment.read().PATH; export function read(process: { env: string }) { return process.env; }',
+    'import { Environment } from "../modules/environment/main.ts"; export const path = Environment.read().PATH;\n\nexport function read(process: { env: string }) { return process.env; }',
   );
   expect(result.codes).toEqual([]);
 });

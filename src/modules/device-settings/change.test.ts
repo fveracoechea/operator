@@ -41,9 +41,11 @@ const planned = z.object({
 async function planOf(request: Parameters<typeof plan>[0]) {
   return planned.parse(await plan(request)).data;
 }
+
 async function readJson(file: string) {
   return z.json().parse(JSON.parse(await Bun.file(file).text()));
 }
+
 function resolvedHosts() {
   return spyOn(AgentHosts, "resolve").mockImplementation((input) =>
     OkAsync({ ...input, requestedModel: input.model, command: { tool: "opencode", args: [] } }),

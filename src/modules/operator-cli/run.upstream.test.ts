@@ -28,6 +28,7 @@ async function executable(name: string, source: string) {
   });
   await chmod(`${root}/tools/${name}`, 0o755);
 }
+
 async function run(args: string[]) {
   const child = Bun.spawn([process.execPath, cli, "install", ...args, "--json"], {
     cwd: root,

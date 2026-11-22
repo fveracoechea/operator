@@ -14,7 +14,7 @@ test.each(["Reflect.apply(String, null, [1])", 'Reflect["apply"](String, null, [
 
 test("accepts typed calls and a shadowed Reflect binding", async () => {
   const valid = await check(
-    "export const id = String(1); export function read(Reflect: { apply(): number }) { return Reflect.apply(); }",
+    "export const id = String(1);\n\nexport function read(Reflect: { apply(): number }) { return Reflect.apply(); }",
   );
   expect(valid.codes).toEqual([]);
 });

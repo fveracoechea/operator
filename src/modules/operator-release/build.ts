@@ -38,6 +38,7 @@ export function documentEntryPoint(source: string, compiled: string): string {
   );
   return `${moduleDoc}\n${compiled.replace("export async function main(", `${mainDoc}\nexport async function main(`)}`;
 }
+
 const SKILLS_DIRECTORY = "skills";
 
 /** The fields of the source manifest a release carries forward into what it publishes. */

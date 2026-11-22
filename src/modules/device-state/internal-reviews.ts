@@ -22,7 +22,9 @@ import type { ResultContext } from "../../lib/cli-result.ts";
 import { validateContinuation, type HandoffContinuation } from "./handoff-continuation.ts";
 
 export type InternalReviewRow = typeof internalReviews.$inferSelect;
+
 export type InternalReviewRoundRow = typeof internalReviewRounds.$inferSelect;
+
 type LaunchRow = typeof launches.$inferSelect;
 export type HandoffFailure =
   | StateFailure
@@ -34,6 +36,7 @@ export type HandoffFailure =
         | "handoff_continuation_refused";
       detail: string;
     });
+
 type Claimed = {
   handoff: typeof kindHandoffs.$inferSelect;
   implementer: LaunchRow;
@@ -378,6 +381,7 @@ export type ReviewEnd = Pick<InternalReviewRow, "readyHead" | "commentId" | "com
   state: "ready" | "skipped";
   readiness?: PrReadiness;
 };
+
 type EndFailure = ResultContext &
   (
     | PullRequestFailure

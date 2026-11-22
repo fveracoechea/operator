@@ -86,6 +86,7 @@ function stop() {
     }
   }
 }
+
 const watchdog = setInterval(() => {
   // Stryker disable next-line EqualityOperator: equivalent: the check runs once a second on a millisecond clock, so no run lands on the exact limit
   if (Date.now() - progressAt < silenceSeconds * 1000) return;

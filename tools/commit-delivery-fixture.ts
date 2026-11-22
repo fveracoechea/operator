@@ -37,6 +37,7 @@ export async function commitFixture(checks: string[][] = [["git", "diff", "--exi
     expect(result.exitCode, result.stderr.toString()).toBe(0);
     return result.stdout.toString().trim();
   }
+
   git(root, "init", "-q", "-b", "main", checkout);
   git(root, "init", "--bare", "-q", "-b", "main", origin);
   await Bun.write(`${checkout}/base`, "base\n");
@@ -139,6 +140,7 @@ export async function commitFixture(checks: string[][] = [["git", "diff", "--exi
     expect(DeviceState.updateLaunch(paths, id, { state: "running" }).tag).toBe("Ok");
     environment.HERDR_PANE_ID = id;
   }
+
   await launch("implementer", "commit-implementation");
   const initialized = await CommitDelivery.initialize({
     ...input,
@@ -154,12 +156,14 @@ export async function commitFixture(checks: string[][] = [["git", "diff", "--exi
     git(worktree, "add", ".");
     git(worktree, "commit", "-qm", "intermediate");
   }
+
   async function review() {
     const started = await CommitDelivery.review(input);
     expect(started.tag).toBe("Ok");
     expect(DeviceState.finishImplementer(paths, "implementer").tag).toBe("Ok");
     await launch("reviewer", "commit-review");
   }
+
   function data() {
     const read = DeviceState.readSources(paths, "example/one", "source");
     expect(read.tag).toBe("Ok");
@@ -169,6 +173,7 @@ export async function commitFixture(checks: string[][] = [["git", "diff", "--exi
       data: DeviceState.commitDeliverySchema().parse(JSON.parse(z.string().parse(row?.data))),
     };
   }
+
   return {
     root,
     paths,

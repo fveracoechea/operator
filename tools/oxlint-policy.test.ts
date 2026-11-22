@@ -11,6 +11,7 @@ test("classic complexity accepts 14 and rejects 15 through the real lint command
     ).join("\n");
     return `export function evaluate(input: number) { ${decisions} return -1; }`;
   }
+
   const valid = await check(source(13));
   expect(valid.codes).toEqual([]);
   expect(valid.exitCode).toBe(0);
@@ -27,6 +28,7 @@ test("classic complexity counts switch cases rather than one switch", async () =
     ).join("\n");
     return `export function evaluate(input: number) { switch (input) { ${decisions} default: { return -1; } } }`;
   }
+
   const valid = await check(source(13));
   expect(valid.exitCode).toBe(0);
   expect(valid.codes).toEqual([]);
@@ -51,11 +53,28 @@ test("preserves the accumulating-spread guard through the real lint command", as
 test("boundary parsing and ordinary array pipelines remain valid", async () => {
   const result = await check(`
 export function isText(value: unknown): value is string { return typeof value === "string"; }
+
 export const names = [1, 2].filter((value) => value > 1).map(String);
+
 export const item = { name: "a" } as const;
 `);
   expect(result.exitCode).toBe(0);
   expect(result.codes).toEqual([]);
+});
+
+test.each([
+  "export const first = 1;",
+  "export function first() { return 1; }",
+  "function first() { return 1; }",
+])("requires a blank line after %s", async (declaration) => {
+  const next = "export const second = 2;";
+  const use = declaration.startsWith("function") ? "\n\nfirst();" : "";
+  const invalid = await check(`${declaration}\n${next}${use}`);
+  expect(invalid.exitCode).toBe(1);
+  expect(invalid.codes).toEqual(["stylistic(padding-line-between-statements)"]);
+  const valid = await check(`${declaration}\n\n${next}${use}`);
+  expect(valid.exitCode).toBe(0);
+  expect(valid.codes).toEqual([]);
 });
 
 test.each([

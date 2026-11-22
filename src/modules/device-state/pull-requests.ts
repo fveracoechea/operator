@@ -28,6 +28,7 @@ import { adoptionOwner, type AdoptionFailure } from "./adoptions.ts";
 import { deliveryIdle, stackIdle } from "./delivery-guards.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
+
 export type PullRequestFailure =
   | StateFailure
   | AdoptionFailure

@@ -68,6 +68,7 @@ export const envThroughSchemaRule = defineRule({
       const options = optionsSchema.parse(context.options[0]);
       return options.allowFiles.includes(path.relative(context.cwd, context.filename));
     }
+
     function destructures(node: ESTree.Node, input: ESTree.Node | null) {
       if (
         allowed() ||
@@ -88,6 +89,7 @@ export const envThroughSchemaRule = defineRule({
       )
         context.report({ node, messageId: "environment" });
     }
+
     return {
       MemberExpression(node) {
         const member = arrayMethodTarget(node);

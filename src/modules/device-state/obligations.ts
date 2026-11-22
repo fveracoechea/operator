@@ -7,6 +7,7 @@ import { controlledSource } from "./sources.ts";
 import { deliveryIdle } from "./delivery-guards.ts";
 
 export type ObligationRow = typeof obligations.$inferSelect;
+
 type Target = Parameters<typeof controlledSource>[1];
 
 export type ObligationFacts = {

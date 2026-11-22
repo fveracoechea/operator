@@ -11,6 +11,7 @@ export type PhaseGuard =
   | "commit_candidate"
   | "commit_reviewed"
   | "commit_delivered";
+
 export type PhaseEvent =
   | "submit"
   | "resume"
@@ -23,6 +24,7 @@ export type PhaseEvent =
   | "commit-review"
   | "commit-round"
   | "commit-deliver";
+
 export type PhaseFacts = {
   kind: {
     name: string;
@@ -38,6 +40,7 @@ export type PhaseFacts = {
   worktreeClean: boolean;
   commit?: { reviewing: boolean; rounds: number; delivered: boolean };
 };
+
 type Phase = { phase: string; next: NextStep };
 type Rule = { when: (facts: PhaseFacts) => boolean; phase: (facts: PhaseFacts) => Phase };
 

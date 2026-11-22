@@ -84,10 +84,12 @@ test.each([false, true])(
         }),
       );
     }
+
     await github();
     function observe() {
       return device.run(["next", "--source", source, "--wait", "--timeout", "0"]);
     }
+
     const observed = await observe();
     expect(observed.output.reason, JSON.stringify(observed)).toMatch(
       /^next_actions_changed$|^next_wait_timed_out$/,

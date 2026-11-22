@@ -86,17 +86,21 @@ export function workflowFixture(seed: Awaited<ReturnType<typeof workflowSeed>>) 
       source.commitDeliveries?.find((row) => row.assignment === "ticket") ?? expect.unreachable();
     return DeviceState.commitDeliverySchema().parse(JSON.parse(row.data));
   }
+
   function replace(next: ReturnType<typeof data>) {
     const row =
       source.commitDeliveries?.find((row) => row.assignment === "ticket") ?? expect.unreachable();
     row.data = JSON.stringify(next);
   }
+
   function tree(cwd: string) {
     return state.trees.get(cwd) ?? expect.unreachable(`Missing fake checkout ${cwd}`);
   }
+
   function candidate() {
     return data().candidate ?? expect.unreachable("No recorded candidate.");
   }
+
   spyOn(Environment, "read").mockReturnValue(environment);
   spyOn(DeviceState, "readReport").mockImplementation(() => Ok(pane));
   spyOn(DeviceState, "readSources").mockImplementation(() => Ok([source]));
@@ -235,10 +239,12 @@ export function workflowFixture(seed: Awaited<ReturnType<typeof workflowSeed>>) 
     launch.kind = JSON.stringify(WorkerKinds.resolve("commit-review"));
     environment.HERDR_PANE_ID = "reviewer";
   }
+
   async function ready() {
     await review();
     expect((await Workflow.round({ ...fixture.input, text: "## Findings" })).tag).toBe("Ok");
   }
+
   const initial = data();
   expect(initial).toMatchObject({
     repository: "example/one",

@@ -312,6 +312,7 @@ test.each([
       ]);
       return { code, stdout, stderr };
     }
+
     try {
       if (change.assertion !== undefined) {
         const intact = await story();

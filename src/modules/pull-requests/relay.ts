@@ -38,8 +38,11 @@ export const relaySchema = z.object({
   ownerPid: z.number().int().nullable(),
   leaseAt: z.string().nullable(),
 });
+
 export type Relay = z.infer<typeof relaySchema>;
+
 export type Blocker = Refusal;
+
 type Parent = { state: "OPEN" | "MERGED" | "CLOSED"; base: string; head: string };
 type Child = { state: "OPEN" | "MERGED" | "CLOSED"; defaultBranch: string | null };
 

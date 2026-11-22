@@ -261,6 +261,7 @@ if (args.join(' ') === 'agent list') {
       launches: db.query("SELECT * FROM launches").all(),
     };
   }
+
   const before = records();
   for (const mode of ["live", "moved", "ambiguous"]) {
     await Bun.write(`${root}/herdr-mode`, mode);
@@ -595,6 +596,7 @@ test("next --wait returns a new action, also one that came between waits, and ti
     using db = new Database(database);
     db.query("UPDATE assignments SET state = ? WHERE key = 'investigate'").run(state);
   }
+
   // An abandoned assignment now reports its end once, then leaves no new action.
   setState("abandoned");
   expect(await run(cwd, ["next", "--wait", "--timeout", "0"])).toMatchObject({
@@ -713,6 +715,7 @@ test("one agent session coordinates a source, and only the person's take-over mo
     using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
     return db.query("SELECT supervising_pane, supervising_session FROM sources").get();
   }
+
   expect(supervisor()).toEqual({ supervising_pane: "w1:p1", supervising_session: "ses_first" });
   for (const [args, operation] of [
     [wait, "next_wait"],

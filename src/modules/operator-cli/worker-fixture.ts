@@ -46,6 +46,7 @@ export function expectWorkflowRefusal(
   if (migrated.has(String(args[0])) || (args[0] === "internal-review" && args[1] === "skip"))
     expectRefusalOutput(output, stderr);
 }
+
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
@@ -128,6 +129,7 @@ export async function workerDevice(
     function git(...args: string[]) {
       return exec(["git", ...args], directory);
     }
+
     await git("init", "-q", "-b", "main");
     await git("remote", "add", "origin", `https://github.com/${repository}.git`);
     await Bun.write(`${directory}/package.json`, JSON.stringify({ name, private: true }));

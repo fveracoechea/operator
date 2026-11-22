@@ -34,6 +34,7 @@ export const noObjectParametersRule = defineRule({
           });
       }
     }
+
     return parameterOwnerVisitor(check);
   },
 });

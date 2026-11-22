@@ -14,7 +14,9 @@ import { Herdr } from "../herdr/main.ts";
 import { OkAsync } from "unthrown";
 
 export const socket = "/fixture/herdr.sock";
+
 export const workerPane = "w1:p1";
+
 export const superPane = "super:p0";
 
 /** The value of a result that the fixture expects to succeed. */

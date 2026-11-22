@@ -13,6 +13,7 @@ test("candidate construction preserves only the old-cut child delta and never in
       expect(result.ok, result.detail).toBe(true);
       return result.out;
     }
+
     await git("init", "-q", "-b", "main");
     await git("config", "user.name", "Fixture");
     await git("config", "user.email", "fixture@example.com");

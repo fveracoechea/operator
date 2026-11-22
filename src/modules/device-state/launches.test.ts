@@ -471,6 +471,7 @@ test("a ready assignment waits while the plan's running cap is reached, and a re
       1,
     );
   }
+
   // Another source's worker holds no place in this plan.
   reserveLaunch(db, "/one", "owner/one", launch);
   // An ended assignment's worker holds no place, also before its pane exit is observed.
@@ -699,6 +700,7 @@ test("only the owner renews a starting launch or a running preparation", () => {
       db.query("SELECT lease_at FROM worktree_preparations").get(),
     ];
   }
+
   db.query("UPDATE launches SET lease_at = ?, owner_pid = ?").run(old, stoppedPid);
   db.query("UPDATE worktree_preparations SET lease_at = ?, owner_pid = ?").run(old, stoppedPid);
   expect(renewLaunch(db, "l1").tag).toBe("Ok");
@@ -743,6 +745,7 @@ test("a pane exit interrupts a running reviewer on the same server, and activity
       launch_state: launchState,
     });
   }
+
   reviewerRow("r1", null, "running");
   reviewerRow("r2", "/herdr.sock", "running");
   reviewerRow("r3", null, "starting");

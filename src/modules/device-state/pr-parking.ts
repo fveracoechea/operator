@@ -54,7 +54,9 @@ export const prParkingSchema = z.union([
   }),
   parkingReceipt,
 ]);
+
 export type PrParking = z.infer<typeof prParkingSchema>;
+
 type Target = { repository: string; sourceId: string; assignment: string };
 
 function qualifyReadiness<T>(cause: Error, defect: (cause: Error) => T) {
@@ -71,12 +73,14 @@ function readReadiness(text: string | null): Result<PrReadiness | null, StateFai
     (cause, defect) => (cause instanceof Error ? qualifyReadiness(cause, defect) : defect(cause)),
   )();
 }
+
 function key(target: { sourceId: string; assignment: string }) {
   return and(
     eq(pullRequests.sourceId, target.sourceId),
     eq(pullRequests.assignment, target.assignment),
   );
 }
+
 function refused(): Refusal & { reason: "pr_resume_refused" } {
   return {
     reason: "pr_resume_refused",

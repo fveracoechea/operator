@@ -1,4 +1,5 @@
 export type ParkingState = "parking" | "parked" | "resuming" | "active" | "closed";
+
 export type ParkingFacts = {
   event: "park" | "complete" | "resume" | "reserve" | "activate" | "close";
   state: ParkingState | null;
@@ -16,6 +17,7 @@ export type ParkingFacts = {
   historicalOwnerIdle: boolean;
   historicalLaunchState: string | null;
 };
+
 type Decision =
   | { result: "transition"; state: ParkingState }
   | { result: "refused" }

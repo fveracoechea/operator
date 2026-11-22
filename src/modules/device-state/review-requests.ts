@@ -7,8 +7,11 @@ import { projects, reviewRequests, reviewRounds, reviewThreadOperations } from "
 import type { StateFailure } from "./failures.ts";
 
 export type ReviewRequestRow = typeof reviewRequests.$inferSelect;
+
 export type ReviewRoundRow = typeof reviewRounds.$inferSelect;
+
 export type ThreadOperationRow = typeof reviewThreadOperations.$inferSelect;
+
 export type ReviewSnapshot = {
   project: { repository: string; checkout: string } | null;
   request: ReviewRequestRow | null;
@@ -20,6 +23,7 @@ export type ReviewSnapshot = {
   /** The newest closed or skipped request of the PR whose reviewer cleanup did not finish. */
   ended: ReviewRequestRow | null;
 };
+
 /** One decided change. `hold` gives this process the lease, and `release` ends it. */
 export type ReviewChange = {
   insert?: Pick<ReviewRequestRow, "id" | "repository" | "number" | "url" | "origin" | "state"> & {
@@ -30,6 +34,7 @@ export type ReviewChange = {
   operations?: ThreadOperationRow[];
   lease?: "hold" | "release";
 };
+
 type Target = { repository: string; number: number; id?: string };
 
 const ended = ["closed", "skipped"];

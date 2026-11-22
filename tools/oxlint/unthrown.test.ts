@@ -79,6 +79,7 @@ test("the syntactic Result checks are not a complete must-use guarantee", async 
   const result = await check(`
 import { Ok, type Result } from "unthrown";
 export function produce(): Result<number, never> { return Ok(1); }
+
 const result = Ok(1);
 result.map(value => value + 1);
 `);

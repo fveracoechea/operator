@@ -4,6 +4,7 @@ import { qualifyStateFailure, stateFailure } from "./failures.ts";
 function coded(code: string) {
   return Object.assign(new Error(`failure ${code}`), { code });
 }
+
 function asDefect(cause: Error) {
   return { defect: cause };
 }

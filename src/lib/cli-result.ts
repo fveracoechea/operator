@@ -15,4 +15,5 @@ export type ResultContext = {
 
 /** Every refusal supplies recovery at the owner of the checked facts. */
 export type RefusalContext = ResultContext;
+
 export type Refusal = RefusalContext & { reason: string; detail: string };

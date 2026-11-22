@@ -2,7 +2,9 @@ import { Err, Ok, type Result } from "unthrown";
 import type { ResultContext } from "../../lib/cli-result.ts";
 
 export type MessageCommand = "send" | "ring" | "acknowledge" | "close";
+
 export type MessageState = "pending" | "acknowledged" | "replied" | "closed" | "abandoned";
+
 type Pane = { socket: string | null; paneId: string | null };
 type Facts = {
   command: MessageCommand;

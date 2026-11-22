@@ -59,6 +59,7 @@ async function template() {
   git(checkout, "checkout", "-q", "main");
   return { root, checkout, base, head, forced };
 }
+
 let shared: ReturnType<typeof template> | undefined;
 
 /** Removes the shared origin. Call it once after all tests of a file. */

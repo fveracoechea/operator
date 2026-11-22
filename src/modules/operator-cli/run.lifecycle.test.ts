@@ -30,9 +30,11 @@ test("activity reaches next at once, and an idle flip does not wake next --wait 
         ).code,
       ).toBe(0);
     }
+
     function wait() {
       return device.run(["next", "--source", source, "--wait", "--timeout", "0"]);
     }
+
     // An active worker has no action to return, so its initial wait also stays quiet.
     expect(await wait()).toMatchObject({
       code: 0,

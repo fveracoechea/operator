@@ -607,6 +607,7 @@ function publishStackStart(
       undefined,
     );
   }
+
   if (!base.managed) return save(base).toAsync();
   const remote = base.remote ?? base.publication?.remote;
   if (remote === undefined)
@@ -647,6 +648,7 @@ function launchEffects(input: {
   function record(change: Parameters<typeof DeviceState.updateLaunch>[2]) {
     return DeviceState.updateLaunch(request.paths, input.id, change);
   }
+
   return (
     DoAsync()
       .flatTap(() =>
@@ -859,6 +861,7 @@ function guardStart(paths: Paths, id: string) {
       });
       process.exit(128 + code);
     }
+
     process.once(signal, handler);
     return () => process.off(signal, handler);
   });

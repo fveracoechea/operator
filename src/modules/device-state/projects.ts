@@ -9,6 +9,7 @@ import type { RefusalContext } from "../../lib/cli-result.ts";
 import { deliveryIdle } from "./delivery-guards.ts";
 
 export type RegisteredProject = typeof projects.$inferSelect;
+
 export type ProjectStateFailure =
   | StateFailure
   | (RefusalContext & {
@@ -20,6 +21,7 @@ export type ProjectStateFailure =
         | "project_cleanup_pending";
       detail: string;
     });
+
 export type Registration = {
   reason: "project_registered" | "project_unchanged";
   data: RegisteredProject;

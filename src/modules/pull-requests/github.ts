@@ -191,12 +191,14 @@ export type FeedbackItem = {
   path: string | null;
   threadResolved: boolean | null;
 };
+
 export type Check = {
   name: string;
   state: "pending" | "passing" | "failing";
   url: string | null;
   generation?: string;
 };
+
 export type Observation = {
   queueEntry?: string | null;
   state: "OPEN" | "MERGED" | "CLOSED";
@@ -361,6 +363,7 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
       ]);
     return feedback;
   }
+
   const none = { reviewState: null, path: null, threadResolved: null };
   const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts ?? null;
   const contexts = rollup?.nodes ?? [];

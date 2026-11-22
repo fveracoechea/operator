@@ -18,6 +18,7 @@ export const prReadinessSchema = z.object({
     ]),
   ),
 });
+
 const persistedReadiness = z.union([
   prReadinessSchema.extend({
     origin: z.literal("migration-0026"),
