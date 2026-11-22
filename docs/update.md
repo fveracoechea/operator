@@ -17,6 +17,7 @@ The device is idle when these conditions are true in every registered project:
 - No live owner holds a lease for a worker start, worktree preparation, cleanup, reviewer start, move, cleanup, or review post.
 - No live owner holds a lease for an internal review handoff, kind handoff, stack effect, or parked PR batch read.
 - No project removal is pending.
+- No direct delivery request is unfinished.
 
 Assignment states such as `running`, `pr-open`, and `reported` do not block migration by themselves.
 A missing owner or a stale lease does not hold an effect.

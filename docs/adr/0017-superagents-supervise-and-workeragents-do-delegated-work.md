@@ -6,6 +6,7 @@ Accepted - 2026-10-24.
 Decided in #232 and #233.
 Implemented in the role skills and CLI interfaces of #244 through #255, and audited in #258.
 Amended 2026-11-20: #373 and #396 permit a three-call read-only quick look and an open set of worker kinds, not new roles.
+Amended 2026-11-21 in [#414's approved scope](https://github.com/fveracoechea/operator/issues/414#issuecomment-7067082608): a supervisor may open an explicitly requested safe web page locally.
 
 ## Context
 
@@ -34,6 +35,9 @@ As soon as that budget cannot suffice, it delegates with `operator ask`, never a
 It delegates other detailed reading, investigation, implementation, review, research, triage, planning, and prototypes.
 It can run coordination commands and communicate with other SuperAgents through Herdr without taking over worker tasks.
 A PR merges through the owner's guarded operation, or the same gate for a parked assignment's supervisor on the person's instruction.
+On the person's explicit request, the supervisor may ask the local desktop opener to open an absolute HTTP(S) URL without credentials.
+Opener acceptance proves only acceptance, not browser navigation.
+Unsupported or uncertain environments return a manual next step without an automatic retry, browser automation, or remote forwarding.
 Unlanded work remains until the person authorizes its deletion.
 Only a SuperAgent addresses the person.
 The SuperAgent keeps context low, reads short reports, and opens details only for a coordination decision.

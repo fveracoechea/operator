@@ -9,6 +9,8 @@ import {
   assignments,
   cleanups,
   coordinationWaits,
+  deliveries,
+  deliveryValidations,
   internalReviewRounds,
   internalReviews,
   kindHandoffs,
@@ -17,6 +19,8 @@ import {
   projects,
   promotions,
   pullRequests,
+  stackOperations,
+  stackBases,
   reports,
   sources,
   workerMessages,
@@ -26,6 +30,7 @@ import type { StateFailure } from "./failures.ts";
 import type { ResultContext } from "../../lib/cli-result.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { removeStateDirectory } from "./project-files.ts";
+import { deliveryIdle } from "./delivery-guards.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
 /** A source without its supervisor, which a wait or a dispatch claims later and next actions never read. */
@@ -35,7 +40,10 @@ export type Supervisor = { pane: string | null; session: string | null };
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type SourceFailure =
   | StateFailure
-  | (ResultContext & { reason: "source_parent_open" | "source_not_found"; detail: string });
+  | (ResultContext & {
+      reason: "source_parent_open" | "source_not_found" | "pr_delivery_running";
+      detail: string;
+    });
 
 export function registerSource(
   client: Database,
@@ -115,6 +123,8 @@ export function readSources(client: Database, repository: string, sourceId?: str
           assignments: AssignmentRow[];
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
+          stackOperations?: (typeof stackOperations.$inferSelect)[];
+          stackBases?: (typeof stackBases.$inferSelect)[];
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
           internalReviews: (typeof internalReviews.$inferSelect & { handoffRunning: boolean })[];
@@ -151,6 +161,16 @@ export function readSources(client: Database, repository: string, sourceId?: str
         return Ok(
           rows.map((source) => ({
             source,
+            stackOperations: db
+              .select()
+              .from(stackOperations)
+              .where(eq(stackOperations.sourceId, source.id))
+              .all(),
+            stackBases: db
+              .select()
+              .from(stackBases)
+              .where(eq(stackBases.sourceId, source.id))
+              .all(),
             assignments: db
               .select()
               .from(assignments)
@@ -394,15 +414,23 @@ export function endAssignments<E extends { reason: string; detail: string }>(
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
       controlledSource(db, target).flatMap((source) =>
-        decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
-          applyEnds(db, source.id, { abandon, interrupted });
-          return {
-            ended: abandon,
-            retained: retainedResources(db, source.id).filter((row) =>
-              abandon.includes(row.assignment),
-            ),
-          };
-        }),
+        decide(endFacts(db, source))
+          .flatTap(({ abandon }) => {
+            for (const assignment of abandon) {
+              const idle = deliveryIdle(db, source.id, assignment);
+              if (idle.tag !== "Ok") return idle;
+            }
+            return Ok(undefined);
+          })
+          .map(({ abandon, interrupted }) => {
+            applyEnds(db, source.id, { abandon, interrupted });
+            return {
+              ended: abandon,
+              retained: retainedResources(db, source.id).filter((row) =>
+                abandon.includes(row.assignment),
+              ),
+            };
+          }),
       ),
     ),
   );
@@ -461,19 +489,21 @@ export function resetSource<E extends { reason: string; detail: string }>(
     checkHistory(client).flatMap((db) =>
       controlledSource(db, target).flatMap(
         (source): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> =>
-          decide(endFacts(db, source)).map(({ abandon, interrupted }) => {
-            const endedAt = applyEnds(db, source.id, { abandon, interrupted });
-            db.update(sources)
-              .set({ state: "reset", endedAt })
-              .where(eq(sources.id, source.id))
-              .run();
-            return {
-              source: { ...source, state: "reset", endedAt },
-              retained: retainedResources(db, source.id).filter((row) =>
-                abandon.includes(row.assignment),
-              ),
-            };
-          }),
+          deliveryIdle(db, source.id)
+            .flatMap(() => decide(endFacts(db, source)))
+            .map(({ abandon, interrupted }) => {
+              const endedAt = applyEnds(db, source.id, { abandon, interrupted });
+              db.update(sources)
+                .set({ state: "reset", endedAt })
+                .where(eq(sources.id, source.id))
+                .run();
+              return {
+                source: { ...source, state: "reset", endedAt },
+                retained: retainedResources(db, source.id).filter((row) =>
+                  abandon.includes(row.assignment),
+                ),
+              };
+            }),
       ),
     ),
   );
@@ -499,6 +529,8 @@ export function pruneSource(
           SourceFailure | (ResultContext & { reason: "source_prune_failed"; detail: string })
         > => {
           const facts = endFacts(db, source);
+          const idle = deliveryIdle(db, source.id);
+          if (idle.tag !== "Ok") return idle.map(() => null);
           if (!decide(facts)) return Ok(null);
           const retained = retainedResources(db, source.id);
           const removed = removeStateDirectory(
@@ -528,6 +560,8 @@ export function pruneSource(
  * keeps its own lifecycle, so it stays.
  */
 export function deleteSourceRecords(db: Db, ids: string[]) {
+  db.delete(deliveryValidations).where(inArray(deliveryValidations.sourceId, ids)).run();
+  db.delete(deliveries).where(inArray(deliveries.sourceId, ids)).run();
   db.delete(obligations).where(inArray(obligations.sourceId, ids)).run();
   db.delete(workerMessages).where(inArray(workerMessages.sourceId, ids)).run();
   db.delete(internalReviewRounds).where(inArray(internalReviewRounds.sourceId, ids)).run();
@@ -538,6 +572,8 @@ export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(promotions).where(inArray(promotions.sourceId, ids)).run();
   db.delete(reports).where(inArray(reports.sourceId, ids)).run();
   db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
+  db.delete(stackOperations).where(inArray(stackOperations.sourceId, ids)).run();
+  db.delete(stackBases).where(inArray(stackBases.sourceId, ids)).run();
   db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
   db.delete(launches).where(inArray(launches.sourceId, ids)).run();
   db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();

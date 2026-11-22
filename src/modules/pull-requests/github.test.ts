@@ -361,6 +361,49 @@ test("enqueue uses the guarded head without jumping the queue and validates GitH
   }
 });
 
+test.each([
+  [
+    { enqueuePullRequest: null },
+    [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Restriction refused." }],
+    true,
+  ],
+  [{ enqueuePullRequest: null }, [{ message: "Unknown outcome." }], false],
+  [
+    null,
+    [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Restriction refused." }],
+    true,
+  ],
+  [null, [{ type: "FORBIDDEN", path: ["enqueuePullRequest"], message: "Not permitted." }], true],
+  [null, [{ message: "Internal server error" }], false],
+  [null, [{ type: "INTERNAL", path: ["enqueuePullRequest"], message: "Unknown outcome." }], false],
+  [
+    null,
+    [
+      {
+        type: "UNPROCESSABLE",
+        path: ["enqueuePullRequest", "mergeQueueEntry"],
+        message: "Readback failure.",
+      },
+    ],
+    false,
+  ],
+  [null, [], false],
+  [
+    { enqueuePullRequest: { mergeQueueEntry: { id: "Q7" } } },
+    [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Partial error." }],
+    false,
+  ],
+] as const)(
+  "enqueue nonapplication requires a typed mutation-level refusal: %j %j",
+  async (data, errors, notApplied) => {
+    github(() => ok({ data, errors }));
+    expect(await enqueuePullRequest("PR7", "abc")).toMatchObject({
+      tag: "Err",
+      error: { reason: "pr_enqueue_refused", state: { notApplied } },
+    });
+  },
+);
+
 test("parked observation reads all PRs and recorded parents in one validated GitHub request", async () => {
   const parent = { state: "MERGED", baseRefName: "main", headRefOid: "parent-head" };
   const call = github(() =>
@@ -368,14 +411,18 @@ test("parked observation reads all PRs and recorded parents in one validated Git
       data: {
         viewer: { login: "owner" },
         r0: answer().repository,
-        r1: { ...answer({ headRefOid: "child-head" }).repository, parent },
+        r1: {
+          ...answer({ headRefOid: "child-head" }).repository,
+          parent,
+          parent1: { ...parent, headRefOid: "other-head", state: "OPEN" },
+        },
       },
     }),
   );
   expect(
     await observeParkedPullRequests([
       { repository: "owner/one", number: 7, parent: null },
-      { repository: "owner/two", number: 8, parent: 6 },
+      { repository: "owner/two", number: 8, parent: 6, parents: [6, 9] },
     ]),
   ).toMatchObject({
     tag: "Ok",
@@ -384,6 +431,10 @@ test("parked observation reads all PRs and recorded parents in one validated Git
       {
         observed: { head: "child-head" },
         parent: { state: "MERGED", head: "parent-head", base: "main" },
+        parents: [
+          { number: 6, state: "MERGED" },
+          { number: 9, state: "OPEN", head: "other-head" },
+        ],
       },
     ],
   });
@@ -392,6 +443,7 @@ test("parked observation reads all PRs and recorded parents in one validated Git
   expect(query).toContain('r0: repository(owner: "owner", name: "one")');
   expect(query).toContain('r1: repository(owner: "owner", name: "two")');
   expect(query).toContain("parent: pullRequest(number: 6)");
+  expect(query).toContain("parent1: pullRequest(number: 9)");
 });
 
 test("a partial parked batch or missing recorded parent refuses without another GitHub read", async () => {

@@ -2,6 +2,9 @@
 
 ## Status
 
+Amended 2026-11-17 in #422: an owner can refresh open prerequisites and use a per-child dependency-only integration base.
+Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): all prerequisite consumers use the complete graph, including parked observations.
+
 Accepted - 2026-10-24.
 Decided in #228, #231, #232, and #233.
 Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
@@ -10,6 +13,7 @@ Amended 2026-11-04 in #320: the guarded merge uses GitHub's asynchronous merge e
 Amended 2026-11-17 in #389: a fresh pr-feedback launch takes over at ready, and the merge requires the recorded ready transition.
 Amended 2026-11-18 in #390: quiet feedback waits park the assignment and changes resume a fresh launch.
 Amended 2026-11-20 in #392: the supervisor may merge parked work on the person's instruction, and a queue retains parking until observed merge.
+Amended 2026-11-21 in [#414's approved scope](https://github.com/fveracoechea/operator/issues/414#issuecomment-7067082608): source holds, durable direct recovery, and mandatory correction evidence retain parked-only selection.
 
 ## Context
 
@@ -41,8 +45,14 @@ A close without merge produces `clean_up` with `pr_closed`, whose next command a
 
 A dependency with an open or merged PR permits dependent code work to start.
 The child PR stacks on the parent's branch, and the CLI coordinates the relay and rebase after the parent merges.
-A PR stacks on one parent branch, so a PR assignment with several open parent PRs waits until all but one merge. Amended in #250.
-A stacked PR is not merge eligible until its parent merged and its relay finished.
+A PR uses a prerequisite branch that contains its required heads, or a per-child dependency-only integration base when no prerequisite contains the others.
+The owner can bind implemented sibling prerequisites through audited stack records without rewriting the registered plan.
+The CLI pins the old prerequisite cut and the replacement heads before it changes the child.
+It refuses ambiguous attribution rather than replay obsolete prerequisite history or discard child work.
+Only the child owner changes the child's refs and PR base; prerequisite owners retain their refs and worktrees.
+Interrupted effects retain their pinned inputs and uncertain outcomes until inspection establishes which effects completed.
+A stacked PR is not merge eligible until every required prerequisite merged into the default branch and its relay finished.
+Parked observations retain one actionable all-prerequisites event with their cursors; the first merged prerequisite cannot trigger a premature relay.
 Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation, or the supervising SuperAgent selects a parked assignment on the person's instruction.
 It refuses unless the PR has approval, passing checks, no unresolved threads, the default branch as its base, and no draft state.
@@ -56,6 +66,19 @@ When the PR's base requires a merge queue, the same passed gate enqueues the gua
 Observed queue membership prevents a retry from enqueueing the same PR again, including after a lost response.
 Enqueueing proves no completion. The assignment stays PR-open and parked, with its worktree retained, until a batch read verifies its merge.
 GitHub CI and GitHub reviews are the gates, not a separate local gate declaration or a supervisor's claim.
+
+An open merge hold blocks new delivery across its source, regardless of an optional PR reference.
+Hold creation and new delivery admission exclude each other.
+An accepted request or queue entry can still apply, so a later hold cannot claim to stop it.
+Direct delivery retains its original actor, guarded head, readiness provenance, and remote request identity beyond process exit or owner replacement.
+Recovery reads the original request; an uncertain request without an identity cannot be blindly resubmitted.
+Observation of an already applied merge needs neither new approval nor absence of a later hold.
+Cleanup still independently protects unlanded work.
+
+After a changed known ready head, the current feedback owner must record exact-head correction scope and targeted evidence.
+That evidence belongs to the current readiness provenance, not a launch or a broad review round.
+It survives parking and replacement, but cannot satisfy GitHub approval or a fresh integration review.
+Readiness with an unknown migration head keeps its accepted compatibility without an invented baseline.
 
 After verified merge, the CLI deletes the remote branch, closes the worker pane, and removes the worktree in that order without a separate approval grant.
 Failed cleanup remains visible in next actions.
@@ -74,7 +97,8 @@ Report assignments have a separate completion contract and support planning and 
 
 ## Alternatives considered
 
-- A source-wide integration branch and separate publication stack were rejected because agent-owned PRs already supplied the observed delivery workflow with less machinery.
+- A source-wide integration branch and separate publication stack remain rejected because they add another delivery lifecycle.
+  Per-child dependency-only bases are accepted because a child can need independent open prerequisites without modifying their owners' branches.
 - Fresh workers for every correction remain unnecessary within a live launch; parking accepts a cold start in exchange for releasing a quiet worker.
 - Waiting for parent merge before any dependent starts was rejected in favor of PR stacking and explicit rebase handling.
 - Supervisor-written scripts and ledgers were rejected because the CLI must own the repeatable feedback, merge, and cleanup steps.

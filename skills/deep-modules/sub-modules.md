@@ -1,78 +1,142 @@
 # Split a module into sub-modules
 
-A sub-module is a folder inside a module that follows the module rules one level down.
-It makes the module deeper.
-The app sees the parent's object, and the rest of the parent sees the sub-module's object.
-Each file then knows less, and the folder tree names the parts of the module.
+A sub-module is a folder inside a feature or capability that owns a cohesive part of its behavior.
+It provides an internal seam without making outside callers learn the module's parts.
+A sub-module can be a deep module in its own right; nesting describes its current ownership, not lesser depth.
 
-## Give each sub-module one entry file that exports one object
+## Give every sub-module an entry file and its test
 
-In a chat module, a turn is one message sent and the answer it streams back.
-The turn is a sub-module of chat:
+Use `main.ts` and `main.test.ts`, including for selectors, query options and UI.
+A server-only entry uses `main.server.ts` with `main.server.test.ts`.
+Other implementation files remain private and can have focused beside-tests.
 
 ```text
-modules/chat/
-  main.ts                Chat, the object routes import
-  $functions.ts
+modules/movies/
+  main.ts
+  main.test.ts
   schemas.ts
-  conversations.server.ts
+  media/
+    main.ts
+    main.test.ts
+  selectors/
+    main.ts
+    main.test.ts
+  query-options/
+    main.ts
+    main.test.ts
   ui/
-    main.ts              ChatUI
-    panel.tsx
-    chat-panel-provider.tsx
-  turn/
-    main.ts              Turn, the object the rest of chat imports
-    turn.ts              POSTs the message, folds the frames into an answer
-    turn-stream.ts       reads the event stream
-    errors.ts
-    turn-stream.test.ts
+    main.ts
+    main.test.ts
 ```
 
+The parent and sibling sub-modules import only these entry files.
+Imports point downward; a sub-module never imports the parent's interface object.
+It may parse the parent's schemas or use a sibling through that sibling's entry file.
+
+## Choose an object or namespace for the internal seam
+
+A cohesive behavior such as `Media` can use an explicit object interface.
+A set of selectors can export named functions, consumed through `import * as selectors from './selectors/main'`.
+Named function exports are also valid for a single-consumer internal sub-module.
+Reuse is a reason to consider an object, not a threshold that requires one.
+Tests do not count as another production consumer.
+
+The entry file deliberately defines the internal interface.
+Neither choice permits imports from private implementation files.
+
+## Let the parent expose selected capabilities and hide the rest
+
 ```ts
-// chat/turn/main.ts
-import {toAssistantFailure} from './errors'
-import {runTurn} from './turn'
+// movies/main.ts
+import {Media} from './media/main'
+import * as selectors from './selectors/main'
+import {queryOptions, mutationOptions} from './query-options/main'
+import * as UI from './ui/main'
 
-export type {TurnStep} from './turn'
+export const MOVIE_TIMEOUT = 500
 
-/**
- * One turn of a thread. `run` POSTs the message and reports the answer as it
- * streams.
- */
-export const Turn = {
-  run: runTurn,
-  /** A failed request phrased for the user, whatever threw. */
-  failure: toAssistantFailure,
+export const Movie = {
+  async play(id: string) {
+    const video = await Media.find(id)
+    return Media.play(video)
+  },
+  selector: selectors,
+  queryOptions,
+  mutationOptions,
+  UI,
 }
 ```
 
+Callers use `Movie.play(id)` without knowing `Media` exists.
+The parent owns that orchestration rather than exposing `find` and `play` as steps for every caller.
+Selected capabilities remain reachable as `Movie.selector.isReleased`, `Movie.queryOptions.findOne`, `Movie.mutationOptions.publish`, and `Movie.UI.Carousel`.
+Outside callers never import `movies/media/main` or `movies/selectors/main` directly.
+
+## Keep selectors pure and named for domain rules
+
+A selector is a named, tested function that transforms or scopes domain data.
+Selectors are synchronous, perform no IO and leave their inputs unchanged.
+They can return a predicate or projection function when the caller supplies a parameter.
+
 ```ts
-// chat/ui/chat-panel-provider.tsx
-import {Turn} from '../turn/main'
+// movies/selectors/main.ts
+import type {MovieSummary, Person} from '../schemas'
+
+export function isReleased(movie: MovieSummary) {
+  return movie.status === 'released'
+}
+
+export function budgetIsBiggerThan(minimum: number) {
+  return function hasBudget(movie: MovieSummary) {
+    return movie.budget > minimum
+  }
+}
+
+export function toCast(predicate: (person: Person) => boolean) {
+  return function selectCast(movie: MovieSummary) {
+    return movie.cast.filter(predicate)
+  }
+}
 ```
 
-The sub-module follows the module rules:
+Callers can use `movies.filter(Movie.selector.isReleased)` or `movies.filter(Movie.selector.budgetIsBiggerThan(5_000_000))`.
+`movies.flatMap(Movie.selector.toCast(person => person.age > 21))` returns the matching cast members.
+Keep these rules independent of UI and storage.
+For Query's `select` integration, use the `tanstack-tools` topic [query-select.md](../tanstack-tools/query-select.md).
 
-- `main.ts` exports one PascalCase object named after the folder, `turn/` as `Turn`, plus the types a caller names, such as `TurnStep`. A server-only sub-module uses `main.server.ts`.
-- Every other file in the folder is private. The rest of `chat/` imports `../turn/main`, never `../turn/turn-stream`.
-- Its files carry the same suffixes as a module's files, such as `.server.ts` and `.test.ts`.
-- Imports point downward. `chat/` imports `turn/`, and `turn/` never imports `chat/main.ts`. It may parse against the parent's `schemas.ts`, reach a sibling sub-module through its `main`, and reach another module through its entry files.
-- `ui/` is a sub-module too: `ui/main.ts` exports the `UI` object, and every `.tsx` behind it is private.
+## Keep query and mutation options in one owning sub-module
 
-## Keep a sub-module private to its parent
+`query-options/main.ts` can export both `queryOptions` and `mutationOptions`.
+Expose them separately on the parent's object while keeping their implementation in the same sub-module.
+That sub-module owns shared query keys, cache policy, and the knowledge of which reads a mutation invalidates.
+Callers use `useQuery(Movie.queryOptions.findOne({id}))` and `useMutation(Movie.mutationOptions.publish({id}))`.
+Callers do not assemble invalidation keys.
 
-A route reaches the turn through `Chat`, such as `<Chat.UI.Panel />`, and never learns that `Turn` exists.
-When a caller outside the module needs the sub-module's behaviour, put a finished member on the parent's object.
+For builder and callback details, use the `tanstack-tools` topic [query-mutations.md](../tanstack-tools/query-mutations.md).
+
+## Promote a sub-module when another feature needs its behavior
+
+`Media` can belong privately to `Movie` while movies are its only feature consumer.
+If `TvShows` later needs that same media behavior, extract it into `src/modules/media/`.
+It becomes a shared capability with its own `Media` object, public entry file and tests.
+Both `Movie` and `TvShows` then import that entry rather than reaching into each other's private folders.
+
+Keep the playback policy and implementation together in `Media` during the move.
+The existing internal seam makes that extraction possible without duplicating its logic across features.
+Until the second feature needs it, keep its current ownership rather than building a speculative shared module.
 
 ## Add a sub-module when a group of files hides something
 
-Without `turn/`, the panel provider imports the stream reader and the frame parsing, and learns the order: POST, read each frame, fold it into the answer, map the failure.
-With it, the provider calls `Turn.run`, and a change to the stream format stays inside `turn/`.
-That is the deletion test in [interface-design.md](interface-design.md), one level down: delete `turn/`, and its logic spreads across the files of `chat/`.
+Without `media/`, playback callers learn the asset lookup, format selection and playback protocol.
+With it, those decisions stay behind `Media`, and changes to playback remain local.
+That is the deletion test in [interface-design.md](interface-design.md), one level down.
 
-A folder that only sorts files by kind, such as `hooks/` or `utils/`, hides nothing and fails the test.
+A feature's selector or query-options sub-module centralizes rules about that feature's data.
+A cross-feature folder that merely sorts unrelated functions by technical role hides no such knowledge.
 
-## Test a sub-module through its object
+## Test the chosen internal interface
 
-A sub-module's tests sit beside the files they cover, such as `turn/turn-stream.test.ts`, and a test of the whole turn calls `Turn`.
-A test of `Chat` runs `Turn` real, because a sub-module is one of the module's own files ([module-tests.md](module-tests.md)).
+`main.test.ts` calls the sub-module's object or named exports, whichever production uses.
+Selector tests assert concrete transformations, predicates and unchanged inputs.
+A test of `Movie` runs `Media`, selectors and the other internal sub-modules real.
+[module-tests.md](module-tests.md) owns collaborator fakes and focused private-function tests.

@@ -7,6 +7,42 @@ import { recoveryArgs } from "./internal-review-recovery-args.ts";
 const defaultTimeoutSeconds = 540;
 const ownerCommands = ["associate", "wait", "merge"] as const;
 
+function stackFlags(flags: string[]) {
+  const values = new Map<string, string>();
+  const parents: string[] = [];
+  const rest = flags.values();
+  for (const flag of rest) {
+    if (values.has(flag)) return null;
+    if (flag === "--json") {
+      values.set(flag, "");
+      continue;
+    }
+    if (!["--parent", "--cut", "--plan"].includes(flag)) return null;
+    const value = rest.next().value;
+    if (value === undefined || value.startsWith("--")) return null;
+    if (flag === "--parent") {
+      if (parents.includes(value)) return null;
+      parents.push(value);
+    } else values.set(flag, value);
+  }
+  return { plan: values.get("--plan"), cut: values.get("--cut"), parents };
+}
+
+function stackArgs(args: string[]) {
+  const [name, ...flags] = args;
+  const action = (["plan", "apply", "review", "cancel"] as const).find((known) => known === name);
+  const parsed = stackFlags(flags);
+  if (action === undefined || parsed === null) return null;
+  if (action === "plan" && parsed.plan !== undefined) return null;
+  if (
+    action !== "plan" &&
+    (parsed.plan === undefined || parsed.cut !== undefined || parsed.parents.length > 0)
+  )
+    return null;
+  if (parsed.cut !== undefined && !/^[0-9a-f]{40,64}$/.test(parsed.cut)) return null;
+  return { operation: "pr_stack" as const, action, ...parsed };
+}
+
 /**
  * The SuperAgent names the assignment, because cleanup and a skip of an internal review run
  * outside the worktree.
@@ -65,24 +101,36 @@ function proseArgs(flags: string[], allowed: string[]) {
 }
 
 /** Worker commands select by worktree; a supervised parked merge names its assignment. */
+function fileArgs(name: string, flags: string[]) {
+  const parsed = proseArgs(flags, ["--file"]);
+  if (parsed?.file === undefined) return null;
+  return name === "round"
+    ? { operation: "pr_round" as const, file: parsed.file }
+    : { operation: "pr_validate" as const, file: parsed.file };
+}
+
 export function pullRequestArgs(args: string[]) {
   const [group, name, ...flags] = args;
+  if (group === "pr" && name === "stack") return stackArgs(flags);
   if (group === "cleanup") return cleanupArgs(args.slice(1));
   if (group === "internal-review")
     return name === "recover" ? recoveryArgs(flags) : skipArgs(args.slice(1));
-  if (group === "pr" && name === "round") {
-    const parsed = proseArgs(flags, ["--file"]);
-    return parsed?.file === undefined
-      ? null
-      : { operation: "pr_round" as const, file: parsed.file };
-  }
-  if (group === "pr" && name === "ready") {
-    const parsed = proseArgs(flags, ["--file", "--note"]);
-    return parsed === null ? null : { operation: "pr_ready" as const, ...parsed };
-  }
+  if (group === "pr" && ["round", "ready", "validate"].includes(name ?? ""))
+    return reviewArgs(name, flags);
   const command = ownerCommands.find((known) => known === name);
   if (group !== "pr" || command === undefined) return null;
   return ownerArgs(command, flags);
+}
+
+function reviewArgs(name: string | undefined, flags: string[]) {
+  if (name === "round" || name === "validate") {
+    return fileArgs(name, flags);
+  }
+  if (name === "ready") {
+    const parsed = proseArgs(flags, ["--file", "--note"]);
+    return parsed === null ? null : { operation: "pr_ready" as const, ...parsed };
+  }
+  return null;
 }
 
 function ownerArgs(command: string, flags: string[]) {
@@ -146,6 +194,12 @@ export const pullRequestExitCodes = {
   pr_merge_unverified: 1,
   pr_enqueue_unverified: 1,
   pr_enqueue_refused: 1,
+  pr_validation_stale: 4,
+  pr_validation_blocked: 4,
+  pr_merge_held: 4,
+  pr_delivery_running: 4,
+  pr_stack_running: 4,
+  pr_owner_busy: 4,
   source_supervised_elsewhere: 4,
   cleanup_failed: 1,
   relay_fetch_failed: 1,
@@ -181,29 +235,33 @@ export async function runPullRequests(
   const parsed = pullRequestArgs(args);
   if (parsed === null) return false;
   const input = { paths, cwd: process.cwd() };
-  const result = await (parsed.operation === "cleanup"
-    ? PullRequests.cleanup({ ...input, ...parsed })
-    : parsed.operation === "internal_review_recover"
-      ? PullRequests.recoverReview({ ...input, ...parsed })
-      : parsed.operation === "internal_review_skip"
-        ? PullRequests.skipReview({ ...input, ...parsed })
-        : parsed.operation === "pr_round"
-          ? PullRequests.round({ ...input, file: parsed.file })
-          : parsed.operation === "pr_ready"
-            ? PullRequests.ready({ ...input, ...readyInput(parsed) })
-            : parsed.operation === "pr_merge"
-              ? PullRequests.merge(
-                  parsed.sourceId !== undefined
-                    ? { ...input, sourceId: parsed.sourceId, assignment: parsed.assignment }
-                    : input,
-                )
-              : parsed.operation === "pr_associate"
-                ? PullRequests.associate(input)
-                : PullRequests.wait({
-                    ...input,
-                    timeoutSeconds: parsed.timeoutSeconds,
-                    ...readyInput(parsed),
-                  }));
+  const result = await (parsed.operation === "pr_validate"
+    ? PullRequests.validate({ ...input, file: parsed.file })
+    : parsed.operation === "cleanup"
+      ? PullRequests.cleanup({ ...input, ...parsed })
+      : parsed.operation === "pr_stack"
+        ? PullRequests.stack({ ...input, ...parsed })
+        : parsed.operation === "internal_review_recover"
+          ? PullRequests.recoverReview({ ...input, ...parsed })
+          : parsed.operation === "internal_review_skip"
+            ? PullRequests.skipReview({ ...input, ...parsed })
+            : parsed.operation === "pr_round"
+              ? PullRequests.round({ ...input, file: parsed.file })
+              : parsed.operation === "pr_ready"
+                ? PullRequests.ready({ ...input, ...readyInput(parsed) })
+                : parsed.operation === "pr_merge"
+                  ? PullRequests.merge(
+                      parsed.sourceId !== undefined
+                        ? { ...input, sourceId: parsed.sourceId, assignment: parsed.assignment }
+                        : input,
+                    )
+                  : parsed.operation === "pr_associate"
+                    ? PullRequests.associate(input)
+                    : PullRequests.wait({
+                        ...input,
+                        timeoutSeconds: parsed.timeoutSeconds,
+                        ...readyInput(parsed),
+                      }));
   respond({
     operation: parsed.operation,
     result,

@@ -11,6 +11,8 @@ Amended 2026-11-19: each assignment permits at most two report returns, includin
 Amended 2026-11-17 in #389: explicit readiness replaces inferred review or wait evidence and starts the feedback handoff.
 Amended 2026-11-18 in #390: parking retains an optional park-only note and durable waking events.
 Amended 2026-11-18 in #391: the release maps in-flight PR records and retains explicit migration provenance for unknown historical facts.
+Amended 2026-11-21 in [#422](https://github.com/fveracoechea/operator/issues/422#issuecomment-7067082891): changed managed-stack integration requires a fresh review without rewriting the outgoing launch snapshot.
+Amended 2026-11-21 in [#414's approved scope](https://github.com/fveracoechea/operator/issues/414#issuecomment-7067082608): changed known ready heads require separate exact-head correction validation without reopening ordinary rounds.
 
 ## Context
 
@@ -59,11 +61,18 @@ The readiness guard requires an explicit recorded ready transition.
 Ready association without internal review records that transition under the clean-worktree and pushed-head guards.
 Neither an ended review nor an eligible wait observation substitutes for readiness.
 An ended review stays in feedback after a newer head, without reopening review rounds or the ready step.
+An explicit managed-stack integration is different: a changed head or review base archives active evidence and requires a fresh independent review.
+That completed integration explicitly selects review through the generic kind handoff, even when the outgoing feedback kind has no review successor.
+The fresh ready transition establishes the next feedback frontier; ordinary later corrections keep their bounded feedback behavior.
 The canonical merge lifecycle gathers the current GitHub and local facts once.
 Observing an associated PR does not require a historical eligibility receipt or a clean worktree.
 An already merged PR takes verification and cleanup, without requesting a new merge.
 A new merge requires both a recorded ready frontier and the fresh merge gate.
 The explicit ready transition proves that frontier, also after a newer head.
+The current feedback owner separately records scope and targeted evidence for each changed known ready head before new delivery.
+This evidence applies only to the exact head and readiness provenance, survives parking or replacement, and supplies neither a new ready transition nor GitHub approval.
+Migration-origin unknown heads keep their accepted compatibility.
+Changed stack integration needs fresh review and invalidates old evidence applicability, even when the old head remains an ancestor.
 A skip records permission only; the reviewer still runs guarded ready without rounds or a summary comment.
 The phase machine also checks current worktree cleanliness.
 Cleanup independently retains unlanded work until the person authorizes its removal.

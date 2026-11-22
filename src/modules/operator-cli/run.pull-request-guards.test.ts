@@ -31,8 +31,8 @@ test.each([
     name: "running owner",
     file: "pull-requests/owner.ts",
     replacements: [['owner.launchState === "running" &&', "true &&"]],
-    testFile: "operator-cli/run.pull-requests.test.ts",
-    pattern: "an interrupted owner needs replacement",
+    testFile: "pull-requests/owner.test.ts",
+    pattern: "only the running start of an open PR assignment",
   },
   {
     name: "running owner in the write transaction",
@@ -250,7 +250,7 @@ test.each([
   {
     name: "PR base is main or a dependency's branch",
     file: "pull-requests/main.ts",
-    replacements: [["return parent === undefined", "return false"]],
+    replacements: [["return candidate === undefined", "return false"]],
     testFile: "operator-cli/run.pr-relay.test.ts",
     pattern: "a PR base that is neither",
   },
@@ -330,11 +330,17 @@ test.each([
     pattern: "a blocked relay stays with its live worker",
   },
   {
-    name: "one open stack parent",
+    name: "implemented open parents need no prerequisite merge",
     file: "work-sources/assignment-machine.ts",
-    replacements: [["open.length > 1", "open.length > 9"]],
+    replacements: [
+      [
+        'dependency.state !== "pr-open" && dependency.state !== "merged"',
+        'dependency.state !== "merged"',
+      ],
+    ],
     testFile: "work-sources/assignment-machine.test.ts",
-    pattern: "a PR stacks on one open parent",
+    pattern:
+      "several implemented open parents permit a managed stacked start without parent merges",
   },
   {
     name: "no relay over a rebase in progress",

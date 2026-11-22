@@ -117,7 +117,7 @@ in
     cp $TMPDIR/config.json $XDG_CONFIG_HOME/operator/config.json
     # Test stand-ins only. The real upstream roster does not provision the archived conflict skill.
     for host in $HOME/.claude/skills $HOME/.agents/skills; do
-      for name in code-review research prototype grilling tdd diagnosing-bugs pr resolving-merge-conflicts; do
+      for name in code-review research prototype grilling tdd diagnosing-bugs pr resolving-merge-conflicts handoff; do
         mkdir -p $host/$name
         echo "fixture $name" > $host/$name/SKILL.md
       done

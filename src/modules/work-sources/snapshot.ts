@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PrStacks } from "../pr-stacks/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { storedPlanSchema } from "./plan.ts";
 import { assignmentStateSchema, type AssignmentState } from "./assignment-machine.ts";
@@ -10,6 +11,12 @@ type StoredSource = Extract<
   ReturnType<typeof DeviceState.readSources>,
   { tag: "Ok" }
 >["value"][number];
+type StackOperation = Omit<NonNullable<StoredSource["stackOperations"]>[number], "data"> & {
+  data: ReturnType<typeof PrStacks.operation>;
+};
+type StackBase = Omit<NonNullable<StoredSource["stackBases"]>[number], "data"> & {
+  data: ReturnType<typeof PrStacks.decode>;
+};
 
 const launchSchema = z.object({
   id: z.string(),
@@ -86,6 +93,19 @@ const pullRequestSchema = z.object({
             .object({
               parent: z.object({ assignment: z.string(), number: z.number(), branch: z.string() }),
               state: z.enum(["stacked", "blocked", "relayed"]),
+              prerequisites: z
+                .array(
+                  z.object({
+                    assignment: z.string(),
+                    number: z.number().int().positive(),
+                    branch: z.string(),
+                    head: z.string(),
+                    base: z.string(),
+                  }),
+                )
+                .optional(),
+              cut: z.string().optional(),
+              base: z.string().optional(),
               blocker: z.object({ reason: z.string(), detail: z.string() }).nullable(),
             })
             .parse(JSON.parse(text)),
@@ -417,6 +437,125 @@ function promotionsValid(
   );
 }
 
+function stackIdentity(row: StackOperation, source: { id: string; repository: string }) {
+  const plan = row.data;
+  const state =
+    plan.step === "complete" || plan.step === "cancelled"
+      ? plan.step
+      : plan.blocker === null
+        ? "planned"
+        : "blocked";
+  return (
+    row.state === state &&
+    Number.isInteger(row.revision) &&
+    row.revision > 0 &&
+    row.sourceId === source.id &&
+    plan.sourceId === source.id &&
+    plan.repository === source.repository &&
+    row.id === plan.id &&
+    row.assignment === plan.assignment &&
+    row.launchId === plan.launchId
+  );
+}
+
+function stackRecordsValid(
+  source: {
+    id: string;
+    repository: string;
+    launches: Launch[];
+    pullRequests: PullRequest[];
+    stackOperations: StackOperation[];
+    stackBases: StackBase[];
+  },
+  planned: { key: string; dependencies: string[] }[],
+) {
+  const launches = new Map(source.launches.map((row) => [row.id, row]));
+  const pulls = new Map(source.pullRequests.map((row) => [row.assignment, row]));
+  function owned(row: { sourceId: string; assignment: string; launchId: string; branch?: string }) {
+    const launch = launches.get(row.launchId);
+    return (
+      row.sourceId === source.id &&
+      launch?.assignment === row.assignment &&
+      (row.branch === undefined || launch.branch === row.branch)
+    );
+  }
+  function parentsValid(parents: ReturnType<typeof PrStacks.decode>["parents"]) {
+    return (
+      new Set(parents.map((parent) => parent.assignment)).size === parents.length &&
+      parents.every((parent) => {
+        const pr = pulls.get(parent.assignment);
+        return pr?.number === parent.number && pr.branch === parent.branch;
+      })
+    );
+  }
+  return (
+    stackGraphValid(planned, source.stackBases, source.stackOperations) &&
+    source.stackBases.every(
+      (row) =>
+        owned(row) &&
+        parentsValid(row.data.parents) &&
+        !row.data.parents.some((parent) => parent.assignment === row.assignment),
+    ) &&
+    source.stackOperations.every((row) => {
+      const pr = pulls.get(row.assignment);
+      return (
+        stackIdentity(row, source) &&
+        owned({ ...row, branch: row.data.branch }) &&
+        pr?.number === row.data.number &&
+        parentsValid(row.data.parents) &&
+        !row.data.parents.some((parent) => parent.assignment === row.assignment)
+      );
+    })
+  );
+}
+
+function stackGraphValid(
+  planned: { key: string; dependencies: string[] }[],
+  bases: StackBase[],
+  operations: StackOperation[],
+) {
+  const graph = new Map(planned.map((row) => [row.key, new Set(row.dependencies)]));
+  for (const row of [...bases, ...operations.filter((row) => row.state !== "cancelled")]) {
+    const edges = graph.get(row.assignment);
+    if (edges === undefined) return false;
+    for (const parent of row.data.parents) edges.add(parent.assignment);
+  }
+  for (const key of graph.keys()) {
+    const seen = new Set<string>();
+    const pending = [...(graph.get(key) ?? [])];
+    while (pending.length > 0) {
+      const parent = pending.pop();
+      if (parent === key) return false;
+      if (parent === undefined || seen.has(parent)) continue;
+      seen.add(parent);
+      pending.push(...(graph.get(parent) ?? []));
+    }
+  }
+  return true;
+}
+
+function decodeStacks(input: StoredSource) {
+  return {
+    stackOperations: (input.stackOperations ?? []).map((row) => {
+      if (row.reviewHistory !== null) DeviceState.stackHistory(row.reviewHistory);
+      return { ...row, data: PrStacks.operation(row.data) };
+    }),
+    stackBases: (input.stackBases ?? []).map((row) => ({
+      ...row,
+      data: PrStacks.decode(row.data),
+    })),
+  };
+}
+
+function sourceStateValid(source: { state: string; assignments: AssignmentState[] }) {
+  const expected = decideSource({ state: "open", assignments: source.assignments });
+  return source.state === "reset"
+    ? source.assignments.every((assignment) =>
+        ["merged", "completed", "abandoned"].includes(assignment.state),
+      )
+    : source.state === expected;
+}
+
 export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
@@ -433,6 +572,7 @@ export function decodeSource(input: StoredSource) {
     questions: z.array(questionSchema).parse(input.questions),
     messages: z.array(messageSchema).parse(input.messages),
     obligations: z.array(obligationSchema).parse(input.obligations),
+    ...decodeStacks(input),
   };
   const promotions = z.array(promotionSchema).parse(input.promotions);
   const assignments = withPromotions(source.plan, promotions);
@@ -440,13 +580,7 @@ export function decodeSource(input: StoredSource) {
     source.trackerKey === source.plan.trackerKey &&
     sameAssignments(source.assignments, assignments);
   const validPromotions = promotionsValid(source, promotions);
-  const expected = decideSource({ state: "open", assignments: source.assignments });
-  const validState =
-    source.state === "reset"
-      ? source.assignments.every((assignment) =>
-          ["merged", "completed", "abandoned"].includes(assignment.state),
-        )
-      : source.state === expected;
+  const validState = sourceStateValid(source);
   // A launch always belongs to an assignment that left the ready state.
   const validLaunches = source.launches.every((launch) =>
     source.assignments.some((row) => row.key === launch.assignment && row.state !== "ready"),
@@ -484,6 +618,7 @@ export function decodeSource(input: StoredSource) {
     validLaunches &&
     validPullRequests &&
     validRecords(source) &&
+    stackRecordsValid(source, assignments) &&
     validMerges &&
     validState &&
     (source.state === "open" ? source.endedAt === null : source.endedAt !== null);
@@ -497,10 +632,17 @@ export function decodeSource(input: StoredSource) {
     assignmentStateSchema.parse(input.assignments.find((row) => row.key === assignment.key)),
   );
   const storedKinds = new Map(input.assignments.map((row) => [row.key, row.kind]));
+  const bases = new Map(source.stackBases.map((row) => [row.assignment, row.data]));
   return {
     ...source,
     planned: assignments.map((assignment) => ({
       ...assignment,
+      dependencies: [
+        ...new Set([
+          ...assignment.dependencies,
+          ...(bases.get(assignment.key)?.parents.map((parent) => parent.assignment) ?? []),
+        ]),
+      ],
       kind: z.string().nullable().parse(storedKinds.get(assignment.key)),
     })),
   };

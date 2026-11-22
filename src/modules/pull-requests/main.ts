@@ -1,4 +1,6 @@
 import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
+import { stack, relayStack } from "./stack.ts";
+import { PrStacks } from "../pr-stacks/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { PrEntry } from "../pr-entry/main.ts";
@@ -34,7 +36,8 @@ import {
 } from "./internal-review.ts";
 import { ready, skip } from "./internal-review-ready.ts";
 import { recoverReview } from "./internal-review-recovery.ts";
-import type { Refusal } from "../../lib/cli-result.ts";
+import type { Refusal, NextStep } from "../../lib/cli-result.ts";
+import { validate } from "./validation.ts";
 import { parkQuietWait, readParkNote, observeParked } from "./parking.ts";
 
 type Request = { paths: Paths; cwd: string; parkNote?: string | null };
@@ -59,16 +62,40 @@ function parents(input: Request, owner: Owner) {
     paths: input.paths,
     cwd: owner.checkout,
     sourceId: owner.sourceId,
-  }).map((source) => {
+  }).flatMap((source) => {
     // Stryker disable next-line ArrayDeclaration: equivalent: an entry that is not a PR row has no branch, so it matches no base and lists as none
-    if (source === undefined) return [];
+    if (source === undefined) return Ok([]);
     const planned = source.planned.find((row) => row.key === owner.assignment);
-    return source.pullRequests
-      .filter((pr) => planned?.dependencies.includes(pr.assignment) === true)
-      .map((pr) => ({
-        parent: { assignment: pr.assignment, number: pr.number, branch: pr.branch },
-        open: pr.mergedAt === null,
-      }));
+    const candidates: { parent: Relay["parent"]; open: boolean; relay?: Relay }[] =
+      source.pullRequests
+        .filter((pr) => planned?.dependencies.includes(pr.assignment) === true)
+        .map((pr) => ({
+          parent: { assignment: pr.assignment, number: pr.number, branch: pr.branch },
+          open: pr.mergedAt === null,
+        }));
+    return DeviceState.readStackBases(input.paths, owner.repository, owner.sourceId).map((rows) => {
+      const row = rows.find(
+        (candidate) =>
+          candidate.assignment === owner.assignment && candidate.branch === owner.branch,
+      );
+      if (row === undefined) return candidates;
+      const base = PrStacks.decode(row.data);
+      const first = base.parents[0];
+      return first === undefined
+        ? []
+        : [
+            {
+              parent: { ...first, branch: base.branch },
+              open: true,
+              relay: {
+                ...stacked(first),
+                prerequisites: base.parents,
+                cut: base.head,
+                base: base.branch,
+              },
+            },
+          ];
+    });
   });
 }
 
@@ -79,7 +106,7 @@ function parents(input: Request, owner: Owner) {
  */
 function stackOf(
   pr: { base: string; defaultBranch: string | null },
-  candidates: { parent: Relay["parent"]; open: boolean }[],
+  candidates: { parent: Relay["parent"]; open: boolean; relay?: Relay }[],
 ): Result<Relay | null, Failure> {
   const open = candidates.filter((candidate) => candidate.open);
   if (pr.base === pr.defaultBranch && open.length > 0)
@@ -93,8 +120,8 @@ function stackOf(
       state: { base: pr.base, openParents: open.map((row) => row.parent.branch) },
     });
   if (pr.base === pr.defaultBranch) return Ok(null);
-  const parent = candidates.find((candidate) => candidate.parent.branch === pr.base)?.parent;
-  return parent === undefined
+  const candidate = candidates.find((candidate) => candidate.parent.branch === pr.base);
+  return candidate === undefined
     ? Err({
         reason: "pr_base_invalid",
         detail: `The PR targets ${pr.base}. Target the default branch or the branch of a dependency's PR: ${candidates.map((row) => row.parent.branch).join(", ") || "none"}. Nothing was changed.`,
@@ -108,7 +135,7 @@ function stackOf(
           parents: candidates.map((row) => row.parent.branch),
         },
       })
-    : Ok(stacked(parent));
+    : Ok(candidate.relay ?? stacked(candidate.parent));
 }
 
 /**
@@ -206,13 +233,13 @@ function progress(text: string) {
   return progressSchema.parse(JSON.parse(text));
 }
 
-type Outcome = { reason: string; data: object };
+type Outcome = { reason: string; data: object; next?: NextStep };
 type Recorded = { number: number; url: string; relay: string | null };
 // Null means that this wait relayed nothing.
 type RelayOutcome =
   | null
   | { kind: "blocked"; blocker: Blocker }
-  | { kind: "relayed"; relay: Relay; head: string; base: string };
+  | { kind: "relayed"; relay: Relay; head: string; base: string; stackPlan?: string };
 
 /** Changes the relay record only while this process holds the claim. */
 function recordRelay(
@@ -319,6 +346,64 @@ function relayStep(
 ): AsyncResult<RelayOutcome, Failure> {
   const relay = parseRelay(pr.relay);
   if (!needsParent(relay, observed)) return OkAsync(null);
+  if (relay.prerequisites !== undefined)
+    return managedParentsMerged(owner, relay, observed.defaultBranch).flatMap((merged) =>
+      merged
+        ? relayStack(input, owner, relay).map(({ data }) => ({
+            kind: "relayed" as const,
+            relay: { ...relay, state: "relayed" as const },
+            head: data.candidate ?? data.head,
+            base: data.targetBranch,
+            stackPlan: data.id,
+          }))
+        : OkAsync(null),
+    );
+  return relayOne(input, owner, pr, observed, relay);
+}
+
+function managedParentsMerged(
+  owner: Owner,
+  relay: Relay,
+  defaultBranch: string | null,
+): AsyncResult<boolean, Failure> {
+  return fromPromise(async () => {
+    let merged = true;
+    for (const prerequisite of relay.prerequisites ?? []) {
+      const parent = await observeParent(owner.repository, prerequisite.number);
+      if (parent.tag !== "Ok") return parent.as(false);
+      if (parent.value.state === "OPEN") merged = false;
+      else if (parent.value.state === "CLOSED")
+        return Err<Failure>({
+          reason: "relay_parent_closed",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should this managed stack continue after a prerequisite closed without merging?",
+          },
+          detail: `Prerequisite PR #${prerequisite.number} closed without merging. Preserve this stack and ask the SuperAgent.`,
+        });
+      else if (parent.value.base !== defaultBranch)
+        return Err<Failure>({
+          reason: "relay_parent_base",
+          next: {
+            decider: "super-agent",
+            question:
+              "How should this managed stack continue after a prerequisite merged outside the default branch?",
+          },
+          detail: `Prerequisite PR #${prerequisite.number} merged outside the default branch. Preserve this stack and ask the SuperAgent.`,
+        });
+    }
+    return Ok(merged);
+  }, qualify).flatMap((result) => result);
+}
+
+function relayOne(
+  input: Request,
+  owner: Owner,
+  pr: Recorded,
+  observed: Observation,
+  relay: Relay,
+): AsyncResult<RelayOutcome, Failure> {
   return observeParent(owner.repository, relay.parent.number).flatMap((parent) => {
     const decision = decideRelay(relay, observed, parent);
     if (decision.action === "none") return OkAsync<RelayOutcome>(null);
@@ -355,6 +440,39 @@ function relayStep(
   });
 }
 
+/** Accepted membership invalidates an earlier refusal before feedback can park again. */
+function rememberQueueMembership(
+  input: Request,
+  owner: Owner,
+  observed: Observation,
+): AsyncResult<undefined, Failure> {
+  const parking =
+    owner.parking === null ? null : DeviceState.prParkingSchema().parse(JSON.parse(owner.parking));
+  if (
+    observed.queueEntry === null ||
+    observed.queueEntry === undefined ||
+    parking?.queueHead === null ||
+    parking?.queueHead === undefined ||
+    parking.queueHead !== observed.head ||
+    parking.queueAttempt === null ||
+    parking.queueAttempt === undefined
+  )
+    return OkAsync(undefined);
+  return DeviceState.refusePullRequestQueue(
+    input.paths,
+    owner.launchId,
+    parking.queueHead,
+    parking.queueAttempt,
+    {
+      head: observed.head,
+      state: observed.state,
+      entry: observed.queueEntry,
+    },
+  )
+    .toAsync()
+    .map(() => undefined);
+}
+
 /** Observes once, records any result, and polls again until the deadline. */
 function poll(
   input: Request,
@@ -372,11 +490,24 @@ function poll(
           why: "Read complete checks before acknowledging this observation.",
         },
       });
-    return relayStep(input, owner, pr, observed).flatMap(
-      (relayed): AsyncResult<Outcome, Failure> => {
+    return rememberQueueMembership(input, owner, observed)
+      .flatMap(() => relayStep(input, owner, pr, observed))
+      .flatMap((relayed): AsyncResult<Outcome, Failure> => {
         if (relayed?.kind === "blocked") return ErrAsync(relayed.blocker);
-        if (relayed?.kind === "relayed")
-          return OkAsync({
+        if (relayed?.kind === "relayed") {
+          const event: {
+            kind: "parent_relayed";
+            parent: Relay["parent"];
+            base: string;
+            head: string;
+            stackPlan?: string;
+          } = {
+            kind: "parent_relayed",
+            parent: relayed.relay.parent,
+            base: relayed.base,
+            head: relayed.head,
+          };
+          const outcome: Outcome = {
             reason: "pr_events_observed",
             data: {
               ...summary(owner, pr),
@@ -384,22 +515,31 @@ function poll(
               // The relay pushed a new head on a new base, so no check has reported for it yet,
               // and the relay counts from the next wait.
               mergeConditions: mergeConditions(
-                { ...observed, base: relayed.base, checks: [] },
-                { stackRelayed: false, reviewEnded: reviewEnded(owner) },
-              ),
-              events: [
                 {
-                  kind: "parent_relayed",
-                  parent: relayed.relay.parent,
+                  ...observed,
                   base: relayed.base,
-                  head: relayed.head,
+                  checks: [],
+                  draft: relayed.stackPlan === undefined ? observed.draft : true,
                 },
-              ],
+                {
+                  stackRelayed: false,
+                  reviewEnded: relayed.stackPlan === undefined && reviewEnded(owner),
+                },
+              ),
+              events: [event],
             },
-          });
+          };
+          if (relayed.stackPlan !== undefined) {
+            event.stackPlan = relayed.stackPlan;
+            outcome.next = {
+              command: `operator pr stack review --plan ${relayed.stackPlan}`,
+              why: "Hand the new integration diff to a genuinely fresh reviewer.",
+            };
+          }
+          return OkAsync(outcome);
+        }
         return decideOnce(input, owner, pr, observed, deadline);
-      },
-    );
+      });
   });
 }
 
@@ -533,8 +673,14 @@ function waitWithNote(input: Request & { timeoutSeconds: number }) {
  * verified merge, and the SuperAgent can repeat it after a failure.
  */
 export const PullRequests = {
+  stack(input: Parameters<typeof stack>[0]) {
+    return stack(input);
+  },
+  validate(input: Parameters<typeof validate>[0]) {
+    return validate(input);
+  },
   /** The canonical validated PR command target, shared with worker-phase guards. */
-  workerTarget(input: Request) {
+  workerTarget(input: Request & { stackOperation?: boolean }) {
     return resolveOwner(input).map(({ repository, sourceId, assignment, launchId }) => ({
       repository,
       sourceId,

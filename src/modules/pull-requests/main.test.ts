@@ -176,6 +176,61 @@ test("the owner associates its one open PR, and a repeat changes nothing", async
   });
 });
 
+test("association accepts only the recorded integration base and retains every pinned prerequisite and cut", async () => {
+  await using device = await prDevice();
+  const first = device.start("parent");
+  device.associate(first.launchId, 6, "task/parent");
+  const second = device.start("second");
+  device.associate(second.launchId, 9, "task/second");
+  const child = device.start("child");
+  const base = {
+    head: "integration-cut",
+    branch: "operator/stacks/source/child/integration-cut",
+    managed: true,
+    parents: [
+      { assignment: "parent", number: 6, branch: "task/parent", head: "parent-head", base: "main" },
+      { assignment: "second", number: 9, branch: "task/second", head: "second-head", base: "main" },
+    ],
+  };
+  expect(
+    DeviceState.recordStackBase(device.paths, child.launchId, "task/child", JSON.stringify(base))
+      .tag,
+  ).toBe("Ok");
+  spyOn(ToolInvocation, "detach").mockReturnValue(process.pid);
+  let observedBase = "task/parent";
+  device.answer(() =>
+    succeeded(
+      associationBody([
+        {
+          number: 8,
+          head: "task/child",
+          base: observedBase,
+          oid: git(child.worktree, "rev-parse", "HEAD"),
+        },
+      ]),
+    ),
+  );
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(await PullRequests.associate({ paths: device.paths, cwd: child.worktree })).toMatchObject({
+    tag: "Err",
+    error: { reason: "pr_base_invalid" },
+  });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+  expect(device.pullRequestRow("child")).toBeNull();
+  observedBase = base.branch;
+  expect(await PullRequests.associate({ paths: device.paths, cwd: child.worktree })).toMatchObject({
+    tag: "Ok",
+  });
+  const relay: unknown = JSON.parse(device.pullRequestRow("child")?.relay ?? "null");
+  expect(relay).toMatchObject({
+    prerequisites: base.parents,
+    cut: base.head,
+    base: base.branch,
+    state: "stacked",
+  });
+  expect(device.calls.every((args) => requestKind(args) === "association")).toBe(true);
+});
+
 test("an enabled assignment reviewer is queued with the association", async () => {
   await using device = await prDevice();
   await Bun.write(device.paths.config, JSON.stringify({ review: { assignments: true } }), {
@@ -414,6 +469,71 @@ test("a wait reports an eligible head once and records each result", async () =>
   });
   expect(device.pullRequestRow("other")).toMatchObject({ waitState: "timed_out" });
   expect(device.calls.map(requestKind)).toEqual(["pull_request", "pull_request"]);
+});
+
+test("a durable queue receipt permits feedback observation but refuses a relay claim", async () => {
+  await using device = await prDevice();
+  const { input, launchId, worktree } = waiting(device);
+  const head = git(worktree, "rev-parse", "HEAD");
+  expect(DeviceState.recordPullRequestQueue(device.paths, launchId, head).tag).toBe("Ok");
+  const attempt = DeviceState.prParkingSchema().parse(
+    JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+  ).queueAttempt;
+  expect(
+    DeviceState.recordPullRequestQueueRefusal(
+      device.paths,
+      launchId,
+      head,
+      attempt ?? "",
+      "Typed refusal.",
+    ).tag,
+  ).toBe("Ok");
+  device.answer(() => succeeded(pullRequestBody({ head, queueEnabled: true, queueEntry: "Q7" })));
+  expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
+  expect(
+    DeviceState.prParkingSchema().parse(
+      JSON.parse(device.pullRequestRow("other")?.parking ?? "null"),
+    ),
+  ).toMatchObject({
+    queueHead: head,
+    queueAttempt: attempt,
+    queueConfirmed: true,
+    queueRefusal: null,
+  });
+  const before = await Bun.file(device.paths.database).arrayBuffer();
+  expect(
+    DeviceState.recordPullRequestWait(device.paths, launchId, (row) => ({
+      progress: row.progress,
+      waitState: row.waitState,
+      relay: '{"state":"relaying"}',
+    })),
+  ).toMatchObject({ tag: "Err", error: { reason: "pr_delivery_running" } });
+  expect(await Bun.file(device.paths.database).arrayBuffer()).toEqual(before);
+});
+
+test("queued correction observation does not confirm membership for a different head", async () => {
+  await using device = await prDevice();
+  const { input, launchId, worktree } = waiting(device);
+  const head = git(worktree, "rev-parse", "HEAD");
+  const attempt = DeviceState.recordPullRequestQueue(device.paths, launchId, head).getOr(null);
+  if (attempt === null) return expect.unreachable("The attempt must be newly recorded.");
+  expect(
+    DeviceState.recordPullRequestQueueRefusal(
+      device.paths,
+      launchId,
+      head,
+      attempt,
+      "Typed refusal.",
+    ).tag,
+  ).toBe("Ok");
+  const before = device.pullRequestRow("other")?.parking;
+  device.answer(() =>
+    succeeded(pullRequestBody({ head: "changed", queueEnabled: true, queueEntry: "Q_OTHER" })),
+  );
+  expect(await PullRequests.wait(input)).toMatchObject({ tag: "Ok" });
+  expect(device.pullRequestRow("other")?.parking).toBe(before);
+  expect(device.calls.map(requestKind)).toEqual(["pull_request"]);
 });
 
 test.each(["null", "incomplete"] as const)(

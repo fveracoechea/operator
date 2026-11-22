@@ -156,8 +156,18 @@ It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent
 An assignment whose implementation, review, and pr-feedback launches carry one pull request through review, feedback, CI, and merge.
 The ready transition ends the reviewer launch and starts a fresh pr-feedback launch in the same worktree.
 A dependent can start when the dependency's PR is open or merged.
-It stacks on the branch of one open parent PR, and it waits while more than one parent PR is open.
+It stacks on an open prerequisite that contains the required heads, or on its own dependency-only base for independent prerequisites.
 A parked PR assignment keeps its worktree and PR-open state without a live launch.
+
+**Dependency-only base**:
+An integration of pinned prerequisite heads that excludes the child's work.
+It belongs to one child and does not transfer ownership of prerequisite branches.
+
+**Stack operation**:
+An owner-scoped change from a proven old dependency cut to pinned prerequisite heads.
+It retains interrupted progress, failures, and historical review evidence until completion or safe cancellation.
+Supplemental sibling prerequisites extend integration obligations without changing the registered source plan.
+Changed integration head or review base requires a fresh independent review.
 
 **Report assignment**:
 An assignment that completes through SuperAgent acceptance of a durable report rather than a PR.
@@ -270,6 +280,19 @@ They require approval, passing checks, no unresolved review threads, a default-b
 The PR owner and the instructed supervisor of a parked assignment use the same gate.
 A passed gate enqueues a PR whose base requires a merge queue, but completion still requires an observed merge.
 _Avoid_: project gate
+
+**Merge hold**:
+The person's instruction to prevent new delivery across a work source until its explicit release.
+It cannot cancel an already accepted merge request or queue entry.
+
+**Direct delivery**:
+A head-pinned merge request whose outcome can remain unresolved after its requester stops.
+Recovery preserves the original requester and observes the same request rather than assuming it did not apply.
+
+**Correction validation**:
+The current feedback owner's exact-head account of correction scope and targeted evidence after a changed known ready head.
+It applies to the readiness that established the correction baseline, independently of review rounds and GitHub approval.
+Ordinary corrections preserve readiness; changed stack integration requires fresh review instead.
 
 **Internal review**:
 The unpublished review of a draft PR by a fresh WorkerAgent that takes over the PR assignment from its implementer.

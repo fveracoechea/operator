@@ -178,6 +178,15 @@ async function workPullRequest(
   });
   const eligible = resultSchema.parse((await run(["pr", "wait", "--timeout", "0"])).output);
   expect(eligible.data?.events).toContainEqual(expect.objectContaining({ kind: "merge_eligible" }));
+  const evidence = `${worktree}/../correction-${number}.md`;
+  await Bun.write(
+    evidence,
+    "Scope: fix the requested line. Evidence: the targeted workflow regression passes.",
+  );
+  expect(await run(["pr", "validate", "--file", evidence])).toMatchObject({
+    code: 0,
+    output: { reason: "pr_validated", data: { head: fixed, readyHead: first } },
+  });
   if (options.leaveNotes) {
     await github((state) => {
       state.cleanupHold = true;

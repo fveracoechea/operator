@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 // Bun has no temporary-directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { migrationsFolder } from "./database.ts";
@@ -56,7 +58,7 @@ test("parked merge admission is read-only and accepts only the retained matching
 });
 
 test("parked merge admission remains available while another connection holds a write reservation", async () => {
-  const root = await mkdtemp("/tmp/opencode/issue392-parked-admission-");
+  const root = await mkdtemp(path.join(tmpdir(), "operator-parked-admission-"));
   try {
     using writer = fixture(`${root}/state.sqlite`);
     using reader = new Database(`${root}/state.sqlite`);

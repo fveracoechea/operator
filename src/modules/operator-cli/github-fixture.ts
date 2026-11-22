@@ -90,12 +90,14 @@ if (path?.includes("/merge-async")) {
     } else {
       const uuid = "request-" + (state.mergeRequests.length + 1);
       state.mergeRequests.push({ uuid, number: pr.number, sha: field("sha"), method: field("merge_method"), action: field("merge_action"), pending: state.mergePending ?? 0 });
-      status(202, "Accepted", { status: "pending", details: { message: "Merge request enqueued.", uuid } });
+      if (state.mergeSubmitLost) status(502, "Bad Gateway", { message: "accepted request response lost" });
+      else status(202, "Accepted", { status: "pending", details: { message: "Merge request enqueued.", uuid } });
     }
   } else {
     const request = state.mergeRequests.find((row) => path.endsWith("/merge-async/" + row.uuid));
     const pr = state.pulls.find((row) => row.number === request.number);
-    if (request.pending > 0) { request.pending -= 1; status(200, "OK", { status: "pending", details: { message: "Merge request enqueued.", uuid: request.uuid } }); }
+     if (state.mergeReadLost) status(502, "Bad Gateway", { message: "request read unavailable" });
+     else if (request.pending > 0) { request.pending -= 1; status(200, "OK", { status: "pending", details: { message: "Merge request enqueued.", uuid: request.uuid } }); }
     else if (pr.state === "MERGED") status(200, "OK", merged(pr));
     else if (request.sha !== (pr.head ?? "head-1")) status(200, "OK", { status: "failed", details: { message: "Head branch was modified." } });
     else {
@@ -210,11 +212,34 @@ if (query.includes("files(first")) {
 // With a real bare remote, an open PR's head is its branch there, as GitHub reports a push.
 const headOf = (pr) => pr.head ?? (state.remote ? Bun.spawnSync(["git", "--git-dir", state.remote, "rev-parse", "refs/heads/" + pr.headRefName]).stdout.toString().trim() : "head-1");
 if (query.includes("MergeQueueFacts")) {
+  if (state.queueMembershipReads?.length) {
+    const entry = state.queueMembershipReads.shift();
+    await save();
+    if (entry === "lost") {
+      status(502, "Bad Gateway", { message: "Later membership response lost." });
+      process.exit(1);
+    }
+    const pr = state.pulls.find(row => row.number === Number(field("number")));
+    answer({ data: { repository: { pullRequest: { id: "PR_" + pr.number, state: pr.state, headRefOid: headOf(pr), isMergeQueueEnabled: true, mergeQueueEntry: entry === null ? null : { id: entry } } } } });
+    process.exit(0);
+  }
+  if (state.enqueueTypedRefused && state.enqueueVerificationLost) {
+    state.enqueueVerificationLost = false;
+    await save();
+    status(502, "Bad Gateway", { message: "Membership verification response lost." });
+    process.exit(1);
+  }
   const pr = state.pulls.find(row => row.number === Number(field("number")));
   answer({ data: { repository: { pullRequest: { id: "PR_" + pr.number, state: pr.state, headRefOid: headOf(pr), isMergeQueueEnabled: pr.isMergeQueueEnabled ?? false, mergeQueueEntry: pr.queueEntry ? { id: pr.queueEntry } : null } } } });
   process.exit(0);
 }
 if (query.includes("mutation EnqueuePR")) {
+  if (state.enqueueTypedRefuse) {
+    state.enqueueTypedRefused = true;
+    await save();
+    answer({ data: { enqueuePullRequest: null }, errors: [{ type: "UNPROCESSABLE", path: ["enqueuePullRequest"], message: "Queue admission refused." }] });
+    process.exit(0);
+  }
   const pr = state.pulls.find(row => "PR_" + row.number === field("id"));
   if (state.enqueueRefuse || field("head") !== headOf(pr)) { answer({ data: null, errors: [{ message: "Queue refused the head." }] }); process.exit(0); }
   pr.queueEntry = "QUEUE_" + pr.number;
@@ -258,9 +283,12 @@ if (query.includes("ParkedPRs") || query.includes("ParkedFeedbackPages")) {
   for (const match of query.matchAll(/(r\\d+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{([\\s\\S]*?)(?=r\\d+: repository|$)/g)) {
     const number = Number(/pullRequest\\(number: (\\d+)\\)/.exec(match[4])?.[1]);
     const pr = state.pulls.find(row => row.number === number);
-    const parentNumber = Number(/parent: pullRequest\\(number: (\\d+)\\)/.exec(match[4])?.[1]);
-    const parent = state.pulls.find(row => row.number === parentNumber);
-    data[match[1]] = { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: pr === undefined ? null : prFacts(pr, match[4]), ...(parent === undefined ? {} : { parent: { state: parent.state, baseRefName: parent.baseRefName ?? "main", headRefOid: headOf(parent) } }) };
+    const parents = {};
+    for (const selected of match[4].matchAll(/(parent\\d*): pullRequest\\(number: (\\d+)\\)/g)) {
+      const parent = state.pulls.find(row => row.number === Number(selected[2]));
+      if (parent !== undefined) parents[selected[1]] = { state: parent.state, baseRefName: parent.baseRefName ?? "main", headRefOid: headOf(parent) };
+    }
+    data[match[1]] = { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: pr === undefined ? null : prFacts(pr, match[4]), ...parents };
   }
   answer({ data });
   process.exit(0);
@@ -287,6 +315,12 @@ if (args.includes("PATCH")) {
   (state.updated ??= []).push({ id: comment.id, body: comment.body });
   await save();
   answer({ data: { updateIssueComment: { issueComment: { id: comment.id } } } });
+} else if (query.includes("convertPullRequestToDraft")) {
+  const pr = state.pulls.find((row) => "PR_" + row.number === field("id"));
+  pr.isDraft = true;
+  (state.drafted ??= []).push(pr.number);
+  await save();
+  answer({ data: { convertPullRequestToDraft: { pullRequest: { isDraft: true } } } });
 } else if (query.includes("markPullRequestReadyForReview")) {
   const pr = state.pulls.find((row) => "PR_" + row.number === field("id"));
   (state.readied ??= []).push(pr.number);
@@ -301,7 +335,7 @@ if (args.includes("PATCH")) {
   if (change) state.pulls[index] = { ...state.pulls[index], ...change };
   await save();
   const pr = state.pulls[index];
-  answer({ data: { repository: { pullRequest: { state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefOid: headOf(pr) } } } });
+  answer({ data: { repository: { pullRequest: { state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefOid: headOf(pr), headRefName: pr.headRefName, headRepository: { nameWithOwner: pr.headRepository } } } } });
 } else {
   const number = Number(field("number"));
   const index = state.pulls.findIndex((pr) => pr.number === number);

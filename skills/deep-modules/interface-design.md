@@ -13,7 +13,9 @@ When the same logic would come back in its call sites, the module earns its plac
 When nothing would come back, the module is a pass-through, so delete it.
 The test measures what the module hides, not how many callers it has, so a feature with one route can pass it.
 
-Apply the same test to each member of the interface object, and to each server function.
+Apply the same test to each operation on the interface object, and to each server function.
+A selector or constant can express a small domain rule without orchestrating IO.
+Judge such members by the knowledge they centralize, rather than adding machinery to make them look deep.
 A same-process pass-through goes: `Invoices.remove` that calls `Store.delete` with the same arguments hides nothing, so give it more work, such as the cache refresh every caller does next, or remove it.
 A method that is the feature's public operation over a transport, such as an RPC or an HTTP call, stays even when it is one line.
 It names one call the feature allows, and the depth sits in the transport those methods share.
@@ -59,7 +61,8 @@ A folder named `billing-api` behind an `Invoices` object and a `$.billing` slice
 
 ## Review a module against its callers
 
-Review is done when each of these holds for every member of every interface object, and for every server function:
+Review is done when each of these holds for every public operation and server function.
+Judge constants and nested groups by their domain knowledge and ownership, as described above.
 
 - The member passes the deletion test above.
 - Each caller uses it in one call, with no sequence of calls that the module could own.
