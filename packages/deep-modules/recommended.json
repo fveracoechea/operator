@@ -1,0 +1,6 @@
+{
+  "jsPlugins": [
+    { "name": "deep-modules", "specifier": "@fveracoechea/oxlint-plugin-deep-modules" }
+  ],
+  "rules": { "deep-modules/module-interface": "error" }
+}

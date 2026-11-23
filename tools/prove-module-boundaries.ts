@@ -17,7 +17,15 @@ type Violation = {
 };
 
 /** Everything `lint:modules` reads. The copy holds this and nothing else. */
-const COPIED = ["src", ".oxlintrc.json", ".oxfmtrc.json", "tools", "package.json", "tsconfig.json"];
+const COPIED = [
+  "src",
+  ".oxlintrc.json",
+  ".oxfmtrc.json",
+  "tools",
+  "packages",
+  "package.json",
+  "tsconfig.json",
+];
 
 /**
  * Builds the checkout this proof writes its deliberate violations into.
@@ -110,24 +118,26 @@ const violations: Violation[] = [
     expectedDiagnostic: "every module requires one public interface",
   },
   {
-    name: "data-only module interface",
+    name: "standalone application operation",
     files: {
       [`src/modules/module-boundary-probe-data-${probeIdentity}/main.ts`]:
-        "export const DataInterface = { value: true };\n",
+        "export const DataInterface = () => true;\n",
     },
     cleanupPath: `src/modules/module-boundary-probe-data-${probeIdentity}`,
-    expectedDiagnostic: "properties are action methods",
+    expectedDiagnostic: "deep-modules(module-interface)",
+    check: "lint",
   },
   {
-    name: "barrel module interface",
+    name: "multiple application interfaces",
     files: {
       [`src/modules/module-boundary-probe-barrel-${probeIdentity}/main.ts`]:
-        'export const BarrelInterface = { run() {} };\nexport { helper } from "./helper.ts";\n',
+        "export const BarrelInterface = { run() {} };\nexport const Other = { stop() {} };\n",
       [`src/modules/module-boundary-probe-barrel-${probeIdentity}/helper.ts`]:
         "export function helper() {}\n",
     },
     cleanupPath: `src/modules/module-boundary-probe-barrel-${probeIdentity}`,
-    expectedDiagnostic: "must export exactly one variable statement",
+    expectedDiagnostic: "deep-modules(module-interface)",
+    check: "lint",
   },
   {
     name: "flat production module file",

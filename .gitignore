@@ -1,4 +1,5 @@
 node_modules/
+packages/*/dist/
 .mutation-*/
 module-boundary-probe-*.ts
 src/modules/module-boundary-probe-*

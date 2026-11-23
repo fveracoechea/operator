@@ -29,10 +29,26 @@ export function lintProject() {
   let restore: (() => Promise<void>) | undefined;
   beforeAll(async () => {
     root = await mkdtemp(path.join(tmpdir(), "operator-lint-"));
-    for (const entry of ["src", "tools", "package.json", "tsconfig.json", ".oxlintrc.json"]) {
+    for (const entry of [
+      "src",
+      "tools",
+      "packages",
+      "package.json",
+      "tsconfig.json",
+      ".oxlintrc.json",
+    ]) {
       await cp(`${sourceRoot}${entry}`, `${root}/${entry}`, { recursive: true });
     }
     await symlink(`${sourceRoot}node_modules`, `${root}/node_modules`);
+    // Compile the fixture's own inputs, including instrumented sources during mutation runs.
+    // The production lint command also loads this package entry, never a separate rule copy.
+    const build = await Bun.build({
+      entrypoints: [`${root}/packages/deep-modules/src/index.ts`],
+      outdir: `${root}/packages/deep-modules/dist`,
+      target: "node",
+      packages: "external",
+    });
+    if (!build.success) return Promise.reject(build.logs);
   });
   afterAll(async () => {
     await rm(root, { recursive: true });
@@ -43,20 +59,26 @@ export function lintProject() {
   ) {
     await restore?.();
     const probe = options.path ?? "src/lib/lint-probe.ts";
-    const file = Bun.file(`${root}/${probe}`);
-    const original = (await file.exists()) ? await file.text() : null;
+    const files = { ...options.files, [probe]: source };
+    const originals = await Promise.all(
+      Object.keys(files).map(async (name) => {
+        const file = Bun.file(`${root}/${name}`);
+        return { file, original: (await file.exists()) ? await file.text() : null };
+      }),
+    );
     restore = async () => {
-      await (original === null ? file.delete() : Bun.write(file, original));
+      for (const { file, original } of originals)
+        await (original === null ? file.delete() : Bun.write(file, original));
     };
     // One-line examples need the policy's blank line after imports, with no behavior fixes.
     const spaced = source.replaceAll(/(from ["'][^"']+["'];)\s*/gu, "$1\n\n");
-    await Bun.write(file, spaced);
-    for (const [path, text] of Object.entries(options.files ?? {})) {
+    files[probe] = spaced;
+    for (const [path, text] of Object.entries(files)) {
       await Bun.write(`${root}/${path}`, text);
     }
     // Only the probe files are linted with the repository policy. The rest of the copy is
     // context for imports and types, so a mutation sandbox's instrumented source is not a finding.
-    const linted = [probe, ...Object.keys(options.files ?? {})];
+    const linted = Object.keys(files).filter((name) => /\.[cm]?[jt]sx?$/.test(name));
     const flags = ["--deny-warnings", "--format", "json"];
     // One process runs the pinned Oxlint, so the time limit stops a rule that never returns.
     const child = Bun.spawn([process.execPath, oxlint, ...flags, ...linted], {

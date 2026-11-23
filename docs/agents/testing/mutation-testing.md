@@ -16,6 +16,8 @@ bun run mutate --resume <run-id> --budget 300
 ```
 
 Explicit paths select whole units.
+Package source under `packages/*/src/` uses the same discovery and beside-test rules as application and tooling source.
+Build output under `dist/` is generated content, not a separate mutation owner.
 A beside-test path selects its matching unit.
 With `--since`, the tool checks changed current lines relative to the named commit, including staged and unstaged changes.
 New untracked eligible units count as wholly changed.

@@ -28,18 +28,6 @@ function normalized(path: string): string {
   return path.split(sep).join("/");
 }
 
-function isExportedStatement(node: ts.Statement): boolean {
-  if (ts.isExportDeclaration(node) || ts.isExportAssignment(node)) {
-    return true;
-  }
-
-  let exported = false;
-  node.forEachChild((child) => {
-    if (child.kind === ts.SyntaxKind.ExportKeyword) exported = true;
-  });
-  return exported;
-}
-
 function moduleName(path: string): string | undefined {
   const match = /^src\/modules\/([^/]+)\//.exec(normalized(path));
   return match?.[1];
@@ -50,6 +38,7 @@ function isAllowedOutsideModules(path: string): boolean {
     path === "src/cli.ts" ||
     path.startsWith("src/lib/") ||
     path.startsWith("tools/") ||
+    path.startsWith("packages/") ||
     path.endsWith(".test.ts") ||
     path.endsWith(".config.ts")
   );
@@ -67,33 +56,6 @@ function projectTarget(importer: string, specifier: string): string | undefined 
   }
 
   return undefined;
-}
-
-function checkModuleInterface(path: string, sourceFile: ts.SourceFile): void {
-  const exports = sourceFile.statements.filter(isExportedStatement);
-  const exported = exports[0];
-
-  if (exports.length !== 1 || !exported || !ts.isVariableStatement(exported)) {
-    errors.push(`${path}: main.ts must export exactly one variable statement`);
-    return;
-  }
-
-  const declarations = exported.declarationList.declarations;
-  const declaration = declarations[0];
-  if (
-    declarations.length !== 1 ||
-    !declaration ||
-    !ts.isIdentifier(declaration.name) ||
-    !/^[A-Z][A-Za-z0-9]*$/.test(declaration.name.text) ||
-    !declaration.initializer ||
-    !ts.isObjectLiteralExpression(declaration.initializer) ||
-    declaration.initializer.properties.length === 0 ||
-    !declaration.initializer.properties.every(ts.isMethodDeclaration)
-  ) {
-    errors.push(
-      `${path}: main.ts must export one named PascalCase object whose properties are action methods`,
-    );
-  }
 }
 
 function checkImport(importer: string, specifier: ts.Node): void {
@@ -181,10 +143,6 @@ try {
       continue;
     }
     checkImports(path, sourceFile);
-
-    if (/^src\/modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
-      checkModuleInterface(path, sourceFile);
-    }
   }
 } finally {
   await snapshot.dispose();

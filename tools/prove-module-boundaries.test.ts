@@ -15,8 +15,7 @@ afterAll(async () => {
 const diagnostics = [
   "imports private module file",
   "every module requires one public interface",
-  "properties are action methods",
-  "must export exactly one variable statement",
+  "deep-modules(module-interface)",
   "production files must be inside a feature module",
   "production TypeScript must live",
   "lib must not import application or tooling code",
@@ -45,6 +44,7 @@ exit 1
 const base = {
   ".oxfmtrc.json": "{}\n",
   ".oxlintrc.json": "{}\n",
+  "packages/deep-modules/src/index.ts": "export {};\n",
   "src/cli.ts": "export {};\n",
   "src/lib/keep.ts": "export {};\n",
   "src/modules/keep/main.ts": "export {};\n",
@@ -150,19 +150,19 @@ const violations: { name: string; check: string; files: Record<string, string> }
     files: { "src/modules/module-boundary-probe-missing-ID/private.ts": "export {};\n" },
   },
   {
-    name: "data-only module interface",
-    check: "lint:modules",
+    name: "standalone application operation",
+    check: "lint",
     files: {
       "src/modules/module-boundary-probe-data-ID/main.ts":
-        "export const DataInterface = { value: true };\n",
+        "export const DataInterface = () => true;\n",
     },
   },
   {
-    name: "barrel module interface",
-    check: "lint:modules",
+    name: "multiple application interfaces",
+    check: "lint",
     files: {
       "src/modules/module-boundary-probe-barrel-ID/main.ts":
-        'export const BarrelInterface = { run() {} };\nexport { helper } from "./helper.ts";\n',
+        "export const BarrelInterface = { run() {} };\nexport const Other = { stop() {} };\n",
       "src/modules/module-boundary-probe-barrel-ID/helper.ts": "export function helper() {}\n",
     },
   },

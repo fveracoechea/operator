@@ -8,6 +8,7 @@ Amended 2026-10-25: #261 adds every unthrown Oxlint rule, and #237 adds async co
 Amended 2026-10-27: #219 adds the four boundary rules, a narrow validator exception that the person approved, and skill-topic pointers on custom messages.
 The base lint policy is implemented in #237.
 Environment ownership is implemented in #239.
+Amended 2026-11-22: #439 moves application-interface syntax policy to a reusable Oxlint package.
 
 ## Context
 
@@ -29,7 +30,10 @@ Classic cyclomatic complexity has a ceiling of 14 across production code, toolin
 This is a maintenance limit, not proof of correctness or a scientifically distinct threshold.
 
 The linter owns dependency-cycle detection instead of a second dependency-analysis tool.
-Existing module-boundary checks retain the rules they already enforce rather than duplicate them in imported plugins.
+Application-interface syntax has one reusable Oxlint owner so other projects enforce the same accepted model.
+The legacy checker retains import and filesystem policy until each has a replacement.
+Function references, nested groups, data constants and caller-facing types are valid application contracts.
+Standalone application operations still belong behind the named interface object.
 Custom rules have beside-tests that accept valid code and reject deliberate violations.
 The cycle proof continues to demonstrate that a real module cycle fails through the selected checker.
 Environment access uses one schema-validated owner rather than raw reads throughout the application and tests.
@@ -43,7 +47,8 @@ Sibling parameters, nested callbacks, aliases, `asserts` predicates, broad targe
 A `typeof` comparison with `"undefined"` remains an existence probe, and type-position `typeof` remains legal.
 There is no file, directory, function-name, or disable-comment exception for these rules.
 The syntactic check does not prove that a predicate is true, so review and tests verify each validator.
-Each custom rule message ends with the documentation topic that explains its fix, and a test checks that the topic names the rule.
+Each custom rule message links to its fix topic, and a test checks the pointer.
+Portable rules ship their guidance with the package rather than depend on Operator documentation.
 
 There is no separate lint-version drift record.
 The exact pin, lock data, and PR review supply the upgrade decision without another value that must agree with them.

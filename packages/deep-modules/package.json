@@ -1,0 +1,40 @@
+{
+  "name": "@fveracoechea/oxlint-plugin-deep-modules",
+  "version": "0.1.0",
+  "description": "Portable deep-module architecture rules for Oxlint",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "recommended.json",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./configuration": {
+      "types": "./dist/configuration.d.ts",
+      "import": "./dist/configuration.js"
+    },
+    "./recommended.json": "./recommended.json",
+    "./docs/module-interface.md": "./docs/module-interface.md"
+  },
+  "scripts": {
+    "build": "bunx --bun --no-install tsc -p tsconfig.build.json",
+    "prepack": "bun run build"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "peerDependencies": {
+    "@oxlint/plugins": "1.93.0",
+    "oxlint": "1.93.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

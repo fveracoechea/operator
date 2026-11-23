@@ -13,6 +13,16 @@ afterAll(async () => {
 
 const check = lintProject();
 
+test("does not lint generated package output in a disposable project without gitignore", async () => {
+  const result = await check("export const value = 1;", {
+    files: {
+      "packages/deep-modules/dist/generated.ts": 'export const value = Reflect.get({}, "bad");',
+    },
+  });
+  expect(result.codes).toEqual([]);
+  expect(result.exitCode).toBe(0);
+});
+
 test("reports each probe finding by line, and separates the probe from extra files", async () => {
   const result = await check(
     'export const first = 1;\n\nexport const value: unknown = Reflect.get({}, "id");\n',
@@ -50,6 +60,22 @@ test("removes a new probe and restores a replaced file before the next probe", a
 
   // Line 5 reads the removed probe through an unresolved import. Line 7 reads the restored file.
   expect((await check(`${consumer}\n`)).findings).toEqual(["5 typescript(no-unsafe-assignment)"]);
+});
+
+test("restores companion sources and configuration between multi-file probes", async () => {
+  await check("export const value = 1;", {
+    files: {
+      "src/lib/lint-companion.ts": "export const added = 1;",
+      "src/lib/sha256.ts": "export const replaced = 1;",
+      ".oxlintrc.json": JSON.stringify({ rules: { "no-debugger": "off" } }),
+    },
+  });
+  const result = await check(
+    'import { added } from "./lint-companion.ts";\nimport { sha256 } from "./sha256.ts";\nexport const missing: number = added;\n\nexport const digest: string = sha256("a");\n\ndebugger;',
+  );
+  expect(result.findings).toContain("5 typescript(no-unsafe-assignment)");
+  expect(result.findings).toContain("9 eslint(no-debugger)");
+  expect(result.findings).toHaveLength(2);
 });
 
 test("lint scenarios use the supplied temporary root rather than a harness-only directory", async () => {

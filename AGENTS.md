@@ -17,7 +17,8 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/do
 Features and capabilities live in flat `src/modules/<feature-or-capability>/` directories.
 Each module exports one named PascalCase interface object from `main.ts`.
 Import another module only through its `main.ts`; implementation files are private.
-Run `bun run lint:modules` to enforce module shape and boundaries.
+Run `bun run lint` for application interface syntax and `bun run lint:modules` for structure and boundaries.
+For `deep-modules/module-interface`, read `packages/deep-modules/docs/module-interface.md`.
 Oxlint owns dependency cycles through `bun run lint`.
 Small reusable functions that own no feature or capability live in focused `src/lib/` files with beside-tests.
 Import their named exports directly, without a barrel or interface object.
