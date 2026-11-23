@@ -19,6 +19,10 @@ async function project(files: Record<string, string>): Promise<string> {
   await symlink(path.join(sourceRoot, "node_modules"), path.join(root, "node_modules"));
   await Bun.write(path.join(root, "package.json"), '{ "name": "module-shape-probe" }\n');
   await Bun.write(
+    path.join(root, ".oxlintrc.json"),
+    JSON.stringify({ settings: { "deep-modules": { allowedFiles: ["src/cli.ts"] } } }),
+  );
+  await Bun.write(
     path.join(root, "tsconfig.json"),
     JSON.stringify({
       compilerOptions: { module: "preserve", noEmit: true, allowImportingTsExtensions: true },
@@ -45,6 +49,9 @@ test("accepts module interfaces, lib, tooling, and allowed root files", async ()
     "src/modules/alpha/main.ts":
       'import { value } from "../../lib/value.ts";\nconst offset = 1;\nexport const Alpha = { run() { return value() + offset; } };\n',
     "src/modules/alpha/private.ts": "export function hidden() {}\n",
+    "src/modules/alpha/main.test.ts": "export {};\n",
+    "src/modules/alpha/nested/main.test.ts": "export {};\n",
+    "src/modules/beta/main.test.ts": "export {};\n",
     // Only a module's top-level main.ts is its interface.
     "src/modules/alpha/nested/main.ts": "export function nested() {}\nexport const other = 1;\n",
     "src/modules/beta/main.ts":
@@ -71,6 +78,8 @@ test("reports each boundary violation once, in sorted order", async () => {
   const root = await project({
     "src/modules/alpha/main.ts": "export const Alpha = { run() {} };\n",
     "src/modules/alpha/private.ts": "export function hidden() {}\n",
+    "src/modules/alpha/main.test.ts": "export {};\n",
+    "src/modules/beta/main.test.ts": "export {};\n",
     "src/modules/beta/main.ts":
       'import "../alpha/private.ts";\nexport const Beta = { run() {} };\nexport function helper() {}\n',
     "src/modules/gamma/private.ts": "export {};\n",
@@ -85,13 +94,14 @@ test("reports each boundary violation once, in sorted order", async () => {
     "src/lib/locked.ts": "export {};\n",
   });
 
-  expect(await checkShape(root)).toEqual({
+  const result = await checkShape(root);
+  expect({ ...result, errors: result.errors.map((line) => line.split(" [")[0]) }).toEqual({
     exitCode: 1,
     errors: [
-      "outside/other.ts: production TypeScript must live in src/modules/<feature>/ or src/lib/",
+      "outside/other.ts: production TypeScript must live in a configured module, library or tooling location",
       "src/modules/flat.ts: production files must be inside a feature module",
       "src/modules/gamma/main.ts: every module requires one public interface",
-      "stray.ts: production TypeScript must live in src/modules/<feature>/ or src/lib/",
+      "stray.ts: production TypeScript must live in a configured module, library or tooling location",
     ],
   });
 });

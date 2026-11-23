@@ -39,6 +39,7 @@ Run `oxlint` from the consumer project root.
 The recommended configuration enables these rules.
 See [mock guidance](docs/public-collaborator-mocks.md) for Bun binding support, test scope and isolation.
 Query ownership does not prove runtime invalidation correctness.
+Filesystem structure uses the companion command described below.
 
 ## Consumer configuration
 
@@ -55,6 +56,8 @@ It returns absolute roots, exclusions and alias targets.
       "applicationRoots": ["src"],
       "moduleRoots": ["src/modules"],
       "libraryRoots": ["src/lib"],
+      "toolingRoots": ["tools", "packages"],
+      "allowedFiles": [],
       "aliases": { "@": "src" },
       "objectEntries": ["main.ts", "main.server.ts", "main.tsx", "main.server.tsx"],
       "schemaEntries": ["schemas.ts", "schemas.generated.ts"],
@@ -81,6 +84,21 @@ Aliases are whole-prefix mappings. Package-self references use the consumer pack
 See the [interface](docs/module-interface.md), [privacy](docs/module-imports.md), and [library](docs/lib-imports.md) topics.
 See [query ownership](docs/query-options-owner.md) when exposing query and mutation options together.
 Each finding links to its shipped topic.
+
+## Check filesystem structure
+
+Run `deep-modules-structure` from the consumer root after installing the package.
+For example, add `"check:modules": "deep-modules-structure"` to your package scripts.
+The command runs under Node 22 or later and Bun without a TypeScript loader.
+It reads the same `.oxlintrc.json` settings as the plugin.
+Use `deep-modules-structure --config path/to/config.json` for another JSON configuration.
+Relative and package-resolved JSON `extends` are supported.
+Settings belong at the top level, not in per-file overrides.
+
+The command owns missing entries, corresponding entry beside-tests and production-file placement.
+It does not parse source or repeat syntax, imports or cycles.
+Exit codes are 0 for clean structure, 1 for findings and 2 for invalid configuration or command usage.
+Diagnostics are sorted by project-relative path and link to the installed [structure guidance](docs/structure.md).
 
 ## Local package development
 

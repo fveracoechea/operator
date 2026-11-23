@@ -22,6 +22,8 @@ test("normalizes one consumer-relative contract including roots, aliases, entrie
     "/consumer",
   );
   expect(config).toEqual({
+    allowedFiles: [],
+    toolingRoots: ["/consumer/web/tools", "/consumer/web/packages"],
     projectRoot: "/consumer/web",
     applicationRoots: ["/consumer/web/app"],
     moduleRoots: ["/consumer/web/app/features"],

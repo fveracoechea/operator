@@ -1,5 +1,8 @@
 {
   "ignorePatterns": ["packages/*/dist/**"],
+  "settings": {
+    "deep-modules": { "allowedFiles": ["src/cli.ts"] }
+  },
   "plugins": ["typescript", "unicorn", "oxc", "import", "promise"],
   "categories": { "correctness": "error" },
   "options": { "typeAware": true, "typeCheck": false },

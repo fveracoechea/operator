@@ -80,6 +80,13 @@ async function checkInstalledMocks(consumer: string, runtime: string, entry: str
         );
     }
   }
+  for (const filename of [
+    "mock-consumer.test.ts",
+    `${directory}/mock.test.ts`,
+    `${directory}/player`,
+    `${directory}/selectors`,
+  ])
+    await rm(path.join(consumer, filename), { recursive: true, force: true });
 }
 
 async function checkInstalledImports(
@@ -197,6 +204,34 @@ import { mutationOptions } from "./commands/${childEntry}";`,
     );
     if (url) expect(await Bun.file(new URL(url)).text()).toContain("runtime invalidation");
   }
+  for (const child of ["query-options", "commands", "media", "selectors", "ui"])
+    await rm(path.join(consumer, directory, child), { recursive: true, force: true });
+}
+
+async function checkInstalledStructure(consumer: string, runtime: string, entry: string) {
+  const commandArgs = [runtime, "node_modules/.bin/deep-modules-structure"];
+  const missingTest = await command(consumer, commandArgs);
+  expect(missingTest.exitCode).toBe(1);
+  expect(missingTest.stderr).toContain("requires a corresponding behavior beside-test");
+  const url = missingTest.stderr.match(/file:\/\/[^\s]+\.md/)?.[0];
+  expect(url).toContain("node_modules/@fveracoechea/oxlint-plugin-deep-modules/docs/structure.md");
+  if (url) expect(await Bun.file(new URL(url)).text()).toContain("entry");
+  const beside = entry.replace(/(\.tsx?)$/, ".test$1");
+  await Bun.write(path.join(consumer, beside), "export {};");
+  expect((await command(consumer, commandArgs)).exitCode).toBe(0);
+  const entryContent = await Bun.file(path.join(consumer, entry)).text();
+  await rm(path.join(consumer, entry));
+  const missingEntry = await command(consumer, commandArgs);
+  expect(missingEntry.exitCode).toBe(1);
+  expect(missingEntry.stderr).toContain("every module requires one public interface");
+  await Bun.write(path.join(consumer, entry), entryContent);
+  await Bun.write(path.join(consumer, "misplaced.tsx"), "export {};");
+  const misplaced = await command(consumer, commandArgs);
+  expect(misplaced.exitCode).toBe(1);
+  expect(misplaced.stderr).toContain("misplaced.tsx: production TypeScript must live");
+  await rm(path.join(consumer, "misplaced.tsx"));
+  expect((await command(consumer, commandArgs)).exitCode).toBe(0);
+  await rm(path.join(consumer, beside));
 }
 
 test("packed JavaScript, declarations, recommended config and guidance work outside Operator under Node and Bun", async () => {
@@ -244,6 +279,7 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
       "dist/index.js",
       "dist/index.d.ts",
       "dist/configuration.d.ts",
+      "dist/structure-command.js",
       "LICENSE",
       "README.md",
       "docs/module-interface.md",
@@ -251,6 +287,7 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
       "docs/lib-imports.md",
       "docs/public-collaborator-mocks.md",
       "docs/query-options-owner.md",
+      "docs/structure.md",
     ])
       expect(await Bun.file(path.join(packageRoot, file)).exists()).toBe(true);
     expect(await Bun.file(path.join(packageRoot, "src/index.ts")).exists()).toBe(false);
@@ -266,9 +303,10 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
               libraryRoots: ["web/shared"],
               aliases: { "@": "web" },
               objectEntries: ["interface.ts"],
+              allowedFiles: ["contract.ts"],
             },
           }
-        : {};
+        : { "deep-modules": { allowedFiles: ["contract.ts"] } };
     await Bun.write(
       path.join(consumer, ".oxlintrc.json"),
       JSON.stringify({
@@ -305,6 +343,7 @@ console.log(plugin, config.moduleRoots);
       await Bun.write(path.join(consumer, entry), "export const Movie = { play() {} };");
       expect((await command(consumer, args)).exitCode).toBe(0);
       await checkInstalledImports(consumer, runtime, entry, layout);
+      await checkInstalledStructure(consumer, runtime, entry);
       await checkInstalledMocks(consumer, runtime, entry);
       await checkInstalledQueryOwnership(consumer, runtime, entry);
       await Bun.write(path.join(consumer, entry), "export const play = () => 1;");

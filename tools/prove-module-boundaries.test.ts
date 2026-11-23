@@ -15,6 +15,8 @@ afterAll(async () => {
 const diagnostics = [
   "deep-modules(module-imports)",
   "every module requires one public interface",
+  "requires a corresponding behavior beside-test",
+  "child/main.ts: every module requires one public interface",
   "deep-modules(module-interface)",
   "production files must be inside a feature module",
   "production TypeScript must live",
@@ -134,6 +136,8 @@ const valid = {
     'import { value } from "./value.ts";\n\nexport function twice() { return value() * 2; }\n',
   "src/modules/module-boundary-probe-valid-ID/main.ts":
     'import { value } from "../../lib/module-boundary-probe-valid-ID/value.ts";\n\nexport const ValidProbe = { run() { return value(); } };\n',
+  "src/modules/module-boundary-probe-valid-ID/main.test.ts":
+    'import { expect, test } from "bun:test";\nimport { ValidProbe } from "./main.ts";\n\ntest("returns the library value", () => { expect(ValidProbe.run()).toBe(1); });\n',
 };
 
 const violations: { name: string; check: string; files: Record<string, string> }[] = [
@@ -166,6 +170,24 @@ const violations: { name: string; check: string; files: Record<string, string> }
     name: "missing module interface",
     check: "lint:modules",
     files: { "src/modules/module-boundary-probe-missing-ID/private.ts": "export {};\n" },
+  },
+  {
+    name: "missing module entry test",
+    check: "lint:modules",
+    files: {
+      "src/modules/module-boundary-probe-entry-test-ID/main.ts":
+        "export const EntryTest = { run() {} };\n",
+    },
+  },
+  {
+    name: "missing nested interface",
+    check: "lint:modules",
+    files: {
+      "src/modules/module-boundary-probe-child-ID/main.ts":
+        "export const ChildProbe = { run() {} };\n",
+      "src/modules/module-boundary-probe-child-ID/main.test.ts": "export {};\n",
+      "src/modules/module-boundary-probe-child-ID/child/private.tsx": "export {};\n",
+    },
   },
   {
     name: "standalone application operation",
@@ -293,7 +315,7 @@ test("runs every check in a removed copy and reports the rejected violations", a
 
   expect(result).toMatchObject({
     exitCode: 0,
-    stdout: "module boundaries: clean -> rejected 19 deliberate violations -> clean\n",
+    stdout: "module boundaries: clean -> rejected 21 deliberate violations -> clean\n",
     stderr: "",
     leftCopies: [],
   });

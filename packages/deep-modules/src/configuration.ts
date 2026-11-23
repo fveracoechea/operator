@@ -10,6 +10,8 @@ const configuration = z.strictObject({
   applicationRoots: z.array(root).min(1).default(["src"]),
   moduleRoots: z.array(root).min(1).default(["src/modules"]),
   libraryRoots: z.array(root).default(["src/lib"]),
+  toolingRoots: z.array(root).default(["tools", "packages"]),
+  allowedFiles: z.array(root).default([]),
   aliases: z.record(z.string().min(1), root).default({}),
   objectEntries: z
     .array(entry)
@@ -39,6 +41,8 @@ export function normalizeProjectConfig(settings: Context["settings"], cwd: strin
     applicationRoots: config.applicationRoots.map(absolute),
     moduleRoots: config.moduleRoots.map(absolute),
     libraryRoots: config.libraryRoots.map(absolute),
+    toolingRoots: config.toolingRoots.map(absolute),
+    allowedFiles: config.allowedFiles.map(absolute),
     aliases: Object.fromEntries(
       Object.entries(config.aliases).map(([name, target]) => [name, absolute(target)]),
     ),

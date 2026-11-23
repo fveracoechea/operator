@@ -142,6 +142,27 @@ const violations: Violation[] = [
     expectedDiagnostic: "every module requires one public interface",
   },
   {
+    name: "missing module entry test",
+    files: {
+      [`src/modules/module-boundary-probe-entry-test-${probeIdentity}/main.ts`]:
+        "export const EntryTest = { run() {} };\n",
+    },
+    cleanupPath: `src/modules/module-boundary-probe-entry-test-${probeIdentity}`,
+    expectedDiagnostic: "requires a corresponding behavior beside-test",
+  },
+  {
+    name: "missing nested interface",
+    files: {
+      [`src/modules/module-boundary-probe-child-${probeIdentity}/main.ts`]:
+        "export const ChildProbe = { run() {} };\n",
+      [`src/modules/module-boundary-probe-child-${probeIdentity}/main.test.ts`]: "export {};\n",
+      [`src/modules/module-boundary-probe-child-${probeIdentity}/child/private.tsx`]:
+        "export {};\n",
+    },
+    cleanupPath: `src/modules/module-boundary-probe-child-${probeIdentity}`,
+    expectedDiagnostic: "child/main.ts: every module requires one public interface",
+  },
+  {
     name: "standalone application operation",
     files: {
       [`src/modules/module-boundary-probe-data-${probeIdentity}/main.ts`]:
@@ -301,6 +322,10 @@ try {
   await Bun.write(
     join(copyRoot, `${validModule}/main.ts`),
     `import { value } from "../../${valid.slice(4)}/value.ts";\n\nexport const ValidProbe = { run() { return value(); } };\n`,
+  );
+  await Bun.write(
+    join(copyRoot, `${validModule}/main.test.ts`),
+    `import { expect, test } from "bun:test";\nimport { ValidProbe } from "./main.ts";\n\ntest("returns the library value", () => { expect(ValidProbe.run()).toBe(1); });\n`,
   );
   const formatted = await runBoundaryCheck(copyRoot, "format");
   assert.equal(formatted.exitCode, 0, "Could not format valid module and lib examples");

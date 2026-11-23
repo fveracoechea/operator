@@ -4,5 +4,6 @@
 Read the [package-owned guidance](../../../packages/deep-modules/docs/module-interface.md).
 Operator builds and loads the same JavaScript entry that the tarball exports.
 
-`bun run lint:modules` still checks existing import and filesystem policy.
+`bun run lint:modules` runs the shared filesystem checker.
+For missing entries, entry tests or misplaced files, read `packages/deep-modules/docs/structure.md`.
 Dependency cycles remain with `import/no-cycle`.

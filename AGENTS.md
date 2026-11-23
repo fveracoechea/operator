@@ -19,6 +19,7 @@ Each module exports one named PascalCase interface object from `main.ts`.
 Import another module only through its `main.ts`; implementation files are private.
 Run `bun run lint` for application interface syntax, import privacy and library isolation.
 Run `bun run lint:modules` for filesystem structure.
+For missing entries, entry tests or misplaced files, read `packages/deep-modules/docs/structure.md`.
 For `deep-modules/module-interface`, read `packages/deep-modules/docs/module-interface.md`.
 For `deep-modules/module-imports` or `deep-modules/lib-imports`, read the matching topic in `packages/deep-modules/docs/`.
 For `deep-modules/query-options-owner`, read `packages/deep-modules/docs/query-options-owner.md`.
