@@ -19,6 +19,14 @@ const configuration = z.strictObject({
     .default(["main.ts", "main.server.ts", "main.tsx", "main.server.tsx"]),
   schemaEntries: z.array(entry).default(["schemas.ts", "schemas.generated.ts"]),
   frameworkEntries: z.array(entry).default(["$functions.ts"]),
+  selectorSubmodules: z
+    .array(
+      z
+        .string()
+        .min(1)
+        .regex(/^[^/\\]+$/),
+    )
+    .default(["selectors"]),
   exclusions: z.array(root).default([]),
   environmentEntries: z.array(root).default([]),
   testScopes: z.record(root, root).default({}),

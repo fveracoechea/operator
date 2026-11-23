@@ -27,13 +27,15 @@
     "./docs/module-interface.md": "./docs/module-interface.md",
     "./docs/module-imports.md": "./docs/module-imports.md",
     "./docs/lib-imports.md": "./docs/lib-imports.md",
-    "./docs/structure.md": "./docs/structure.md"
+    "./docs/structure.md": "./docs/structure.md",
+    "./docs/synchronous-selectors.md": "./docs/synchronous-selectors.md"
   },
   "scripts": {
     "build": "bunx --bun --no-install tsc -p tsconfig.build.json",
     "prepack": "bun run build"
   },
   "dependencies": {
+    "@babel/parser": "8.1.2",
     "zod": "4.6.7"
   },
   "peerDependencies": {
@@ -41,6 +43,6 @@
     "oxlint": "1.93.0"
   },
   "engines": {
-    "node": ">=22"
+    "node": "^22.18.0 || >=24.11.0"
   }
 }

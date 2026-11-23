@@ -32,6 +32,7 @@ test("normalizes one consumer-relative contract including roots, aliases, entrie
     objectEntries: ["interface.ts"],
     schemaEntries: ["wire.ts"],
     frameworkEntries: ["rpc.ts"],
+    selectorSubmodules: ["selectors"],
     exclusions: ["/consumer/web/app/features/movie/assets"],
     environmentEntries: ["/consumer/web/app/environment.ts"],
     testScopes: { "/consumer/web/test/setup.ts": "/consumer/web/app/features/movie" },
@@ -51,6 +52,7 @@ test("defaults follow the canonical entries and invalid settings fail visibly", 
   ]);
   expect(config.schemaEntries).toEqual(["schemas.ts", "schemas.generated.ts"]);
   expect(config.frameworkEntries).toEqual(["$functions.ts"]);
+  expect(config.selectorSubmodules).toEqual(["selectors"]);
   expect(config.exclusions).toEqual([]);
   expect(config.aliases).toEqual({});
   expect(config.environmentEntries).toEqual([]);
@@ -65,6 +67,8 @@ test("defaults follow the canonical entries and invalid settings fail visibly", 
     { objectEntries: ["nested/main.ts"] },
     { schemaEntries: ["../wire.ts"] },
     { frameworkEntries: ["rpc.js"] },
+    { selectorSubmodules: ["nested/selectors"] },
+    { selectorSubmodules: [1] },
     { exclusions: [false] },
     { environmentEntries: [false] },
     { testScopes: { "setup.ts": "" } },

@@ -234,6 +234,44 @@ async function checkInstalledStructure(consumer: string, runtime: string, entry:
   await rm(path.join(consumer, beside));
 }
 
+async function checkInstalledSelectors(consumer: string, runtime: string, entry: string) {
+  const domain = path.posix.join(path.posix.dirname(entry), "domain", path.posix.basename(entry));
+  await Bun.write(
+    path.join(consumer, entry),
+    `import * as selectors from "./domain/${path.posix.basename(entry)}";
+export const Movie = { selector: selectors, async play() {} };`,
+  );
+  await Bun.write(
+    path.join(consumer, domain),
+    `
+export function isReleased(movie: {status: string}) { return movie.status === "released"; }
+export function budgetIsBiggerThan(minimum: number) {
+  return (movie: {budget: number}) => movie.budget > minimum;
+}
+export function toCast(predicate: (person: {age: number}) => boolean) {
+  return (movie: {cast: {age: number}[]}) => movie.cast.filter(predicate);
+}`,
+  );
+  const args = [runtime, "node_modules/oxlint/bin/oxlint", "--format", "json", entry];
+  expect((await command(consumer, args)).exitCode).toBe(0);
+  await Bun.write(
+    path.join(consumer, domain),
+    "export const budgetIsBiggerThan = (minimum: number) => async (movie: {budget: number}) => movie.budget > minimum;",
+  );
+  const invalid = await command(consumer, args);
+  expect(invalid.exitCode).toBe(1);
+  const diagnostics = report.parse(JSON.parse(invalid.stdout)).diagnostics;
+  expect(diagnostics.map((item) => item.code)).toEqual(["deep-modules(synchronous-selectors)"]);
+  expect(diagnostics[0]?.filename).toBe(entry);
+  expect(diagnostics[0]?.labels[0]?.span.line).toBe(2);
+  const url = diagnostics[0]?.message.match(/file:\/\/[^\s]+\.md/)?.[0];
+  expect(url).toContain(
+    "node_modules/@fveracoechea/oxlint-plugin-deep-modules/docs/synchronous-selectors.md",
+  );
+  if (url) expect(await Bun.file(new URL(url)).text()).toContain("hidden promise behavior");
+  await rm(path.join(consumer, path.posix.dirname(domain)), { recursive: true, force: true });
+}
+
 test("packed JavaScript, declarations, recommended config and guidance work outside Operator under Node and Bun", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "deep-modules-installed-"));
   roots.push(root);
@@ -288,6 +326,7 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
       "docs/public-collaborator-mocks.md",
       "docs/query-options-owner.md",
       "docs/structure.md",
+      "docs/synchronous-selectors.md",
     ])
       expect(await Bun.file(path.join(packageRoot, file)).exists()).toBe(true);
     expect(await Bun.file(path.join(packageRoot, "src/index.ts")).exists()).toBe(false);
@@ -346,6 +385,7 @@ console.log(plugin, config.moduleRoots);
       await checkInstalledStructure(consumer, runtime, entry);
       await checkInstalledMocks(consumer, runtime, entry);
       await checkInstalledQueryOwnership(consumer, runtime, entry);
+      await checkInstalledSelectors(consumer, runtime, entry);
       await Bun.write(path.join(consumer, entry), "export const play = () => 1;");
       const invalid = await command(consumer, args);
       expect(invalid.exitCode).toBe(1);

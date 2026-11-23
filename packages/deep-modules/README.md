@@ -1,13 +1,14 @@
 # Deep-module Oxlint plugin
 
-This package checks application interfaces, nested module privacy, library dependencies and shared query/mutation ownership.
+This package checks application interfaces, nested privacy, library dependencies, collaborator mocks, shared query/mutation ownership and synchronous selectors.
 It ships ESM JavaScript and declarations. Consumer loading needs no TypeScript runner or Operator checkout.
 
 ## Install and enable
 
 Install this package, `oxlint@1.93.0` and `@oxlint/plugins@1.93.0` as development dependencies.
 These exact host versions are the supported compatibility pair.
-Node 22 or later and Bun can load the plugin.
+Node 22.18+ or 24.11+ and Bun can load the plugin.
+The Node minimum follows the shipped Babel parser used for local selector dependencies.
 Bun is used to develop and pack this repository, not to load the installed JavaScript.
 
 Use the shipped recommended configuration:
@@ -30,7 +31,8 @@ Or enable individual rules:
     "deep-modules/module-imports": "error",
     "deep-modules/lib-imports": "error",
     "deep-modules/public-collaborator-mocks": "error",
-    "deep-modules/query-options-owner": "error"
+    "deep-modules/query-options-owner": "error",
+    "deep-modules/synchronous-selectors": "error"
   }
 }
 ```
@@ -40,6 +42,7 @@ The recommended configuration enables these rules.
 See [mock guidance](docs/public-collaborator-mocks.md) for Bun binding support, test scope and isolation.
 Query ownership does not prove runtime invalidation correctness.
 Filesystem structure uses the companion command described below.
+Selector checks reject explicit async syntax, not IO, mutation or hidden promises.
 
 ## Consumer configuration
 
@@ -62,6 +65,7 @@ It returns absolute roots, exclusions and alias targets.
       "objectEntries": ["main.ts", "main.server.ts", "main.tsx", "main.server.tsx"],
       "schemaEntries": ["schemas.ts", "schemas.generated.ts"],
       "frameworkEntries": ["$functions.ts"],
+      "selectorSubmodules": ["selectors"],
       "exclusions": ["src/modules/movie/assets", "src/modules/generated"],
       "environmentEntries": [],
       "testScopes": {}
@@ -83,6 +87,7 @@ Aliases are whole-prefix mappings. Package-self references use the consumer pack
 
 See the [interface](docs/module-interface.md), [privacy](docs/module-imports.md), and [library](docs/lib-imports.md) topics.
 See [query ownership](docs/query-options-owner.md) when exposing query and mutation options together.
+See [synchronous selectors](docs/synchronous-selectors.md) for declared selector sub-modules and exposed `selector` groups.
 Each finding links to its shipped topic.
 
 ## Check filesystem structure

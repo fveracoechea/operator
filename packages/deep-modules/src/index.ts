@@ -5,6 +5,7 @@ import { moduleImportsRule } from "./module-imports.ts";
 import { libImportsRule } from "./lib-imports.ts";
 import { publicCollaboratorMocksRule } from "./public-collaborator-mocks.ts";
 import { queryOptionsOwnerRule } from "./query-options-owner.ts";
+import { synchronousSelectorsRule } from "./synchronous-selectors.ts";
 
 export default eslintCompatPlugin({
   meta: { name: "deep-modules" },
@@ -14,5 +15,6 @@ export default eslintCompatPlugin({
     "lib-imports": libImportsRule,
     "public-collaborator-mocks": publicCollaboratorMocksRule,
     "query-options-owner": queryOptionsOwnerRule,
+    "synchronous-selectors": synchronousSelectorsRule,
   },
 });

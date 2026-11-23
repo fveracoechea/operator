@@ -20,6 +20,7 @@
     "deep-modules/lib-imports": "error",
     "deep-modules/public-collaborator-mocks": "error",
     "deep-modules/query-options-owner": "error",
+    "deep-modules/synchronous-selectors": "error",
     "stylistic/padding-line-between-statements": [
       "error",
       { "blankLine": "always", "prev": ["function", "export"], "next": "*" }
