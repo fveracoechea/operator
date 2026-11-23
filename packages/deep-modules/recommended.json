@@ -5,6 +5,7 @@
   "rules": {
     "deep-modules/module-interface": "error",
     "deep-modules/module-imports": "error",
-    "deep-modules/lib-imports": "error"
+    "deep-modules/lib-imports": "error",
+    "deep-modules/public-collaborator-mocks": "error"
   }
 }

@@ -10,6 +10,7 @@ The base lint policy is implemented in #237.
 Environment ownership is implemented in #239.
 Amended 2026-11-22: #439 moves application-interface syntax policy to a reusable Oxlint package.
 Amended 2026-11-23: #440 gives reusable Oxlint rules sole ownership of module privacy and library dependency policy.
+Amended 2026-11-23: #442 permits public collaborator replacements in governed tests while preserving internal privacy and unrelated test policy.
 
 ## Context
 
@@ -23,6 +24,9 @@ Operator adopts the selected built-in and custom oxlint checks, including type-a
 Exact dependency pins make tool upgrades visible and reproducible.
 There is no violation baseline or suppression campaign that leaves the newly selected policy unenforced.
 Test-specific exceptions remain explicit rather than weakening the production checks.
+Tests may replace public external collaborators because the caller's seam, rather than the replacement mechanism, defines isolation.
+The tested owner's implementation and descendants remain real. Shared setup has an explicit owner association.
+Outside governed test scope, the blanket module-mock restriction remains.
 The unthrown rules selected in ADR-0019 join this policy as errors, including every opt-in rule.
 Promise callbacks must match the caller's completion contract.
 Unsafe data flows require boundary validation rather than assertions, including in tests.

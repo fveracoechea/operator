@@ -28,14 +28,15 @@ Or enable individual rules:
   "rules": {
     "deep-modules/module-interface": "error",
     "deep-modules/module-imports": "error",
-    "deep-modules/lib-imports": "error"
+    "deep-modules/lib-imports": "error",
+    "deep-modules/public-collaborator-mocks": "error"
   }
 }
 ```
 
 Run `oxlint` from the consumer project root.
-The recommended configuration enables all three rules.
-Mocks, specialized rules and filesystem structure checks are not part of this version.
+The recommended configuration also checks public collaborator mocks.
+See [mock guidance](docs/public-collaborator-mocks.md) for Bun binding support, test scope and isolation.
 
 ## Consumer configuration
 
@@ -56,7 +57,9 @@ It returns absolute roots, exclusions and alias targets.
       "objectEntries": ["main.ts", "main.server.ts", "main.tsx", "main.server.tsx"],
       "schemaEntries": ["schemas.ts", "schemas.generated.ts"],
       "frameworkEntries": ["$functions.ts"],
-      "exclusions": ["src/modules/movie/assets", "src/modules/generated"]
+      "exclusions": ["src/modules/movie/assets", "src/modules/generated"],
+      "environmentEntries": [],
+      "testScopes": {}
     }
   }
 }

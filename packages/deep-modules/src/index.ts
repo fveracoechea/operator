@@ -3,6 +3,7 @@ import { eslintCompatPlugin } from "@oxlint/plugins";
 import { moduleInterfaceRule } from "./module-interface.ts";
 import { moduleImportsRule } from "./module-imports.ts";
 import { libImportsRule } from "./lib-imports.ts";
+import { publicCollaboratorMocksRule } from "./public-collaborator-mocks.ts";
 
 export default eslintCompatPlugin({
   meta: { name: "deep-modules" },
@@ -10,5 +11,6 @@ export default eslintCompatPlugin({
     "module-interface": moduleInterfaceRule,
     "module-imports": moduleImportsRule,
     "lib-imports": libImportsRule,
+    "public-collaborator-mocks": publicCollaboratorMocksRule,
   },
 });

@@ -15,6 +15,8 @@ test("normalizes one consumer-relative contract including roots, aliases, entrie
         schemaEntries: ["wire.ts"],
         frameworkEntries: ["rpc.ts"],
         exclusions: ["app/features/movie/assets"],
+        environmentEntries: ["app/environment.ts"],
+        testScopes: { "test/setup.ts": "app/features/movie" },
       },
     },
     "/consumer",
@@ -29,6 +31,8 @@ test("normalizes one consumer-relative contract including roots, aliases, entrie
     schemaEntries: ["wire.ts"],
     frameworkEntries: ["rpc.ts"],
     exclusions: ["/consumer/web/app/features/movie/assets"],
+    environmentEntries: ["/consumer/web/app/environment.ts"],
+    testScopes: { "/consumer/web/test/setup.ts": "/consumer/web/app/features/movie" },
   });
 });
 
@@ -47,6 +51,8 @@ test("defaults follow the canonical entries and invalid settings fail visibly", 
   expect(config.frameworkEntries).toEqual(["$functions.ts"]);
   expect(config.exclusions).toEqual([]);
   expect(config.aliases).toEqual({});
+  expect(config.environmentEntries).toEqual([]);
+  expect(config.testScopes).toEqual({});
   const invalid: Context["settings"][string][] = [
     null,
     { typo: true },
@@ -58,6 +64,8 @@ test("defaults follow the canonical entries and invalid settings fail visibly", 
     { schemaEntries: ["../wire.ts"] },
     { frameworkEntries: ["rpc.js"] },
     { exclusions: [false] },
+    { environmentEntries: [false] },
+    { testScopes: { "setup.ts": "" } },
   ];
   for (const input of invalid)
     expect(() => normalizeProjectConfig({ "deep-modules": input }, "/consumer")).toThrow();

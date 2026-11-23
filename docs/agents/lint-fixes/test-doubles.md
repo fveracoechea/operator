@@ -4,8 +4,10 @@ Replace a dependency where the caller meets it, and assert on what the code unde
 
 ## `anti-slop/no-module-mocking`
 
-`mock.module` replaces a file by its path, so the test no longer runs the real module graph.
-Use a scoped spy on the public interface, a function fake that the caller passes in, or a controlled external tool.
+The blanket ban remains outside `*.test.ts` files.
+In those governed tests, `deep-modules/public-collaborator-mocks` permits public external collaborators and protects the tested owner's internals.
+Read `packages/deep-modules/docs/public-collaborator-mocks.md` for registration order, setup ownership and file isolation.
+Use a scoped public-interface spy, function injection or a controlled external tool when a module replacement is unnecessary.
 `docs/agents/testing/writing-tests.md` describes these doubles.
 
 ```ts

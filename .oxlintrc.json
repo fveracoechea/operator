@@ -15,6 +15,7 @@
     "deep-modules/module-interface": "error",
     "deep-modules/module-imports": "error",
     "deep-modules/lib-imports": "error",
+    "deep-modules/public-collaborator-mocks": "error",
     "stylistic/padding-line-between-statements": [
       "error",
       { "blankLine": "always", "prev": ["function", "export"], "next": "*" }
@@ -191,6 +192,7 @@
     {
       "files": ["**/*.test.ts"],
       "rules": {
+        "anti-slop/no-module-mocking": "off",
         "typescript/no-unsafe-type-assertion": "off",
         "typescript/await-thenable": "off",
         "typescript/unbound-method": "off"

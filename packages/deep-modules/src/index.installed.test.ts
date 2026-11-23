@@ -31,6 +31,57 @@ const report = z.object({
   ),
 });
 
+async function checkInstalledMocks(consumer: string, runtime: string, entry: string) {
+  const directory = path.posix.dirname(entry);
+  const basename = path.posix.basename(entry);
+  const privateFile = path.posix.join(directory, "private.tsx");
+  for (const child of ["player", "selectors"])
+    await Bun.write(
+      path.join(consumer, directory, child, basename),
+      "export const Child = { run() {} };",
+    );
+  await Bun.write(
+    path.join(consumer, directory, "selectors", "private.ts"),
+    "export const hidden = 1;",
+  );
+  for (const [probe, target, rejected] of [
+    ["mock-consumer.test.ts", `./${entry}`, false],
+    ["mock-consumer.test.ts", "external-client", false],
+    ["mock-consumer.test.ts", `./${privateFile}`, true],
+    ["mock-consumer.test.ts", "getTarget()", true],
+    [`${directory}/mock.test.ts`, `./${basename}`, true],
+    [`${directory}/mock.test.ts`, `./player/${basename}`, true],
+    [`${directory}/player/mock.test.ts`, `../selectors/${basename}`, false],
+    [`${directory}/player/mock.test.ts`, "../selectors/private.ts", true],
+  ] as const) {
+    const argument = target === "getTarget()" ? target : JSON.stringify(target);
+    await Bun.write(
+      path.join(consumer, probe),
+      `import * as Test from "bun:test"; Test.mock["module"](${argument}, () => ({}));`,
+    );
+    const result = await command(consumer, [
+      runtime,
+      "node_modules/oxlint/bin/oxlint",
+      "--format",
+      "json",
+      probe,
+    ]);
+    expect(result.exitCode).toBe(rejected ? 1 : 0);
+    const diagnostics = report.parse(JSON.parse(result.stdout)).diagnostics;
+    expect(diagnostics.map((item) => item.code)).toEqual(
+      rejected ? ["deep-modules(public-collaborator-mocks)"] : [],
+    );
+    for (const diagnostic of diagnostics) {
+      const url = diagnostic.message.match(/file:\/\/[^\s]+\.md/)?.[0];
+      expect(url).toBeDefined();
+      if (url)
+        expect(await Bun.file(new URL(url)).text()).toContain(
+          "deep-modules/public-collaborator-mocks",
+        );
+    }
+  }
+}
+
 async function checkInstalledImports(
   consumer: string,
   runtime: string,
@@ -145,6 +196,7 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
       "docs/module-interface.md",
       "docs/module-imports.md",
       "docs/lib-imports.md",
+      "docs/public-collaborator-mocks.md",
     ])
       expect(await Bun.file(path.join(packageRoot, file)).exists()).toBe(true);
     expect(await Bun.file(path.join(packageRoot, "src/index.ts")).exists()).toBe(false);
@@ -199,6 +251,7 @@ console.log(plugin, config.moduleRoots);
       await Bun.write(path.join(consumer, entry), "export const Movie = { play() {} };");
       expect((await command(consumer, args)).exitCode).toBe(0);
       await checkInstalledImports(consumer, runtime, entry, layout);
+      await checkInstalledMocks(consumer, runtime, entry);
       await Bun.write(path.join(consumer, entry), "export const play = () => 1;");
       const invalid = await command(consumer, args);
       expect(invalid.exitCode).toBe(1);

@@ -21,7 +21,7 @@ test("accepts function mocks and unrelated objects", async () => {
 const rule = "anti-slop(no-module-mocking)";
 
 async function flagged(lines: string[]): Promise<number[]> {
-  const result = await check(lines.join("\n"), { path: "src/lib/lint-probe.test.ts" });
+  const result = await check(lines.join("\n"), { path: "src/lib/lint-probe.ts" });
   return result.findings
     .filter((finding) => finding.endsWith(` ${rule}`))
     .map((finding) => Number.parseInt(finding, 10));

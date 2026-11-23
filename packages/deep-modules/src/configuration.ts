@@ -18,6 +18,8 @@ const configuration = z.strictObject({
   schemaEntries: z.array(entry).default(["schemas.ts", "schemas.generated.ts"]),
   frameworkEntries: z.array(entry).default(["$functions.ts"]),
   exclusions: z.array(root).default([]),
+  environmentEntries: z.array(root).default([]),
+  testScopes: z.record(root, root).default({}),
 });
 
 export type ProjectConfig = z.infer<typeof configuration>;
@@ -41,5 +43,9 @@ export function normalizeProjectConfig(settings: Context["settings"], cwd: strin
       Object.entries(config.aliases).map(([name, target]) => [name, absolute(target)]),
     ),
     exclusions: config.exclusions.map(absolute),
+    environmentEntries: config.environmentEntries.map(absolute),
+    testScopes: Object.fromEntries(
+      Object.entries(config.testScopes).map(([scope, owner]) => [absolute(scope), absolute(owner)]),
+    ),
   };
 }
