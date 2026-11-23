@@ -13,6 +13,15 @@ export function excluded(filename: string, config: ProjectConfig): boolean {
   return config.exclusions.some((root) => contains(root, filename));
 }
 
+export function applicationEntry(filename: string, config: ProjectConfig): boolean {
+  if (excluded(filename, config)) return false;
+  if (config.libraryRoots.some((root) => contains(root, filename))) return false;
+  return config.moduleRoots.some((root) => {
+    const parts = path.relative(root, filename).split(path.sep);
+    return parts.length === 2 && parts[0] !== ".." && config.objectEntries.includes(parts[1] ?? "");
+  });
+}
+
 export function productionFile(filename: string): boolean {
   return /\.tsx?$/.test(filename) && !/(\.d|\.test|\.spec)(\.|$)/.test(filename);
 }
@@ -180,10 +189,12 @@ function globalName(source: SourceCode, node: ESTree.Node, name: string): boolea
   );
 }
 
-function memberName(node: ESTree.MemberExpression): string | undefined {
-  if (!node.computed && node.property.type === "Identifier") return node.property.name;
-  const name = z.string().safeParse(node.property.type === "Literal" ? node.property.value : null);
-  return name.success ? name.data : undefined;
+export function memberName(
+  node: ESTree.MemberExpression | Extract<ESTree.Node, { type: "Property" }>,
+): string | undefined {
+  const key = node.type === "Property" ? node.key : node.property;
+  if (!node.computed && key.type === "Identifier") return key.name;
+  return key.type === "Literal" ? String(key.value) : undefined;
 }
 
 function createRequireBinding(source: SourceCode, node: ESTree.Node): boolean {

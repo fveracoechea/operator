@@ -11,6 +11,7 @@ import {
   privateImport,
   resolveLocalValue,
   resolveProjectImport,
+  unwrapExpression,
 } from "./project.ts";
 
 const guidance = new URL("../docs/public-collaborator-mocks.md", import.meta.url).href;
@@ -68,23 +69,12 @@ function aliasBinding(
 }
 
 /** Trace only actual Bun imports and immutable aliases, never names alone. */
-function unwrap(node: ESTree.Node): ESTree.Node {
-  if (
-    node.type === "TSAsExpression" ||
-    node.type === "TSSatisfiesExpression" ||
-    node.type === "TSNonNullExpression" ||
-    node.type === "TSTypeAssertion"
-  )
-    return unwrap(node.expression);
-  return node;
-}
-
 function bunBinding(
   source: SourceCode,
   input: ESTree.Node,
   seen = new Set<Variable>(),
 ): string[] | undefined {
-  const node = unwrap(input);
+  const node = unwrapExpression(input);
   if (node.type === "MemberExpression") {
     const name = member(node);
     const base = bunBinding(source, node.object, seen);
@@ -176,7 +166,7 @@ export const publicCollaboratorMocksRule = defineRule({
           return;
         }
         const argument = node.arguments[0];
-        const value = argument && unwrap(resolveLocalValue(context.sourceCode, argument));
+        const value = argument && resolveLocalValue(context.sourceCode, argument);
         const specifier = z.string().safeParse(value?.type === "Literal" ? value.value : null);
         if (!specifier.success) {
           context.report({ node: argument ?? node, messageId: "unsupported" });

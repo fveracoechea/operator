@@ -13,6 +13,17 @@ afterAll(async () => {
 
 const check = lintProject();
 
+test("dependency code is excluded in disposable consumers without gitignore", async () => {
+  const result = await check("export const value = 1;", {
+    files: {
+      "scratch/node_modules/dependency/main.ts":
+        'export const value = Reflect.get({}, "dependency");',
+    },
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.codes).toEqual([]);
+});
+
 test("does not lint generated package output in a disposable project without gitignore", async () => {
   const result = await check("export const value = 1;", {
     files: {

@@ -10,6 +10,31 @@ const rulePolicy = {
 };
 const policy = JSON.stringify(rulePolicy);
 
+test("negative numeric constants remain data beside an operation interface", async () => {
+  const result = await check(
+    "export const Defaults = { offset: -1, limits: [-2, +3, -1n] }; export const Movie = { play() {} };",
+    { path: "src/modules/movie/main.ts", files: { ".oxlintrc.json": policy } },
+  );
+  expect(result.exitCode).toBe(0);
+  expect(result.codes).toEqual([]);
+});
+
+test("statically known local callable members are standalone operations, not opaque constants", async () => {
+  for (const source of [
+    "const operations = { play() {} }; export const play = operations.play; export const Movie = { play };",
+    "const run = () => 1; const operations = { nested: { run } }; export const play = (operations.nested['run']!); export const Movie = { play };",
+    "const operations = { play() {} }; const alias = operations; const play = alias.play; export { play }; export const Movie = { play };",
+    "const operations = { play: 1, play() {} }; export const play = operations.play; export const Movie = { play };",
+  ]) {
+    const result = await check(source, {
+      path: "src/modules/movie/main.ts",
+      files: { ".oxlintrc.json": policy },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.findings).toEqual(["1 deep-modules(module-interface)"]);
+  }
+});
+
 test("Movie composes references, namespace selectors, data constants and types without a barrel exception", async () => {
   const result = await check(
     `
@@ -114,6 +139,15 @@ test("accepts opaque constants, data arrays, local object aliases and guarded bi
     "const recursive = { recursive }; export const Movie = recursive;",
     "function play() {} export const Movie = { play }; export type Play = typeof play;",
     "const play = function () {}; const alias = play; export const Movie = { alias };",
+    'import { opaque } from "./opaque.ts"; export const UNKNOWN = opaque.play; export const Movie = { play() {} };',
+    "const operations = factory(); export const UNKNOWN = operations.play; export const Movie = { play() {} };",
+    "const operations = { play() {} }; export const UNKNOWN = operations[key]; export const Movie = { play() {} };",
+    "const operations = { play() {}, ...unknown }; export const UNKNOWN = operations.play; export const Movie = { play() {} };",
+    "const operations = { play() {}, [key]: unknown }; export const UNKNOWN = operations.play; export const Movie = { play() {} };",
+    "const operations = { get play() { return () => 1; } }; export const UNKNOWN = operations.play; export const Movie = { play() {} };",
+    "const operations = { play() {}, play: 1 }; export const VALUE = operations.play; export const Movie = { play() {} };",
+    "const operations = { play: operations.play }; export const UNKNOWN = operations.play; export const Movie = { play() {} };",
+    "export class Actor {} export const Movie = { create: () => new Actor() };",
   ]) {
     const result = await check(source, {
       path: "src/modules/movie/main.ts",

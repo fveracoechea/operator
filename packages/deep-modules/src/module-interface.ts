@@ -1,56 +1,41 @@
 import { defineRule, type ESTree, type SourceCode, type Variable } from "@oxlint/plugins";
-// Portable plugin loading runs under Node as well as Bun.
-import path from "node:path";
+import { z } from "zod";
 import { normalizeProjectConfig, type ProjectConfig } from "./configuration.ts";
+import { applicationEntry, bindingOf, memberName, unwrapExpression } from "./project.ts";
 
 const guidance = new URL("../docs/module-interface.md", import.meta.url).href;
 
-function applicationEntry(filename: string, config: ProjectConfig): boolean {
-  if (
-    config.exclusions.some(
-      (excluded) => filename === excluded || filename.startsWith(`${excluded}${path.sep}`),
-    )
-  )
-    return false;
-  if (config.libraryRoots.some((root) => filename.startsWith(`${root}${path.sep}`))) return false;
-  return config.moduleRoots.some((root) => {
-    const parts = path.relative(root, filename).split(path.sep);
-    return parts.length === 2 && parts[0] !== ".." && config.objectEntries.includes(parts[1] ?? "");
-  });
-}
-
-function unwrap(node: ESTree.Node): ESTree.Node {
-  while (
-    node.type === "ParenthesizedExpression" ||
-    node.type === "TSAsExpression" ||
-    node.type === "TSTypeAssertion" ||
-    node.type === "TSNonNullExpression" ||
-    node.type === "TSSatisfiesExpression" ||
-    node.type === "ChainExpression"
-  )
-    node = node.expression;
+function localMember(
+  source: SourceCode,
+  node: ESTree.MemberExpression,
+  seen: Set<Variable>,
+): ESTree.Node {
+  const name = memberName(node);
+  if (name === undefined) return node;
+  const object = resolved(source, node.object, seen);
+  if (object.type !== "ObjectExpression") return node;
+  // Later members override earlier ones. Unknown spreads, keys and getters stay opaque.
+  for (const property of object.properties.toReversed()) {
+    if (property.type !== "Property") return node;
+    const candidate = memberName(property);
+    if (candidate === undefined) return node;
+    if (candidate === name)
+      return property.kind === "init" ? resolved(source, property.value, seen) : node;
+  }
   return node;
 }
 
 function resolved(source: SourceCode, input: ESTree.Node, seen = new Set<Variable>()): ESTree.Node {
-  const node = unwrap(input);
+  const node = unwrapExpression(input);
+  if (node.type === "MemberExpression") return localMember(source, node, seen);
   if (node.type !== "Identifier") return node;
-  let scope = source.getScope(node);
-  while (scope) {
-    const binding = scope.set.get(node.name);
-    if (!binding) {
-      if (!scope.upper) return node;
-      scope = scope.upper;
-      continue;
-    }
-    if (seen.has(binding)) return node;
-    seen.add(binding);
-    for (const definition of binding.defs) {
-      if (definition.type === "FunctionName") return definition.node;
-      if (definition.node.type === "VariableDeclarator" && definition.node.init)
-        return resolved(source, definition.node.init, seen);
-    }
-    return node;
+  const binding = bindingOf(source, node);
+  if (!binding || seen.has(binding)) return node;
+  seen.add(binding);
+  for (const definition of binding.defs) {
+    if (definition.type === "FunctionName") return definition.node;
+    if (definition.node.type === "VariableDeclarator" && definition.node.init)
+      return resolved(source, definition.node.init, seen);
   }
   return node;
 }
@@ -69,6 +54,13 @@ function dataValue(source: SourceCode, input: ESTree.Node, seen = new Set<ESTree
   if (seen.has(node)) return false;
   seen.add(node);
   if (node.type === "Literal") return true;
+  if (node.type === "UnaryExpression" && (node.operator === "-" || node.operator === "+")) {
+    const argument = resolved(source, node.argument);
+    return (
+      argument.type === "Literal" &&
+      z.union([z.number(), z.bigint()]).safeParse(argument.value).success
+    );
+  }
   if (node.type === "ArrayExpression")
     return node.elements.every((item) => item === null || dataValue(source, item, new Set(seen)));
   if (node.type === "ObjectExpression")

@@ -1,5 +1,5 @@
 {
-  "ignorePatterns": ["packages/*/dist/**"],
+  "ignorePatterns": ["**/node_modules/**", "packages/*/dist/**"],
   "settings": {
     "deep-modules": { "allowedFiles": ["src/cli.ts"] }
   },

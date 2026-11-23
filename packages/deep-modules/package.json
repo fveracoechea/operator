@@ -27,6 +27,8 @@
     "./docs/module-interface.md": "./docs/module-interface.md",
     "./docs/module-imports.md": "./docs/module-imports.md",
     "./docs/lib-imports.md": "./docs/lib-imports.md",
+    "./docs/public-collaborator-mocks.md": "./docs/public-collaborator-mocks.md",
+    "./docs/query-options-owner.md": "./docs/query-options-owner.md",
     "./docs/structure.md": "./docs/structure.md",
     "./docs/synchronous-selectors.md": "./docs/synchronous-selectors.md"
   },

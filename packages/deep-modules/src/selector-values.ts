@@ -6,6 +6,7 @@ import type { ProjectConfig } from "./configuration.ts";
 import {
   bindingOf,
   excluded,
+  memberName,
   productionFile,
   resolveLocalValue,
   resolveProjectImport,
@@ -27,7 +28,6 @@ export function walk(node: ESTree.Node, inspect: (node: ESTree.Node) => boolean)
   }
 }
 
-type Property = Extract<ESTree.Node, { type: "Property" }>;
 type Export = Extract<ESTree.Node, { type: "ExportNamedDeclaration" }>;
 type FunctionNode = Extract<
   ESTree.Node,
@@ -42,12 +42,6 @@ export function functionNode(node: ESTree.Node): node is FunctionNode {
     node.type === "FunctionExpression" ||
     node.type === "ArrowFunctionExpression"
   );
-}
-
-export function memberName(node: ESTree.MemberExpression | Property): string | undefined {
-  const key = node.type === "Property" ? node.key : node.property;
-  if (!node.computed && key.type === "Identifier") return key.name;
-  return key.type === "Literal" ? String(key.value) : undefined;
 }
 
 function exportName(node: ESTree.Node): string {
@@ -193,17 +187,49 @@ export function selectorValues(
     seen.add(key);
     const found: SelectorValue[] = [];
     for (const item of value.node.body) {
-      if (item.type !== "ExportNamedDeclaration" || item.exportKind === "type") continue;
-      if (item.declaration)
-        found.push(...declaredExports({ ...value, node: item.declaration }, name));
-      for (const specifier of item.specifiers) {
-        if (specifier.exportKind === "type" || (name && name !== exportName(specifier.exported)))
-          continue;
-        if (!item.source) found.push({ ...value, node: specifier.local });
-        else found.push(...reexported(value, item, exportName(specifier.local), new Set(seen)));
+      if (item.type === "ExportAllDeclaration") {
+        found.push(...namespaceExports(value, item, name, new Set(seen)));
+        continue;
       }
+      if (item.type === "ExportNamedDeclaration")
+        found.push(...namedExports(value, item, name, seen));
     }
     return found;
+  }
+
+  function namedExports(
+    value: SelectorValue,
+    declaration: Export,
+    name: string | undefined,
+    seen: Set<string>,
+  ): SelectorValue[] {
+    if (declaration.exportKind === "type") return [];
+    const found = declaration.declaration
+      ? declaredExports({ ...value, node: declaration.declaration }, name)
+      : [];
+    for (const specifier of declaration.specifiers) {
+      if (specifier.exportKind === "type" || (name && name !== exportName(specifier.exported)))
+        continue;
+      if (!declaration.source) found.push({ ...value, node: specifier.local });
+      else
+        found.push(...reexported(value, declaration, exportName(specifier.local), new Set(seen)));
+    }
+    return found;
+  }
+
+  function namespaceExports(
+    value: SelectorValue,
+    declaration: ESTree.ExportAllDeclaration,
+    name: string | undefined,
+    seen: Set<string>,
+  ): SelectorValue[] {
+    if (declaration.exportKind === "type") return [];
+    if (declaration.exported && name && name !== exportName(declaration.exported)) return [];
+    const target = resolveProjectImport(value.filename, String(declaration.source.value), config);
+    const program = target ? load(target) : undefined;
+    if (!target || !program) return [];
+    const namespace = { node: program, filename: target };
+    return declaration.exported ? [namespace] : exported(namespace, name, seen);
   }
 
   function imported(

@@ -1,18 +1,23 @@
 import { afterAll, expect, test } from "bun:test";
+import { parseExpression } from "@babel/parser";
 // Portable analysis uses real disposable consumer files.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { normalizeProjectConfig } from "./configuration.ts";
 import {
+  applicationEntry,
   contains,
   discoverOwners,
   excluded,
+  memberName,
   ownerOf,
   privateImport,
   productionFile,
   resolveProjectImport,
+  unwrapExpression,
 } from "./project.ts";
+import { astNode } from "./selector-values.ts";
 
 const root = await mkdtemp(path.join(tmpdir(), "deep-module-project-"));
 afterAll(() => rm(root, { recursive: true }));
@@ -42,6 +47,69 @@ const files = [
 ];
 for (const file of files) await Bun.write(path.join(root, file), "export {};");
 await Bun.write(path.join(root, "package.json"), '{"name":"@studio/cinema"}');
+
+test("shared expression unwrapping handles chained TypeScript, parenthesized and optional-chain syntax", () => {
+  for (const text of [
+    "(((play as unknown)!) satisfies object)",
+    "(<unknown>play)",
+    "(operations?.play)",
+  ]) {
+    const parsed: unknown = parseExpression(text, {
+      plugins: ["typescript", "estree"],
+      createParenthesizedExpressions: true,
+    });
+    expect(astNode(parsed)).toBe(true);
+    if (!astNode(parsed)) return;
+    const value = unwrapExpression(parsed);
+    expect(value.type).toBe(text.includes("operations") ? "MemberExpression" : "Identifier");
+  }
+});
+
+test("static member names distinguish literal keys from computed provenance", () => {
+  for (const [text, expected] of [
+    ["operations.play", "play"],
+    ['operations["play"]', "play"],
+    ["operations[0]", "0"],
+    ["operations[key]", undefined],
+    ["({ play() {} })", "play"],
+    ['({ ["play"]: 1 })', "play"],
+    ["({ [key]: 1 })", undefined],
+  ] as const) {
+    const parsed: unknown = parseExpression(text, { plugins: ["typescript", "estree"] });
+    expect(astNode(parsed)).toBe(true);
+    if (!astNode(parsed)) return;
+    const member = parsed.type === "ObjectExpression" ? parsed.properties[0] : parsed;
+    expect(member?.type === "MemberExpression" || member?.type === "Property").toBe(true);
+    if (member?.type !== "MemberExpression" && member?.type !== "Property") return;
+    expect(memberName(member)).toBe(expected);
+  }
+});
+
+test("application entry classification shares exclusions, library precedence and direct entry conventions", () => {
+  const configured = normalizeProjectConfig(
+    {
+      "deep-modules": {
+        moduleRoots: ["features"],
+        libraryRoots: ["features/utils"],
+        objectEntries: ["interface.ts", "main.tsx"],
+        exclusions: ["features/generated"],
+      },
+    },
+    root,
+  );
+  for (const [filename, expected] of [
+    ["features/movie/interface.ts", true],
+    ["features/movie/main.tsx", true],
+    ["features/movie/main.ts", false],
+    ["features/movie/child/interface.ts", false],
+    ["features/utils/interface.ts", false],
+    ["features/generated/interface.ts", false],
+    ["features/generated-copy/interface.ts", true],
+    ["features/interface.ts", false],
+    ["outside/interface.ts", false],
+  ] as const)
+    expect(applicationEntry(path.join(root, filename), configured)).toBe(expected);
+});
 
 test("discovers production owners without entries, omitting declarations, tests and excluded assets", () => {
   const owners = discoverOwners(config);

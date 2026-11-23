@@ -12,36 +12,7 @@ afterAll(async () => {
   for (const root of roots) await rm(root, { force: true, recursive: true });
 });
 
-const diagnostics = [
-  "deep-modules(module-imports)",
-  "every module requires one public interface",
-  "requires a corresponding behavior beside-test",
-  "child/main.ts: every module requires one public interface",
-  "deep-modules(module-interface)",
-  "production files must be inside a feature module",
-  "production TypeScript must live",
-  "deep-modules(lib-imports)",
-  "import(no-cycle)",
-  "is not assignable to type 'number'",
-  "anti-slop(no-reflect-get)",
-];
-
-// The controlled Bun keeps a copy of the tree each check sees and rejects a tree that holds a
-// probe file. The call that WRONG_RUN names fails with an unrelated diagnostic.
-const fakeBun = `#!/bin/sh
-[ "$1" = run ] || exit 9
-n=$(( $(ls "$PROBE_LOG" | wc -l) + 1 ))
-mkdir -p "$PROBE_LOG/$n"
-printf '%s' "$2" > "$PROBE_LOG/$n/check"
-basename "$PWD" > "$PROBE_LOG/$n/root"
-cp -R . "$PROBE_LOG/$n/tree"
-echo "fake $2 output"
-if [ "$n" = "$WRONG_RUN" ]; then echo "unrelated diagnostic" >&2; exit 1; fi
-probes=$(find . -path ./node_modules -prune -o -type f -path '*probe*' -print | grep -v -e -valid-)
-[ -z "$probes" ] && exit 0
-printf '%s\\n' ${diagnostics.map((text) => `'${text.replaceAll("'", "'\\''")}'`).join(" ")} $probes >&2
-exit 1
-`;
+const controlledBun = path.join(import.meta.dir, "fixtures/boundary-bun.ts");
 
 const base = {
   ".oxfmtrc.json": "{}\n",
@@ -57,7 +28,10 @@ const base = {
 };
 
 /** A source root with the copied entries, files the proof must not copy, and a controlled Bun. */
-async function sourceRoot(): Promise<string> {
+async function sourceRoot(
+  wrongRun: number,
+  fault: { files: string[]; rule: string; kind: string } | null,
+): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "operator-boundary-source-"));
   roots.push(root);
   for (const [name, text] of Object.entries({
@@ -65,7 +39,15 @@ async function sourceRoot(): Promise<string> {
     "outside.txt": "not copied\n",
     "outside/skip.ts": "export {};\n",
     "node_modules/marker.txt": "linked\n",
-    "bin/bun": fakeBun,
+    "bin/bun": `#!/bin/sh\nexec ${[
+      process.execPath,
+      controlledBun,
+      path.join(root, "calls"),
+      String(wrongRun),
+      JSON.stringify(fault ?? {}),
+    ]
+      .map((argument) => "'" + argument.replaceAll("'", "'\\''") + "'")
+      .join(" ")} "$@"\n`,
   })) {
     await Bun.write(path.join(root, name), text);
   }
@@ -97,16 +79,18 @@ async function readCall(directory: string) {
   };
 }
 
-async function prove(wrongRun = 0) {
-  const root = await sourceRoot();
+async function prove(
+  wrongRun = 0,
+  fault: { files: string[]; rule: string; kind: string } | null = null,
+) {
+  const root = await sourceRoot(wrongRun, fault);
   const log = path.join(root, "calls");
   const child = Bun.spawn([process.execPath, script], {
     cwd: root,
     env: Environment.child({
-      PATH: `${path.join(root, "bin")}:${Environment.read().PATH}`,
+      // Only the controlled Bun is on PATH. No Python or other language runtime is available.
+      PATH: path.join(root, "bin"),
       TMPDIR: path.join(root, "temporary"),
-      PROBE_LOG: log,
-      WRONG_RUN: String(wrongRun),
     }),
     stdout: "pipe",
     stderr: "pipe",
@@ -140,164 +124,210 @@ const valid = {
     'import { expect, test } from "bun:test";\nimport { ValidProbe } from "./main.ts";\n\ntest("returns the library value", () => { expect(ValidProbe.run()).toBe(1); });\n',
 };
 
-const violations: { name: string; check: string; files: Record<string, string> }[] = [
-  {
-    name: "private module import",
-    check: "lint",
-    files: {
-      "module-boundary-probe-ID.test.ts": 'require("./src/modules/operator-cli/run.ts");\n',
+const violations: { name: string; check: string; files: Record<string, string>; rule?: string }[] =
+  [
+    {
+      name: "private module import",
+      rule: "deep-modules(module-imports)",
+      check: "lint",
+      files: {
+        "module-boundary-probe-ID.test.ts": 'require("./src/modules/operator-cli/run.ts");\n',
+      },
     },
-  },
-  {
-    name: "root configuration private type import",
-    check: "lint",
-    files: {
-      "module-boundary-probe-ID.config.ts":
-        'export type Private = typeof import("./src/modules/operator-cli/run.ts");\n',
+    {
+      name: "root configuration private type import",
+      rule: "deep-modules(module-imports)",
+      check: "lint",
+      files: {
+        "module-boundary-probe-ID.config.ts":
+          'export type Private = typeof import("./src/modules/operator-cli/run.ts");\n',
+      },
     },
-  },
-  {
-    name: "outside access to a nested entry",
-    check: "lint",
-    files: {
-      "src/modules/module-boundary-probe-nested-ID/child/grandchild/main.ts":
-        "export function run() {}\n",
-      "src/modules/module-boundary-probe-nested-ID/main.ts":
-        'import "./child/grandchild/main.ts";\nexport const NestedProbe = { run() {} };\n',
+    {
+      name: "outside access to a nested entry",
+      rule: "deep-modules(module-imports)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-nested-ID/child/grandchild/main.ts":
+          "export function run() {}\n",
+        "src/modules/module-boundary-probe-nested-ID/main.ts":
+          'import "./child/grandchild/main.ts";\nexport const NestedProbe = { run() {} };\n',
+      },
     },
-  },
-  {
-    name: "missing module interface",
-    check: "lint:modules",
-    files: { "src/modules/module-boundary-probe-missing-ID/private.ts": "export {};\n" },
-  },
-  {
-    name: "missing module entry test",
-    check: "lint:modules",
-    files: {
-      "src/modules/module-boundary-probe-entry-test-ID/main.ts":
-        "export const EntryTest = { run() {} };\n",
+    {
+      name: "missing module interface",
+      check: "lint:modules",
+      files: { "src/modules/module-boundary-probe-missing-ID/private.ts": "export {};\n" },
     },
-  },
-  {
-    name: "missing nested interface",
-    check: "lint:modules",
-    files: {
-      "src/modules/module-boundary-probe-child-ID/main.ts":
-        "export const ChildProbe = { run() {} };\n",
-      "src/modules/module-boundary-probe-child-ID/main.test.ts": "export {};\n",
-      "src/modules/module-boundary-probe-child-ID/child/private.tsx": "export {};\n",
+    {
+      name: "missing module entry test",
+      check: "lint:modules",
+      files: {
+        "src/modules/module-boundary-probe-entry-test-ID/main.ts":
+          "export const EntryTest = { run() {} };\n",
+      },
     },
-  },
-  {
-    name: "standalone application operation",
-    check: "lint",
-    files: {
-      "src/modules/module-boundary-probe-data-ID/main.ts":
-        "export const DataInterface = () => true;\n",
+    {
+      name: "missing nested interface",
+      check: "lint:modules",
+      files: {
+        "src/modules/module-boundary-probe-child-ID/main.ts":
+          "export const ChildProbe = { run() {} };\n",
+        "src/modules/module-boundary-probe-child-ID/main.test.ts": "export {};\n",
+        "src/modules/module-boundary-probe-child-ID/child/private.tsx": "export {};\n",
+      },
     },
-  },
-  {
-    name: "multiple application interfaces",
-    check: "lint",
-    files: {
-      "src/modules/module-boundary-probe-barrel-ID/main.ts":
-        "export const BarrelInterface = { run() {} };\nexport const Other = { stop() {} };\n",
-      "src/modules/module-boundary-probe-barrel-ID/helper.ts": "export function helper() {}\n",
+    {
+      name: "standalone application operation",
+      rule: "deep-modules(module-interface)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-data-ID/main.ts":
+          "export const DataInterface = () => true;\n",
+      },
     },
-  },
-  {
-    name: "flat production module file",
-    check: "lint:modules",
-    files: { "src/modules/module-boundary-probe-ID.ts": "export {};\n" },
-  },
-  {
-    name: "production code outside modules",
-    check: "lint:modules",
-    files: { "module-boundary-probe-ID.ts": "export {};\n" },
-  },
-  {
-    name: "lib importing a module interface",
-    check: "lint",
-    files: {
-      "src/lib/module-boundary-probe-ID.ts":
-        'export { OperatorCli } from "../modules/operator-cli/main.ts";\n',
+    {
+      name: "multiple application interfaces",
+      rule: "deep-modules(module-interface)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-barrel-ID/main.ts":
+          "export const BarrelInterface = { run() {} };\nexport const Other = { stop() {} };\n",
+        "src/modules/module-boundary-probe-barrel-ID/helper.ts": "export function helper() {}\n",
+      },
     },
-  },
-  {
-    name: "lib importing private module code",
-    check: "lint",
-    files: {
-      "src/lib/module-boundary-probe-ID.ts":
-        'const run = import("../modules/operator-cli/run.ts");\n',
+    {
+      name: "flat production module file",
+      check: "lint:modules",
+      files: { "src/modules/module-boundary-probe-ID.ts": "export {};\n" },
     },
-  },
-  {
-    name: "lib requiring application code",
-    check: "lint",
-    files: { "src/lib/module-boundary-probe-ID.ts": 'require("../cli.ts");\n' },
-  },
-  {
-    name: "module dependency cycle",
-    check: "lint",
-    files: {
-      "src/modules/module-boundary-probe-cycle-ID/main.ts":
-        'import "./worker.ts";\nexport const CycleProbe = { run() {} };\n',
-      "src/modules/module-boundary-probe-cycle-ID/worker.ts": 'import "./main.ts";\n',
+    {
+      name: "production code outside modules",
+      check: "lint:modules",
+      files: { "module-boundary-probe-ID.ts": "export {};\n" },
     },
-  },
-  {
-    name: "module importing another module's private code",
-    check: "lint",
-    files: {
-      "src/modules/module-boundary-probe-private-ID/main.ts":
-        'import "../operator-cli/run.ts";\nexport const PrivateProbe = { run() {} };\n',
+    {
+      name: "lib importing a module interface",
+      rule: "deep-modules(lib-imports)",
+      check: "lint",
+      files: {
+        "src/lib/module-boundary-probe-interface-ID.ts":
+          'export { OperatorCli } from "../modules/operator-cli/main.ts";\n',
+      },
     },
-  },
-  {
-    name: "lib dependency cycle",
-    check: "lint",
-    files: {
-      "src/lib/module-boundary-probe-cycle-ID/a.ts": 'import "./b.ts";\n',
-      "src/lib/module-boundary-probe-cycle-ID/b.ts": 'import "./a.ts";\n',
+    {
+      name: "lib importing private module code",
+      rule: "deep-modules(lib-imports)",
+      check: "lint",
+      files: {
+        "src/lib/module-boundary-probe-private-ID.ts":
+          'const run = import("../modules/operator-cli/run.ts");\n',
+      },
     },
-  },
-  {
-    name: "lib importing an application type",
-    check: "lint",
-    files: {
-      "src/lib/module-boundary-probe-ID.ts":
-        'export type App = typeof import("../modules/operator-cli/main.ts");\n',
+    {
+      name: "lib requiring application code",
+      rule: "deep-modules(lib-imports)",
+      check: "lint",
+      files: { "src/lib/module-boundary-probe-require-ID.ts": 'require("../cli.ts");\n' },
     },
-  },
-  {
-    name: "lib using an import-equals application reference",
-    check: "lint",
-    files: {
-      "src/lib/module-boundary-probe-ID.ts":
-        'import App = require("../modules/operator-cli/main.ts");\n',
+    {
+      name: "module dependency cycle",
+      rule: "import(no-cycle)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-cycle-ID/main.ts":
+          'import "./worker.ts";\nexport const CycleProbe = { run() {} };\n',
+        "src/modules/module-boundary-probe-cycle-ID/worker.ts": 'import "./main.ts";\n',
+      },
     },
-  },
-  {
-    name: "lib type error",
-    check: "typecheck",
-    files: { "src/lib/type-probe-ID.ts": 'export const count: number = "wrong";\n' },
-  },
-  {
-    name: "lib formatting error",
-    check: "format:check",
-    files: { "src/lib/format-probe-ID.ts": "export const count=1;\n" },
-  },
-  {
-    name: "lib lint error",
-    check: "lint",
-    files: { "src/lib/lint-probe-ID.ts": 'export const item = Reflect.get({}, "value");\n' },
-  },
-];
+    {
+      name: "module importing another module's private code",
+      rule: "deep-modules(module-imports)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-private-ID/main.ts":
+          'import "../operator-cli/run.ts";\nexport const PrivateProbe = { run() {} };\n',
+      },
+    },
+    {
+      name: "lib dependency cycle",
+      rule: "import(no-cycle)",
+      check: "lint",
+      files: {
+        "src/lib/module-boundary-probe-cycle-ID/a.ts": 'import "./b.ts";\n',
+        "src/lib/module-boundary-probe-cycle-ID/b.ts": 'import "./a.ts";\n',
+      },
+    },
+    {
+      name: "lib importing an application type",
+      rule: "deep-modules(lib-imports)",
+      check: "lint",
+      files: {
+        "src/lib/module-boundary-probe-type-ID.ts":
+          'export type App = typeof import("../modules/operator-cli/main.ts");\n',
+      },
+    },
+    {
+      name: "lib using an import-equals application reference",
+      rule: "deep-modules(lib-imports)",
+      check: "lint",
+      files: {
+        "src/lib/module-boundary-probe-equals-ID.ts":
+          'import App = require("../modules/operator-cli/main.ts");\n',
+      },
+    },
+    {
+      name: "parent test mocking a private implementation",
+      rule: "deep-modules(public-collaborator-mocks)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-mock-ID/main.test.ts":
+          'import { mock } from "bun:test";\nawait mock.module("../operator-cli/run.ts", () => ({}));\n',
+      },
+    },
+    {
+      name: "parent-local query and mutation groups",
+      rule: "deep-modules(query-options-owner)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-query-ID/main.ts":
+          "export const QueryProbe = { queryOptions: { find() {} }, mutationOptions: { save() {} } };\n",
+      },
+    },
+    {
+      name: "explicit async selector",
+      rule: "deep-modules(synchronous-selectors)",
+      check: "lint",
+      files: {
+        "src/modules/module-boundary-probe-selector-ID/main.ts":
+          "export const SelectorProbe = { selector: { async isReleased() { return true; } } };\n",
+      },
+    },
+    {
+      name: "lib type error",
+      check: "typecheck",
+      files: { "src/lib/type-probe-ID.ts": 'export const count: number = "wrong";\n' },
+    },
+    {
+      name: "lib formatting error",
+      check: "format:check",
+      files: { "src/lib/format-probe-ID.ts": "export const count=1;\n" },
+    },
+    {
+      name: "lib lint error",
+      rule: "anti-slop(no-reflect-get)",
+      check: "lint",
+      files: { "src/lib/lint-probe-ID.ts": 'export const item = Reflect.get({}, "value");\n' },
+    },
+  ];
 
 function call(check: string, files: Record<string, string> = {}) {
   return { check, root: true, linked: true, files: { ...base, ...files } };
 }
+
+const batchedFiles: Record<string, string> = {};
+for (const violation of violations)
+  if (violation.check === "lint") Object.assign(batchedFiles, violation.files);
 
 const calls = [
   call("lint:modules"),
@@ -306,8 +336,14 @@ const calls = [
   call("lint", valid),
   call("typecheck", valid),
   call("format:check", valid),
-  ...violations.map((violation) => call(violation.check, violation.files)),
+  call("lint", batchedFiles),
+  ...violations
+    .filter((violation) => violation.check !== "lint")
+    .map((violation) => call(violation.check, violation.files)),
   call("lint:modules"),
+  call("lint"),
+  call("typecheck"),
+  call("format:check"),
 ];
 
 test("runs every check in a removed copy and reports the rejected violations", async () => {
@@ -315,7 +351,7 @@ test("runs every check in a removed copy and reports the rejected violations", a
 
   expect(result).toMatchObject({
     exitCode: 0,
-    stdout: "module boundaries: clean -> rejected 21 deliberate violations -> clean\n",
+    stdout: "module boundaries: clean -> rejected 24 deliberate violations -> clean\n",
     stderr: "",
     leftCopies: [],
   });
@@ -329,8 +365,14 @@ const failures = [
   "Valid module-to-lib import failed lint",
   "Valid module-to-lib import failed typecheck",
   "Valid module-to-lib import failed format:check",
-  ...violations.map((violation) => `${violation.name} was not rejected`),
+  "private module import was not rejected",
+  ...violations
+    .filter((violation) => violation.check !== "lint")
+    .map((violation) => `${violation.name} was not rejected`),
   "The restored module graph did not pass",
+  "The restored project did not pass lint",
+  "The restored project did not pass typecheck",
+  "The restored project did not pass format:check",
 ];
 
 test.concurrent.each(failures.map((message, index) => [index + 1, message] as const))(
@@ -347,3 +389,29 @@ test.concurrent.each(failures.map((message, index) => [index + 1, message] as co
     expect(result.stdout).toBe(run === 2 ? "" : "fake " + calls[run - 1]?.check + " output\n");
   },
 );
+
+const lintViolations = violations.filter((violation) => violation.check === "lint");
+test.concurrent.each(lintViolations)(
+  "the batched proof refuses a matching rule at another location for $name",
+  async (violation) => {
+    const result = await prove(0, {
+      files: Object.keys(violation.files),
+      rule: violation.rule ?? "",
+      kind: "file",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(`AssertionError: ${violation.name} was not rejected\n`);
+    expect(result.leftCopies).toEqual([]);
+  },
+);
+
+test.concurrent.each(["line", "rule"])("the batched proof refuses the wrong %s", async (kind) => {
+  const result = await prove(0, {
+    files: ["module-boundary-probe-ID.test.ts"],
+    rule: "deep-modules(module-imports)",
+    kind,
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("AssertionError: private module import was not rejected\n");
+  expect(result.leftCopies).toEqual([]);
+});

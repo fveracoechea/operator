@@ -2,33 +2,40 @@ import { defineRule, type ESTree } from "@oxlint/plugins";
 // Consumer paths use Node APIs so the distributed plugin needs no Bun runtime.
 import path from "node:path";
 import { normalizeProjectConfig } from "./configuration.ts";
-import { contains, discoverOwners, excluded, ownerOf, productionFile } from "./project.ts";
 import {
-  selectorValues,
-  walk,
+  contains,
+  discoverOwners,
+  excluded,
   memberName,
-  functionNode,
-  type SelectorValue,
-} from "./selector-values.ts";
+  ownerOf,
+  productionFile,
+} from "./project.ts";
+import { selectorValues, walk, functionNode, type SelectorValue } from "./selector-values.ts";
 
 const guidance = new URL("../docs/synchronous-selectors.md", import.meta.url).href;
 
+function promiseName(name: ESTree.TSTypeReference["typeName"]): boolean {
+  return (
+    (name.type === "Identifier" && name.name === "Promise") ||
+    (name.type === "TSQualifiedName" &&
+      name.left.type === "Identifier" &&
+      name.left.name === "globalThis" &&
+      name.right.name === "Promise")
+  );
+}
+
 function promiseReturn(node: ESTree.Node): boolean {
-  if (node.type === "TSTypeReference") {
-    const name = node.typeName;
-    return (
-      (name.type === "Identifier" && name.name === "Promise") ||
-      (name.type === "TSQualifiedName" &&
-        name.left.type === "Identifier" &&
-        name.left.name === "globalThis" &&
-        name.right.name === "Promise")
-    );
-  }
+  if (node.type === "TSTypeReference") return promiseName(node.typeName);
   if (node.type === "TSTypeAnnotation") return promiseReturn(node.typeAnnotation);
   if (node.type === "TSParenthesizedType") return promiseReturn(node.typeAnnotation);
   if (node.type === "TSUnionType" || node.type === "TSIntersectionType")
     return node.types.some(promiseReturn);
   if (node.type === "TSFunctionType") return promiseReturn(node.returnType);
+  if (node.type === "TSTypeLiteral") return node.members.some(promiseReturn);
+  if (node.type === "TSPropertySignature")
+    return node.typeAnnotation ? promiseReturn(node.typeAnnotation) : false;
+  if (node.type === "TSMethodSignature")
+    return node.returnType ? promiseReturn(node.returnType) : false;
   return false;
 }
 
@@ -52,8 +59,14 @@ export const synchronousSelectorsRule = defineRule({
           if (!owner) return;
           const seen = new Set<ESTree.Node>();
           const values = selectorValues(context.sourceCode, context.filename, config);
+          function currentNode(candidate: ESTree.Node): ESTree.Node | undefined {
+            let root = candidate;
+            while (root.parent) root = root.parent;
+            return root === node ? candidate : undefined;
+          }
+
           function reportAt(value: SelectorValue, fallback: ESTree.Node = node): ESTree.Node {
-            return value.filename === context.filename ? value.node : fallback;
+            return currentNode(value.node) ?? currentNode(fallback) ?? node;
           }
 
           function inspectImplementation(value: SelectorValue, location: ESTree.Node) {
@@ -71,7 +84,7 @@ export const synchronousSelectorsRule = defineRule({
               if (functionNode(child)) return false;
               if (child.type === "AwaitExpression")
                 context.report({
-                  node: value.filename === context.filename ? child : location,
+                  node: reportAt({ ...value, node: child }, location),
                   messageId: "asynchronous",
                 });
               if (child.type === "ReturnStatement" && child.argument)

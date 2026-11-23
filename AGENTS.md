@@ -22,6 +22,7 @@ Run `bun run lint:modules` for filesystem structure.
 For missing entries, entry tests or misplaced files, read `packages/deep-modules/docs/structure.md`.
 For `deep-modules/module-interface`, read `packages/deep-modules/docs/module-interface.md`.
 For `deep-modules/module-imports` or `deep-modules/lib-imports`, read the matching topic in `packages/deep-modules/docs/`.
+For `deep-modules/public-collaborator-mocks`, read `packages/deep-modules/docs/public-collaborator-mocks.md`.
 For `deep-modules/query-options-owner`, read `packages/deep-modules/docs/query-options-owner.md`.
 For `deep-modules/synchronous-selectors`, read `packages/deep-modules/docs/synchronous-selectors.md`.
 Oxlint owns dependency cycles through `bun run lint`.

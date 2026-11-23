@@ -8,6 +8,21 @@ const policy = JSON.stringify({
   rules: { "deep-modules/public-collaborator-mocks": "error" },
 });
 
+test("syntax wrappers on Bun mock bindings cannot bypass collaborator privacy", async () => {
+  const result = await check(
+    'import { mock } from "bun:test"; (mock?.module)("./main.ts", () => ({}));',
+    {
+      path: "src/modules/movie/main.test.ts",
+      files: {
+        ".oxlintrc.json": policy,
+        "src/modules/movie/main.ts": "export const Movie = { play() {} };",
+      },
+    },
+  );
+  expect(result.exitCode).toBe(1);
+  expect(result.codes).toEqual(["deep-modules(public-collaborator-mocks)"]);
+});
+
 test("Operator replaces only the governed test ban and retains unrelated test policy", async () => {
   const accepted = await check(
     'import { mock } from "bun:test"; await mock.module("external-client", () => ({}));',

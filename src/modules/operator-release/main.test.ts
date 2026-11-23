@@ -87,6 +87,9 @@ describe("the release artifact", () => {
       "modules/opencode-plugin/plugin.ts",
     ]);
     expect(paths.filter((path) => path.includes(".test."))).toEqual([]);
+    expect(
+      paths.filter((path) => path.startsWith("packages/") || path.startsWith("tools/")),
+    ).toEqual([]);
   });
 
   test("rewrites every relative TypeScript specifier so the shipped files resolve", async () => {
@@ -143,6 +146,15 @@ describe("the release artifact", () => {
     const config = jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json());
     expect(reached.size).toBeGreaterThan(0);
     expect([...reached].toSorted()).toEqual(Object.keys(config.imports ?? {}).toSorted());
+    for (const developmentPackage of [
+      "@fveracoechea/oxlint-plugin-deep-modules",
+      "@oxlint/plugins",
+      "oxlint",
+      "@babel/parser",
+    ]) {
+      expect(reached.has(developmentPackage)).toBe(false);
+      expect(Object.hasOwn(config.imports, developmentPackage)).toBe(false);
+    }
     for (const [name, specifier] of Object.entries(config.imports ?? {})) {
       // The version is exact, so a reinstall never resolves a replacement the registry chose.
       expect(specifier, name).toMatch(/^npm:[^@]*@?[^@]*@\d+\.\d+\.\d+$/);

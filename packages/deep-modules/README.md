@@ -38,6 +38,7 @@ Or enable individual rules:
 ```
 
 Run `oxlint` from the consumer project root.
+Run `deep-modules-structure` from that root too. Neither command replaces the other.
 The recommended configuration enables these rules.
 See [mock guidance](docs/public-collaborator-mocks.md) for Bun binding support, test scope and isolation.
 Query ownership does not prove runtime invalidation correctness.
@@ -94,7 +95,7 @@ Each finding links to its shipped topic.
 
 Run `deep-modules-structure` from the consumer root after installing the package.
 For example, add `"check:modules": "deep-modules-structure"` to your package scripts.
-The command runs under Node 22 or later and Bun without a TypeScript loader.
+The command runs under the package's supported Node versions and Bun without a TypeScript loader.
 It reads the same `.oxlintrc.json` settings as the plugin.
 Use `deep-modules-structure --config path/to/config.json` for another JSON configuration.
 Relative and package-resolved JSON `extends` are supported.
@@ -105,6 +106,23 @@ It does not parse source or repeat syntax, imports or cycles.
 Exit codes are 0 for clean structure, 1 for findings and 2 for invalid configuration or command usage.
 Diagnostics are sorted by project-relative path and link to the installed [structure guidance](docs/structure.md).
 
+## Policy ownership and limits
+
+| Owner                                    | Checks                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------- |
+| `deep-modules/module-interface`          | Existing application object entries, constants and callable exports     |
+| `deep-modules/module-imports`            | Project import privacy, including root test and configuration consumers |
+| `deep-modules/lib-imports`               | Project application and tooling dependencies from libraries             |
+| `deep-modules/public-collaborator-mocks` | Bun collaborator replacements in test scope                             |
+| `deep-modules/query-options-owner`       | Statically traceable exposed query/mutation ownership                   |
+| `deep-modules/synchronous-selectors`     | Explicit asynchronous selector contracts and implementations            |
+| `deep-modules-structure`                 | Missing entries, corresponding entry tests and production placement     |
+
+Dependency cycles stay with the host's `import/no-cycle`, not this package.
+Oxlint 1.93.0 custom JavaScript plugins do not receive type-aware custom-rule analysis.
+Computed imports, opaque provenance and hidden dependency behavior remain analysis limits.
+Passing these checks does not prove purity, cache invalidation correctness or sufficient behavior coverage.
+
 ## Local package development
 
 From the repository root, run `bun run build:deep-modules`.
@@ -112,3 +130,12 @@ Run `bun run test packages/deep-modules/src/module-interface.test.ts` for real-c
 Use `bun run mutate --plan packages/deep-modules/src/module-interface.ts` to inspect its mutation ownership.
 Run `bun pm pack` from this package directory to create a local tarball.
 Packing builds JavaScript and declarations; it does not publish anything.
+
+Run `bun run test packages/deep-modules/src/index.installed.test.ts` from the repository root for packed acceptance.
+Put a supported `node` executable on `PATH` alongside Bun.
+The test installs default and alternate consumers without workspace links.
+It checks complete Movie composition, Media promotion, all six rules, structure and restored-clean projects.
+Independent review and final qualification remain separate from this test and earlier guidance evaluations.
+
+Operator's existing `bun run test src/modules/operator-release` checks the unchanged CLI delivery contract.
+The development package does not belong in that runtime artifact.

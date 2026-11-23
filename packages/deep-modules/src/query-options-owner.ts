@@ -1,8 +1,7 @@
 import { defineRule, type ESTree, type SourceCode } from "@oxlint/plugins";
-// Portable rules execute under Node as well as Bun.
-import path from "node:path";
 import { normalizeProjectConfig, type ProjectConfig } from "./configuration.ts";
 import {
+  applicationEntry,
   bindingOf,
   contains,
   discoverOwners,
@@ -148,15 +147,7 @@ export const queryOptionsOwnerRule = defineRule({
           });
           return;
         }
-        if (excluded(context.filename, config)) return;
-        if (config.libraryRoots.some((root) => contains(root, context.filename))) return;
-        const application = config.moduleRoots.some((root) => {
-          const parts = path.relative(root, context.filename).split(path.sep);
-          return (
-            parts.length === 2 && parts[0] !== ".." && config.objectEntries.includes(parts[1] ?? "")
-          );
-        });
-        if (!application) return;
+        if (!applicationEntry(context.filename, config)) return;
         const owners = discoverOwners(config);
         function inspect(input: ESTree.Node) {
           const invalid = checkObject(context.sourceCode, input, context.filename, config, owners);

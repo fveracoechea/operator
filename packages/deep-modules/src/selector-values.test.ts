@@ -85,3 +85,37 @@ test("re-export and binding cycles terminate without inventing callable provenan
   );
   expect(values.load(path.join(root, "contract.d.ts"))).toBeUndefined();
 });
+
+test("namespace and star reexports resolve selected values without type-only exports or cycles", async () => {
+  const file = path.join(root, "namespaces.ts");
+  const implementation = path.join(root, "cast.ts");
+  await Bun.write(
+    file,
+    `
+export * as Cast from "./cast";
+export * from "./cast";
+export type * as Types from "./cast";
+export * from "./namespaces";
+`,
+  );
+  await Bun.write(implementation, "export async function byTitle() { return true; }");
+  const values = selectorValues(undefined, "/not-the-consumer.ts", config);
+  const program = values.load(file);
+  expect(program?.type).toBe("Program");
+  if (!program) return;
+  const namespace = { node: program, filename: file };
+  const cast = values.exported(namespace, "Cast");
+  expect(cast.map((value) => [value.node.type, value.filename])).toEqual([
+    ["Program", implementation],
+  ]);
+  const [group] = cast;
+  if (!group) return;
+  expect(values.exported(group, "byTitle").map((value) => value.node)).toMatchObject([
+    { type: "FunctionDeclaration", async: true },
+  ]);
+  expect(values.exported(namespace, "byTitle").map((value) => value.filename)).toEqual([
+    implementation,
+  ]);
+  expect(values.exported(namespace, "Types")).toEqual([]);
+  expect(values.exported(namespace, "missing")).toEqual([]);
+});

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 // Bun has no invariant assertion API outside its test runner.
 import assert from "node:assert/strict";
+import { z } from "zod";
 
 const { join, resolve } = path;
 
@@ -13,6 +14,7 @@ type Violation = {
   files: Record<string, string>;
   cleanupPath: string;
   expectedDiagnostic: string;
+  expectedLine?: number;
   check?: "lint" | "typecheck" | "format:check";
 };
 
@@ -52,11 +54,14 @@ async function runBoundaryCheck(
   stderr: string;
   stdout: string;
 }> {
-  const child = Bun.spawn(["bun", "run", check], {
-    cwd: copyRoot,
-    stderr: "pipe",
-    stdout: "pipe",
-  });
+  const child = Bun.spawn(
+    ["bun", "run", check, ...(check === "lint" ? ["--format", "json"] : [])],
+    {
+      cwd: copyRoot,
+      stderr: "pipe",
+      stdout: "pipe",
+    },
+  );
   const [exitCode, stderr, stdout] = await Promise.all([
     child.exited,
     new Response(child.stderr).text(),
@@ -82,20 +87,57 @@ async function requireCleanGraph(copyRoot: string, message: string): Promise<voi
   }
 }
 
-async function proveViolation(copyRoot: string, violation: Violation): Promise<void> {
-  try {
-    for (const [path, content] of Object.entries(violation.files)) {
-      await Bun.write(join(copyRoot, path), content, { createPath: true });
-    }
+const lintReport = z.object({
+  diagnostics: z.array(
+    z.object({
+      code: z.string(),
+      filename: z.string(),
+      labels: z.array(z.object({ span: z.object({ line: z.number() }) })),
+    }),
+  ),
+});
 
-    const result = await runBoundaryCheck(copyRoot, violation.check);
+function parseLintReport(stdout: string) {
+  try {
+    return lintReport.parse(JSON.parse(stdout));
+  } catch {
+    return undefined;
+  }
+}
+
+async function proveViolations(copyRoot: string, violations: Violation[]): Promise<void> {
+  try {
+    for (const violation of violations) {
+      for (const [path, content] of Object.entries(violation.files)) {
+        await Bun.write(join(copyRoot, path), content, { createPath: true });
+      }
+    }
+    const check = violations[0]?.check;
+    const result = await runBoundaryCheck(copyRoot, check);
     const diagnostics = `${result.stdout}\n${result.stderr}`;
-    if (result.exitCode === 0 || !diagnostics.includes(violation.expectedDiagnostic)) {
-      report(result);
-      assert.fail(`${violation.name} was not rejected`);
+    // One real lint command can qualify independent probes only when each finding
+    // matches its own rule, file and line. Unrelated nonzero exits never qualify.
+    const parsed = check === "lint" ? parseLintReport(result.stdout) : undefined;
+    for (const violation of violations) {
+      const rejected =
+        check === "lint"
+          ? parsed?.diagnostics.some(
+              (diagnostic) =>
+                diagnostic.code === violation.expectedDiagnostic &&
+                Object.hasOwn(violation.files, diagnostic.filename) &&
+                diagnostic.labels.some(
+                  (label) => label.span.line === (violation.expectedLine ?? 1),
+                ),
+            )
+          : diagnostics.includes(violation.expectedDiagnostic);
+      if (result.exitCode === 0 || !rejected) {
+        report(result);
+        assert.fail(`${violation.name} was not rejected`);
+      }
     }
   } finally {
-    await rm(join(copyRoot, violation.cleanupPath), { force: true, recursive: true });
+    for (const violation of violations)
+      await rm(join(copyRoot, violation.cleanupPath), { force: true, recursive: true });
   }
 }
 
@@ -203,29 +245,29 @@ const violations: Violation[] = [
   {
     name: "lib importing a module interface",
     files: {
-      [`src/lib/module-boundary-probe-${probeIdentity}.ts`]:
+      [`src/lib/module-boundary-probe-interface-${probeIdentity}.ts`]:
         'export { OperatorCli } from "../modules/operator-cli/main.ts";\n',
     },
-    cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
+    cleanupPath: `src/lib/module-boundary-probe-interface-${probeIdentity}.ts`,
     expectedDiagnostic: "deep-modules(lib-imports)",
     check: "lint",
   },
   {
     name: "lib importing private module code",
     files: {
-      [`src/lib/module-boundary-probe-${probeIdentity}.ts`]:
+      [`src/lib/module-boundary-probe-private-${probeIdentity}.ts`]:
         'const run = import("../modules/operator-cli/run.ts");\n',
     },
-    cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
+    cleanupPath: `src/lib/module-boundary-probe-private-${probeIdentity}.ts`,
     expectedDiagnostic: "deep-modules(lib-imports)",
     check: "lint",
   },
   {
     name: "lib requiring application code",
     files: {
-      [`src/lib/module-boundary-probe-${probeIdentity}.ts`]: 'require("../cli.ts");\n',
+      [`src/lib/module-boundary-probe-require-${probeIdentity}.ts`]: 'require("../cli.ts");\n',
     },
-    cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
+    cleanupPath: `src/lib/module-boundary-probe-require-${probeIdentity}.ts`,
     expectedDiagnostic: "deep-modules(lib-imports)",
     check: "lint",
   },
@@ -264,21 +306,52 @@ const violations: Violation[] = [
   {
     name: "lib importing an application type",
     files: {
-      [`src/lib/module-boundary-probe-${probeIdentity}.ts`]:
+      [`src/lib/module-boundary-probe-type-${probeIdentity}.ts`]:
         'export type App = typeof import("../modules/operator-cli/main.ts");\n',
     },
-    cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
+    cleanupPath: `src/lib/module-boundary-probe-type-${probeIdentity}.ts`,
     expectedDiagnostic: "deep-modules(lib-imports)",
     check: "lint",
   },
   {
     name: "lib using an import-equals application reference",
     files: {
-      [`src/lib/module-boundary-probe-${probeIdentity}.ts`]:
+      [`src/lib/module-boundary-probe-equals-${probeIdentity}.ts`]:
         'import App = require("../modules/operator-cli/main.ts");\n',
     },
-    cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
+    cleanupPath: `src/lib/module-boundary-probe-equals-${probeIdentity}.ts`,
     expectedDiagnostic: "deep-modules(lib-imports)",
+    check: "lint",
+  },
+  {
+    name: "parent test mocking a private implementation",
+    files: {
+      [`src/modules/module-boundary-probe-mock-${probeIdentity}/main.test.ts`]:
+        'import { mock } from "bun:test";\nawait mock.module("../operator-cli/run.ts", () => ({}));\n',
+    },
+    cleanupPath: `src/modules/module-boundary-probe-mock-${probeIdentity}`,
+    expectedDiagnostic: "deep-modules(public-collaborator-mocks)",
+    expectedLine: 2,
+    check: "lint",
+  },
+  {
+    name: "parent-local query and mutation groups",
+    files: {
+      [`src/modules/module-boundary-probe-query-${probeIdentity}/main.ts`]:
+        "export const QueryProbe = { queryOptions: { find() {} }, mutationOptions: { save() {} } };\n",
+    },
+    cleanupPath: `src/modules/module-boundary-probe-query-${probeIdentity}`,
+    expectedDiagnostic: "deep-modules(query-options-owner)",
+    check: "lint",
+  },
+  {
+    name: "explicit async selector",
+    files: {
+      [`src/modules/module-boundary-probe-selector-${probeIdentity}/main.ts`]:
+        "export const SelectorProbe = { selector: { async isReleased() { return true; } } };\n",
+    },
+    cleanupPath: `src/modules/module-boundary-probe-selector-${probeIdentity}`,
+    expectedDiagnostic: "deep-modules(synchronous-selectors)",
     check: "lint",
   },
   {
@@ -337,10 +410,18 @@ try {
   }
   await rm(join(copyRoot, validModule), { recursive: true });
   await rm(join(copyRoot, valid), { recursive: true });
-  for (const violation of violations) {
-    await proveViolation(copyRoot, violation);
-  }
+  await proveViolations(
+    copyRoot,
+    violations.filter((violation) => violation.check === "lint"),
+  );
+  for (const violation of violations.filter((violation) => violation.check !== "lint"))
+    await proveViolations(copyRoot, [violation]);
   await requireCleanGraph(copyRoot, "The restored module graph did not pass");
+  for (const check of ["lint", "typecheck", "format:check"]) {
+    const result = await runBoundaryCheck(copyRoot, check);
+    if (result.exitCode !== 0) report(result);
+    assert.equal(result.exitCode, 0, `The restored project did not pass ${check}`);
+  }
 } finally {
   await rm(copyRoot, { force: true, recursive: true });
 }

@@ -8,6 +8,117 @@ const policy = JSON.stringify({
   rules: { "deep-modules/synchronous-selectors": "error" },
 });
 
+test("direct namespace selector entries report async behavior at a current-source location", async () => {
+  for (const declaration of [
+    'export * as Cast from "./cast/main.ts";',
+    'export * from "./cast/main.ts";',
+    'export { byTitle } from "./cast/main.ts";',
+  ]) {
+    const result = await check(declaration, {
+      path: "src/modules/movie/selectors/main.ts",
+      files: {
+        ".oxlintrc.json": policy,
+        "src/modules/movie/selectors/cast/main.ts":
+          "export async function byTitle() { return true; }",
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.findings).toEqual(["1 deep-modules(synchronous-selectors)"]);
+    expect(result.stdout).toContain("Selector implementations must be synchronous");
+    expect(result.stdout).toContain("docs/synchronous-selectors.md");
+    expect(result.stdout).not.toContain("Invalid deep-modules configuration");
+    expect(result.stdout).not.toContain("node.range");
+  }
+});
+
+test("namespace cycles cannot report parsed copies of the current source as SDK nodes", async () => {
+  const result = await check(
+    'export * as Self from "./main.ts";\nexport async function byTitle() { return true; }',
+    {
+      path: "src/modules/movie/selectors/main.ts",
+      files: { ".oxlintrc.json": policy },
+    },
+  );
+  expect(result.exitCode).toBe(1);
+  expect(result.findings.toSorted()).toEqual([
+    "1 deep-modules(synchronous-selectors)",
+    "3 deep-modules(synchronous-selectors)",
+  ]);
+  expect(result.stdout).not.toContain("Invalid deep-modules configuration");
+  expect(result.stdout).not.toContain("node.range");
+});
+
+test("namespace selector exports expose async implementations in nested owners", async () => {
+  const result = await check(
+    'import * as selectors from "./selectors/main.ts"; export const Movie = { selectors, async play() {} };',
+    {
+      path: "src/modules/movie/main.ts",
+      files: {
+        ".oxlintrc.json": policy,
+        "src/modules/movie/selectors/main.ts": 'export * as Cast from "./cast/main.ts";',
+        "src/modules/movie/selectors/cast/main.ts":
+          "export async function byTitle() { return true; }",
+      },
+    },
+  );
+  expect(result.exitCode).toBe(1);
+  expect(result.findings).toEqual(["3 deep-modules(synchronous-selectors)"]);
+  expect(result.stdout).not.toContain("Invalid deep-modules configuration");
+  expect(result.stdout).not.toContain("node.range");
+});
+
+test("explicit object-member Promise contracts reject synchronous-looking selector bodies", async () => {
+  for (const source of [
+    'export const Selectors: { title: () => Promise<string> } = { title: () => Promise.resolve("x") };',
+    "export const Selectors: { title(): globalThis.Promise<string> } = { title: () => hidden() };",
+    "export const Selectors = { title: () => hidden() } satisfies { title: () => Promise<string> };",
+    "export const Selectors: { nested: { title: () => Promise<string> } } = { nested: { title: () => hidden() } };",
+    "export const Selectors: { byTitle: () => (movie: string) => Promise<boolean> } = { byTitle: () => hidden() };",
+  ]) {
+    const result = await check(source, {
+      path: "src/modules/movie/selectors/main.ts",
+      files: { ".oxlintrc.json": policy },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.findings).toEqual(["1 deep-modules(synchronous-selectors)"]);
+  }
+});
+
+test("namespace members and named namespace imports trace only exposed selector implementations", async () => {
+  for (const exposure of [
+    'import { Cast } from "./domain/main.ts"; export const Movie = { selectors: Cast };',
+    'import * as Domain from "./domain/main.ts"; export const Movie = { selectors: Domain.Cast };',
+  ]) {
+    const result = await check(exposure, {
+      path: "src/modules/movie/main.ts",
+      files: {
+        ".oxlintrc.json": policy,
+        "src/modules/movie/domain/main.ts": 'export * as Cast from "./cast/main.ts";',
+        "src/modules/movie/domain/cast/main.ts":
+          "export const Cast: { title(): Promise<string> } = { title: () => hidden() };",
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.findings).toEqual(["3 deep-modules(synchronous-selectors)"]);
+  }
+});
+
+test("object contracts do not infer Promise returns from parameters, aliases or unrelated operations", async () => {
+  for (const source of [
+    'export const Selectors: { title(input: Promise<string>): string } = { title: () => "x" };',
+    "type Contract = { title: () => Promise<string> }; export const Selectors: Contract = hidden;",
+    "export const Selectors: { title: () => string } = { title: () => hidden() };",
+    "export const Selectors = { title: () => hidden() };",
+  ]) {
+    const result = await check(source, {
+      path: "src/modules/movie/selectors/main.ts",
+      files: { ".oxlintrc.json": policy },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.codes).toEqual([]);
+  }
+});
+
 test("selector sub-modules reject async declarations with a precise shipped-guidance diagnostic", async () => {
   const result = await check("export async function byTitle() { return true; }", {
     path: "src/modules/movie/selectors/main.ts",
