@@ -78,7 +78,9 @@ import {options, receipt} from "./controls.ts";
 export async function mutationUnitIdentity(root, unit, toolchain) {
   receipt("identity", root, unit.name, toolchain);
   if (options.drift === "before") throw new Error("identity unavailable");
-  return options.uncertain ? undefined : "unit-identity";
+   return options.uncertain
+     ? {eligible: false, reason: "unsupported-test-command"}
+     : {eligible: true, identity: "unit-identity"};
 }
 `,
   );
@@ -86,7 +88,16 @@ export async function mutationUnitIdentity(root, unit, toolchain) {
     `${cwd}/mutation-reuse.ts`,
     `
 import {options, receipt, killed} from "./controls.ts";
-export async function readMutationReuse(root, identity) { receipt("read", root, identity); return options.reuse ? [killed] : undefined; }
+import {z} from "zod";
+export const mutationReuseSchema = z.discriminatedUnion("eligible", [
+  z.object({eligible: z.literal(false), reason: z.enum(["unsupported-test-command", "uncertain-inputs", "unreadable-inputs"]), lookup: z.literal("not-checked")}),
+  z.object({eligible: z.literal(true), identity: z.string(), lookup: z.enum(["hit", "miss", "unusable", "inputs-changed"])}),
+]);
+export async function mutationReuseDecision(root, identity) {
+  if (!identity.eligible) return {decision: {...identity, lookup: "not-checked"}};
+  receipt("read", root, identity.identity);
+  return {decision: {...identity, lookup: options.reuse ? "hit" : options.damaged ? "unusable" : "miss"}, results: options.reuse ? [killed] : undefined};
+}
 export async function saveMutationReuse(root, identity, results) { receipt("save", root, identity, results); }
 `,
   );
@@ -256,11 +267,15 @@ test.each([{ damaged: true }, { uncertain: true }])(
   },
 );
 
-test("preflight bypasses dependency reuse and toolchain qualification", async () => {
+test("preflight reports reuse eligibility but executes the baseline regardless of cache", async () => {
   const result = await protocol({ preflight: true });
   expect(result.code, result.stderr).toBe(3);
   expect(result.calls).toEqual([
-    ["execute", "tested.ts", result.cwd, true, "admitted..token", true],
+    ["toolchain", 1],
+    ["identity", result.cwd, "tested.ts", "toolchain"],
+    ["read", result.cwd, "unit-identity"],
+    ["execute", "tested.ts", result.cwd, true, "unit-identity", true],
+    ["toolchain", 2],
   ]);
   expect(result.events.at(-1)).toMatchObject({
     mode: "preflight",

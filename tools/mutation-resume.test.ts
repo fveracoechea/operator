@@ -84,3 +84,28 @@ test("resume refuses unsafe IDs and absent, partial, mismatched or invalid selec
     error: "Preflight evidence cannot resume mutation qualification.",
   });
 });
+
+test("resume retains a prior eligible identity for current-input comparison", async () => {
+  const runId = crypto.randomUUID();
+  await Bun.write(`${root}/owned.ts`, "export const value = 2;\n");
+  await Bun.write(`${root}/owned.test.ts`, 'import "./owned.ts";');
+  await Bun.write(
+    `${root}/.mutation-runs/${runId}.json`,
+    JSON.stringify({
+      version: 1,
+      runId,
+      state: {
+        units: [
+          {
+            name: "owned.ts",
+            reuse: { eligible: true, identity: "prior-inputs", lookup: "miss" },
+          },
+        ],
+      },
+    }),
+  );
+  const selected = await resumeMutationSelection(root, runId);
+  expect(selected).toMatchObject({
+    units: [{ name: "owned.ts", previousIdentity: "prior-inputs" }],
+  });
+});

@@ -15,7 +15,13 @@ type Arguments = {
   budgetMs?: number;
 };
 type Problem = { error: string };
-export type MutationUnit = { name: string; source: string; tests: string[]; patterns: string[] };
+export type MutationUnit = {
+  name: string;
+  source: string;
+  tests: string[];
+  patterns: string[];
+  previousIdentity?: string;
+};
 
 function parsedRef(
   ref: string | undefined,

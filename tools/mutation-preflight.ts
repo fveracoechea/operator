@@ -2,6 +2,7 @@ import type { MutationUnit } from "./mutation-selection.ts";
 import { initialMutationRun, type MutationEvent, type MutationResult } from "./mutation-run.ts";
 import type { MutationProgress } from "./mutation-engine-progress.ts";
 import { mutationEstimate } from "./mutation-plan.ts";
+import type { mutationReuseDecision } from "./mutation-reuse.ts";
 
 export async function runMutationPreflight(
   selected: { units: MutationUnit[]; skipped: number },
@@ -11,6 +12,7 @@ export async function runMutationPreflight(
   ) => Promise<MutationResult[]>,
   runId: string,
   event: (event: MutationEvent) => void,
+  reuse?: (unit: MutationUnit) => ReturnType<typeof mutationReuseDecision>,
 ): Promise<number> {
   const started = Date.now();
   let sequence = 0;
@@ -45,6 +47,8 @@ export async function runMutationPreflight(
         publish("unit-interrupted");
         break;
       }
+      evidence.reuse = (await reuse?.(unit))?.decision;
+      if (evidence.reuse) publish("reuse-decision");
       await execute(unit, (progress) => {
         evidence.preflight = {
           baselineMs: progress.baselineMs ?? null,

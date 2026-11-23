@@ -20,6 +20,32 @@ const killed: MutationResult = {
   replacement: "0",
 };
 
+test("reuse decisions reach evidence before fresh execution", async () => {
+  const events: MutationEvent[] = [];
+  const decision = {
+    eligible: false,
+    reason: "unsupported-test-command",
+    lookup: "not-checked",
+  } as const;
+  const code = await runMutationUnits(
+    { units: [unit], skipped: 0 },
+    async () => {
+      expect(events.at(-1)).toMatchObject({
+        type: "reuse-decision",
+        state: { units: [{ reuse: decision }] },
+      });
+      return [killed];
+    },
+    { log() {}, error() {} },
+    {
+      reuse: async () => ({ decision }),
+      event: (event) => events.push(event),
+    },
+  );
+  expect(code).toBe(0);
+  for (const event of events) expect(mutationEventSchema.safeParse(event).success).toBe(true);
+});
+
 test("worker event schema validates every evidence field including optional nested measurements", async () => {
   const events: MutationEvent[] = [];
   await runMutationUnits(
@@ -188,7 +214,10 @@ test.each([
       () => expect.unreachable("completed reusable work must not execute"),
       { log() {}, error() {} },
       {
-        reuse: async () => [{ ...killed, status }],
+        reuse: async () => ({
+          decision: { eligible: true, identity: "identity", lookup: "hit" },
+          results: [{ ...killed, status }],
+        }),
         event: (event) => events.push(event),
       },
     );

@@ -3,7 +3,11 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { readMutationReuse, saveMutationReuse } from "./mutation-reuse.ts";
+import {
+  readMutationReuse as lookupReuse,
+  saveMutationReuse,
+  mutationReuseDecision,
+} from "./mutation-reuse.ts";
 import type { MutationResult } from "./mutation-run.ts";
 
 const root = await mkdtemp(path.join(tmpdir(), "mutation-reuse-"));
@@ -15,6 +19,41 @@ const killed: MutationResult = {
   location: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
   replacement: "-",
 };
+
+async function readMutationReuse(root: string, identity: string | undefined) {
+  if (identity === undefined) return undefined;
+  const result = await lookupReuse(root, identity);
+  return result.status === "hit" ? result.results : undefined;
+}
+
+test("identity ineligibility stays distinct from an eligible cache miss", async () => {
+  expect(
+    await mutationReuseDecision(root, { eligible: false, reason: "unsupported-test-command" }),
+  ).toEqual({
+    decision: { eligible: false, reason: "unsupported-test-command", lookup: "not-checked" },
+  });
+  expect(await mutationReuseDecision(root, { eligible: true, identity: "never-cached" })).toEqual({
+    decision: { eligible: true, identity: "never-cached", lookup: "miss" },
+    results: undefined,
+  });
+  expect(await mutationReuseDecision(root, { eligible: true, identity: "edited" }, "old")).toEqual({
+    decision: { eligible: true, identity: "edited", lookup: "inputs-changed" },
+    results: undefined,
+  });
+});
+
+test("cache lookup separates missing evidence, changed identity and unusable evidence", async () => {
+  expect(await lookupReuse(root, "uncached")).toEqual({ status: "miss" });
+  await Bun.write(`${root}/.mutation-reuse/truncated.json`, "{");
+  expect(await lookupReuse(root, "truncated")).toEqual({ status: "unusable" });
+  await saveMutationReuse(root, "original", [killed]);
+  await Bun.write(
+    `${root}/.mutation-reuse/changed.json`,
+    Bun.file(`${root}/.mutation-reuse/original.json`),
+  );
+  expect(await lookupReuse(root, "changed")).toEqual({ status: "inputs-changed" });
+  expect(await lookupReuse(root, "original")).toEqual({ status: "hit", results: [killed] });
+});
 
 test("completed results round-trip without turning surviving or ignored results into killed results", async () => {
   for (const status of ["Killed", "Survived", "NoCoverage", "Ignored"]) {

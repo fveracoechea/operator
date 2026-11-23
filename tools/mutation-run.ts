@@ -2,6 +2,7 @@ import type { MutationUnit } from "./mutation-selection.ts";
 import { mutationGuidance } from "./mutation-policy.ts";
 import type { MutationProgress } from "./mutation-engine-progress.ts";
 import { z } from "zod";
+import { mutationReuseSchema, type mutationReuseDecision } from "./mutation-reuse.ts";
 
 type Location = { start: { line: number; column: number }; end: { line: number; column: number } };
 export type MutationResult = {
@@ -38,6 +39,7 @@ export const mutationEventSchema = z.object({
   type: z.enum([
     "run-started",
     "unit-started",
+    "reuse-decision",
     "progress",
     "unit-completed",
     "unit-interrupted",
@@ -75,6 +77,7 @@ export const mutationEventSchema = z.object({
           overheadMs: durationSchema.optional(),
         }),
         error: z.string().optional(),
+        reuse: mutationReuseSchema.optional(),
         preflight: z
           .object({
             baselineMs: durationSchema.nullable(),
@@ -94,7 +97,7 @@ export type MutationEvent = z.infer<typeof mutationEventSchema>;
 type UnitEvidence = MutationEvent["state"]["units"][number];
 
 type RunOptions = {
-  reuse?: (unit: MutationUnit) => Promise<MutationResult[] | undefined>;
+  reuse?: (unit: MutationUnit) => ReturnType<typeof mutationReuseDecision>;
   keepGoing?: boolean;
   runId?: string;
   now?: () => number;
@@ -135,8 +138,12 @@ async function executeOrReuse(
   options: RunOptions,
   evidence: UnitEvidence,
   progress: (progress: MutationProgress) => void,
+  publish: () => void,
 ): Promise<MutationResult[]> {
-  const reused = await options.reuse?.(unit);
+  const lookup = await options.reuse?.(unit);
+  evidence.reuse = lookup?.decision;
+  if (lookup) publish();
+  const reused = lookup?.results;
   if (!reused) return execute(unit, progress);
   evidence.progress.reused = reused.length;
   evidence.status = "reused";
@@ -277,10 +284,17 @@ export async function runMutationUnits(
       const heartbeat = setInterval(() => publish("progress"), options.progressIntervalMs ?? 1000);
       let mutants: MutationResult[];
       try {
-        mutants = await executeOrReuse(unit, execute, options, evidence, (progress) => {
-          evidence.progress = progress;
-          publish("progress");
-        });
+        mutants = await executeOrReuse(
+          unit,
+          execute,
+          options,
+          evidence,
+          (progress) => {
+            evidence.progress = progress;
+            publish("progress");
+          },
+          () => publish("reuse-decision"),
+        );
       } catch (error) {
         evidence.status = "interrupted";
         evidence.error = String(error);

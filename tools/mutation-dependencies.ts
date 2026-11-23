@@ -102,11 +102,18 @@ function dependencies(source: string): Dependencies {
   return result;
 }
 
+export type MutationIdentity =
+  | { eligible: true; identity: string }
+  | {
+      eligible: false;
+      reason: "unsupported-test-command" | "uncertain-inputs" | "unreadable-inputs";
+    };
+
 export async function mutationUnitIdentity(
   root: string,
   unit: MutationUnit,
   toolchain: string,
-): Promise<string | undefined> {
+): Promise<MutationIdentity> {
   const inputs = new Map<string, string>();
   let uncertain = false;
   async function visit(file: string): Promise<void> {
@@ -145,9 +152,11 @@ export async function mutationUnitIdentity(
   }
 
   try {
-    z.object({ scripts: z.object({ test: z.enum(["bun test", "bun test --isolate"]) }) }).parse(
-      await Bun.file(path.join(root, "package.json")).json(),
-    );
+    const command = z
+      .object({ scripts: z.object({ test: z.string() }) })
+      .parse(await Bun.file(path.join(root, "package.json")).json());
+    if (!["bun test", "bun test --isolate"].includes(command.scripts.test))
+      return { eligible: false, reason: "unsupported-test-command" };
     for (const name of [unit.name, ...unit.tests]) await visit(path.resolve(root, name));
     for await (const name of new Bun.Glob("**/*").scan({ cwd: root, dot: true, onlyFiles: true })) {
       if (name.split("/").some((part) => part === "node_modules" || part.startsWith(".mutation-")))
@@ -171,10 +180,10 @@ export async function mutationUnitIdentity(
     const runner = path.join(root, "tools/test-watchdog.ts");
     if (await Bun.file(runner).exists()) await visit(runner);
   } catch {
-    return undefined;
+    return { eligible: false, reason: "unreadable-inputs" };
   }
-  if (uncertain) return undefined;
-  return new Bun.CryptoHasher("sha256")
+  if (uncertain) return { eligible: false, reason: "uncertain-inputs" };
+  const identity = new Bun.CryptoHasher("sha256")
     .update(
       JSON.stringify([
         1,
@@ -186,4 +195,5 @@ export async function mutationUnitIdentity(
       ]),
     )
     .digest("hex");
+  return { eligible: true, identity };
 }

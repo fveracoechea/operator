@@ -3,7 +3,12 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { mutationUnitIdentity } from "./mutation-dependencies.ts";
+import { mutationUnitIdentity as assessIdentity } from "./mutation-dependencies.ts";
+
+async function mutationUnitIdentity(...args: Parameters<typeof assessIdentity>) {
+  const result = await assessIdentity(...args);
+  return result.eligible ? result.identity : undefined;
+}
 
 const root = await mkdtemp(path.join(tmpdir(), "mutation-dependencies-"));
 afterAll(() => rm(root, { recursive: true, force: true }));
@@ -24,7 +29,7 @@ async function boundedIdentity(directory: string, expression: string) {
     [
       process.execPath,
       "-e",
-      `import { mutationUnitIdentity } from ${JSON.stringify(path.join(import.meta.dir, "mutation-dependencies.ts"))}; console.log(await ${expression});`,
+      `import { mutationUnitIdentity } from ${JSON.stringify(path.join(import.meta.dir, "mutation-dependencies.ts"))}; console.log((await ${expression}).identity);`,
     ],
     { cwd: directory, stdout: "pipe", stderr: "pipe" },
   );
@@ -189,6 +194,15 @@ test("custom commands and configuration preloads conservatively bypass reuse", a
   expect(await mutationUnitIdentity(directory, unit, "engine")).toMatch(/^[a-f\d]{64}$/);
   await Bun.write(`${directory}/bunfig.toml`, '[test]\npreload = ["./preload.ts"]');
   expect(await mutationUnitIdentity(directory, unit, "engine")).toBeUndefined();
+});
+
+test("the watchdog rejection identifies command ineligibility rather than a cache miss", async () => {
+  const { directory, unit } = await fixture();
+  await Bun.write(`${directory}/package.json`, '{"scripts":{"test":"bun tools/test-watchdog.ts"}}');
+  expect(await assessIdentity(directory, unit, "engine")).toEqual({
+    eligible: false,
+    reason: "unsupported-test-command",
+  });
 });
 
 test("existing external imports, external files and unsupported linked inputs cannot be cached", async () => {

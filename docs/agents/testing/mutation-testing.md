@@ -41,6 +41,7 @@ Test-case counts remain unknown.
 Inspect large selections before starting expensive work.
 
 `--preflight` explicitly measures the initial engine test run against admitted inputs.
+It reports completed-unit reuse eligibility before baseline execution, but always measures the baseline.
 It returns incomplete exit 3, not mutation qualification.
 Mutation counts remain unknown unless established by the engine.
 Estimates state their sequential, no-reuse, full-suite assumptions and excluded startup overhead.
@@ -94,6 +95,13 @@ Completed-unit receipts include production and test dependencies, external Bun s
 Changing a known import or fixture invalidates affected units while unaffected units can reuse completed evidence.
 Dynamic or unresolved imports, external packages, custom test commands, preloads, and unproved runtime effects conservatively execute fresh.
 This repository's watchdog command is such a conservative case.
+Before execution, each tested unit emits a `reuse-decision` event and the same human diagnostic.
+The unit's `reuse` evidence separates `eligible` from the cache `lookup`.
+Ineligible identities report `unsupported-test-command`, `uncertain-inputs`, or `unreadable-inputs`; their lookup is `not-checked`.
+Eligible identities report `hit`, `miss`, `inputs-changed`, or `unusable`.
+`inputs-changed` compares a known prior resume identity or a mismatched receipt.
+Without a prior identity, absent current evidence is a `miss`, not proof that inputs never changed.
+Selection-only `--plan` remains cheap and does not inspect dependencies or the cache.
 Eligible partial engine reports can reuse completed mutant verdicts without treating unfinished mutants as passed.
 Malformed or truncated completed receipts force fresh execution.
 Worker IPC events require the complete runtime schema and the owned run identity.

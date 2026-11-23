@@ -7,9 +7,9 @@ import { mutationGuidance } from "./mutation-policy.ts";
 import { completeMutationEvent } from "./mutation-admission.ts";
 import { mutationEvidence } from "./mutation-evidence.ts";
 import { runMutationPreflight } from "./mutation-preflight.ts";
-import { mutationUnitIdentity } from "./mutation-dependencies.ts";
+import { mutationUnitIdentity, type MutationIdentity } from "./mutation-dependencies.ts";
 import { mutationToolchainIdentity } from "./mutation-toolchain.ts";
-import { readMutationReuse, saveMutationReuse } from "./mutation-reuse.ts";
+import { mutationReuseDecision, saveMutationReuse } from "./mutation-reuse.ts";
 
 const reader = Bun.stdin.stream().getReader();
 const decoder = new TextDecoder();
@@ -38,6 +38,7 @@ const input = z
           source: z.string(),
           tests: z.array(z.string()),
           patterns: z.array(z.string()),
+          previousIdentity: z.string().optional(),
         }),
       ),
       skipped: z.number(),
@@ -67,19 +68,26 @@ const acknowledged = process.send
   : undefined;
 let terminal: MutationEvent | undefined;
 try {
-  const toolchain =
-    !input.preflight && input.selected.units.some((unit) => unit.tests.length > 0)
-      ? await mutationToolchainIdentity()
-      : "";
-  const identities = new Map<string, string | undefined>();
-  if (!input.preflight)
-    for (const unit of input.selected.units)
-      identities.set(unit.name, await mutationUnitIdentity(process.cwd(), unit, toolchain));
+  const toolchain = input.selected.units.some((unit) => unit.tests.length > 0)
+    ? await mutationToolchainIdentity()
+    : "";
+  const identities = new Map<string, MutationIdentity>();
+  for (const unit of input.selected.units)
+    identities.set(unit.name, await mutationUnitIdentity(process.cwd(), unit, toolchain));
+  function reuse(unit: Parameters<typeof executeMutationUnit>[0]) {
+    return mutationReuseDecision(
+      input.root,
+      identities.get(unit.name) ?? { eligible: false, reason: "unreadable-inputs" },
+      unit.previousIdentity,
+    );
+  }
+
   async function execute(
     unit: Parameters<typeof executeMutationUnit>[0],
     progress: Parameters<typeof executeMutationUnit>[1],
   ) {
-    const identity = identities.get(unit.name);
+    const eligibility = identities.get(unit.name);
+    const identity = eligibility?.eligible ? eligibility.identity : undefined;
     const damaged =
       identity &&
       (await Bun.file(path.join(input.root, ".mutation-reuse", `${identity}.json`)).exists());
@@ -115,7 +123,7 @@ try {
   }
 
   process.exitCode = input.preflight
-    ? await runMutationPreflight(input.selected, execute, input.token, event)
+    ? await runMutationPreflight(input.selected, execute, input.token, event, reuse)
     : await runMutationUnits(
         input.selected,
         execute,
@@ -125,7 +133,7 @@ try {
         {
           runId: input.token,
           keepGoing: input.keepGoing,
-          reuse: (unit) => readMutationReuse(input.root, identities.get(unit.name)),
+          reuse,
           event,
         },
       );

@@ -23,6 +23,12 @@ export function mutationEvidence(
   writeFileSync(`${file}.tmp`, JSON.stringify(event));
   renameSync(`${file}.tmp`, file);
   const { state } = event;
+  for (const unit of state.units) {
+    if (event.type !== "reuse-decision" || !unit.reuse || unit.name !== state.activeUnit) continue;
+    output.error(
+      `${unit.name}: reuse ${unit.reuse.eligible ? `eligible, cache ${unit.reuse.lookup}` : `ineligible (${unit.reuse.reason}), cache ${unit.reuse.lookup}`}${event.mode === "preflight" ? "; baseline executes regardless of cache" : ""}.`,
+    );
+  }
   const unrun = state.units.filter((unit) => unit.status === "unrun").length;
   const interrupted = state.units.filter((unit) => unit.status === "interrupted").length;
   const completed = state.units.reduce((sum, unit) => sum + unit.progress.completed, 0);
