@@ -1,9 +1,9 @@
 --- a/implement/SKILL.md
 +++ b/implement/SKILL.md
 @@ -10,7 +10,13 @@
- 
+
  Call the Skill tool with "tdd" where possible, at pre-agreed seams.
- 
+
 -Run typechecking regularly, single test files regularly, and the full test suite once at the end.
 +Before expensive validation, read [validation.md](validation.md).
 +Agree the scope and cumulative spending bound with the person.
@@ -12,9 +12,9 @@
 +Run typechecking regularly and single test files regularly.
 +Run the full test suite once at the end, within that authorization.
 +After failed or exhausted broad validation, present the checkpoint and wait for a fresh human decision.
- 
+
  Once done, call the Skill tool with "code-review" to review the work.
- 
+
 --- /dev/null
 +++ b/implement/validation.md
 @@ -0,0 +1,63 @@
@@ -84,13 +84,13 @@
 --- a/code-review/SKILL.md
 +++ b/code-review/SKILL.md
 @@ -10,6 +10,10 @@
- 
+
  Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
- 
+
 +Before running expensive validation, read [the validation checkpoint](../implement/validation.md).
 +Carry the implementation task's absolute ledger path into both review briefs.
 +Review does not reset spending history or authorize another broad campaign.
 +
  The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
- 
+
  ## Process

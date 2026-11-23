@@ -12,6 +12,48 @@ const human = spyOn(console, "error").mockImplementation(() => {});
 afterEach(() => human.mockClear());
 afterAll(() => human.mockRestore());
 
+test.each([
+  { eligible: true, identity: "current-inputs", lookup: "hit" },
+  { eligible: false, reason: "unsupported-test-command", lookup: "not-checked" },
+] as const)(
+  "preflight publishes %j before measuring and never substitutes cached verdicts",
+  async (decision) => {
+    const events: MutationEvent[] = [];
+    const unit = {
+      name: "owner.ts",
+      source: "",
+      patterns: ["owner.ts"],
+      tests: ["./owner.test.ts"],
+    };
+    let executions = 0;
+    const code = await runMutationPreflight(
+      { units: [unit], skipped: 0 },
+      async () => {
+        executions++;
+        expect(events.at(-1)).toMatchObject({
+          mode: "preflight",
+          type: "reuse-decision",
+          state: { units: [{ reuse: decision }] },
+        });
+        return [];
+      },
+      "preflight-reuse",
+      (event) => events.push(event),
+      async () => (decision.eligible ? { decision, results: [] } : { decision }),
+    );
+    expect(code).toBe(3);
+    expect(executions).toBe(1);
+    expect(events.at(-1)).toMatchObject({
+      mode: "preflight",
+      type: "run-completed",
+      state: {
+        status: "incomplete",
+        units: [{ status: "unrun", reuse: decision, mutants: null, progress: { reused: 0 } }],
+      },
+    });
+  },
+);
+
 test("preflight records measured costs but leaves all mutations unqualified", async () => {
   const started = Date.now();
   const events: MutationEvent[] = [];
