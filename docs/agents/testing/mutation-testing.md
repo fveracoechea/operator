@@ -144,6 +144,11 @@ A PR is not required for this local workflow.
 Failed, interrupted, stale, uncertain and unrun work never authorize qualification.
 An expired budget is a blocker, not permission to extend a campaign silently.
 Report measured bottlenecks before proposing another bounded invocation.
+Implementation and review use the installed `implement/validation.md` checkpoint for cumulative spending and human renewal.
+Carry its absolute task-ledger path across agents, worktrees, and wrappers.
+After failed or exhausted broad validation, report cumulative cost, completed evidence, unresolved work, and the proposed next action.
+Wait for the person's decision before another broad campaign.
+The per-invocation `--budget` does not grant that decision or reset the task's spending history.
 Keep zero-opportunity changed owners in the inventory and verify their public regressions.
 Use an unchanged outer runner and private sandboxes when mutating runner logic.
 Retain real Git, SQLite, public-command and installed-command tests when extracting fast private seams.

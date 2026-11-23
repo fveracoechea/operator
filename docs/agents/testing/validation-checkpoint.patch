@@ -1,0 +1,96 @@
+--- a/implement/SKILL.md
++++ b/implement/SKILL.md
+@@ -10,7 +10,13 @@
+ 
+ Call the Skill tool with "tdd" where possible, at pre-agreed seams.
+ 
+-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
++Before expensive validation, read [validation.md](validation.md).
++Agree the scope and cumulative spending bound with the person.
++Keep its absolute task-ledger path in every delegation and handoff.
++
++Run typechecking regularly and single test files regularly.
++Run the full test suite once at the end, within that authorization.
++After failed or exhausted broad validation, present the checkpoint and wait for a fresh human decision.
+ 
+ Once done, call the Skill tool with "code-review" to review the work.
+ 
+--- /dev/null
++++ b/implement/validation.md
+@@ -0,0 +1,63 @@
++# Expensive validation checkpoint
++
++Use this checkpoint for implementation and review work that runs full suites, mutation sweeps, or installed-command qualification.
++Focused red/green tests and one-owner diagnosis are narrow validation.
++
++## Establish scope
++
++Before execution, agree the command scope, candidate, concurrency, and cumulative spending bound with the person.
++Name the planned broad invocations and their individual limits.
++The task's cumulative limit includes failed, interrupted, and admission-only attempts.
++Record unknown costs as unknown, not zero.
++
++Create one task ledger at an absolute path outside disposable worktrees.
++Tell the person its path.
++Record the task reference, authorization message, allowed scope, cumulative ceiling, commands, elapsed costs, terminal outcomes, and evidence paths.
++Use summed invocation elapsed time as the default spending measure; record overlapping workers separately.
++Count each invocation once rather than counting both a wrapper and its children.
++Retain wall-clock time separately when concurrency makes it differ.
++
++Every delegation, review brief, and handoff carries this same absolute path.
++Read the ledger before starting expensive work.
++A new agent, session, worktree, branch, or wrapper continues the same task history.
++If the ledger is missing or concurrent spending is uncertain, stop broad validation and ask the person.
++One coordinator records reservations before dispatch, so parallel workers cannot each spend the remaining balance.
++
++## Stop and ask
++
++A failed or budget-exhausted broad invocation closes the authorization for further broad work.
++Cancel pending broad invocations under that authorization, even when its original ceiling has headroom.
++Preserve the completed evidence and record the checkpoint before proposing another campaign.
++
++Present:
++
++- Cumulative spending, the agreed ceiling, and remaining or uncertain costs.
++- Completed evidence, its exact candidate, and its terminal outcomes.
++- Unresolved owners, failures, stale results, and interrupted or unrun work.
++- The proposed next command, its scope, expected cost, hard limit, and reason.
++
++Wait for the person's decision.
++An agent approving its own child invocation is not a human decision.
++Record the person's reply and the new cumulative ceiling before reserving another broad invocation.
++A previous approval, a fresh process timeout, or a coordinator's continuation is not renewed authorization.
++
++Narrow diagnosis may continue only within the agreed scope and remaining bound.
++Record its costs and name the single owner or failure it investigates.
++Splitting the qualification inventory across agents or commands remains broad work.
++If diagnosis expands beyond that narrow question, return to the checkpoint.
++
++## Cancellation and reuse
++
++Use the existing runner's budget and owned-process cancellation.
++Stop only owned descendants and confirm they have exited before releasing the reservation.
++Retain logs, interrupted status, and completed evidence when cancelling.
++For this repository, mutation budget exhaustion and interruption remain incomplete exit 3; preserve the run evidence path.
++
++Apply the repository's current-input and reuse rules when continuing.
++Unknown, stale, interrupted, and unrun results stay unqualified.
++Reuse eligibility and a cache hit do not replace a human spending decision.
++
++This is an agent-workflow checkpoint, not a production assignment or state transition.
++Use an existing authorization guard when the host exposes one.
++Without such a guard, the ledger records authority but cannot authenticate who wrote an approval.
++The agent must obtain the person's decision in the conversation.
+--- a/code-review/SKILL.md
++++ b/code-review/SKILL.md
+@@ -10,6 +10,10 @@
+ 
+ Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
+ 
++Before running expensive validation, read [the validation checkpoint](../implement/validation.md).
++Carry the implementation task's absolute ledger path into both review briefs.
++Review does not reset spending history or authorize another broad campaign.
++
+ The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
+ 
+ ## Process
