@@ -1,8 +1,14 @@
 // Stryker disable all: no logic
 import { eslintCompatPlugin } from "@oxlint/plugins";
 import { moduleInterfaceRule } from "./module-interface.ts";
+import { moduleImportsRule } from "./module-imports.ts";
+import { libImportsRule } from "./lib-imports.ts";
 
 export default eslintCompatPlugin({
   meta: { name: "deep-modules" },
-  rules: { "module-interface": moduleInterfaceRule },
+  rules: {
+    "module-interface": moduleInterfaceRule,
+    "module-imports": moduleImportsRule,
+    "lib-imports": libImportsRule,
+  },
 });

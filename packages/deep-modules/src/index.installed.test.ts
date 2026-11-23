@@ -31,6 +31,70 @@ const report = z.object({
   ),
 });
 
+async function checkInstalledImports(
+  consumer: string,
+  runtime: string,
+  entry: string,
+  layout: string,
+) {
+  const privateFile = path.posix.join(path.posix.dirname(entry), "private.tsx");
+  await Bun.write(path.join(consumer, privateFile), "export type Id = string;");
+  const specifiers = [
+    `./${privateFile}`,
+    `./${privateFile.slice(0, -4)}`,
+    `external-${layout}/${privateFile}`,
+  ];
+  if (layout === "alternate") specifiers.push("@/features/movie/private.tsx");
+  for (const specifier of specifiers) {
+    await Bun.write(
+      path.join(consumer, "consumer.test.ts"),
+      `export type Id = import("${specifier}").Id;`,
+    );
+    const result = await command(consumer, [
+      runtime,
+      "node_modules/oxlint/bin/oxlint",
+      "--format",
+      "json",
+      "consumer.test.ts",
+    ]);
+    expect(result.exitCode).toBe(1);
+    const diagnostics = report.parse(JSON.parse(result.stdout)).diagnostics;
+    expect(diagnostics.map((item) => item.code)).toEqual(["deep-modules(module-imports)"]);
+    expect(diagnostics[0]?.filename).toBe("consumer.test.ts");
+    expect(diagnostics[0]?.labels[0]?.span.line).toBe(1);
+    const url = diagnostics[0]?.message.match(/file:\/\/[^\s]+\.md/)?.[0];
+    expect(url).toBeDefined();
+    if (url) expect(await Bun.file(new URL(url)).text()).toContain("deep-modules/module-imports");
+  }
+  await Bun.write(path.join(consumer, "consumer.test.ts"), `import "./${entry}";`);
+  expect(
+    (
+      await command(consumer, [
+        runtime,
+        "node_modules/oxlint/bin/oxlint",
+        "--format",
+        "json",
+        "consumer.test.ts",
+      ])
+    ).exitCode,
+  ).toBe(0);
+  const library = layout === "default" ? "src/lib/probe.ts" : "web/shared/probe.ts";
+  await Bun.write(
+    path.join(consumer, library),
+    `export type Id = import("external-${layout}/${privateFile}").Id;`,
+  );
+  const invalidLib = await command(consumer, [
+    runtime,
+    "node_modules/oxlint/bin/oxlint",
+    "--format",
+    "json",
+    library,
+  ]);
+  expect(invalidLib.exitCode).toBe(1);
+  const libDiagnostics = report.parse(JSON.parse(invalidLib.stdout)).diagnostics;
+  expect(libDiagnostics.map((item) => item.code)).toEqual(["deep-modules(lib-imports)"]);
+}
+
 test("packed JavaScript, declarations, recommended config and guidance work outside Operator under Node and Bun", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "deep-modules-installed-"));
   roots.push(root);
@@ -79,6 +143,8 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
       "LICENSE",
       "README.md",
       "docs/module-interface.md",
+      "docs/module-imports.md",
+      "docs/lib-imports.md",
     ])
       expect(await Bun.file(path.join(packageRoot, file)).exists()).toBe(true);
     expect(await Bun.file(path.join(packageRoot, "src/index.ts")).exists()).toBe(false);
@@ -88,11 +154,11 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
       layout === "alternate"
         ? {
             "deep-modules": {
-              projectRoot: "web",
-              applicationRoots: ["."],
-              moduleRoots: ["features"],
-              libraryRoots: ["shared"],
-              aliases: { "@": "." },
+              projectRoot: ".",
+              applicationRoots: ["web"],
+              moduleRoots: ["web/features"],
+              libraryRoots: ["web/shared"],
+              aliases: { "@": "web" },
               objectEntries: ["interface.ts"],
             },
           }
@@ -132,6 +198,7 @@ console.log(plugin, config.moduleRoots);
       const args = [runtime, "node_modules/oxlint/bin/oxlint", "--format", "json", entry];
       await Bun.write(path.join(consumer, entry), "export const Movie = { play() {} };");
       expect((await command(consumer, args)).exitCode).toBe(0);
+      await checkInstalledImports(consumer, runtime, entry, layout);
       await Bun.write(path.join(consumer, entry), "export const play = () => 1;");
       const invalid = await command(consumer, args);
       expect(invalid.exitCode).toBe(1);

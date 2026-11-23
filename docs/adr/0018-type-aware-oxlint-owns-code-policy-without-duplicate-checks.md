@@ -9,6 +9,7 @@ Amended 2026-10-27: #219 adds the four boundary rules, a narrow validator except
 The base lint policy is implemented in #237.
 Environment ownership is implemented in #239.
 Amended 2026-11-22: #439 moves application-interface syntax policy to a reusable Oxlint package.
+Amended 2026-11-23: #440 gives reusable Oxlint rules sole ownership of module privacy and library dependency policy.
 
 ## Context
 
@@ -31,7 +32,8 @@ This is a maintenance limit, not proof of correctness or a scientifically distin
 
 The linter owns dependency-cycle detection instead of a second dependency-analysis tool.
 Application-interface syntax has one reusable Oxlint owner so other projects enforce the same accepted model.
-The legacy checker retains import and filesystem policy until each has a replacement.
+Module privacy and library dependency policy share one reusable ownership and static-resolution implementation.
+The filesystem checker retains only structure policy, so checkers cannot disagree about import ownership.
 Function references, nested groups, data constants and caller-facing types are valid application contracts.
 Standalone application operations still belong behind the named interface object.
 Custom rules have beside-tests that accept valid code and reject deliberate violations.

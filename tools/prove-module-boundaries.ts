@@ -25,6 +25,7 @@ const COPIED = [
   "packages",
   "package.json",
   "tsconfig.json",
+  ...(await Array.fromAsync(new Bun.Glob("*.ts").scan({ onlyFiles: true }))),
 ];
 
 /**
@@ -107,7 +108,30 @@ const violations: Violation[] = [
         'require("./src/modules/operator-cli/run.ts");\n',
     },
     cleanupPath: `module-boundary-probe-${probeIdentity}.test.ts`,
-    expectedDiagnostic: "imports private module file",
+    expectedDiagnostic: "deep-modules(module-imports)",
+    check: "lint",
+  },
+  {
+    name: "root configuration private type import",
+    files: {
+      [`module-boundary-probe-${probeIdentity}.config.ts`]:
+        'export type Private = typeof import("./src/modules/operator-cli/run.ts");\n',
+    },
+    cleanupPath: `module-boundary-probe-${probeIdentity}.config.ts`,
+    expectedDiagnostic: "deep-modules(module-imports)",
+    check: "lint",
+  },
+  {
+    name: "outside access to a nested entry",
+    files: {
+      [`src/modules/module-boundary-probe-nested-${probeIdentity}/child/grandchild/main.ts`]:
+        "export function run() {}\n",
+      [`src/modules/module-boundary-probe-nested-${probeIdentity}/main.ts`]:
+        'import "./child/grandchild/main.ts";\nexport const NestedProbe = { run() {} };\n',
+    },
+    cleanupPath: `src/modules/module-boundary-probe-nested-${probeIdentity}`,
+    expectedDiagnostic: "deep-modules(module-imports)",
+    check: "lint",
   },
   {
     name: "missing module interface",
@@ -162,7 +186,8 @@ const violations: Violation[] = [
         'export { OperatorCli } from "../modules/operator-cli/main.ts";\n',
     },
     cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
-    expectedDiagnostic: "lib must not import application or tooling code",
+    expectedDiagnostic: "deep-modules(lib-imports)",
+    check: "lint",
   },
   {
     name: "lib importing private module code",
@@ -171,7 +196,8 @@ const violations: Violation[] = [
         'const run = import("../modules/operator-cli/run.ts");\n',
     },
     cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
-    expectedDiagnostic: "lib must not import application or tooling code",
+    expectedDiagnostic: "deep-modules(lib-imports)",
+    check: "lint",
   },
   {
     name: "lib requiring application code",
@@ -179,7 +205,8 @@ const violations: Violation[] = [
       [`src/lib/module-boundary-probe-${probeIdentity}.ts`]: 'require("../cli.ts");\n',
     },
     cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
-    expectedDiagnostic: "lib must not import application or tooling code",
+    expectedDiagnostic: "deep-modules(lib-imports)",
+    check: "lint",
   },
   {
     name: "module dependency cycle",
@@ -200,7 +227,8 @@ const violations: Violation[] = [
         'import "../operator-cli/run.ts";\nexport const PrivateProbe = { run() {} };\n',
     },
     cleanupPath: `src/modules/module-boundary-probe-private-${probeIdentity}`,
-    expectedDiagnostic: "imports private module file",
+    expectedDiagnostic: "deep-modules(module-imports)",
+    check: "lint",
   },
   {
     name: "lib dependency cycle",
@@ -219,7 +247,8 @@ const violations: Violation[] = [
         'export type App = typeof import("../modules/operator-cli/main.ts");\n',
     },
     cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
-    expectedDiagnostic: "lib must not import application or tooling code",
+    expectedDiagnostic: "deep-modules(lib-imports)",
+    check: "lint",
   },
   {
     name: "lib using an import-equals application reference",
@@ -228,7 +257,8 @@ const violations: Violation[] = [
         'import App = require("../modules/operator-cli/main.ts");\n',
     },
     cleanupPath: `src/lib/module-boundary-probe-${probeIdentity}.ts`,
-    expectedDiagnostic: "lib must not import application or tooling code",
+    expectedDiagnostic: "deep-modules(lib-imports)",
+    check: "lint",
   },
   {
     name: "lib type error",

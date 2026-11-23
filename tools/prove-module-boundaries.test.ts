@@ -13,12 +13,12 @@ afterAll(async () => {
 });
 
 const diagnostics = [
-  "imports private module file",
+  "deep-modules(module-imports)",
   "every module requires one public interface",
   "deep-modules(module-interface)",
   "production files must be inside a feature module",
   "production TypeScript must live",
-  "lib must not import application or tooling code",
+  "deep-modules(lib-imports)",
   "import(no-cycle)",
   "is not assignable to type 'number'",
   "anti-slop(no-reflect-get)",
@@ -139,9 +139,27 @@ const valid = {
 const violations: { name: string; check: string; files: Record<string, string> }[] = [
   {
     name: "private module import",
-    check: "lint:modules",
+    check: "lint",
     files: {
       "module-boundary-probe-ID.test.ts": 'require("./src/modules/operator-cli/run.ts");\n',
+    },
+  },
+  {
+    name: "root configuration private type import",
+    check: "lint",
+    files: {
+      "module-boundary-probe-ID.config.ts":
+        'export type Private = typeof import("./src/modules/operator-cli/run.ts");\n',
+    },
+  },
+  {
+    name: "outside access to a nested entry",
+    check: "lint",
+    files: {
+      "src/modules/module-boundary-probe-nested-ID/child/grandchild/main.ts":
+        "export function run() {}\n",
+      "src/modules/module-boundary-probe-nested-ID/main.ts":
+        'import "./child/grandchild/main.ts";\nexport const NestedProbe = { run() {} };\n',
     },
   },
   {
@@ -178,7 +196,7 @@ const violations: { name: string; check: string; files: Record<string, string> }
   },
   {
     name: "lib importing a module interface",
-    check: "lint:modules",
+    check: "lint",
     files: {
       "src/lib/module-boundary-probe-ID.ts":
         'export { OperatorCli } from "../modules/operator-cli/main.ts";\n',
@@ -186,7 +204,7 @@ const violations: { name: string; check: string; files: Record<string, string> }
   },
   {
     name: "lib importing private module code",
-    check: "lint:modules",
+    check: "lint",
     files: {
       "src/lib/module-boundary-probe-ID.ts":
         'const run = import("../modules/operator-cli/run.ts");\n',
@@ -194,7 +212,7 @@ const violations: { name: string; check: string; files: Record<string, string> }
   },
   {
     name: "lib requiring application code",
-    check: "lint:modules",
+    check: "lint",
     files: { "src/lib/module-boundary-probe-ID.ts": 'require("../cli.ts");\n' },
   },
   {
@@ -208,7 +226,7 @@ const violations: { name: string; check: string; files: Record<string, string> }
   },
   {
     name: "module importing another module's private code",
-    check: "lint:modules",
+    check: "lint",
     files: {
       "src/modules/module-boundary-probe-private-ID/main.ts":
         'import "../operator-cli/run.ts";\nexport const PrivateProbe = { run() {} };\n',
@@ -224,7 +242,7 @@ const violations: { name: string; check: string; files: Record<string, string> }
   },
   {
     name: "lib importing an application type",
-    check: "lint:modules",
+    check: "lint",
     files: {
       "src/lib/module-boundary-probe-ID.ts":
         'export type App = typeof import("../modules/operator-cli/main.ts");\n',
@@ -232,7 +250,7 @@ const violations: { name: string; check: string; files: Record<string, string> }
   },
   {
     name: "lib using an import-equals application reference",
-    check: "lint:modules",
+    check: "lint",
     files: {
       "src/lib/module-boundary-probe-ID.ts":
         'import App = require("../modules/operator-cli/main.ts");\n',
@@ -275,7 +293,7 @@ test("runs every check in a removed copy and reports the rejected violations", a
 
   expect(result).toMatchObject({
     exitCode: 0,
-    stdout: "module boundaries: clean -> rejected 17 deliberate violations -> clean\n",
+    stdout: "module boundaries: clean -> rejected 19 deliberate violations -> clean\n",
     stderr: "",
     leftCopies: [],
   });

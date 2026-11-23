@@ -13,6 +13,8 @@
   ],
   "rules": {
     "deep-modules/module-interface": "error",
+    "deep-modules/module-imports": "error",
+    "deep-modules/lib-imports": "error",
     "stylistic/padding-line-between-statements": [
       "error",
       { "blankLine": "always", "prev": ["function", "export"], "next": "*" }

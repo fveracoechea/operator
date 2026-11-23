@@ -1,6 +1,6 @@
 # Deep-module Oxlint plugin
 
-This package checks application interface exports with `deep-modules/module-interface`.
+This package checks application interfaces, nested module privacy and library dependencies.
 It ships ESM JavaScript and declarations. Consumer loading needs no TypeScript runner or Operator checkout.
 
 ## Install and enable
@@ -18,20 +18,24 @@ Use the shipped recommended configuration:
 }
 ```
 
-Or enable the individual rule:
+Or enable individual rules:
 
 ```json
 {
   "jsPlugins": [
     { "name": "deep-modules", "specifier": "@fveracoechea/oxlint-plugin-deep-modules" }
   ],
-  "rules": { "deep-modules/module-interface": "error" }
+  "rules": {
+    "deep-modules/module-interface": "error",
+    "deep-modules/module-imports": "error",
+    "deep-modules/lib-imports": "error"
+  }
 }
 ```
 
 Run `oxlint` from the consumer project root.
-The recommended configuration currently enables only `module-interface`.
-Import privacy, mocks, specialized rules and filesystem structure checks are not part of this version.
+The recommended configuration enables all three rules.
+Mocks, specialized rules and filesystem structure checks are not part of this version.
 
 ## Consumer configuration
 
@@ -66,10 +70,11 @@ Exclusions name exact files or directory trees, not glob expressions.
 Library roots and exclusions take precedence over module roots.
 The interface rule checks direct children of module roots only.
 Internal entry exports, schemas and framework entries remain unchanged.
-Application roots and aliases are normalized for shared consumers; this export-shape rule does not resolve imports.
+Import rules share ownership discovery and static resolution.
+Aliases are whole-prefix mappings. Package-self references use the consumer package name and project-relative source paths.
 
-See [module-interface guidance](docs/module-interface.md) for accepted code and static-analysis limits.
-Each finding links to this file in the installed package.
+See the [interface](docs/module-interface.md), [privacy](docs/module-imports.md), and [library](docs/lib-imports.md) topics.
+Each finding links to its shipped topic.
 
 ## Local package development
 
