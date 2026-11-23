@@ -2,21 +2,8 @@
 import { rename } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { MutationResult } from "./mutation-run.ts";
+import type { MutationResult, mutationReuseSchema } from "./mutation-run.ts";
 import type { MutationIdentity } from "./mutation-dependencies.ts";
-
-export const mutationReuseSchema = z.discriminatedUnion("eligible", [
-  z.object({
-    eligible: z.literal(false),
-    reason: z.enum(["unsupported-test-command", "uncertain-inputs", "unreadable-inputs"]),
-    lookup: z.literal("not-checked"),
-  }),
-  z.object({
-    eligible: z.literal(true),
-    identity: z.string(),
-    lookup: z.enum(["hit", "miss", "inputs-changed", "unusable"]),
-  }),
-]);
 
 export type MutationReuse = z.infer<typeof mutationReuseSchema>;
 

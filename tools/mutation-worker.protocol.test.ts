@@ -88,11 +88,6 @@ export async function mutationUnitIdentity(root, unit, toolchain) {
     `${cwd}/mutation-reuse.ts`,
     `
 import {options, receipt, killed} from "./controls.ts";
-import {z} from "zod";
-export const mutationReuseSchema = z.discriminatedUnion("eligible", [
-  z.object({eligible: z.literal(false), reason: z.enum(["unsupported-test-command", "uncertain-inputs", "unreadable-inputs"]), lookup: z.literal("not-checked")}),
-  z.object({eligible: z.literal(true), identity: z.string(), lookup: z.enum(["hit", "miss", "unusable", "inputs-changed"])}),
-]);
 export async function mutationReuseDecision(root, identity) {
   if (!identity.eligible) return {decision: {...identity, lookup: "not-checked"}};
   receipt("read", root, identity.identity);

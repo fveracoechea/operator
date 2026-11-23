@@ -2,7 +2,7 @@
 import path from "node:path";
 import { z } from "zod";
 import { selectMutationUnits } from "./mutation-selection.ts";
-import { mutationReuseSchema } from "./mutation-reuse.ts";
+import { mutationReuseSchema } from "./mutation-run.ts";
 
 const savedRun = z.object({
   version: z.literal(1),

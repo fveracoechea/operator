@@ -2,7 +2,7 @@ import type { MutationUnit } from "./mutation-selection.ts";
 import { mutationGuidance } from "./mutation-policy.ts";
 import type { MutationProgress } from "./mutation-engine-progress.ts";
 import { z } from "zod";
-import { mutationReuseSchema, type mutationReuseDecision } from "./mutation-reuse.ts";
+import type { mutationReuseDecision } from "./mutation-reuse.ts";
 
 type Location = { start: { line: number; column: number }; end: { line: number; column: number } };
 export type MutationResult = {
@@ -24,6 +24,20 @@ const pointSchema = z.object({
   line: z.number().int().positive(),
   column: z.number().int().positive(),
 });
+
+export const mutationReuseSchema = z.discriminatedUnion("eligible", [
+  z.object({
+    eligible: z.literal(false),
+    reason: z.enum(["unsupported-test-command", "uncertain-inputs", "unreadable-inputs"]),
+    lookup: z.literal("not-checked"),
+  }),
+  z.object({
+    eligible: z.literal(true),
+    identity: z.string(),
+    lookup: z.enum(["hit", "miss", "inputs-changed", "unusable"]),
+  }),
+]);
+
 export const mutationEventSchema = z.object({
   version: z.literal(1),
   mode: z.literal("preflight").optional(),
