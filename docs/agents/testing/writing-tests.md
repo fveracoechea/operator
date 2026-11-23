@@ -34,5 +34,7 @@ Use scoped spies at public module interfaces when needed and restore them after 
 
 Run the selected test, then use the mutation topic to check whether its assertions distinguish changed behavior.
 Confirm a guard by breaking it and observing a failing test.
+For mutation corrections, record the production owner and its current selector-owned test list.
+Check structured proofs through the mutation topic's cheap plan before treating them as direct-owner evidence.
 Fix all observed test failures and flakes before completing the ticket.
 For final local qualification, follow the exact-candidate sequence in [mutation testing](mutation-testing.md).

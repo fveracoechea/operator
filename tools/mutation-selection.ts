@@ -11,6 +11,7 @@ type Arguments = {
   keepGoing?: boolean;
   json?: boolean;
   plan?: boolean;
+  proof?: string;
   preflight?: boolean;
   budgetMs?: number;
 };
@@ -28,8 +29,10 @@ function parsedRef(
   existing: string | undefined,
   option: string,
 ): { value: string } | Problem {
+  const label =
+    option === "--since" ? "explicit Git ref" : option === "--proof" ? "proof file" : "run ID";
   return existing || ref === undefined || ref === "" || ref.startsWith("-")
-    ? { error: `${option} needs one ${option === "--since" ? "explicit Git ref" : "run ID"}.` }
+    ? { error: `${option} needs one ${label}.` }
     : { value: ref };
 }
 
@@ -58,7 +61,7 @@ export function parseMutationArgs(args: string[]): Arguments | Problem {
 
 function parseSelectionArgs(args: string[]): Arguments | Problem {
   const paths: string[] = [];
-  const values: { since?: string; resume?: string } = {};
+  const values: { since?: string; resume?: string; proof?: string } = {};
   let positional = false;
   const flags: {
     keepGoing?: boolean;
@@ -73,9 +76,10 @@ function parseSelectionArgs(args: string[]): Arguments | Problem {
     ["--plan", "plan"],
     ["--preflight", "preflight"],
   ]);
-  const valueNames = new Map<string, "since" | "resume">([
+  const valueNames = new Map<string, "since" | "resume" | "proof">([
     ["--since", "since"],
     ["--resume", "resume"],
+    ["--proof", "proof"],
   ]);
   // The loop and the option value read one iterator, so --since consumes its ref.
   const remaining = args.values();
@@ -99,6 +103,7 @@ function parseSelectionArgs(args: string[]): Arguments | Problem {
 }
 
 function validatedMutationArgs(args: Arguments): Arguments | Problem {
+  if (args.proof && !args.plan) return { error: "--proof requires --plan." };
   if (args.resume && (args.since || args.paths.length > 0))
     return { error: "--resume cannot be combined with targets or --since." };
   if (args.resume && (args.plan || args.preflight))

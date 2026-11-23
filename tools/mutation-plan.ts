@@ -1,4 +1,11 @@
 import type { MutationUnit } from "./mutation-selection.ts";
+import { z } from "zod";
+
+const correctionProof = z.object({
+  owner: z.string(),
+  tests: z.array(z.string()),
+  evidence: z.enum(["assertion-failure", "engine-verdict"]),
+});
 
 export function mutationEstimate(baselineMs: number | null, mutationCount: number | null) {
   if (baselineMs === null || mutationCount === null)
@@ -11,7 +18,15 @@ export function mutationEstimate(baselineMs: number | null, mutationCount: numbe
   };
 }
 
-export function mutationPlan(selected: { units: MutationUnit[]; skipped: number }) {
+export function mutationPlan(
+  selected: { units: MutationUnit[]; skipped: number },
+  proof?: z.infer<typeof correctionProof>,
+) {
+  const owner = proof && selected.units.find((unit) => unit.name === proof.owner);
+  const ownerTestsMatch =
+    owner !== undefined &&
+    owner.tests.length > 0 &&
+    JSON.stringify(owner.tests) === JSON.stringify(proof?.tests);
   return {
     version: 1,
     type: "selection-plan",
@@ -31,14 +46,33 @@ export function mutationPlan(selected: { units: MutationUnit[]; skipped: number 
     assumptions: [
       "Test-file counts are exact. Test-case counts and mutation totals are unknown until execution.",
     ],
+    proof: proof
+      ? {
+          ...proof,
+          ownerTestsMatch,
+          status: ownerTestsMatch ? "matching-owner-tests" : "insufficient-owner-tests",
+        }
+      : undefined,
   };
 }
 
-export function printMutationPlan(
+export async function printMutationPlan(
   selected: { units: MutationUnit[]; skipped: number },
   machine: boolean,
-): void {
-  const plan = mutationPlan(selected);
+  proofFile?: string,
+): Promise<0 | 1> {
+  let proof: z.infer<typeof correctionProof> | undefined;
+  if (proofFile !== undefined) {
+    try {
+      proof = correctionProof.parse(await Bun.file(proofFile).json());
+    } catch {
+      console.error(
+        "Correction proof needs an owner, exact selected tests, and assertion-failure or engine-verdict evidence.",
+      );
+      return 1;
+    }
+  }
+  const plan = mutationPlan(selected, proof);
   if (machine) console.log(JSON.stringify(plan));
   else {
     console.error(
@@ -46,10 +80,15 @@ export function printMutationPlan(
     );
     for (const unit of plan.units)
       console.error(
-        `${unit.name}: ${unit.patterns.join(", ")}, ${unit.testFiles} selected test files.`,
+        `${unit.name}: ${unit.patterns.join(", ")}, ${unit.testFiles} selected test files: ${unit.tests.join(", ")}.`,
       );
     console.error(
       "Baseline, mutation count, and cost: unknown. Use --preflight to measure baselines. No tests executed by this plan.",
     );
+    if (plan.proof)
+      console.error(
+        `${plan.proof.owner}: ${plan.proof.status}, ${plan.proof.evidence}. Matching files alone do not establish assertion adequacy or an engine verdict.`,
+      );
   }
+  return plan.proof && !plan.proof.ownerTestsMatch ? 1 : 0;
 }

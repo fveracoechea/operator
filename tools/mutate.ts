@@ -15,7 +15,7 @@ import { resumeMutationSelection } from "./mutation-resume.ts";
 import { mutationRefusal } from "./mutation-evidence.ts";
 
 const usage =
-  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--plan|--preflight] [--budget <seconds>] [--keep-going] [--json] | --resume <run-id> | --recover-claim";
+  "Usage: bun run mutate <unit.ts|unit.test.ts>... | --since <ref> [paths...] [--plan [--proof <file>]|--preflight] [--budget <seconds>] [--keep-going] [--json] | --resume <run-id> | --recover-claim";
 const storedReport = z.looseObject({
   files: z.record(
     z.string(),
@@ -158,10 +158,9 @@ async function main(args: string[]): Promise<number> {
     }
     budget.check();
     if (selectionIdentity === undefined) {
-      printMutationPlan(selected, machine);
-      return 0;
+      return await printMutationPlan(selected, machine, parsed.proof);
     }
-    printMutationPlan(selected, false);
+    await printMutationPlan(selected, false);
     budget.check();
     delegated = true;
     return await runMutationCampaign(process.cwd(), selected, selectionIdentity, {

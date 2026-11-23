@@ -40,6 +40,22 @@ It reports ranges, selected test files, and repeated test-file executions per sw
 Test-case counts remain unknown.
 Inspect large selections before starting expensive work.
 
+For a correction proof, use the current selector rather than inferring ownership from imports.
+
+```sh
+bun run mutate --plan --json tools/mutation-campaign.ts
+bun run mutate --plan --json --proof /absolute/path/proof.json tools/mutation-campaign.ts
+```
+
+The proof JSON contains `owner`, `tests`, and `evidence` (`assertion-failure` or `engine-verdict`).
+Copy the owner's exact ordered `tests` list from the current plan.
+The check returns exit 1 for an unselected owner, an empty owned list, or a different test list.
+It reports `insufficient-owner-tests` in human and machine output.
+A matching list reports `matching-owner-tests`, not mutation qualification.
+The evidence kind is the author's claim; this check does not authenticate an engine verdict or assess assertion adequacy.
+Reviewers inspect the command, outcome, and assertions separately.
+Retain effect-level CLI tests alongside direct-owner tests.
+
 `--preflight` explicitly measures the initial engine test run against admitted inputs.
 It reports completed-unit reuse eligibility before baseline execution, but always measures the baseline.
 It returns incomplete exit 3, not mutation qualification.

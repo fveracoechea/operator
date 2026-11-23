@@ -89,6 +89,23 @@ test("planning and budget options are explicit and reject invalid or ambiguous d
   });
 });
 
+test("correction proof checking is an explicit selection-only operation", () => {
+  expect(parseMutationArgs(["--plan", "--proof", "proof.json", "unit.ts"])).toEqual({
+    paths: ["unit.ts"],
+    plan: true,
+    proof: "proof.json",
+  });
+  expect(parseMutationArgs(["--proof", "proof.json", "unit.ts"])).toEqual({
+    error: "--proof requires --plan.",
+  });
+  for (const args of [
+    ["--plan", "--proof"],
+    ["--plan", "--proof", "--json"],
+    ["--plan", "--proof", "a", "--proof", "b", "unit.ts"],
+  ])
+    expect(parseMutationArgs(args)).toEqual({ error: "--proof needs one proof file." });
+});
+
 const root = await mkdtemp(path.join(tmpdir(), "operator-mutation-selection-"));
 afterAll(async () => {
   await rm(root, { force: true, recursive: true });

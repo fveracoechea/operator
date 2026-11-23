@@ -1,0 +1,17 @@
+--- a/code-review/SKILL.md
++++ b/code-review/SKILL.md
+@@ -69,6 +69,14 @@
+ 
+ - The diff command and commit list.
+ - The path or fetched contents of the spec.
++- For mutation correction claims, read the repository's mutation-testing and writing-tests topics.
++  Identify the changed production owner and obtain its current `--plan --json` selection.
++  Check structured correction evidence with `--plan --proof <file>` when the repository supports it.
++  A matching proof names that owner and the selector's exact ordered test list.
++  Another owner's tests are insufficient for direct-owner coverage, even when their assertions fail.
++  Keep assertion-failure evidence distinct from engine-verdict evidence.
++  Judge assertion adequacy separately; matching file lists do not prove behavior or an engine verdict.
++  Preserve effect-level coverage when requesting direct-owner cases.
+ - The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
+ 
+ If the spec is missing, skip the Spec sub-agent and note this in the final report.

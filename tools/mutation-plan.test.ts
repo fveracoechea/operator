@@ -6,11 +6,118 @@ import { mutationPlan, mutationEstimate, printMutationPlan } from "./mutation-pl
 const root = await mkdtemp("/tmp/opencode/450-plan-");
 afterAll(async () => rm(root, { recursive: true, force: true }));
 
-test("the human plan shows ranges, test amplification and explicit unknown cost before execution", () => {
+test("another owner's tests cannot establish a direct-owner correction proof", () => {
+  const selected = {
+    skipped: 0,
+    units: [
+      {
+        name: "campaign.ts",
+        source: "",
+        patterns: ["campaign.ts"],
+        tests: ["./campaign.test.ts", "./campaign.refusal.test.ts"],
+      },
+    ],
+  };
+  const plan = mutationPlan(selected, {
+    owner: "campaign.ts",
+    tests: ["./cli.test.ts"],
+    evidence: "assertion-failure",
+  });
+  expect(plan.proof).toEqual({
+    owner: "campaign.ts",
+    tests: ["./cli.test.ts"],
+    evidence: "assertion-failure",
+    ownerTestsMatch: false,
+    status: "insufficient-owner-tests",
+  });
+});
+
+test("matching owner files preserve the claimed evidence kind without granting qualification", () => {
+  const selected = {
+    skipped: 0,
+    units: [{ name: "owner.ts", source: "", patterns: ["owner.ts"], tests: ["./owner.test.ts"] }],
+  };
+  for (const evidence of ["assertion-failure", "engine-verdict"] as const) {
+    expect(
+      mutationPlan(selected, {
+        owner: "owner.ts",
+        tests: ["./owner.test.ts"],
+        evidence,
+      }).proof,
+    ).toEqual({
+      owner: "owner.ts",
+      tests: ["./owner.test.ts"],
+      evidence,
+      ownerTestsMatch: true,
+      status: "matching-owner-tests",
+    });
+  }
+  expect(
+    mutationPlan(
+      {
+        skipped: 0,
+        units: [{ name: "owner.ts", source: "", patterns: ["owner.ts"], tests: [] }],
+      },
+      { owner: "owner.ts", tests: [], evidence: "engine-verdict" },
+    ).proof?.ownerTestsMatch,
+  ).toBe(false);
+});
+
+test.each([
+  { owner: "unit.ts", tests: ["./cli.test.ts"], expected: 1 },
+  { owner: "cli.ts", tests: ["./unit.test.ts", "./unit.refusal.test.ts"], expected: 1 },
+  { owner: "unit.ts", tests: ["./unit.test.ts"], expected: 1 },
+  { owner: "unit.ts", tests: ["./unit.test.ts", "./unit.test.ts"], expected: 1 },
+  { owner: "unit.ts", tests: ["./unit.refusal.test.ts", "./unit.test.ts"], expected: 0 },
+])("cheap CLI proof checking uses the current selector: %j", async ({ owner, tests, expected }) => {
+  const directory = `${root}/${crypto.randomUUID()}`;
+  await Bun.write(`${directory}/unit.ts`, "export const value = 1;\n");
+  await Bun.write(`${directory}/unit.test.ts`, 'throw new Error("must not execute");');
+  await Bun.write(`${directory}/unit.refusal.test.ts`, 'throw new Error("must not execute");');
+  await Bun.write(`${directory}/unit.nested.ts`, "export const nested = 1;");
+  await Bun.write(`${directory}/unit.nested.test.ts`, 'throw new Error("not owned");');
+  await Bun.write(
+    `${directory}/proof.json`,
+    JSON.stringify({ owner, tests, evidence: "assertion-failure" }),
+  );
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      `${import.meta.dir}/mutate.ts`,
+      "--plan",
+      "--json",
+      "--proof",
+      "proof.json",
+      "unit.ts",
+    ],
+    { cwd: directory, stdout: "pipe", stderr: "pipe" },
+  );
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  expect(code, stderr).toBe(expected);
+  expect(JSON.parse(stdout)).toMatchObject({
+    units: [{ name: "unit.ts", tests: ["./unit.refusal.test.ts", "./unit.test.ts"] }],
+    proof: {
+      owner,
+      tests,
+      evidence: "assertion-failure",
+      ownerTestsMatch: expected === 0,
+      status: expected === 0 ? "matching-owner-tests" : "insufficient-owner-tests",
+    },
+  });
+  expect(
+    await Array.fromAsync(new Bun.Glob(".mutation-*").scan({ cwd: directory, dot: true })),
+  ).toEqual([]);
+});
+
+test("the human plan shows ranges, test amplification and explicit unknown cost before execution", async () => {
   const error = spyOn(console, "error").mockImplementation(() => {});
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
-    printMutationPlan(
+    await printMutationPlan(
       {
         skipped: 0,
         units: [
@@ -29,7 +136,7 @@ test("the human plan shows ranges, test amplification and explicit unknown cost 
       [
         "Mutation selection: 1 units, 2 distinct test files, 2 test-file executions per full mutation sweep.",
       ],
-      ["a.ts: a.ts:2-4, a.ts:9-9, 2 selected test files."],
+      ["a.ts: a.ts:2-4, a.ts:9-9, 2 selected test files: ./a.test.ts, ./a.more.test.ts."],
       [
         "Baseline, mutation count, and cost: unknown. Use --preflight to measure baselines. No tests executed by this plan.",
       ],
