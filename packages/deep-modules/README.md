@@ -1,6 +1,6 @@
 # Deep-module Oxlint plugin
 
-This package checks application interfaces, nested module privacy and library dependencies.
+This package checks application interfaces, nested module privacy, library dependencies and shared query/mutation ownership.
 It ships ESM JavaScript and declarations. Consumer loading needs no TypeScript runner or Operator checkout.
 
 ## Install and enable
@@ -29,14 +29,16 @@ Or enable individual rules:
     "deep-modules/module-interface": "error",
     "deep-modules/module-imports": "error",
     "deep-modules/lib-imports": "error",
-    "deep-modules/public-collaborator-mocks": "error"
+    "deep-modules/public-collaborator-mocks": "error",
+    "deep-modules/query-options-owner": "error"
   }
 }
 ```
 
 Run `oxlint` from the consumer project root.
-The recommended configuration also checks public collaborator mocks.
+The recommended configuration enables these rules.
 See [mock guidance](docs/public-collaborator-mocks.md) for Bun binding support, test scope and isolation.
+Query ownership does not prove runtime invalidation correctness.
 
 ## Consumer configuration
 
@@ -77,6 +79,7 @@ Import rules share ownership discovery and static resolution.
 Aliases are whole-prefix mappings. Package-self references use the consumer package name and project-relative source paths.
 
 See the [interface](docs/module-interface.md), [privacy](docs/module-imports.md), and [library](docs/lib-imports.md) topics.
+See [query ownership](docs/query-options-owner.md) when exposing query and mutation options together.
 Each finding links to its shipped topic.
 
 ## Local package development

@@ -135,12 +135,26 @@ export function bindingOf(source: SourceCode, node: ESTree.Node): Variable | und
   return undefined;
 }
 
+export function unwrapExpression(node: ESTree.Node): ESTree.Node {
+  while (
+    node.type === "ParenthesizedExpression" ||
+    node.type === "TSAsExpression" ||
+    node.type === "TSTypeAssertion" ||
+    node.type === "TSNonNullExpression" ||
+    node.type === "TSSatisfiesExpression" ||
+    node.type === "ChainExpression"
+  )
+    node = node.expression;
+  return node;
+}
+
 /** Immutable aliases only. Cyclic bindings stop at the last known node. */
 export function resolveLocalValue(
   source: SourceCode,
-  node: ESTree.Node,
+  input: ESTree.Node,
   seen = new Set<Variable>(),
 ): ESTree.Node {
+  const node = unwrapExpression(input);
   if (node.type !== "Identifier") return node;
   const binding = bindingOf(source, node);
   if (!binding || seen.has(binding)) return node;

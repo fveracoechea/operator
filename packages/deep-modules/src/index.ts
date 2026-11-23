@@ -4,6 +4,7 @@ import { moduleInterfaceRule } from "./module-interface.ts";
 import { moduleImportsRule } from "./module-imports.ts";
 import { libImportsRule } from "./lib-imports.ts";
 import { publicCollaboratorMocksRule } from "./public-collaborator-mocks.ts";
+import { queryOptionsOwnerRule } from "./query-options-owner.ts";
 
 export default eslintCompatPlugin({
   meta: { name: "deep-modules" },
@@ -12,5 +13,6 @@ export default eslintCompatPlugin({
     "module-imports": moduleImportsRule,
     "lib-imports": libImportsRule,
     "public-collaborator-mocks": publicCollaboratorMocksRule,
+    "query-options-owner": queryOptionsOwnerRule,
   },
 });

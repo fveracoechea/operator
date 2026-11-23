@@ -146,6 +146,59 @@ async function checkInstalledImports(
   expect(libDiagnostics.map((item) => item.code)).toEqual(["deep-modules(lib-imports)"]);
 }
 
+async function checkInstalledQueryOwnership(consumer: string, runtime: string, entry: string) {
+  const directory = path.posix.dirname(entry);
+  const childEntry = path.posix.basename(entry);
+  for (const [child, source] of [
+    [
+      "query-options",
+      "export const queryOptions = { findOne() {} }; export const mutationOptions = { publish() {} };",
+    ],
+    ["commands", "export const mutationOptions = { publish() {} };"],
+    [
+      "media",
+      "export const Media = { async find(id) { return id; }, play(video) { return video; } };",
+    ],
+    ["selectors", "export function isReleased() { return true; }"],
+    ["ui", "export function Carousel() {}"],
+  ] as const) {
+    await Bun.write(path.join(consumer, directory, child, childEntry), source);
+  }
+  const args = [runtime, "node_modules/oxlint/bin/oxlint", "--format", "json", entry];
+  const movie = `import { Media } from "./media/${childEntry}";
+import * as selectors from "./selectors/${childEntry}";
+import { queryOptions, mutationOptions } from "./query-options/${childEntry}";
+import * as UI from "./ui/${childEntry}";
+export const MOVIE_TIMEOUT = 500;
+export const Movie = {
+  async play(id) { const video = await Media.find(id); return Media.play(video); },
+  selector: selectors, queryOptions, mutationOptions, UI,
+};`;
+  await Bun.write(path.join(consumer, entry), movie);
+  expect((await command(consumer, args)).exitCode).toBe(0);
+  for (const source of [
+    movie.replace(
+      `import { queryOptions, mutationOptions } from "./query-options/${childEntry}";`,
+      `import { queryOptions } from "./query-options/${childEntry}";
+import { mutationOptions } from "./commands/${childEntry}";`,
+    ),
+    "export const Movie = { queryOptions: { findOne() {} }, mutationOptions: { publish() {} } };",
+  ]) {
+    await Bun.write(path.join(consumer, entry), source);
+    const result = await command(consumer, args);
+    expect(result.exitCode).toBe(1);
+    const diagnostics = report.parse(JSON.parse(result.stdout)).diagnostics;
+    expect(diagnostics.map((item) => item.code)).toEqual(["deep-modules(query-options-owner)"]);
+    expect(diagnostics[0]?.filename).toBe(entry);
+    expect(diagnostics[0]?.labels[0]?.span.line).toBeGreaterThan(0);
+    const url = diagnostics[0]?.message.match(/file:\/\/[^\s]+\.md/)?.[0];
+    expect(url).toContain(
+      "node_modules/@fveracoechea/oxlint-plugin-deep-modules/docs/query-options-owner.md",
+    );
+    if (url) expect(await Bun.file(new URL(url)).text()).toContain("runtime invalidation");
+  }
+}
+
 test("packed JavaScript, declarations, recommended config and guidance work outside Operator under Node and Bun", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "deep-modules-installed-"));
   roots.push(root);
@@ -197,6 +250,7 @@ test("packed JavaScript, declarations, recommended config and guidance work outs
       "docs/module-imports.md",
       "docs/lib-imports.md",
       "docs/public-collaborator-mocks.md",
+      "docs/query-options-owner.md",
     ])
       expect(await Bun.file(path.join(packageRoot, file)).exists()).toBe(true);
     expect(await Bun.file(path.join(packageRoot, "src/index.ts")).exists()).toBe(false);
@@ -252,6 +306,7 @@ console.log(plugin, config.moduleRoots);
       expect((await command(consumer, args)).exitCode).toBe(0);
       await checkInstalledImports(consumer, runtime, entry, layout);
       await checkInstalledMocks(consumer, runtime, entry);
+      await checkInstalledQueryOwnership(consumer, runtime, entry);
       await Bun.write(path.join(consumer, entry), "export const play = () => 1;");
       const invalid = await command(consumer, args);
       expect(invalid.exitCode).toBe(1);

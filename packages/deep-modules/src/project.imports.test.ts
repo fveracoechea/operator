@@ -21,6 +21,7 @@ test("shared static loading recognizes Node bindings rather than unrelated shado
     'const loaded = require.resolve("../movie/private.ts");',
     'import loaded = require("../movie/private.ts");',
     'const load = require; const loaded = load("../movie/private.ts");',
+    'const load = ((require as Function) satisfies Function)!; const loaded = load("../movie/private.ts");',
     'const loaded = module.require("../movie/private.ts");',
     'import { createRequire as makeRequire } from "node:module"; const load = makeRequire(import.meta.url); load("../movie/private.ts");',
     'import * as nodeModule from "node:module"; const load = nodeModule.createRequire(import.meta.url); load("../movie/private.ts");',

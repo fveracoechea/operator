@@ -21,6 +21,7 @@ Run `bun run lint` for application interface syntax, import privacy and library 
 Run `bun run lint:modules` for filesystem structure.
 For `deep-modules/module-interface`, read `packages/deep-modules/docs/module-interface.md`.
 For `deep-modules/module-imports` or `deep-modules/lib-imports`, read the matching topic in `packages/deep-modules/docs/`.
+For `deep-modules/query-options-owner`, read `packages/deep-modules/docs/query-options-owner.md`.
 Oxlint owns dependency cycles through `bun run lint`.
 Small reusable functions that own no feature or capability live in focused `src/lib/` files with beside-tests.
 Import their named exports directly, without a barrel or interface object.
