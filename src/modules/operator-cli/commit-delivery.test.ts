@@ -2,6 +2,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { ErrAsync, OkAsync, fromPromise } from "unthrown";
 // Bun has no temporary directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { CommitDelivery } from "../commit-delivery/main.ts";
@@ -82,7 +83,7 @@ test("a successful review starts the recorded handoff and returns its receipt", 
 test.each(["review", "round"])(
   "%s preserves a defect as a commit_defect result",
   async (command) => {
-    root = await mkdtemp("/tmp/opencode/commit-command-");
+    root = await mkdtemp(`${tmpdir()}/commit-command-`);
     const file = `${root}/input.md`;
     await Bun.write(file, "input");
     const failure = fromPromise(Promise.reject(new Error("injected defect")), (cause, defect) =>
@@ -109,7 +110,7 @@ test.each(["review", "round"])(
 test.each(["round", "deliver"])(
   "%s reads the supplied file and returns the matching result envelope",
   async (command) => {
-    root = await mkdtemp("/tmp/opencode/commit-command-");
+    root = await mkdtemp(`${tmpdir()}/commit-command-`);
     const file = `${root}/input.md`;
     await Bun.write(file, "recorded input\n");
     const data = DeviceState.commitDeliverySchema().parse({
