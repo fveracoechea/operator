@@ -1,5 +1,15 @@
 # @fveracoechea/operator
 
+## 3.1.0
+
+### Minor Changes
+
+- 166d815: Add explicit commit completion for new ticket assignments, with fresh internal review and exact-candidate checks before local and remote main delivery. Preserve PR delivery defaults and approval guards.
+
+### Patch Changes
+
+- 0e3d153: Make local mutation campaigns inspectable and bounded, with live progress, fail-fast execution, stable input snapshots, dependency-aware reuse and supported resume. Preserve exact-candidate qualification and real command coverage while testing the worker Git observation protocol directly.
+
 ## 3.0.0
 
 ### Major Changes
