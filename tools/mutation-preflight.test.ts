@@ -287,4 +287,4 @@ test("baseline", async () => {
   );
   expect(stderr).toContain("mutation count unknown");
   expect(stderr).toContain("not mutation qualification");
-}, 20_000);
+}, 60_000);

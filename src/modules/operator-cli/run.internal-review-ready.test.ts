@@ -672,24 +672,49 @@ test.each(["worker", "supervisor"] as const)(
       ],
     });
     using db = new Database(`${root}/state/operator/operator.sqlite`);
-    for (const readiness of ["{", "{}", '{"head":null,"at":"now","note":null,"dispositions":[]}']) {
-      db.query("UPDATE pull_requests SET readiness = ?").run(readiness);
-      const before = db.serialize();
-      const reads = await calls("gh-calls.jsonl", "graphql");
-      const closes = await calls("herdr-calls.jsonl", "pane close");
-      const command =
-        caller === "supervisor"
-          ? ["pr", "merge", "--source", source, "--assignment", "implement"]
-          : ["pr", "merge"];
-      expect(
-        await run(command, caller === "supervisor" ? checkout : worker.worktreePath),
-      ).toMatchObject({ code: 3, output: { reason: "state_corrupt" } });
-      expect(await calls("gh-calls.jsonl", "graphql")).toBe(reads);
-      expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
-      expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
-      expect(await calls("herdr-calls.jsonl", "pane close")).toBe(closes);
-      expect(db.serialize()).toEqual(before);
-      expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+    db.exec("PRAGMA busy_timeout = 5000");
+    const writer = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        `import { Database } from "bun:sqlite";
+using db = new Database(${JSON.stringify(`${root}/state/operator/operator.sqlite`)});
+db.exec("PRAGMA busy_timeout = 5000; BEGIN IMMEDIATE");
+console.log("locked");
+await Bun.sleep(500);
+db.exec("COMMIT");`,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    try {
+      const locked = await writer.stdout.getReader().read();
+      expect(new TextDecoder().decode(locked.value)).toBe("locked\n");
+      for (const readiness of [
+        "{",
+        "{}",
+        '{"head":null,"at":"now","note":null,"dispositions":[]}',
+      ]) {
+        db.query("UPDATE pull_requests SET readiness = ?").run(readiness);
+        const before = db.serialize();
+        const reads = await calls("gh-calls.jsonl", "graphql");
+        const closes = await calls("herdr-calls.jsonl", "pane close");
+        const command =
+          caller === "supervisor"
+            ? ["pr", "merge", "--source", source, "--assignment", "implement"]
+            : ["pr", "merge"];
+        expect(
+          await run(command, caller === "supervisor" ? checkout : worker.worktreePath),
+        ).toMatchObject({ code: 3, output: { reason: "state_corrupt" } });
+        expect(await calls("gh-calls.jsonl", "graphql")).toBe(reads);
+        expect(await calls("gh-calls.jsonl", "mutation EnqueuePR")).toBe(0);
+        expect(await calls("gh-calls.jsonl", '"PUT"')).toBe(0);
+        expect(await calls("herdr-calls.jsonl", "pane close")).toBe(closes);
+        expect(db.serialize()).toEqual(before);
+        expect(await git(worker.worktreePath, "rev-parse", "HEAD")).toBe(head);
+      }
+    } finally {
+      writer.kill();
+      await writer.exited;
     }
   },
   120000,

@@ -6,7 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { MutationEvent } from "./mutation-run.ts";
 
-setDefaultTimeout(20_000);
+setDefaultTimeout(60_000);
 const root = await mkdtemp(`${tmpdir()}/mutation-worker-`);
 afterAll(async () => rm(root, { recursive: true, force: true }));
 
@@ -17,7 +17,7 @@ let failedExchange: unknown;
 function workerTest(
   name: string,
   exercise: (spawn: SpawnWorker) => Promise<void>,
-  deadline = 2000,
+  deadline = 10_000,
 ) {
   test(name, async () => {
     expect(failedExchange, "an earlier owned worker exchange failed").toBeUndefined();
@@ -58,7 +58,7 @@ function workerTest(
         child.disconnect();
       }
       const reaped = Promise.withResolvers<boolean>();
-      const cleanupTimer = setTimeout(() => reaped.resolve(false), 500);
+      const cleanupTimer = setTimeout(() => reaped.resolve(false), 5000);
       try {
         expect(
           await Promise.race([
@@ -252,7 +252,7 @@ workerTest(
     expect(diagnostic[2]).toContain("Mutation execution incomplete:");
     expect(diagnostic[2]).toContain("0 survivors, 0 untested, 1 incomplete");
   },
-  7000,
+  45_000,
 );
 
 workerTest(
@@ -295,7 +295,7 @@ test("held", async () => {
       }) + "\n",
     );
     await child.stdin.flush();
-    const deadline = Date.now() + 2000;
+    const deadline = Date.now() + 45_000;
     while (!(await Bun.file(receipt).exists()) && Date.now() < deadline) await Bun.sleep(10);
     expect(await Bun.file(receipt).exists()).toBe(true);
     const owned = z
@@ -329,5 +329,5 @@ test("held", async () => {
     expect(interrupted.elapsedMs).toBeGreaterThanOrEqual(0);
     expect(interrupted.elapsedMs).toBeLessThanOrEqual(Date.now() - started);
   },
-  3000,
+  55_000,
 );

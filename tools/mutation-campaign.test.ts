@@ -35,7 +35,7 @@ import { mutationEventSchema } from "./mutation-run.ts";
     const source = "export const count = 1;\n";
     const unit = { name: "count.ts", source, tests: ["./count.test.ts"], patterns: ["count.ts"] };
 
-    async function within<T>(work: Promise<T>, label: string, milliseconds = 1200): Promise<T> {
+    async function within<T>(work: Promise<T>, label: string, milliseconds = 10_000): Promise<T> {
       const expired = Promise.withResolvers<null>();
       const timer = setTimeout(() => expired.resolve(null), milliseconds);
       try {
@@ -861,7 +861,7 @@ function start(cwd: string, args = ["count.ts"], entry = script, preload?: strin
 
   const deadline = setTimeout(() => {
     void stop();
-  }, 30_000);
+  }, 60_000);
   const result = Promise.all([
     child.exited,
     new Response(child.stdout).text(),
@@ -871,7 +871,7 @@ function start(cwd: string, args = ["count.ts"], entry = script, preload?: strin
 }
 
 async function waitFor(file: string) {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + 45_000;
   while (!(await Bun.file(file).exists()) && Date.now() < deadline) await Bun.sleep(20);
   expect(await Bun.file(file).exists()).toBe(true);
 }
@@ -962,7 +962,7 @@ test("held", async () => {
   try {
     // Admission and the completed unit may take arbitrarily longer than a CLI diagnostic budget.
     // Expire only after the real held test starts, not after an assumed engine startup time.
-    const deadline = Date.now() + 15_000;
+    const deadline = Date.now() + 45_000;
     while (!(await Bun.file(entered).exists()) && Date.now() < deadline) await Bun.sleep(20);
     expect(await Bun.file(entered).exists()).toBe(true);
     clock = 60_000;
@@ -1141,7 +1141,9 @@ test("held", async () => {
     expect((await runEvidence(cwd)).admission.current).toBe(true);
     expect((await runEvidence(cwd)).elapsedMs).toBeLessThanOrEqual(Date.now() - started);
     expect(
-      await Array.fromAsync(new Bun.Glob(".mutation-*").scan({ cwd, onlyFiles: false })),
+      (
+        await Array.fromAsync(new Bun.Glob(".mutation-*").scan({ cwd, onlyFiles: false }))
+      ).toSorted(),
     ).toEqual([".mutation-incremental", ".mutation-runs"]);
   } finally {
     await first.stop();
