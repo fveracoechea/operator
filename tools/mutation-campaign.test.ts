@@ -838,14 +838,17 @@ function signalFixtureGroup(group: number) {
   }
 }
 
-function start(cwd: string, args = ["count.ts"], entry = script) {
+function start(cwd: string, args = ["count.ts"], entry = script, preload?: string) {
   const state = mutationStateDirectory(cwd);
-  const child = Bun.spawn([process.execPath, entry, ...args], {
-    cwd,
-    detached: true,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const child = Bun.spawn(
+    [process.execPath, ...(preload ? ["--preload", preload] : []), entry, ...args],
+    {
+      cwd,
+      detached: true,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   async function stop() {
     const claim = z.object({ group: z.number().positive() }).safeParse(
       await Bun.file(`${await state}/claim/owner.json`)
@@ -1409,8 +1412,18 @@ test("cancellation during admission never starts the engine or a test process", 
   );
   for (let index = 0; index < 64; index++)
     await Bun.write(`${cwd}/large-${index}`, new Uint8Array(1_000_000));
+  const preload = `${root}/claim-publication-preload.ts`;
+  await Bun.write(
+    preload,
+    `const write = Bun.write;
+Bun.write = async (file, ...args) => {
+  const result = await write(file, ...args);
+  if (typeof file === "string" && file.endsWith("/claim/owner.json")) await Bun.sleep(100);
+  return result;
+};`,
+  );
   const state = await mutationStateDirectory(cwd);
-  const run = start(cwd);
+  const run = start(cwd, ["count.ts"], script, preload);
   try {
     const deadline = Date.now() + 10_000;
     while (!(await Bun.file(`${state}/claim/owner.json`).exists()) && Date.now() < deadline)
