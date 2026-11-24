@@ -1,6 +1,7 @@
 import { expect, spyOn } from "bun:test";
 // Bun has no temporary directory or recursive directory removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { z } from "zod";
 import { DeviceState } from "../src/modules/device-state/main.ts";
 import { Environment } from "../src/modules/environment/main.ts";
@@ -10,7 +11,7 @@ import { WorkerKinds } from "../src/modules/worker-kinds/main.ts";
 import { CommitDelivery } from "../src/modules/commit-delivery/main.ts";
 
 export async function commitFixture(checks: string[][] = [["git", "diff", "--exit-code"]]) {
-  const root = await mkdtemp("/tmp/opencode/commit-fixture-");
+  const root = await mkdtemp(`${tmpdir()}/commit-fixture-`);
   const environment = {
     ...Environment.read(),
     OPENCODE_SESSION_ID: undefined,

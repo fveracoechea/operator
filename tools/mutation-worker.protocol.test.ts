@@ -1,11 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary-directory, metadata, or recursive removal API.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { mutationEventSchema } from "./mutation-run.ts";
 
-const root = await mkdtemp("/tmp/opencode/mutation-worker-protocol-");
+const root = await mkdtemp(`${tmpdir()}/mutation-worker-protocol-`);
 afterAll(() => rm(root, { recursive: true, force: true }));
 const point = { line: 1, column: 1 };
 const killed = {

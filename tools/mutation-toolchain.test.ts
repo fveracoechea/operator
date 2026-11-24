@@ -1,9 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary-directory, file mode, copy, rename or link API.
 import { chmod, cp, mkdtemp, rename, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
-const root = await mkdtemp("/tmp/opencode/mutation-toolchain-");
+const root = await mkdtemp(`${tmpdir()}/mutation-toolchain-`);
 afterAll(() => rm(root, { recursive: true, force: true }));
 
 async function identity(tools: string, runtime: string): Promise<string> {

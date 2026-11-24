@@ -1,12 +1,13 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no temporary-directory, symbolic-link, or recursive removal API.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { MutationEvent } from "./mutation-run.ts";
 
 setDefaultTimeout(20_000);
-const root = await mkdtemp("/tmp/opencode/mutation-worker-");
+const root = await mkdtemp(`${tmpdir()}/mutation-worker-`);
 afterAll(async () => rm(root, { recursive: true, force: true }));
 
 type Worker = Bun.Subprocess<"pipe", "pipe", "pipe">;

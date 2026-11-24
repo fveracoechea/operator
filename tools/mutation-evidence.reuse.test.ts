@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { mutationUnitIdentity } from "./mutation-dependencies.ts";
 import { mutationReuseDecision, saveMutationReuse } from "./mutation-reuse.ts";
 import {
@@ -11,7 +12,7 @@ import {
 } from "./mutation-run.ts";
 import { mutationEvidence } from "./mutation-evidence.ts";
 
-const root = await mkdtemp("/tmp/opencode/mutation-reuse-evidence-");
+const root = await mkdtemp(`${tmpdir()}/mutation-reuse-evidence-`);
 afterAll(() => rm(root, { recursive: true, force: true }));
 const killed: MutationResult = {
   id: "one",

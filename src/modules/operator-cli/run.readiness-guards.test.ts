@@ -11,10 +11,9 @@ beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-readiness-guards-"));
   for (const file of [
     "src",
-
+    "packages",
     "tools",
     "skills",
-
     "package.json",
     "bunfig.toml",
     "tsconfig.json",

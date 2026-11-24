@@ -13,6 +13,7 @@ import {
 } from "bun:test";
 // Bun has no temporary-directory, symbolic-link, or recursive removal API.
 import { cp, lstat, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { acquireMutationClaim, mutationStateDirectory } from "./mutation-claim.ts";
 import { z } from "zod";
@@ -21,7 +22,7 @@ import { mutationEventSchema } from "./mutation-run.ts";
 
 // Keep protocol assertions before real-engine effects in one file: parallel files do not bail together.
 {
-  const root = await mkdtemp("/tmp/opencode/campaign-protocol-");
+  const root = await mkdtemp(`${tmpdir()}/campaign-protocol-`);
   const installed = `${root}/installed/node_modules`;
   for (const name of ["zod", "@babel/parser"])
     await cp(
@@ -804,7 +805,7 @@ process.exit(code);
 }
 
 setDefaultTimeout(60_000);
-const root = await mkdtemp("/tmp/opencode/mutation-ownership-");
+const root = await mkdtemp(`${tmpdir()}/mutation-ownership-`);
 const script = `${import.meta.dir}/mutate.ts`;
 const installed = path.dirname(path.dirname(Bun.resolveSync("zod/package.json", import.meta.dir)));
 afterAll(async () => rm(root, { recursive: true, force: true }));
@@ -820,10 +821,11 @@ async function fixture(packages: "application" | "toolchain" | "protocol" = "app
   else {
     await mkdir(`${cwd}/node_modules`);
     if (packages === "protocol")
-      await cp(`${installed}/zod`, `${cwd}/node_modules/zod`, {
-        recursive: true,
-        verbatimSymlinks: true,
-      });
+      for (const dependency of ["zod", "@babel/parser"])
+        await cp(`${installed}/${dependency}`, `${cwd}/node_modules/${dependency}`, {
+          recursive: true,
+          verbatimSymlinks: true,
+        });
   }
   return cwd;
 }
@@ -1531,7 +1533,7 @@ setTimeout(() => process.exit(0), 1000);
   },
 );
 
-const decisionRoot = await mkdtemp("/tmp/opencode/mutation-campaign-");
+const decisionRoot = await mkdtemp(`${tmpdir()}/mutation-campaign-`);
 afterAll(async () => rm(decisionRoot, { recursive: true, force: true }));
 afterEach(() => mock.restore());
 

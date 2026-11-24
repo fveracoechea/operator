@@ -269,6 +269,11 @@ test("external snapshot edits invalidate passing reuse without invalidating unre
     return Bun.spawnSync([process.execPath, "test", "./count.test.ts"], { cwd });
   }
 
+  const initialized = Bun.spawnSync(
+    [process.execPath, "test", "--update-snapshots", "./count.test.ts"],
+    { cwd },
+  );
+  expect(initialized.exitCode, initialized.stderr.toString()).toBe(0);
   expect(ordinary().exitCode).toBe(0);
   const first = await mutate(cwd, ["--json", "count.ts", "other.ts"]);
   expect(first.code, first.stderr).toBe(0);

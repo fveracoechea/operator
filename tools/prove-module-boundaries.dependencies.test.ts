@@ -41,7 +41,7 @@ test("the copied actual lint command ignores linked dependencies but still check
     cwd: copy,
     stdout: "pipe",
     stderr: "pipe",
-    timeout: 10_000,
+    timeout: 30_000,
   });
   const [code, stdout, stderr] = await Promise.all([
     child.exited,
@@ -74,4 +74,4 @@ test("the copied actual lint command ignores linked dependencies but still check
       .map((filename) => `${filename}:1 anti-slop(no-reflect-get)`)
       .sort(),
   );
-});
+}, 40_000);

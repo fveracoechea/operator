@@ -1,9 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary-directory, file-mode, or recursive removal API.
 import { chmod, lstat, mkdir, mkdtemp, readlink, realpath, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { admitMutationSnapshot, mutationInputIdentity } from "./mutation-snapshot.ts";
 
-const root = await mkdtemp("/tmp/opencode/mutation-snapshot-");
+const root = await mkdtemp(`${tmpdir()}/mutation-snapshot-`);
 afterAll(async () => rm(root, { recursive: true, force: true }));
 
 async function storeFixture(name: string) {

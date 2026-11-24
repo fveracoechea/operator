@@ -52,7 +52,8 @@ test.each([
 
 test("accepts the validated boundary and shadowed application names", async () => {
   const result = await check(
-    'import { Environment } from "../modules/environment/main.ts"; export const path = Environment.read().PATH;\n\nexport function read(process: { env: string }) { return process.env; }',
+    'import { Environment } from "../environment/main.ts"; export const path = Environment.read().PATH;\n\nexport function read(process: { env: string }) { return process.env; }',
+    { path: "src/modules/lint-probe/reader.ts" },
   );
   expect(result.codes).toEqual([]);
 });

@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { z } from "zod";
 import { Environment } from "../src/modules/environment/main.ts";
 
-const root = await mkdtemp("/tmp/opencode/mutation-claim-");
+const root = await mkdtemp(`${tmpdir()}/mutation-claim-`);
 afterAll(async () => rm(root, { recursive: true, force: true }));
 
 test("one worktree excludes competitors, but a different worktree remains independent", async () => {

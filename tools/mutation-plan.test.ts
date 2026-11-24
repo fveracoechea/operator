@@ -1,9 +1,10 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { mutationPlan, mutationEstimate, printMutationPlan } from "./mutation-plan.ts";
 
-const root = await mkdtemp("/tmp/opencode/450-plan-");
+const root = await mkdtemp(`${tmpdir()}/450-plan-`);
 afterAll(async () => rm(root, { recursive: true, force: true }));
 
 test("another owner's tests cannot establish a direct-owner correction proof", () => {

@@ -1,12 +1,13 @@
 import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
 // Bun has no temporary-directory, recursive removal, or symlink API.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { runMutationPreflight } from "./mutation-preflight.ts";
 import type { MutationEvent } from "./mutation-run.ts";
 
-const root = await mkdtemp("/tmp/opencode/450-preflight-");
+const root = await mkdtemp(`${tmpdir()}/450-preflight-`);
 afterAll(async () => rm(root, { recursive: true, force: true }));
 const human = spyOn(console, "error").mockImplementation(() => {});
 afterEach(() => human.mockClear());
