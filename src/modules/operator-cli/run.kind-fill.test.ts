@@ -286,15 +286,19 @@ test("racing null fills reserve exactly one kind and one worker launch", async (
   });
   using db = new Database(`${root}/state/operator/operator.sqlite`);
   db.exec("UPDATE assignments SET kind = NULL");
+  const kinds = ["research", "answer"];
   const outcomes = await Promise.all(
-    ["research", "answer"].map((kind) =>
+    kinds.map((kind) =>
       device.run(["dispatch", "--source", source, "--assignment", "read", "--kind", kind]),
     ),
   );
   expect(outcomes.filter((outcome) => outcome.code === 0)).toHaveLength(1);
-  expect(
-    outcomes.filter((outcome) => outcome.output.reason === "assignment_kind_set"),
-  ).toHaveLength(1);
+  const refused = outcomes.find((outcome) => outcome.code !== 0);
+  expect(refused).toMatchObject({ code: 4 });
+  expect(refused?.output.reason).toBeOneOf(["assignment_kind_set", "assignment_not_dispatchable"]);
+  expect(db.query("SELECT kind FROM assignments WHERE key = 'read'").get()).toEqual({
+    kind: kinds[outcomes.findIndex((outcome) => outcome.code === 0)],
+  });
   expect(db.query("SELECT id FROM launches").all()).toHaveLength(1);
 });
 

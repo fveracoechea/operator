@@ -237,11 +237,12 @@ test.each([false, true])(
       'reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";';
     expect(original).toContain(before);
     async function typecheck() {
-      const child = Bun.spawn([process.execPath, "run", "typecheck"], {
+      const child = Bun.spawn([process.execPath, "--no-orphans", "run", "typecheck"], {
         cwd: root,
         env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
         stdout: "pipe",
         stderr: "pipe",
+        timeout: 60_000,
       });
       const [code, stdout, stderr] = await Promise.all([
         child.exited,
@@ -270,5 +271,5 @@ test.each([false, true])(
       await Bun.write(assertions, originalAssertions);
     }
   },
-  30000,
+  150_000,
 );

@@ -473,11 +473,7 @@ test("a pr wait with no event parks the assignment and ends the launch while ret
     "Check the unanswered question. `literal` $HOME\n",
   );
   expect(waited).toMatchObject({ code: 0, output: { reason: "pr_parked" } });
-  let state = await shown(source);
-  for (let tries = 0; tries < 100 && state.launches.at(-1)?.state !== "finished"; tries++) {
-    await Bun.sleep(50);
-    state = await shown(source);
-  }
+  const state = await parkedState(source);
   expect(state.launches).toHaveLength(2);
   expect(state.launches.at(-1)).toMatchObject({
     state: "finished",
@@ -558,15 +554,29 @@ test("an event-returning wait retains no park note and checks on a different hea
   await latestWorker(source, worker.worktreePath, "finished");
 }, 120000);
 
+async function parkedState(source: string) {
+  const parking = z.object({ state: z.literal("parked") });
+  function settled(state: Awaited<ReturnType<typeof shown>>) {
+    return (
+      state.launches.at(-1)?.state === "finished" &&
+      parking.safeParse(state.pullRequests[0]?.parking).success
+    );
+  }
+
+  let state = await shown(source);
+  for (let tries = 0; tries < 100 && !settled(state); tries++) {
+    await Bun.sleep(50);
+    state = await shown(source);
+  }
+  expect(state.launches.at(-1)?.state).toBe("finished");
+  expect(state.pullRequests[0]?.parking).toMatchObject({ state: "parked" });
+  return state;
+}
+
 async function parkedFixture() {
   const fixture = await feedbackFixture();
   expect((await run(["pr", "wait", "--timeout", "0"], fixture.worker.worktreePath)).code).toBe(0);
-  let state = await shown(fixture.source);
-  for (let tries = 0; tries < 100 && state.launches.at(-1)?.state !== "finished"; tries++) {
-    await Bun.sleep(50);
-    state = await shown(fixture.source);
-  }
-  expect(state.launches.at(-1)?.state).toBe("finished");
+  await parkedState(fixture.source);
   return fixture;
 }
 

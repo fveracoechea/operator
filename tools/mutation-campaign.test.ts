@@ -1115,7 +1115,7 @@ test("held", async () => {
   await Bun.write(${JSON.stringify(entered)}, "entered");
   while (!(await Bun.file(${JSON.stringify(release)}).exists())) await Bun.sleep(20);
   expect(count(1)).toBe(2);
-});`,
+}, 60_000);`,
   );
   const first = start(cwd);
   try {
@@ -1196,7 +1196,7 @@ test("held", async () => {
   await Bun.write(${JSON.stringify(entered)}, "entered");
   while (!(await Bun.file(${JSON.stringify(release)}).exists())) await Bun.sleep(20);
   expect(count(1)).toBe(2);
-});`,
+}, 60_000);`,
     );
     await Bun.write(`${cwd}/data.txt`, "admitted");
     await Bun.write(`${cwd}/config.json`, '{"value":"admitted"}');
@@ -1355,8 +1355,9 @@ test("real independent Git worktrees do not share a campaign claim", async () =>
   const cwd = await fixture();
   const entered = `${root}/worktree-entered`;
   const release = `${root}/worktree-release`;
+  // The independent run must outlast Bun's default test timeout without releasing the other claim.
   const ordinary =
-    'import { expect, test } from "bun:test"; import { count } from "./count.ts"; test("exact", () => expect(count(1)).toBe(2));';
+    'import { expect, test } from "bun:test"; import { count } from "./count.ts"; test("exact", async () => { await Bun.sleep(6000); expect(count(1)).toBe(2); }, 30000);';
   await Bun.write(`${cwd}/count.test.ts`, ordinary);
   function git(...args: string[]) {
     const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -1385,7 +1386,7 @@ test("held", async () => {
  await Bun.write(${JSON.stringify(entered)}, "entered");
  while (!(await Bun.file(${JSON.stringify(release)}).exists())) await Bun.sleep(20);
  expect(count(1)).toBe(2);
-});`,
+}, 60_000);`,
   );
   const first = start(cwd);
   try {
